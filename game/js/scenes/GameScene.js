@@ -18,36 +18,42 @@ class GameScene extends Phaser.Scene {
       this.registry.set('gangRelationships', { loonies: 0, zaibatsu: 0, rednecks: 0 });
     }
 
-    // --- 1. Map ---
+    // --- Sound system (Web Audio, no files) ---
+    this.soundSystem = new SoundSystem();
+
+    // --- Shared driving input (read by Vehicle when player is driver) ---
+    this.drivingKeys = this.input.keyboard.addKeys({
+      up:    Phaser.Input.Keyboard.KeyCodes.W,
+      down:  Phaser.Input.Keyboard.KeyCodes.S,
+      left:  Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+    // Arrow keys also work for driving
+    const arrows = this.input.keyboard.createCursorKeys();
+    // Merge arrow keys into drivingKeys via proxy each frame in update()
+    this._arrowKeys = arrows;
+
+    // --- Map ---
     this.mapSystem = new MapSystem();
     this.mapSystem.create(this);
 
-    // --- 2. Groups ---
-    this.npcGroup = this.physics.add.group();
+    // --- Groups (single declaration each) ---
+    this.npcGroup     = this.physics.add.group();
     this.vehicleGroup = this.physics.add.group();
-    this.pickupGroup = this.physics.add.staticGroup();
+    this.pickupGroup  = this.physics.add.staticGroup();
 
-    // Make vehicleGroup accessible on scene for WantedSystem police car spawning
-    this.vehicleGroup = this.physics.add.group();
-
-    // --- 3. Player ---
-    const spawn = SPAWN_POINTS.player;
+    // --- Player ---
+    const spawn  = SPAWN_POINTS.player;
     const spawnW = this.mapSystem.tileToWorld(spawn.tx, spawn.ty);
-    this.player = new Player(this, spawnW.x, spawnW.y);
+    this.player  = new Player(this, spawnW.x, spawnW.y);
 
-    // --- 4. Vehicles ---
+    // --- Spawn everything ---
     this._spawnVehicles();
-
-    // --- 5. NPCs ---
     this._spawnNPCs();
-
-    // --- 6. Weapon pickups ---
     WeaponPickup.createAll(this, this.pickupGroup);
-
-    // --- 7. Phone booths ---
     this._spawnPhoneBooths();
 
-    // --- 8. Systems ---
+    // --- Systems ---
     this.weaponSystem = new WeaponSystem();
     this.weaponSystem.create(this);
     this.weaponSystem.wireCollisions(this, this.player, this.npcGroup, this.vehicleGroup, this.mapSystem);
@@ -58,50 +64,48 @@ class GameScene extends Phaser.Scene {
     this.miniMap = new MiniMap();
     this.miniMap.create(this);
 
-    // --- 9. Colliders ---
+    // --- Colliders ---
     this.mapSystem.addBuildingCollider(this, this.player);
     this.mapSystem.addBuildingCollider(this, this.npcGroup);
     this.mapSystem.addBuildingCollider(this, this.vehicleGroup);
 
-    // Vehicle-vehicle collision
     this.physics.add.collider(this.vehicleGroup, this.vehicleGroup);
 
-    // Player-vehicle collision (when on foot)
+    // Player run over by vehicle
     this.physics.add.overlap(this.player, this.vehicleGroup, (player, vehicle) => {
-      if (!player.inVehicle && vehicle.occupied && vehicle.active) {
-        // Being hit by a moving vehicle
-        const speed = Math.sqrt(vehicle.body.velocity.x ** 2 + vehicle.body.velocity.y ** 2);
-        if (speed > 80) {
-          player.takeDamage(Math.floor(speed / 20));
-        }
+      if (!player.inVehicle && vehicle.active) {
+        const spd = Math.hypot(vehicle.body.velocity.x, vehicle.body.velocity.y);
+        if (spd > 90) player.takeDamage(Math.floor(spd / 18));
       }
     });
 
-    // NPC hit by vehicle
+    // NPC run over by vehicle
     this.physics.add.overlap(this.npcGroup, this.vehicleGroup, (npc, vehicle) => {
       if (!npc.isAlive || !vehicle.active) return;
-      const speed = Math.sqrt(vehicle.body.velocity.x ** 2 + vehicle.body.velocity.y ** 2);
-      if (speed > 60) {
-        npc.takeDamage(Math.floor(speed / 15), this.player);
-      }
+      const spd = Math.hypot(vehicle.body.velocity.x, vehicle.body.velocity.y);
+      if (spd > 60) npc.takeDamage(Math.floor(spd / 14), this.player);
     });
 
     // Pickup collection
     this.physics.add.overlap(this.player, this.pickupGroup, (player, pickup) => {
-      if (pickup.active) {
-        player.addWeapon(pickup.weaponId, WEAPON_DEFS[pickup.weaponId].defaultAmmo);
-        this._showFloatingText(pickup.x, pickup.y, '+' + WEAPON_DEFS[pickup.weaponId].displayName, '#ffdd44');
-        pickup.destroy();
-      }
+      if (!pickup.active) return;
+      const def = WEAPON_DEFS[pickup.weaponId];
+      if (!def) return;
+      player.addWeapon(pickup.weaponId, def.defaultAmmo);
+      this._showFloatingText(pickup.x, pickup.y, '+' + def.displayName, '#ffdd44');
+      pickup.destroy();
     });
 
-    // --- 10. Event listeners ---
+    // --- Events ---
     this.events.on('player_try_enter_vehicle', this._onTryEnterVehicle, this);
-    this.events.on('player_exit_vehicle', (player) => player.exitVehicle(), this);
+    this.events.on('player_exit_vehicle', (player) => {
+      player.exitVehicle();
+      this.soundSystem.stopEngine();
+    }, this);
     this.events.on('explosion', (data) => {
       this.weaponSystem.spawnExplosion(data.x, data.y);
-      // Damage things nearby
-      this._explosionDamage(data.x, data.y, 80, 60);
+      this._explosionDamage(data.x, data.y, 90, 65);
+      this.cameras.main.shake(300, 0.015);
     }, this);
     this.events.on('npc_died', this._onNPCDied, this);
     this.events.on('police_died', (cop) => this.wantedSystem.policeDied(cop), this);
@@ -110,31 +114,46 @@ class GameScene extends Phaser.Scene {
       this._showFloatingText(data.x, data.y, '+$' + data.amount, '#ffdd44');
     }, this);
     this.events.on('player_melee', this._onMeleeAttack, this);
+    this.events.on('gunshot_heard', (data) => {
+      this._alertNearbyPedestrians(data.x, data.y, data.radius || 250);
+    }, this);
+    this.events.on('crime_committed', (data) => {
+      // Show brief "WANTED!" flash when heat first rises
+    }, this);
 
-    // --- 11. Launch HUD ---
+    // --- HUD ---
     this.scene.launch('HUDScene');
 
-    // --- 12. Background music (simple oscillator) ---
-    this._startAmbientSound();
+    // Dim the camera when player enters a tunnel / alley — based on building proximity
+    // (simple atmosphere trick: very slight vignette via camera tint in dark areas)
   }
 
   update(time, delta) {
     if (!this.player) return;
 
-    this.player.update(time, delta);
-
-    this.vehicleGroup.getChildren().forEach(v => v.update(time, delta));
-
-    this.npcGroup.getChildren().forEach(npc => {
-      if (npc.update) npc.update(time, delta);
-    });
-
-    // Alert nearby pedestrians to flee from gunfire (if player recently fired)
-    if (this.player.lastFiredAt > time - 200) {
-      this._alertNearbyPedestrians(this.player.x, this.player.y, 250);
+    // Merge arrow keys into drivingKeys so arrows also drive
+    if (this._arrowKeys) {
+      if (this._arrowKeys.up.isDown)    this.drivingKeys.up.isDown    = true;
+      if (this._arrowKeys.down.isDown)  this.drivingKeys.down.isDown  = true;
+      if (this._arrowKeys.left.isDown)  this.drivingKeys.left.isDown  = true;
+      if (this._arrowKeys.right.isDown) this.drivingKeys.right.isDown = true;
+      // Reset next tick — Phaser Key objects manage their own state,
+      // so we just let them be read directly alongside WASD
     }
 
+    this.player.update(time, delta);
+
+    this.vehicleGroup.getChildren().forEach(v => { if (v.update) v.update(time, delta); });
+    this.npcGroup.getChildren().forEach(npc => { if (npc.update) npc.update(time, delta); });
+
     this.miniMap.update(this, this.player, this.npcGroup, this.vehicleGroup);
+
+    // Engine sound management
+    if (this.player.inVehicle && this.player.currentVehicle) {
+      if (!this.soundSystem._engineActive) this.soundSystem.startEngine();
+    } else {
+      if (this.soundSystem._engineActive) this.soundSystem.stopEngine();
+    }
   }
 
   _spawnVehicles() {
@@ -146,14 +165,10 @@ class GameScene extends Phaser.Scene {
   }
 
   _spawnNPCs() {
-    // Pedestrians
     SPAWN_POINTS.pedestrians.forEach(({ tx, ty }) => {
       const w = this.mapSystem.tileToWorld(tx, ty);
-      const ped = new Pedestrian(this, w.x, w.y);
-      this.npcGroup.add(ped);
+      this.npcGroup.add(new Pedestrian(this, w.x, w.y));
     });
-
-    // Gang members
     SPAWN_POINTS.gangMembers.forEach(({ tx, ty, gang }) => {
       const w = this.mapSystem.tileToWorld(tx, ty);
       const member = new GangMember(this, w.x, w.y, gang);
@@ -163,94 +178,77 @@ class GameScene extends Phaser.Scene {
   }
 
   _spawnPhoneBooths() {
+    this._missionShown = false;
     SPAWN_POINTS.phoneBooths.forEach(({ tx, ty, missionId }) => {
       const w = this.mapSystem.tileToWorld(tx, ty);
-      const booth = this.add.image(w.x, w.y, 'phone_booth').setDepth(6);
+      this.add.image(w.x, w.y, 'phone_booth').setDepth(6);
 
-      // Proximity trigger
-      const zone = this.add.zone(w.x, w.y, 48, 48);
+      const zone = this.add.zone(w.x, w.y, 52, 52);
       this.physics.add.existing(zone, true);
-
       this.physics.add.overlap(this.player, zone, () => {
         if (!this._missionShown) {
           this._missionShown = true;
           this._showMissionPrompt(missionId, w.x, w.y);
-          this.time.delayedCall(8000, () => { this._missionShown = false; });
+          this.time.delayedCall(9000, () => { this._missionShown = false; });
         }
       });
     });
-    this._missionShown = false;
   }
 
   _showMissionPrompt(missionId, x, y) {
     const missions = {
-      loonies_1: 'LOONIES: Eliminate the Zaibatsu lookout!\n(Kill the red-suited man near the east road)',
-      zaibatsu_1: 'ZAIBATSU: Steal the Redneck vehicle!\n(Carjack the truck near the south)',
-      rednecks_1: 'REDNECKS: Cause some mayhem!\n(Get a 2-star wanted level)',
+      loonies_1:  'LOONIES JOB:\nEliminate the Zaibatsu spotter\nnear the east intersection.',
+      zaibatsu_1: 'ZAIBATSU JOB:\nSteal the Redneck truck\nnear the south district.',
+      rednecks_1: 'REDNECKS JOB:\nCause mayhem — reach\n2-star wanted level.',
     };
     const text = missions[missionId] || 'Mission available...';
-    const popup = this.add.text(x, y - 48, text, {
+    const popup = this.add.text(x, y - 52, '📞 ' + text, {
       fontSize: '11px', color: '#ffffff', fontFamily: 'monospace',
-      backgroundColor: '#000000cc',
-      padding: { x: 8, y: 6 },
+      backgroundColor: '#000000dd',
+      padding: { x: 10, y: 7 },
       wordWrap: { width: 220 },
     }).setDepth(50).setOrigin(0.5, 1);
 
     this.tweens.add({
-      targets: popup, alpha: 0, y: y - 80,
-      delay: 6000, duration: 1500,
+      targets: popup, alpha: 0, y: y - 90,
+      delay: 7000, duration: 1500,
       onComplete: () => popup.destroy(),
     });
   }
 
   _onTryEnterVehicle(player) {
     let closest = null;
-    let minDist = 60;
-
+    let minDist = 65;
     this.vehicleGroup.getChildren().forEach(vehicle => {
       if (!vehicle.active || !vehicle.canEnter()) return;
       const dist = Phaser.Math.Distance.Between(player.x, player.y, vehicle.x, vehicle.y);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = vehicle;
-      }
+      if (dist < minDist) { minDist = dist; closest = vehicle; }
     });
-
-    if (closest) {
-      player.enterVehicle(closest);
-    }
+    if (closest) player.enterVehicle(closest);
   }
 
   _onNPCDied(data) {
-    const { npc, attacker } = data;
-    // Scatter some spent brass
-    for (let i = 0; i < 3; i++) {
-      const dot = this.add.circle(
-        npc.x + Phaser.Math.Between(-8, 8),
-        npc.y + Phaser.Math.Between(-8, 8),
-        2, 0xcc9900, 0.6
-      ).setDepth(4);
-      this.time.delayedCall(10000, () => { if (dot.active) dot.destroy(); });
-    }
+    const { npc } = data;
+    // Blood pool
+    const pool = this.add.circle(npc.x, npc.y, 7, 0x880000, 0.6).setDepth(3);
+    this.time.delayedCall(15000, () => { if (pool.active) pool.destroy(); });
   }
 
   _onMeleeAttack(player) {
-    // Damage nearby NPCs
     this.npcGroup.getChildren().forEach(npc => {
       if (!npc.isAlive) return;
       const dist = Phaser.Math.Distance.Between(player.x, player.y, npc.x, npc.y);
-      if (dist < 32) {
+      if (dist < 34) {
         npc.takeDamage(WEAPON_DEFS.fists.damage, player);
+        this.soundSystem.play('npc_hurt');
       }
     });
   }
 
   _explosionDamage(cx, cy, radius, damage) {
-    // Damage player
     const pd = Phaser.Math.Distance.Between(cx, cy, this.player.x, this.player.y);
     if (pd < radius) this.player.takeDamage(Math.floor(damage * (1 - pd / radius)));
 
-    // Damage NPCs
     this.npcGroup.getChildren().forEach(npc => {
       if (!npc.isAlive) return;
       const d = Phaser.Math.Distance.Between(cx, cy, npc.x, npc.y);
@@ -261,8 +259,7 @@ class GameScene extends Phaser.Scene {
   _alertNearbyPedestrians(x, y, radius) {
     this.npcGroup.getChildren().forEach(npc => {
       if (!npc.isAlive || !(npc instanceof Pedestrian)) return;
-      const dist = Phaser.Math.Distance.Between(x, y, npc.x, npc.y);
-      if (dist < radius && npc.aiState !== 'flee') {
+      if (Phaser.Math.Distance.Between(x, y, npc.x, npc.y) < radius && npc.aiState !== 'flee') {
         npc.startFleeing(this.player);
       }
     });
@@ -275,13 +272,9 @@ class GameScene extends Phaser.Scene {
     }).setDepth(30).setOrigin(0.5);
 
     this.tweens.add({
-      targets: t, y: y - 50, alpha: 0,
+      targets: t, y: y - 52, alpha: 0,
       duration: 1200, ease: 'Cubic.easeOut',
       onComplete: () => t.destroy(),
     });
-  }
-
-  _startAmbientSound() {
-    // No audio files — silently skip
   }
 }

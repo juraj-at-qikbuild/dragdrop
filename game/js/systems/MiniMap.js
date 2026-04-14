@@ -1,111 +1,135 @@
 class MiniMap {
   constructor() {
-    this.renderTexture = null;
-    this.container = null;
-    this.g = null;
+    this.mapRT = null;       // static map background (drawn once)
+    this.overlayRT = null;   // entity dots (updated each frame)
+    this.dotsG = null;       // graphics object for dots (reused)
     this.frameCount = 0;
     this.scene = null;
+    this.mapSize = 150;
+    this.mapX = 0;
+    this.mapY = 0;
   }
 
   create(scene) {
     this.scene = scene;
-    const size = 140;
+    const size = this.mapSize;
     const margin = 12;
     const x = scene.scale.width - size - margin;
     const y = scene.scale.height - size - margin;
-
-    // Background
-    const bg = scene.add.rectangle(x + size / 2, y + size / 2, size + 4, size + 4, 0x000000, 0.8)
-      .setScrollFactor(0).setDepth(99);
-
-    // RenderTexture for the map content
-    this.renderTexture = scene.add.renderTexture(x, y, size, size)
-      .setScrollFactor(0).setDepth(100);
-
-    this.mapSize = size;
     this.mapX = x;
     this.mapY = y;
 
-    // Graphics for drawing dots
-    this.g = scene.add.graphics().setDepth(101).setScrollFactor(0);
+    // Border
+    scene.add.rectangle(x + size / 2, y + size / 2, size + 6, size + 6, 0x000000, 0.9)
+      .setScrollFactor(0).setDepth(98);
+
+    // Label
+    scene.add.text(x + 2, y - 14, 'MAP', {
+      fontSize: '10px', color: '#888888', fontFamily: 'monospace',
+    }).setScrollFactor(0).setDepth(99);
+
+    // Static map background — drawn ONCE
+    this.mapRT = scene.add.renderTexture(x, y, size, size)
+      .setScrollFactor(0).setDepth(99);
+    this._drawStaticMap();
+
+    // Dynamic overlay — only entity dots, redrawn each update
+    this.overlayRT = scene.add.renderTexture(x, y, size, size)
+      .setScrollFactor(0).setDepth(100);
+
+    // Reusable graphics for dots
+    this.dotsG = scene.add.graphics().setScrollFactor(0).setDepth(101);
 
     return this;
   }
 
+  _drawStaticMap() {
+    const worldW = MAP_WORLD_WIDTH;
+    const worldH = MAP_WORLD_HEIGHT;
+    const mw = this.mapSize;
+    const mh = this.mapSize;
+    const step = 4;
+
+    const tileW = (MAP_TILE_SIZE * step / worldW) * mw;
+    const tileH = (MAP_TILE_SIZE * step / worldH) * mh;
+
+    const g = this.scene.add.graphics();
+    for (let ty = 0; ty < MAP_HEIGHT; ty += step) {
+      for (let tx = 0; tx < MAP_WIDTH; tx += step) {
+        const id = MAP_DATA[ty][tx];
+        let color = 0x2d5a1b; // grass
+        if (id === TILE.ROAD_H || id === TILE.ROAD_V || id === TILE.INTERSECTION) color = 0x4a4a4a;
+        else if (id === TILE.SIDEWALK) color = 0x7a7a7a;
+        else if (id === TILE.BUILDING) color = 0x7a5c3a;
+        else if (id === TILE.LOT) color = 0x555555;
+
+        const mx = (tx * MAP_TILE_SIZE / worldW) * mw;
+        const my = (ty * MAP_TILE_SIZE / worldH) * mh;
+        g.fillStyle(color);
+        g.fillRect(mx, my, Math.max(1, tileW), Math.max(1, tileH));
+      }
+    }
+    this.mapRT.draw(g, 0, 0);
+    g.destroy();
+  }
+
   update(scene, player, npcGroup, vehicleGroup) {
     this.frameCount++;
-    if (this.frameCount % 4 !== 0) return; // update every 4 frames
-
-    const rt = this.renderTexture;
-    if (!rt) return;
-    rt.clear();
+    if (this.frameCount % 3 !== 0) return;
 
     const worldW = MAP_WORLD_WIDTH;
     const worldH = MAP_WORLD_HEIGHT;
     const mw = this.mapSize;
     const mh = this.mapSize;
 
-    const toMapX = (wx) => (wx / worldW) * mw;
-    const toMapY = (wy) => (wy / worldH) * mh;
+    const toX = (wx) => Phaser.Math.Clamp((wx / worldW) * mw, 0, mw - 1);
+    const toY = (wy) => Phaser.Math.Clamp((wy / worldH) * mh, 0, mh - 1);
 
-    // Draw simplified map tiles (sample every N tiles)
-    const step = 4; // sample every 4 tiles
-    const tileScreenW = (MAP_TILE_SIZE * step / worldW) * mw;
-    const tileScreenH = (MAP_TILE_SIZE * step / worldH) * mh;
+    const g = this.dotsG;
+    g.clear();
 
-    const g = scene.add.graphics();
-    for (let ty = 0; ty < MAP_HEIGHT; ty += step) {
-      for (let tx = 0; tx < MAP_WIDTH; tx += step) {
-        const id = MAP_DATA[ty][tx];
-        let color = 0x2d5a1b; // grass
-        if (id === TILE.ROAD_H || id === TILE.ROAD_V || id === TILE.INTERSECTION) color = 0x555555;
-        else if (id === TILE.SIDEWALK) color = 0x888888;
-        else if (id === TILE.BUILDING) color = 0x8B4513;
-        else if (id === TILE.LOT) color = 0x666666;
-
-        const mx = toMapX(tx * MAP_TILE_SIZE);
-        const my = toMapY(ty * MAP_TILE_SIZE);
-        g.fillStyle(color);
-        g.fillRect(mx, my, Math.max(1, tileScreenW), Math.max(1, tileScreenH));
-      }
-    }
-    rt.draw(g, 0, 0);
-    g.destroy();
-
-    // Draw dots on the graphics overlay
-    this.g.clear();
-
-    // NPCs — red dots
-    this.g.fillStyle(0xff4444);
+    // NPCs
     npcGroup.getChildren().forEach(npc => {
       if (!npc.active || !npc.isAlive) return;
-      const mx = this.mapX + toMapX(npc.x);
-      const my = this.mapY + toMapY(npc.y);
-      const isPolice = npc.npcType === 'police';
-      this.g.fillStyle(isPolice ? 0x4444ff : 0xff4444);
-      this.g.fillCircle(mx, my, 2);
+      const mx = this.mapX + toX(npc.x);
+      const my = this.mapY + toY(npc.y);
+      g.fillStyle(npc.npcType === 'police' ? 0x4488ff : 0xff4444);
+      g.fillRect(mx - 1, my - 1, 3, 3);
     });
 
-    // Vehicles — yellow dots
-    this.g.fillStyle(0xffdd44);
+    // Vehicles
+    g.fillStyle(0xddaa22);
     vehicleGroup.getChildren().forEach(v => {
       if (!v.active) return;
-      const mx = this.mapX + toMapX(v.x);
-      const my = this.mapY + toMapY(v.y);
-      this.g.fillCircle(mx, my, 2);
+      const mx = this.mapX + toX(v.x);
+      const my = this.mapY + toY(v.y);
+      g.fillRect(mx - 1, my - 1, 3, 3);
     });
 
-    // Player — bright white dot (larger)
+    // Player (blinking white dot)
     if (player && player.active) {
-      const px = this.mapX + toMapX(player.x);
-      const py = this.mapY + toMapY(player.y);
-      this.g.fillStyle(0xffffff);
-      this.g.fillCircle(px, py, 3);
+      const px = this.mapX + toX(player.x);
+      const py = this.mapY + toY(player.y);
+      // Blink every ~500ms
+      if (Math.floor(this.frameCount / 10) % 2 === 0) {
+        g.fillStyle(0xffffff);
+        g.fillCircle(px, py, 3);
+      }
+
+      // Camera viewport rectangle
+      const cam = scene.cameras.main;
+      const vx = this.mapX + toX(cam.scrollX);
+      const vy = this.mapY + toY(cam.scrollY);
+      const vw = (cam.width / worldW) * mw;
+      const vh = (cam.height / worldH) * mh;
+      g.lineStyle(1, 0xffffff, 0.3);
+      g.strokeRect(vx, vy, vw, vh);
     }
   }
 
   destroy() {
-    if (this.renderTexture) this.renderTexture.destroy();
-    if (this.g) this.g.destroy();
+    if (this.mapRT) this.mapRT.destroy();
+    if (this.overlayRT) this.overlayRT.destroy();
+    if (this.dotsG) this.dotsG.destroy();
   }
 }

@@ -6,11 +6,25 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-    canvas { display: block; }
+    canvas { display: block; image-rendering: pixelated; }
+    #loading-screen {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #000; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; z-index: 999;
+      color: #fff; font-family: monospace;
+    }
+    #loading-screen h1 { font-size: 3rem; color: #ff6600; text-shadow: 0 0 20px #ff3300; margin-bottom: 1rem; letter-spacing: 4px; }
+    #loading-screen p { color: #888; font-size: 0.9rem; margin-top: 0.5rem; }
   </style>
 </head>
 <body>
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <div id="loading-screen">
+    <h1>GTA2</h1>
+    <p>BROWSER EDITION</p>
+    <p style="margin-top:2rem; color:#555;">Loading Phaser...</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js" onload="document.getElementById('loading-screen').style.display='none'"></script>
 
   <!-- Data -->
   <script src="js/data/MapData.js"></script>
@@ -18,6 +32,7 @@
   <script src="js/data/VehicleDefs.js"></script>
 
   <!-- Systems -->
+  <script src="js/systems/SoundSystem.js"></script>
   <script src="js/systems/MapSystem.js"></script>
   <script src="js/systems/WeaponSystem.js"></script>
   <script src="js/systems/WantedSystem.js"></script>
@@ -39,7 +54,7 @@
   <script src="js/scenes/HUDScene.js"></script>
   <script src="js/scenes/GameScene.js"></script>
 
-  <!-- Config (boots the game last) -->
+  <!-- Config (instantiates Phaser.Game last) -->
   <script src="js/config.js"></script>
 </body>
 </html>

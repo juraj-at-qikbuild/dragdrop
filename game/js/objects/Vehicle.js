@@ -17,28 +17,20 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
     this.occupied = false;
     this.isBurning = false;
     this.burnTimer = 0;
+    this._burnFlashTimer = 0;
 
-    // Physics state
+    // Physics state (managed manually for GTA-feel drift)
     this._forwardSpeed = 0;
-    this._steerInput = 0;
 
-    // Input keys (only active when player is driving)
-    this._cursors = null;
-    this._wasd = null;
+    // Tire marks
+    this._lastTrailX = x;
+    this._lastTrailY = y;
+    this._trailTimer = 0;
   }
 
   setDriver(driver) {
     this.driver = driver;
     this.occupied = true;
-    if (driver.constructor && driver.constructor.name === 'Player') {
-      this._cursors = this.scene.input.keyboard.createCursorKeys();
-      this._wasd = this.scene.input.keyboard.addKeys({
-        up: Phaser.Input.Keyboard.KeyCodes.W,
-        down: Phaser.Input.Keyboard.KeyCodes.S,
-        left: Phaser.Input.Keyboard.KeyCodes.A,
-        right: Phaser.Input.Keyboard.KeyCodes.D,
-      });
-    }
     // Report car theft
     this.scene.events.emit('crime_committed', { type: 'car_theft', x: this.x, y: this.y });
   }
@@ -46,131 +38,153 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
   removeDriver() {
     this.driver = null;
     this.occupied = false;
-    this._cursors = null;
-    this._wasd = null;
   }
 
   update(time, delta) {
     if (!this.active) return;
 
     if (this.occupied && this.driver) {
-      this._handlePlayerDriving(delta);
+      this._handleDriving(delta);
     } else {
-      // No driver: apply drag to coast to a stop
-      this._forwardSpeed *= this.def.forwardDrag;
+      // Coast to stop
+      this._forwardSpeed *= Math.pow(this.def.forwardDrag, delta / 16.67);
       if (Math.abs(this._forwardSpeed) < 1) this._forwardSpeed = 0;
       this._applyVehiclePhysics(delta);
     }
 
     if (this.isBurning) {
       this.burnTimer -= delta;
-      // Flash between orange and red
-      this.setTint(time % 300 < 150 ? 0xff6600 : 0xff0000);
-      if (this.burnTimer <= 0) {
-        this._explode();
-      }
+      this._burnFlashTimer += delta;
+      this.setTint(this._burnFlashTimer % 300 < 150 ? 0xff6600 : 0xff2200);
+      if (this.burnTimer <= 0) this._explode();
     }
+
+    this._updateTireMarks(delta);
   }
 
-  _handlePlayerDriving(delta) {
-    const dt = delta / 1000;
-    const up = this._cursors && (this._cursors.up.isDown || this._wasd.up.isDown);
-    const down = this._cursors && (this._cursors.down.isDown || this._wasd.down.isDown);
-    const left = this._cursors && (this._cursors.left.isDown || this._wasd.left.isDown);
-    const right = this._cursors && (this._cursors.right.isDown || this._wasd.right.isDown);
+  _handleDriving(delta) {
+    // Read input from the scene's shared input refs (stored by GameScene)
+    const keys = this.scene.drivingKeys;
+    if (!keys) return;
 
+    const dt = delta / 1000;
     const def = this.def;
     const speedRatio = Math.abs(this._forwardSpeed) / def.maxSpeed;
 
-    // Accelerate / brake
-    if (up) {
+    // Throttle / brake / reverse
+    if (keys.up.isDown) {
       this._forwardSpeed = Math.min(this._forwardSpeed + def.acceleration * dt, def.maxSpeed);
-    } else if (down) {
+    } else if (keys.down.isDown) {
       if (this._forwardSpeed > 10) {
-        // Braking
-        this._forwardSpeed = Math.max(this._forwardSpeed - def.acceleration * 1.5 * dt, 0);
+        // Hard braking
+        this._forwardSpeed = Math.max(this._forwardSpeed - def.acceleration * 2.0 * dt, 0);
       } else {
-        // Reverse
-        this._forwardSpeed = Math.max(this._forwardSpeed - def.acceleration * dt, -def.maxSpeed * 0.5);
+        // Reverse (50% of forward speed)
+        this._forwardSpeed = Math.max(this._forwardSpeed - def.acceleration * dt, -def.maxSpeed * 0.45);
       }
     } else {
-      // Natural drag
-      this._forwardSpeed *= def.forwardDrag;
+      // Engine drag (frame-rate independent)
+      this._forwardSpeed *= Math.pow(def.forwardDrag, delta / 16.67);
       if (Math.abs(this._forwardSpeed) < 1) this._forwardSpeed = 0;
     }
 
-    // Steering (only effective with speed)
-    this._steerInput = 0;
-    if (left) this._steerInput = -1;
-    if (right) this._steerInput = 1;
-
-    if (Math.abs(this._forwardSpeed) > 5) {
-      const steerAmount = this._steerInput * def.handling * speedRatio * dt;
-      // Reverse direction flips steering feel
+    // Steering — scales with speed ratio so you can't spin on the spot
+    const steer = (keys.left.isDown ? -1 : 0) + (keys.right.isDown ? 1 : 0);
+    if (Math.abs(this._forwardSpeed) > 8 && steer !== 0) {
       const dir = this._forwardSpeed >= 0 ? 1 : -1;
-      this.rotation += steerAmount * dir;
+      const steerRate = def.handling * speedRatio * Phaser.Math.Clamp(speedRatio + 0.15, 0, 1);
+      this.rotation += steer * dir * steerRate * dt;
     }
 
     this._applyVehiclePhysics(delta);
+
+    // Engine sound (pitch scales with speed)
+    if (this.scene.soundSystem) {
+      const pitch = 0.6 + speedRatio * 0.9;
+      this.scene.soundSystem.setEngineFreq(pitch);
+    }
   }
 
   _applyVehiclePhysics(delta) {
-    const dt = delta / 1000;
-    const angle = this.rotation - Math.PI / 2; // Phaser sprite 0 = up
+    // Sprite 0-rotation = facing UP in Phaser, physics forward = angle - 90°
+    const angle = this.rotation - Math.PI / 2;
 
-    // Current velocity
     const vx = this.body.velocity.x;
     const vy = this.body.velocity.y;
 
     // Forward unit vector
     const fx = Math.cos(angle);
     const fy = Math.sin(angle);
-
-    // Lateral unit vector
+    // Lateral unit vector (perpendicular)
     const lx = -fy;
     const ly = fx;
 
-    // Decompose current velocity
-    const forwardComp = vx * fx + vy * fy;
+    // Decompose current velocity into forward/lateral components
     const lateralComp = vx * lx + vy * ly;
 
-    // Desired forward velocity from forwardSpeed state
-    const targetFwd = this._forwardSpeed;
+    // Apply heavy lateral drag (prevents sideways sliding)
+    const lateralDragFactor = Math.pow(this.def.lateralDrag, delta / 16.67);
+    const newLateral = lateralComp * lateralDragFactor;
 
-    // Blend toward target (effectively sets the forward component)
-    const newForward = targetFwd;
-    const newLateral = lateralComp * this.def.lateralDrag; // heavy lateral damping
-
-    // Recompose
-    const newVx = newForward * fx + newLateral * lx;
-    const newVy = newForward * fy + newLateral * ly;
+    // Forward component comes from our managed _forwardSpeed
+    const newVx = this._forwardSpeed * fx + newLateral * lx;
+    const newVy = this._forwardSpeed * fy + newLateral * ly;
 
     this.body.velocity.x = newVx;
     this.body.velocity.y = newVy;
   }
 
+  _updateTireMarks(delta) {
+    // Draw tire marks when cornering hard or braking
+    const speed = Math.abs(this._forwardSpeed);
+    const vx = this.body.velocity.x;
+    const vy = this.body.velocity.y;
+    const actualSpeed = Math.sqrt(vx * vx + vy * vy);
+    const slip = Math.abs(actualSpeed - speed);
+
+    this._trailTimer += delta;
+    if (slip > 30 && speed > 40 && this._trailTimer > 80) {
+      this._trailTimer = 0;
+      const mark = this.scene.add.rectangle(this.x, this.y, 4, 4, 0x222222, 0.55).setDepth(1);
+      this.scene.time.delayedCall(8000, () => { if (mark.active) mark.destroy(); });
+    }
+  }
+
   takeDamage(amount) {
+    if (!this.active) return;
     this.health -= amount;
+
+    // Spark effect
+    const spark = this.scene.add.circle(this.x, this.y, 8, 0xffaa00, 0.7).setDepth(15);
+    this.scene.tweens.add({ targets: spark, alpha: 0, scale: 2, duration: 150,
+      onComplete: () => spark.destroy() });
+
     if (this.health <= 40 && !this.isBurning) {
       this.isBurning = true;
-      this.burnTimer = 5000; // explode after 5s
+      this.burnTimer = 4500;
     }
     if (this.health <= 0) this._explode();
   }
 
   _explode() {
+    if (!this.active) return;
     this.scene.events.emit('explosion', { x: this.x, y: this.y });
+    this.scene.soundSystem && this.scene.soundSystem.play('explosion');
 
-    // Eject driver
-    if (this.driver && this.driver.constructor.name === 'Player') {
-      this.driver.takeDamage(50);
-      this.driver.exitVehicle();
+    // Eject player driver with knockback
+    if (this.driver && this.driver.isAlive) {
+      const knockAngle = Math.random() * Math.PI * 2;
+      this.driver.takeDamage(45);
+      if (this.driver.exitVehicle) this.driver.exitVehicle();
+      if (this.driver.body) {
+        this.driver.body.velocity.x += Math.cos(knockAngle) * 180;
+        this.driver.body.velocity.y += Math.sin(knockAngle) * 180;
+      }
     }
 
     this.destroy();
   }
 
-  /** Returns true if a character can enter this vehicle */
   canEnter() {
     return !this.occupied && this.active;
   }
