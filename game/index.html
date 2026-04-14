@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GTA2 Browser Clone</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+
+  <!-- Data -->
+  <script src="js/data/MapData.js"></script>
+  <script src="js/data/WeaponDefs.js"></script>
+  <script src="js/data/VehicleDefs.js"></script>
+
+  <!-- Systems -->
+  <script src="js/systems/MapSystem.js"></script>
+  <script src="js/systems/WeaponSystem.js"></script>
+  <script src="js/systems/WantedSystem.js"></script>
+  <script src="js/systems/MiniMap.js"></script>
+
+  <!-- Objects -->
+  <script src="js/objects/Bullet.js"></script>
+  <script src="js/objects/WeaponPickup.js"></script>
+  <script src="js/objects/NPC.js"></script>
+  <script src="js/objects/Pedestrian.js"></script>
+  <script src="js/objects/GangMember.js"></script>
+  <script src="js/objects/PoliceOfficer.js"></script>
+  <script src="js/objects/Vehicle.js"></script>
+  <script src="js/objects/Player.js"></script>
+
+  <!-- Scenes -->
+  <script src="js/scenes/BootScene.js"></script>
+  <script src="js/scenes/GameOverScene.js"></script>
+  <script src="js/scenes/HUDScene.js"></script>
+  <script src="js/scenes/GameScene.js"></script>
+
+  <!-- Config (boots the game last) -->
+  <script src="js/config.js"></script>
+</body>
+</html>
