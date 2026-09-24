@@ -3,6 +3,7 @@ import type { World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
 import { pick } from '../util/math';
+import { shade } from './Vehicle';
 
 export type PedKind = 'player' | 'civ' | 'cop';
 export type PedState = 'walk' | 'flee' | 'dead' | 'chase' | 'idle';
@@ -93,57 +94,129 @@ export class Ped {
     this.deadTime = 0;
   }
 
-  draw(ctx: CanvasRenderingContext2D, _atmos?: Atmosphere) {
+  draw(ctx: CanvasRenderingContext2D, atmos?: Atmosphere) {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
     ctx.scale(1.45, 1.45);
     if (this.dead) {
-      ctx.fillStyle = 'rgba(130,0,0,0.75)';
+      // blood pool grows over the first ~2s, then stays
+      const grow = Math.min(1, this.deadTime / 2);
+      ctx.fillStyle = 'rgba(120,0,0,0.7)';
       ctx.beginPath();
-      ctx.ellipse(0.1, 0.05, 0.75, 0.55, 0.4, 0, Math.PI * 2);
+      ctx.ellipse(0.1, 0.05, 0.25 + 0.55 * grow, 0.18 + 0.42 * grow, 0.4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = this.shirt;
-      ctx.fillRect(-0.45, -0.28, 0.75, 0.56);
+      // sprawled body
+      ctx.fillStyle = shade(this.shirt, -0.15);
+      ctx.beginPath();
+      ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-0.42, -0.09, 0.22, 0.09);
+      ctx.fillRect(-0.42, 0.02, 0.22, 0.09);
       ctx.fillStyle = this.skin;
+      ctx.fillRect(0.22, -0.09, 0.2, 0.08);
       ctx.beginPath();
-      ctx.arc(0.45, 0, 0.17, 0, Math.PI * 2);
+      ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 0.02;
+      ctx.stroke();
       ctx.restore();
       return;
     }
-    const swing = Math.sin(this.walkPhase) * 0.22 * Math.min(1, Math.hypot(this.vx, this.vy));
-    // shadow
+    const speed = Math.hypot(this.vx, this.vy);
+    const moving = Math.min(1, speed);
+    const swing = Math.sin(this.walkPhase) * 0.22 * moving;
+    // shadow, offset along the sun
+    let shx = 0.08, shy = 0.1;
+    if (atmos) {
+      const night = atmos.night;
+      if (night > 0.72) { shx = 0.04; shy = 0.05; }
+      else {
+        const h = 0.85, ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+        const wx = atmos.sun.dx * h, wy = atmos.sun.dy * h;
+        shx = (wx * ca + wy * sa) / 1.45;
+        shy = (-wx * sa + wy * ca) / 1.45;
+      }
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
-    ctx.ellipse(0.08, 0.1, 0.3, 0.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(shx, shy, 0.3, 0.4, 0, 0, Math.PI * 2);
     ctx.fill();
-    // legs/feet
+    // legs/feet (visible stride when moving)
     ctx.fillStyle = '#222';
     ctx.fillRect(swing, -0.2, 0.2, 0.12);
     ctx.fillRect(-swing, 0.08, 0.2, 0.12);
+    if (moving > 0.15) {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(swing + (swing >= 0 ? 0.14 : -0.02), -0.2, 0.08, 0.12);
+      ctx.fillRect(-swing + (-swing >= 0 ? 0.14 : -0.02), 0.08, 0.08, 0.12);
+    }
     // arms
     ctx.fillStyle = this.skin;
     ctx.fillRect(-swing * 0.8 - 0.05, -0.36, 0.2, 0.1);
-    if (this.weapon !== 'fist' && (this.kind !== 'civ')) {
+    const armed = this.weapon !== 'fist' && this.kind !== 'civ';
+    if (armed) {
       ctx.fillRect(0.05, 0.14, 0.34, 0.1);
       ctx.fillStyle = '#111';
       ctx.fillRect(0.34, 0.12, this.weapon === 'uzi' ? 0.3 : this.weapon === 'shotgun' ? 0.55 : 0.2, 0.08);
     } else ctx.fillRect(swing * 0.8 - 0.05, 0.26, 0.2, 0.1);
-    // torso
-    ctx.fillStyle = this.shirt;
+    // torso: rounded shoulders with a subtle gradient + darker edge
+    ctx.fillStyle = torsoGradient(ctx, this.shirt);
     ctx.beginPath();
-    ctx.ellipse(0, 0, 0.18, 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 0.19, 0.33, 0, 0, Math.PI * 2);
     ctx.fill();
-    // head
+    ctx.strokeStyle = shade(this.shirt, -0.35);
+    ctx.lineWidth = 0.025;
+    ctx.stroke();
+    if (this.kind === 'player') {
+      // leather jacket highlight seam
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 0.03;
+      ctx.beginPath();
+      ctx.moveTo(0, -0.28);
+      ctx.lineTo(0, 0.28);
+      ctx.stroke();
+    }
+    if (this.kind === 'cop') {
+      // dark navy belt/vest strap
+      ctx.fillStyle = '#0c1a45';
+      ctx.fillRect(-0.19, -0.06, 0.38, 0.12);
+    }
+    // head + hair, thin outline for readability at small zoom
+    ctx.fillStyle = this.skin;
+    ctx.beginPath();
+    ctx.arc(0.06, 0, 0.14, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = this.hair;
     ctx.beginPath();
     ctx.arc(0.02, 0, 0.15, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 0.02;
+    ctx.stroke();
     if (this.kind === 'cop') {
+      // cap with visor
       ctx.fillStyle = '#0c1a45';
-      ctx.fillRect(0.08, -0.13, 0.12, 0.26);
+      ctx.beginPath();
+      ctx.arc(0.02, 0, 0.15, -Math.PI * 0.75, Math.PI * 0.75);
+      ctx.fill();
+      ctx.fillStyle = '#08122f';
+      ctx.fillRect(0.1, -0.14, 0.1, 0.28);
     }
     ctx.restore();
   }
+}
+
+const torsoGradCache = new Map<string, CanvasGradient>();
+function torsoGradient(ctx: CanvasRenderingContext2D, color: string) {
+  let g = torsoGradCache.get(color);
+  if (g) return g;
+  g = ctx.createLinearGradient(-0.19, 0, 0.19, 0);
+  g.addColorStop(0, shade(color, -0.18));
+  g.addColorStop(0.5, shade(color, 0.1));
+  g.addColorStop(1, shade(color, -0.18));
+  torsoGradCache.set(color, g);
+  return g;
 }

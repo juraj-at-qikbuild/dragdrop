@@ -3,6 +3,7 @@ import type { LightLayer } from '../world/Lighting';
 import type { World } from '../world/World';
 import { clamp, pick } from '../util/math';
 import type { Ped } from './Ped';
+import { Combat } from '../game/Combat';
 
 export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic';
 
@@ -125,6 +126,10 @@ export class Vehicle {
     vR -= lat;
     this.skid = Math.abs(vR) > 3 || (c.handbrake && Math.abs(vF) > 6) ? Math.min(1, Math.abs(vR) / 8 + 0.3) : 0;
     if (c.handbrake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 5 * dt);
+    if (this.skid > 0.4 && Math.random() < dt * 5) {
+      const bx = this.x - Math.cos(this.angle) * s.length * 0.4, by = this.y - Math.sin(this.angle) * s.length * 0.4;
+      Combat.active?.tireSmoke(bx, by);
+    }
 
     // steering (bicycle model)
     this.steer += (c.steer - this.steer) * Math.min(1, dt * 10);
@@ -161,7 +166,10 @@ export class Vehicle {
     if (impact > 5) this.damage((impact - 4) * 2.2);
 
     // water
-    if (!this.sinking && world.inWater(this.x, this.y)) this.sinking = 0.001;
+    if (!this.sinking && world.inWater(this.x, this.y)) {
+      this.sinking = 0.001;
+      Combat.active?.splash(this.x, this.y);
+    }
     if (this.sinking) {
       this.sinking += dt;
       this.vx *= 1 - dt * 2;
@@ -186,11 +194,60 @@ export class Vehicle {
   }
 
   /** Headlights, tail/brake lights, police flashers, fire. */
-  emitLights(_L: LightLayer, _time: number, _atmos: Atmosphere) {
-    // TODO(visual): implement
+  emitLights(L: LightLayer, time: number, atmos?: Atmosphere) {
+    if (!atmos) return;
+    const s = this.spec;
+    const fx = Math.cos(this.angle), fy = Math.sin(this.angle);
+    const rx = -fy, ry = fx;
+    const noseX = this.x + fx * (s.length / 2 - 0.1), noseY = this.y + fy * (s.length / 2 - 0.1);
+    const tailX = this.x - fx * (s.length / 2 - 0.1), tailY = this.y - fy * (s.length / 2 - 0.1);
+    const hw = s.width / 2 - 0.18;
+
+    if (this.wrecked) {
+      if (this.fire > -1 && Math.random() < 0.7) {
+        const fl = 0.55 + Math.random() * 0.45;
+        L.point(this.x, this.y, 3.2, '#ff5a1f', fl);
+        L.glow(this.x, this.y, 3.5, '#ff8a3d', fl * 0.55);
+      }
+      return;
+    }
+    if (this.fire > 0) {
+      const fl = 0.6 + Math.random() * 0.4;
+      L.point(this.x, this.y, 3.4, '#ff6a00', fl);
+      L.glow(this.x, this.y, 3.5, '#ff7a20', fl * 0.6);
+    }
+
+    const k = Math.max(atmos.night, atmos.rain * 0.5);
+    if (k > 0.02) {
+      L.cone(noseX, noseY, this.angle, 16, 0.35, '#fff1c8', k);
+      L.point(noseX + rx * hw, noseY + ry * hw, 1.8, '#fff1c8', 0.65 * k);
+      L.point(noseX - rx * hw, noseY - ry * hw, 1.8, '#fff1c8', 0.65 * k);
+    }
+
+    const braking = this.ctrl.throttle < 0 && this.fwdSpeed > 0.5;
+    const tailGlow = braking ? 1 : 0.35 * k;
+    if (tailGlow > 0.02) {
+      L.glow(tailX + rx * hw, tailY + ry * hw, braking ? 1.6 : 1, '#ff2a2a', tailGlow);
+      L.glow(tailX - rx * hw, tailY - ry * hw, braking ? 1.6 : 1, '#ff2a2a', tailGlow);
+    }
+    if (k > 0.02) {
+      L.point(tailX + rx * hw, tailY + ry * hw, 1.1, '#ff2a2a', 0.5 * k);
+      L.point(tailX - rx * hw, tailY - ry * hw, 1.1, '#ff2a2a', 0.5 * k);
+    }
+
+    if (s.kind === 'police' && this.siren) {
+      const on = Math.floor(time * 6) % 2 === 0;
+      const c1 = on ? '#ff1744' : '#2979ff', c2 = on ? '#2979ff' : '#ff1744';
+      const lx = this.x + rx * 0.22, ly = this.y + ry * 0.22;
+      const rx2 = this.x - rx * 0.22, ry2 = this.y - ry * 0.22;
+      L.point(lx, ly, 9, c1, 0.85);
+      L.glow(lx, ly, 5, c1, 0.6);
+      L.point(rx2, ry2, 9, c2, 0.85);
+      L.glow(rx2, ry2, 5, c2, 0.6);
+    }
   }
 
-  draw(ctx: CanvasRenderingContext2D, time: number, _atmos?: Atmosphere) {
+  draw(ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
     const s = this.spec;
     const L = s.length, W = s.width;
     ctx.save();
@@ -201,13 +258,37 @@ export class Vehicle {
       ctx.globalAlpha = k;
       ctx.scale(k * 0.3 + 0.7, k * 0.3 + 0.7);
     }
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    roundRect(ctx, -L / 2 + 0.25, -W / 2 + 0.35, L, W, 0.4);
+    // shadow: cast along the sun direction, rotated into the car's local frame;
+    // a small tight contact shadow at night instead of a long cast one.
+    const night = atmos?.night ?? 0;
+    let sx = 0.22, sy = 0.32, salpha = 0.3;
+    if (atmos) {
+      if (night > 0.72) {
+        sx = 0.1; sy = 0.14; salpha = 0.28;
+      } else {
+        const h = 1.15;
+        const wx = atmos.sun.dx * h, wy = atmos.sun.dy * h;
+        const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+        sx = wx * ca + wy * sa;
+        sy = -wx * sa + wy * ca;
+        salpha = 0.25 + 0.2 * atmos.daylight;
+      }
+    }
+    ctx.fillStyle = `rgba(0,0,0,${salpha})`;
+    roundRect(ctx, -L / 2 + sx, -W / 2 + sy, L, W, 0.4);
     ctx.fill();
 
+    // wheels (front pair steers)
+    const wheelLen = Math.min(0.5, L * 0.11), wheelWid = 0.22;
+    const wx0 = L * 0.315, wy0 = W / 2 - 0.06;
+    const steerAngle = this.steer * 0.5;
+    drawWheel(ctx, wx0, -wy0, steerAngle, wheelLen, wheelWid);
+    drawWheel(ctx, wx0, wy0, steerAngle, wheelLen, wheelWid);
+    drawWheel(ctx, -wx0, -wy0, 0, wheelLen, wheelWid);
+    drawWheel(ctx, -wx0, wy0, 0, wheelLen, wheelWid);
+
     const body = this.wrecked ? '#2a2623' : this.color;
-    ctx.fillStyle = body;
+    ctx.fillStyle = this.wrecked ? body : bodyGradient(ctx, body);
     roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
     ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
@@ -216,6 +297,7 @@ export class Vehicle {
 
     const glass = this.wrecked ? '#111' : '#27343f';
     if (s.kind === 'bus') {
+      // DPB red/white livery: white belly band, red top/bottom, roof vents, doors
       ctx.fillStyle = this.wrecked ? '#222' : '#f2f2f2';
       ctx.fillRect(-L / 2 + 0.6, -W / 2 + 0.25, L - 1.2, W - 0.5);
       ctx.fillStyle = glass;
@@ -224,18 +306,42 @@ export class Vehicle {
       for (let i = 0; i < 3; i++) ctx.fillRect(-L / 2 + 2 + i * 3.4, -0.5, 1.2, 1);
       ctx.fillStyle = body;
       ctx.fillRect(-L / 2 + 0.6, -0.12, L - 1.2, 0.24);
+      if (!this.wrecked) {
+        // roof vents
+        ctx.fillStyle = shade(body, -0.25);
+        for (let i = 0; i < 4; i++) roundRect(ctx, -L / 2 + 1.6 + i * 2.4, -0.55, 0.9, 1.1, 0.15), ctx.fill();
+        // doors
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 0.05;
+        for (const dx of [-L / 2 + 3.2, L / 2 - 2.6]) {
+          ctx.beginPath();
+          ctx.moveTo(dx, -W / 2 + 0.05);
+          ctx.lineTo(dx, W / 2 - 0.05);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#fdd835';
+        ctx.font = '700 0.5px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('DPB', -L / 2 + 1.1, 0);
+      }
     } else if (s.kind === 'van') {
       ctx.fillStyle = glass;
       ctx.fillRect(L / 2 - 1.35, -W / 2 + 0.2, 0.55, W - 0.4);
       ctx.fillStyle = this.wrecked ? '#333' : '#f5f5f5';
       ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, W - 0.4);
       if (!this.wrecked) {
+        // roof rack
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 0.05;
+        ctx.strokeRect(-L / 2 + 0.5, -W / 2 + 0.35, L - 1, W - 0.7);
         ctx.fillStyle = '#c8102e';
         ctx.font = '900 0.62px Arial Black, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('KOFOLKA', -0.65, 0.02);
       }
+      mirrors(ctx, L, W, body);
     } else {
       const k = s.kind === 'sport' ? 0.9 : 1;
       // windscreen
@@ -247,6 +353,14 @@ export class Vehicle {
       ctx.lineTo(L * 0.2, W / 2 - 0.18);
       ctx.closePath();
       ctx.fill();
+      if (!this.wrecked) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+        ctx.lineWidth = 0.05;
+        ctx.beginPath();
+        ctx.moveTo(L * 0.23, -W / 2 + 0.26);
+        ctx.lineTo(L * 0.29 * k, -0.02);
+        ctx.stroke();
+      }
       // rear window
       ctx.beginPath();
       ctx.moveTo(-L * 0.26, -W / 2 + 0.2);
@@ -284,6 +398,42 @@ export class Vehicle {
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
         ctx.fillRect(-L / 2, -0.25, L, 0.14);
         ctx.fillRect(-L / 2, 0.11, L, 0.14);
+        // rear spoiler
+        ctx.fillStyle = shade(body, -0.3);
+        ctx.fillRect(-L / 2 - 0.05, -W / 2 + 0.06, 0.12, W - 0.12);
+        ctx.fillRect(-L / 2 + 0.02, -W / 2 + 0.08, 0.05, W - 0.16);
+      }
+      mirrors(ctx, L, W, s.kind === 'sport' ? shade(body, -0.2) : body);
+    }
+    // damage: scuffs from lost health, cracked windscreen when badly hurt
+    const dmgFrac = clamp(1 - this.health / s.health, 0, 1);
+    if (this.wrecked) {
+      ctx.fillStyle = 'rgba(20,16,14,0.45)';
+      for (let i = 0; i < 6; i++) {
+        const o = DMG_OFFSETS[i];
+        ctx.beginPath();
+        ctx.ellipse(o[0] * L * 0.42, o[1] * W * 0.42, o[2] * 0.5, o[2] * 0.32, o[0], 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (dmgFrac > 0.12) {
+      const n = Math.min(DMG_OFFSETS.length, 1 + Math.floor(dmgFrac * 6));
+      ctx.fillStyle = 'rgba(20,16,14,0.28)';
+      for (let i = 0; i < n; i++) {
+        const o = DMG_OFFSETS[i];
+        ctx.beginPath();
+        ctx.ellipse(o[0] * L * 0.42, o[1] * W * 0.42, o[2] * 0.4, o[2] * 0.26, o[0], 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (dmgFrac > 0.45 && s.kind !== 'bus' && s.kind !== 'van') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 0.03;
+        ctx.beginPath();
+        ctx.moveTo(L * 0.22, -0.1);
+        ctx.lineTo(L * 0.28, 0.05);
+        ctx.lineTo(L * 0.24, 0.2);
+        ctx.moveTo(L * 0.26, -0.15);
+        ctx.lineTo(L * 0.3, -0.02);
+        ctx.stroke();
       }
     }
     // lights
@@ -304,6 +454,43 @@ export class Vehicle {
     }
     ctx.restore();
   }
+}
+
+/** fractional (x, y, size) offsets for damage scuffs, deterministic across frames */
+const DMG_OFFSETS: [number, number, number][] = [
+  [0.35, -0.55, 0.5], [-0.5, 0.5, 0.42], [0.6, 0.4, 0.4], [-0.65, -0.45, 0.45], [0.05, 0.15, 0.55], [0.5, -0.1, 0.38],
+];
+
+function drawWheel(ctx: CanvasRenderingContext2D, x: number, y: number, ang: number, len: number, wid: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (ang) ctx.rotate(ang);
+  ctx.fillStyle = '#161616';
+  roundRect(ctx, -len / 2, -wid / 2, len, wid, 0.06);
+  ctx.fill();
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(-len / 2 + 0.05, -0.03, len - 0.1, 0.06);
+  ctx.restore();
+}
+
+function mirrors(ctx: CanvasRenderingContext2D, L: number, W: number, color: string) {
+  ctx.fillStyle = shade(color, -0.25);
+  ctx.fillRect(L * 0.14, -W / 2 - 0.06, 0.16, 0.1);
+  ctx.fillRect(L * 0.14, W / 2 - 0.04, 0.16, 0.1);
+}
+
+const bodyGradCache = new Map<string, CanvasGradient>();
+/** cached vertical gradient (across the car's width) giving a subtle specular ridge down the centreline */
+function bodyGradient(ctx: CanvasRenderingContext2D, color: string) {
+  let g = bodyGradCache.get(color);
+  if (g) return g;
+  g = ctx.createLinearGradient(0, -1.35, 0, 1.35);
+  g.addColorStop(0, shade(color, -0.26));
+  g.addColorStop(0.42, shade(color, 0.14));
+  g.addColorStop(0.58, shade(color, 0.14));
+  g.addColorStop(1, shade(color, -0.26));
+  bodyGradCache.set(color, g);
+  return g;
 }
 
 export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

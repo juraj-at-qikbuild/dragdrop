@@ -599,6 +599,7 @@ export class Game {
           if (sev > 5) {
             a.damage((sev - 4) * 2 * (mb / tot) * 1.6);
             b.damage((sev - 4) * 2 * (ma / tot) * 1.6);
+            this.combat.metalSpark((a.x + b.x) / 2, (a.y + b.y) / 2);
             if (a.isPlayer || b.isPlayer) {
               this.audio.crash(sev);
               const other = a.isPlayer ? b : a;
