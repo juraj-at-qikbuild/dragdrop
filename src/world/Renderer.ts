@@ -224,6 +224,8 @@ export class Renderer {
 
   /** set by Game after construction; read for sun direction, night and rain */
   atmos = new Atmosphere();
+  /** textured facades (windows, doors, shopfronts); off on the lowest quality tier, where they cost most */
+  facades = true;
 
   constructor(private world: World) {
     this.build();
@@ -789,7 +791,7 @@ export class Renderer {
     // outside the frame would compete for the pixel budget below and starve the ones
     // actually visible, since `vis` is sorted far-to-near and budget is spent in that
     // order. Cost is further bounded per-edge (tiny projected edges stay flat).
-    const facadeReady = v.scale > 6;
+    const facadeReady = this.facades && v.scale > 6;
     this.facadeBudget = 200000; // px of on-screen wall-edge width, this frame
     for (const c of vis) {
       const chunkOnScreen = bboxHit(c.bbox, v);
@@ -876,7 +878,7 @@ export class Renderer {
               ctx.restore();
             }
           }
-          if (facadeReady && g.signs.length) this.drawGroupSigns(ctx, g, ox, oy, v);
+          if (v.scale > 6 && g.signs.length) this.drawGroupSigns(ctx, g, ox, oy, v);
         }
         ctx.translate(ox, oy);
         ctx.fillStyle = v.scale > 7.5 && g.roofTex ? g.roofTex : g.roof;
@@ -1039,7 +1041,7 @@ export class Renderer {
    *  same per-edge geometry as `drawFacade`, so the glow lines up window-for-window. */
   drawNightWindows(ctx: CanvasRenderingContext2D, v: View) {
     const night = this.atmos.night;
-    if (night < 0.28 || v.scale <= 6) return;
+    if (night < 0.28 || v.scale <= 6 || !this.facades) return;
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
     let budget = 40000;
     ctx.save();

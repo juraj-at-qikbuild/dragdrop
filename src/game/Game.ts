@@ -967,6 +967,7 @@ export class Game {
     ctx.fillRect(b.x1, v.y0 - 10, v.x1 - b.x1 + 10, v.y1 - v.y0 + 20);
 
     const atmos = this.atmos;
+    this.renderer.facades = this.qualityTier > 0;
     this.renderer.drawGround(ctx, v, v.scale > 3);
     this.renderer.drawShadows(ctx, v);
     this.weather.drawWorld(ctx, atmos);
