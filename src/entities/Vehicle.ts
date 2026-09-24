@@ -321,7 +321,7 @@ export class Vehicle {
       L.glow(this.x, this.y, 3.5, '#ff7a20', fl * 0.6);
     }
 
-    const dmg = ((this as any).dmg ?? { front: 0, rear: 0, left: 0, right: 0 }) as { front: number; rear: number; left: number; right: number };
+    const dmg = this.dmg;
     const k = Math.max(atmos.night, atmos.rain * 0.5);
     if (k > 0.02 && dmg.front <= 0.7) {
       L.cone(noseX, noseY, this.angle, 16, 0.35, '#fff1c8', k);
@@ -392,7 +392,7 @@ export class Vehicle {
     drawWheel(ctx, -wx0, -wy0, 0, wheelLen, wheelWid);
     drawWheel(ctx, -wx0, wy0, 0, wheelLen, wheelWid);
 
-    const dmg = ((this as any).dmg ?? { front: 0, rear: 0, left: 0, right: 0 }) as { front: number; rear: number; left: number; right: number };
+    const dmg = this.dmg;
     const body = this.wrecked ? '#2a2623' : this.color;
     ctx.save();
     roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
@@ -616,7 +616,7 @@ export class Vehicle {
       if (dmg.rear > 0.7) { ctx.fillStyle = '#15130f'; ctx.fillRect(-L / 2 - 0.1, -W / 2 + 0.35, 0.25, W - 0.7); }
     }
     // exhaust flame when boosting
-    if ((this as any).boosting && !this.wrecked) {
+    if (this.boosting && !this.wrecked) {
       const flick = 0.7 + Math.random() * 0.3;
       const fx0 = -L / 2 - 0.05;
       const g = ctx.createLinearGradient(fx0, 0, fx0 - 0.9 * flick, 0);
