@@ -3,6 +3,7 @@ import { Renderer, type View } from '../world/Renderer';
 import { Input } from './Input';
 import { AI } from './AI';
 import { Combat, WEAPONS } from './Combat';
+import { Juice } from './Juice';
 import { Audio } from '../audio/Audio';
 import { Ped, type WeaponId } from '../entities/Ped';
 import { Vehicle, resolveContact } from '../entities/Vehicle';
@@ -54,6 +55,11 @@ export class Game {
   audio: Audio;
   ai!: AI;
   combat: Combat;
+  juice: Juice;
+  /** read by the (not-yet-merged) HUD combo widget */
+  get combo() {
+    return this.juice.combo;
+  }
   missions!: MissionManager;
   hud: Hud;
   mapView: MapView;
@@ -132,6 +138,7 @@ export class Game {
     this.input = new Input(canvas);
     this.audio = new Audio();
     this.combat = new Combat(this);
+    this.juice = new Juice(this);
     this.hud = new Hud(this);
     this.mapView = new MapView(this);
     this.load();
@@ -247,8 +254,16 @@ export class Game {
     this.messages.push({ title, text, time, color });
   }
 
-  addMoney(v: number) {
+  addMoney(v: number, x?: number, y?: number) {
     this.save.money = Math.max(0, this.save.money + v);
+    if (v > 0 && x !== undefined && y !== undefined) this.juice.cashText(x, y, v);
+  }
+
+  /** `postFx?.worldToScreen` isn't merged everywhere yet; fall back to the camera math. */
+  worldToScreenSafe(x: number, y: number): { x: number; y: number } {
+    const fx = (this as any).worldToScreen?.(x, y);
+    if (fx) return fx;
+    return { x: (x - this.cam.x) * this.cam.scale + this.viewW / 2, y: (y - this.cam.y) * this.cam.scale + this.viewH / 2 };
   }
 
   // ----------------------------------------------------------------- crime
@@ -301,9 +316,10 @@ export class Game {
     this.player.health -= dmg;
     this.hud.hurt = 0.5;
     this.combat.blood(this.player.x, this.player.y, 0.3);
+    const ang = Math.atan2(fy - this.player.y, fx - this.player.x);
+    (this.hud as any).hitFrom?.(ang);
+    (this as any).postFx?.pulse?.({ aberration: clamp(dmg / 55, 0, 1), flash: clamp(dmg / 60, 0, 0.5) });
     if (this.player.health <= 0) this.wasted();
-    void fx;
-    void fy;
   }
 
   wasted() {
@@ -434,9 +450,12 @@ export class Game {
       inp.endFrame();
       return;
     }
-    this.time += dt;
-    this.atmos.update(dt);
-    this.weather.update(dt, this.atmos, this.view(), this.quality, this.audio);
+    const dtReal = dt;
+    this.time += dtReal;
+    this.atmos.update(dtReal);
+    this.weather.update(dtReal, this.atmos, this.view(), this.quality, this.audio);
+    // hit-stop / slow-mo: scale the simulation step, leave atmos/weather/UI on real time
+    dt = dtReal * this.juice.timeScale(dtReal);
 
     if (this.state !== 'play') {
       this.stateTimer -= dt;
@@ -450,12 +469,13 @@ export class Game {
     this.updatePickups(dt);
     this.updateWanted(dt);
     this.missions.update(dt);
-    this.updateCamera(dt);
+    this.updateCamera(dtReal);
     this.updateInfo(dt);
+    this.juice.tick(dtReal, dt);
+    this.shake = this.juice.trauma; // kept for any code that still reads it
 
-    for (const m of this.messages.slice(0, 1)) m.time -= dt;
+    for (const m of this.messages.slice(0, 1)) m.time -= dtReal;
     this.messages = this.messages.filter((m) => m.time > 0);
-    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 2);
     inp.endFrame();
   }
 
@@ -558,7 +578,7 @@ export class Game {
         if (v.parked && !v.isPlayer && v.speed < 0.01) continue;
         const impact = v.update(STEP, this.world);
         if (impact > 6 && (v.isPlayer || dist(v.x, v.y, this.player.x, this.player.y) < 40)) this.audio.crash(impact);
-        if (impact > 7 && v.isPlayer) this.shake = Math.max(this.shake, impact / 30);
+        if (impact > 7) this.juice.crashImpact(v, impact, -Math.cos(v.angle), -Math.sin(v.angle));
       }
       this.vehicleCollisions();
       this.vehAccum -= STEP;
@@ -568,6 +588,11 @@ export class Game {
       if (v.skid && v.speed > 4 && !v.sinking) this.combat.skid(v);
       else this.combat.noSkid(v);
       if (!v.wrecked && v.health < v.spec.health * 0.35 && Math.random() < dt * 8) this.combat.smoke(v.x + Math.cos(v.angle) * v.spec.length * 0.35, v.y + Math.sin(v.angle) * v.spec.length * 0.35);
+      if (!v.wrecked && v.speed > 3 && dist(v.x, v.y, this.player.x, this.player.y) < 45) {
+        if (this.world.surfaceAt(v.x, v.y) === 'offroad' && Math.random() < dt * v.speed * 0.2) this.combat.dust(v.x - Math.cos(v.angle) * v.spec.length * 0.4, v.y - Math.sin(v.angle) * v.spec.length * 0.4);
+        if (v.ctrl.throttle > 0.5 && Math.random() < dt * 3) this.combat.exhaustPuff(v.x - Math.cos(v.angle) * v.spec.length * 0.5, v.y - Math.sin(v.angle) * v.spec.length * 0.5, v.angle);
+      }
+      if (v.sinking > 0 && v.sinking < 2.5 && Math.random() < dt * 6) this.combat.splash(v.x + rand(-1, 1), v.y + rand(-1, 1));
       if (v.fire > 0 && !v.wrecked) {
         this.combat.flame(v.x + Math.cos(v.angle) * v.spec.length * 0.3, v.y + Math.sin(v.angle) * v.spec.length * 0.3);
         if (v.driver && v.driver !== this.player && !v.driver.dead) {
@@ -587,7 +612,10 @@ export class Game {
         v.siren = false;
         this.combat.explode(v.x, v.y, v);
         if (v.isPlayer) this.wasted();
-        if (this.lastPlayerCar && dist(v.x, v.y, this.player.x, this.player.y) < 60) this.crime('destroy');
+        if (this.lastPlayerCar && dist(v.x, v.y, this.player.x, this.player.y) < 60) {
+          this.crime('destroy');
+          if (v.kind === 'police' && !v.isPlayer) this.juice.takedown(v.x, v.y);
+        }
       }
       if (v.sinking > 2.5) {
         if (v.isPlayer) this.wasted();
@@ -641,11 +669,13 @@ export class Game {
             b.parked = b.parked && !b.isPlayer && b.speed < 0.5 ? b.parked : false;
           }
           if (sev > 4) this.combat.metalSpark(best.cx, best.cy);
+          if (sev > 6) this.combat.glass(best.cx, best.cy);
           if (sev > 5) {
             a.damage((sev - 4) * 2 * (mb / tot) * 1.6);
             b.damage((sev - 4) * 2 * (ma / tot) * 1.6);
             if (a.isPlayer || b.isPlayer) {
               this.audio.crash(sev);
+              this.juice.crashImpact(a.isPlayer ? a : b, sev * 2, best.nx * (a.isPlayer ? -1 : 1), best.ny * (a.isPlayer ? -1 : 1));
               const other = a.isPlayer ? b : a;
               if (other.kind === 'police' && !other.wrecked) this.crime('hitCop');
             }
@@ -701,6 +731,7 @@ export class Game {
               if (v.isPlayer) {
                 this.crime(p.kind === 'cop' ? 'killCop' : 'killPed');
                 this.dropCash(p.x, p.y, p.money);
+                this.juice.event('ROADKILL', p.kind === 'cop' ? 40 : 15, p.x, p.y - 1.5);
               }
               for (const q of this.peds) if (q.kind === 'civ' && !q.dead && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
             }
@@ -744,7 +775,7 @@ export class Game {
       if (dist(pk.x, pk.y, f.x, f.y) > r || this.state !== 'play') continue;
       switch (pk.kind) {
         case 'cash':
-          this.addMoney(pk.amount);
+          this.addMoney(pk.amount, pk.x, pk.y);
           this.audio.cash();
           break;
         case 'health':
@@ -832,13 +863,12 @@ export class Game {
   private updateCamera(dt: number) {
     const v = this.player.vehicle;
     const f = this.focus();
-    const lead = v ? 0.55 : 0;
-    const tx = f.x + (v ? v.vx * lead : 0), ty = f.y + (v ? v.vy * lead : 0);
+    const lead = this.juice.leadOffset(v, dt); // smoothly-eased speed look-ahead
     const k = Math.min(1, dt * 5);
-    this.cam.x = lerp(this.cam.x, tx, k);
-    this.cam.y = lerp(this.cam.y, ty, k);
+    this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
+    this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
     const base = Math.min(this.viewW, this.viewH) / 46;
-    const target = v ? (base * 0.78) / (1 + v.speed / 24) : base;
+    const target = (v ? (base * 0.78) / (1 + v.speed / 24) : base) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
   }
 
@@ -889,7 +919,7 @@ export class Game {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#b3aea3';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    const sx = this.shake ? rand(-1, 1) * this.shake * 6 : 0, sy = this.shake ? rand(-1, 1) * this.shake * 6 : 0;
+    const { dx: sx, dy: sy } = this.juice.shakeOffset();
     ctx.setTransform(this.dpr * v.scale, 0, 0, this.dpr * v.scale, this.dpr * (this.viewW / 2 + sx - this.cam.x * v.scale), this.dpr * (this.viewH / 2 + sy - this.cam.y * v.scale));
 
     // outside the playable area
@@ -924,6 +954,7 @@ export class Game {
     this.combat.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
+    this.juice.drawTexts(ctx);
 
     // lighting: ambient tint + emitted lights, multiplied over the world
     const L = this.light;

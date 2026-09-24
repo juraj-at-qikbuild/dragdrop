@@ -11,7 +11,7 @@ export const WEAPONS: Record<WeaponId, { name: string; dmg: number; cd: number; 
   shotgun: { name: 'Brokovnica', dmg: 34, cd: 0.9, spread: 0.22, range: 22, pellets: 6 },
 };
 
-type PKind = 'smoke' | 'fire' | 'spark' | 'debris' | 'muzzle' | 'blood' | 'splash' | 'ring';
+type PKind = 'smoke' | 'fire' | 'spark' | 'debris' | 'muzzle' | 'blood' | 'splash' | 'ring' | 'glass' | 'shell' | 'chunk';
 
 interface Particle {
   x: number;
@@ -23,22 +23,11 @@ interface Particle {
   size: number;
   grow: number;
   color: string;
+  alphaMax: number;
   top: boolean;
   kind: PKind;
   rot?: number;
   vr?: number;
-}
-
-interface Decal {
-  kind: 'blood' | 'scorch' | 'skid';
-  x: number;
-  y: number;
-  x2?: number;
-  y2?: number;
-  w?: number;
-  size: number;
-  age: number;
-  shape?: number[]; // irregular blob radii offsets, precomputed
 }
 
 interface LightEvent {
@@ -59,14 +48,101 @@ interface Tracer {
   life: number;
 }
 
+// -------------------------------------------------------------- decal chunks
+// Skid/blood/scorch marks are baked once into small per-region offscreen
+// canvases (4px/m) instead of being redrawn as vector shapes every frame.
+// Chunks are lazily allocated and LRU-evicted, so decals persist cheaply
+// without an unbounded per-frame draw list.
+const CHUNK_M = 128;
+const CHUNK_PX = 4; // px per metre
+const CHUNK_CAP = 48;
+
+interface DecalChunk {
+  cx: number;
+  cy: number;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  used: number;
+}
+
+class DecalBaker {
+  private chunks = new Map<string, DecalChunk>();
+  private clock = 0;
+
+  private get(cx: number, cy: number): DecalChunk {
+    const k = cx + ',' + cy;
+    let c = this.chunks.get(k);
+    if (!c) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = CHUNK_M * CHUNK_PX;
+      const ctx = canvas.getContext('2d')!;
+      ctx.translate(-cx * CHUNK_M * CHUNK_PX, -cy * CHUNK_M * CHUNK_PX);
+      ctx.scale(CHUNK_PX, CHUNK_PX);
+      ctx.translate(-cx * CHUNK_M, -cy * CHUNK_M);
+      c = { cx, cy, canvas, ctx, used: this.clock };
+      this.chunks.set(k, c);
+      if (this.chunks.size > CHUNK_CAP) this.evictOldest();
+    }
+    c.used = ++this.clock;
+    return c;
+  }
+
+  private evictOldest() {
+    let oldestK = '', oldestT = Infinity;
+    for (const [k, c] of this.chunks) if (c.used < oldestT) (oldestT = c.used), (oldestK = k);
+    if (oldestK) this.chunks.delete(oldestK);
+  }
+
+  /** run `paint` against the local (world-unit) ctx of the chunk containing (x,y) */
+  paint(x: number, y: number, paint: (ctx: CanvasRenderingContext2D) => void) {
+    const c = this.get(Math.floor(x / CHUNK_M), Math.floor(y / CHUNK_M));
+    paint(c.ctx);
+  }
+
+  draw(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number) {
+    const cx0 = Math.floor(x0 / CHUNK_M), cx1 = Math.floor(x1 / CHUNK_M);
+    const cy0 = Math.floor(y0 / CHUNK_M), cy1 = Math.floor(y1 / CHUNK_M);
+    for (let cy = cy0; cy <= cy1; cy++)
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const c = this.chunks.get(cx + ',' + cy);
+        if (!c) continue;
+        c.used = ++this.clock;
+        ctx.drawImage(c.canvas, cx * CHUNK_M, cy * CHUNK_M, CHUNK_M, CHUNK_M);
+      }
+  }
+}
+
+// ---------------------------------------------------------- cached soft sprites
+// Smoke/fire/dust particles are drawn as pre-rendered radial-gradient sprites
+// (drawImage) instead of arcs, for softer look with no per-frame gradient cost.
+const spriteCache = new Map<string, HTMLCanvasElement>();
+function softSprite(rgb: string): HTMLCanvasElement {
+  let c = spriteCache.get(rgb);
+  if (c) return c;
+  const S = 64;
+  c = document.createElement('canvas');
+  c.width = c.height = S;
+  const sctx = c.getContext('2d')!;
+  const g = sctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, `rgba(${rgb},1)`);
+  g.addColorStop(0.6, `rgba(${rgb},0.55)`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  sctx.fillStyle = g;
+  sctx.fillRect(0, 0, S, S);
+  spriteCache.set(rgb, c);
+  return c;
+}
+
 export class Combat {
   /** the most recently constructed Combat, so other owned files (Vehicle) can push effects without a Game import */
   static active: Combat | null = null;
   particles: Particle[] = [];
-  decals: Decal[] = [];
   tracers: Tracer[] = [];
   lightEvents: LightEvent[] = [];
   private lastSkid = new Map<Vehicle, [number, number, number, number]>();
+  private decals = new DecalBaker();
+  /** wrecked cars still smouldering: vehicle -> seconds left (~20s) */
+  private burning = new Map<Vehicle, number>();
 
   constructor(private game: Game) {
     Combat.active = this;
@@ -92,6 +168,7 @@ export class Combat {
       return true;
     }
     this.muzzleFlash(shooter.x + Math.cos(angle) * 0.55, shooter.y + Math.sin(angle) * 0.55, angle);
+    this.shellCasing(shooter.x - Math.cos(angle) * 0.2, shooter.y - Math.sin(angle) * 0.2, angle);
     for (let i = 0; i < w.pellets; i++) {
       const a = angle + rand(-w.spread, w.spread);
       const sx = shooter.x + Math.cos(angle) * 0.5, sy = shooter.y + Math.sin(angle) * 0.5;
@@ -141,6 +218,7 @@ export class Combat {
       return;
     }
     p.health -= dmg;
+    p.hitFlash = 0.14;
     this.blood(p.x, p.y, 0.4);
     if (p.health <= 0) {
       p.kill(by?.x ?? p.x, by?.y ?? p.y, 3);
@@ -148,6 +226,7 @@ export class Combat {
       if (by === g.player) {
         g.crime(p.kind === 'cop' ? 'killCop' : 'killPed');
         g.dropCash(p.x, p.y, p.money);
+        g.juice.event(p.kind === 'cop' ? 'KILL' : 'KILL', p.kind === 'cop' ? 40 : 15, p.x, p.y - 1.5);
       }
       g.audio.scream();
     } else if (p.kind === 'civ' && by) this.scare(p, by.x, by.y);
@@ -164,20 +243,27 @@ export class Combat {
   explode(x: number, y: number, source: Vehicle | null) {
     const g = this.game;
     g.audio.explosion(dist(x, y, g.player.x, g.player.y));
-    g.shake = Math.max(g.shake, 1.2);
-    this.decals.push({ kind: 'scorch', x, y, size: 4.5, age: 0, shape: blobShape() });
-    // expanding shockwave ring
-    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.5, max: 0.5, size: 0.5, grow: 22, color: 'rgba(255,220,150,0.8)', top: true, kind: 'ring' });
-    for (let i = 0; i < 40; i++) {
-      const a = Math.random() * Math.PI * 2, s = rand(2, 14);
+    g.juice.explosionNearPlayer(x, y);
+    this.bakeScorch(x, y, 5.5);
+    // expanding shockwave rings
+    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.55, max: 0.55, size: 0.5, grow: 26, color: 'rgba(255,220,150,0.85)', alphaMax: 1, top: true, kind: 'ring' });
+    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.35, max: 0.35, size: 0.2, grow: 36, color: 'rgba(255,255,255,0.7)', alphaMax: 1, top: true, kind: 'ring' });
+    for (let i = 0; i < 44; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(2, 15);
       this.particles.push({
-        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 1), max: 1, size: rand(0.8, 2.2), grow: 2,
-        color: pickFire(), top: true, kind: 'fire',
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 1), max: 1, size: rand(0.9, 2.4), grow: 2.4,
+        color: pickFire(), alphaMax: 0.42, top: true, kind: 'fire',
       });
     }
-    for (let i = 0; i < 14; i++) this.debris(x, y);
-    for (let i = 0; i < 18; i++) this.smoke(x + rand(-2, 2), y + rand(-2, 2), 2.5);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(4, 17);
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.6, 1.4), max: 1.4, size: rand(0.06, 0.14), grow: -0.05, color: '#ffb74d', alphaMax: 1, top: true, kind: 'spark' });
+    }
+    const chunkColor = source?.color ?? pick(['#2a2a2a', '#3a332c', '#1c1c1c']);
+    for (let i = 0; i < 9; i++) this.chunk(x, y, chunkColor);
+    for (let i = 0; i < 20; i++) this.smoke(x + rand(-2, 2), y + rand(-2, 2), rand(1.8, 3.2));
     this.lightEvents.push({ x, y, r: 26, color: '#ff8a2f', intensity: 1.6, glow: 30, life: 0.45 });
+    if (source) this.burning.set(source, 20);
     for (const p of g.peds) {
       if (p.dead || p.vehicle) continue;
       const d = dist(p.x, p.y, x, y);
@@ -189,30 +275,48 @@ export class Combat {
         }
       } else if (d < 30 && p.kind === 'civ') this.scare(p, x, y);
     }
+    const lvl = source?.level ?? 0;
     for (const v of g.vehicles) {
-      if (v === source || v.wrecked) continue;
+      if (v === source || v.wrecked || v.level !== lvl) continue;
       const d = dist(v.x, v.y, x, y);
-      if (d < 8) {
-        v.damage(90 * (1 - d / 8));
-        const k = (1 - d / 8) * 10 / (v.spec.mass / 1200);
-        v.vx += ((v.x - x) / (d || 1)) * k;
-        v.vy += ((v.y - y) / (d || 1)) * k;
+      if (d < 9) {
+        v.damage(90 * (1 - d / 9));
+        const k = (1 - d / 9) * 11 / (v.spec.mass / 1200);
+        const nx = (v.x - x) / (d || 1), ny = (v.y - y) / (d || 1);
+        v.vx += nx * k;
+        v.vy += ny * k;
+        v.av += (Math.random() - 0.5) * k * 0.3;
       }
     }
   }
 
+  /** irregular, permanently baked scorch mark */
+  private bakeScorch(x: number, y: number, size: number) {
+    this.decals.paint(x, y, (ctx) => {
+      ctx.fillStyle = 'rgba(10,9,8,0.62)';
+      drawBlob(ctx, x, y, size, blobShape());
+      ctx.fillStyle = 'rgba(10,9,8,0.35)';
+      drawBlob(ctx, x, y, size * 1.6, blobShape());
+    });
+  }
+
   blood(x: number, y: number, size: number) {
-    this.decals.push({ kind: 'blood', x: x + rand(-0.3, 0.3), y: y + rand(-0.3, 0.3), size: size * rand(0.6, 1.2), age: 0, shape: blobShape() });
+    const bx = x + rand(-0.3, 0.3), by = y + rand(-0.3, 0.3);
+    const s = size * rand(0.6, 1.2);
+    this.decals.paint(bx, by, (ctx) => {
+      ctx.fillStyle = 'rgba(110,0,0,0.6)';
+      drawBlob(ctx, bx, by, s, blobShape());
+    });
     for (let i = 0; i < 5; i++) {
-      const a = Math.random() * Math.PI * 2, s = rand(0.5, 3.5) * size;
-      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.25, max: 0.25, size: rand(0.05, 0.12) * size, grow: 0, color: '#8a0000', top: false, kind: 'blood' });
+      const a = Math.random() * Math.PI * 2, sp = rand(0.5, 3.5) * size;
+      this.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.25, max: 0.25, size: rand(0.05, 0.12) * size, grow: 0, color: '#8a0000', alphaMax: 1, top: false, kind: 'blood' });
     }
   }
 
   spark(x: number, y: number) {
     for (let i = 0; i < 5; i++) {
       const a = Math.random() * Math.PI * 2, s = rand(3, 9);
-      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.15, max: 0.15, size: 0.15, grow: 0, color: '#ffe082', top: false, kind: 'spark' });
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.15, max: 0.15, size: 0.15, grow: 0, color: '#ffe082', alphaMax: 1, top: false, kind: 'spark' });
     }
   }
 
@@ -220,14 +324,34 @@ export class Combat {
   metalSpark(x: number, y: number) {
     for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2, s = rand(4, 12);
-      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.12, 0.25), max: 0.25, size: 0.13, grow: 0, color: '#fff3c4', top: false, kind: 'spark' });
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.12, 0.25), max: 0.25, size: 0.13, grow: 0, color: '#fff3c4', alphaMax: 1, top: false, kind: 'spark' });
     }
   }
 
-  smoke(x: number, y: number, size = 1) {
+  /** pale blue windscreen/window glass shards, e.g. from a hard car-car hit */
+  glass(x: number, y: number) {
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(2, 7);
+      this.particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.3, 0.6), max: 0.6, size: rand(0.06, 0.14), grow: 0,
+        color: '#bfe6ff', alphaMax: 1, top: true, kind: 'glass', rot: Math.random() * Math.PI * 2, vr: rand(-12, 12),
+      });
+    }
+  }
+
+  /** brass shell casing ejected sideways from a gun */
+  shellCasing(x: number, y: number, angle: number) {
+    const side = angle + Math.PI / 2 * pick([-1, 1]) + rand(-0.25, 0.25);
+    this.particles.push({
+      x, y, vx: Math.cos(side) * rand(2, 4), vy: Math.sin(side) * rand(2, 4), life: rand(0.6, 1), max: 1, size: 0.055, grow: 0,
+      color: '#c9a227', alphaMax: 1, top: false, kind: 'shell', rot: Math.random() * Math.PI * 2, vr: rand(-16, 16),
+    });
+  }
+
+  smoke(x: number, y: number, size = 1, color = '90,90,90') {
     this.particles.push({
       x, y, vx: rand(-0.5, 0.5) + 1.2, vy: rand(-0.5, 0.5) - 0.6, life: rand(1, 2), max: 2, size: 0.6 * size, grow: 1.2 * size,
-      color: 'rgba(60,60,60,0.45)', top: true, kind: 'smoke',
+      color, alphaMax: 0.45, top: true, kind: 'smoke',
     });
   }
 
@@ -235,25 +359,51 @@ export class Combat {
   tireSmoke(x: number, y: number) {
     this.particles.push({
       x: x + rand(-0.2, 0.2), y: y + rand(-0.2, 0.2), vx: rand(-0.4, 0.4), vy: rand(-0.4, 0.4), life: rand(0.5, 1), max: 1,
-      size: rand(0.2, 0.4), grow: 0.7, color: 'rgba(210,210,210,0.35)', top: false, kind: 'smoke',
+      size: rand(0.2, 0.4), grow: 0.7, color: '205,205,205', alphaMax: 0.35, top: false, kind: 'smoke',
+    });
+  }
+
+  /** dust kicked up driving offroad */
+  dust(x: number, y: number) {
+    this.particles.push({
+      x: x + rand(-0.3, 0.3), y: y + rand(-0.3, 0.3), vx: rand(-0.6, 0.6), vy: rand(-0.6, 0.6), life: rand(0.4, 0.8), max: 0.8,
+      size: rand(0.2, 0.4), grow: 0.9, color: '176,148,96', alphaMax: 0.4, top: false, kind: 'smoke',
+    });
+  }
+
+  /** exhaust puff from an accelerating car (only worth spawning near the camera) */
+  exhaustPuff(x: number, y: number, angle: number) {
+    const a = angle + Math.PI;
+    this.particles.push({
+      x, y, vx: Math.cos(a) * rand(0.5, 1.2), vy: Math.sin(a) * rand(0.5, 1.2), life: rand(0.4, 0.7), max: 0.7,
+      size: rand(0.12, 0.22), grow: 0.5, color: '120,120,120', alphaMax: 0.3, top: true, kind: 'smoke',
     });
   }
 
   flame(x: number, y: number) {
-    this.particles.push({ x: x + rand(-0.6, 0.6), y: y + rand(-0.6, 0.6), vx: rand(-0.5, 0.5), vy: rand(-1.5, -0.3), life: 0.5, max: 0.5, size: rand(0.5, 1.1), grow: -0.5, color: pickFire(), top: true, kind: 'fire' });
+    this.particles.push({ x: x + rand(-0.6, 0.6), y: y + rand(-0.6, 0.6), vx: rand(-0.5, 0.5), vy: rand(-1.5, -0.3), life: 0.5, max: 0.5, size: rand(0.5, 1.1), grow: -0.5, color: pickFire(), alphaMax: 0.42, top: true, kind: 'fire' });
   }
 
   debris(x: number, y: number) {
     const a = Math.random() * Math.PI * 2, s = rand(2, 9);
     this.particles.push({
       x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.6, 1.3), max: 1.3, size: rand(0.1, 0.25), grow: 0,
-      color: pick(['#2a2a2a', '#3a332c', '#1c1c1c']), top: true, kind: 'debris', rot: Math.random() * Math.PI * 2, vr: rand(-8, 8),
+      color: pick(['#2a2a2a', '#3a332c', '#1c1c1c']), alphaMax: 1, top: true, kind: 'debris', rot: Math.random() * Math.PI * 2, vr: rand(-8, 8),
+    });
+  }
+
+  /** rotating car-panel chunk thrown by an explosion; slides on friction and settles */
+  chunk(x: number, y: number, color: string) {
+    const a = Math.random() * Math.PI * 2, s = rand(5, 16);
+    this.particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(1.3, 2.3), max: 2.3, size: rand(0.18, 0.42), grow: 0,
+      color, alphaMax: 1, top: true, kind: 'chunk', rot: Math.random() * Math.PI * 2, vr: rand(-11, 11),
     });
   }
 
   /** star-shaped muzzle flash at a gun tip, 1-2 frames */
   muzzleFlash(x: number, y: number, angle: number) {
-    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.045, max: 0.045, size: 0.35, grow: 0, color: '#fff6c8', top: true, kind: 'muzzle', rot: angle });
+    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.045, max: 0.045, size: 0.35, grow: 0, color: '#fff6c8', alphaMax: 1, top: true, kind: 'muzzle', rot: angle });
     this.lightEvents.push({ x, y, r: 5, color: '#fff1c8', intensity: 1.2, glow: 2.2, life: 0.05 });
   }
 
@@ -261,7 +411,7 @@ export class Combat {
   splash(x: number, y: number) {
     for (let i = 0; i < 10; i++) {
       const a = Math.random() * Math.PI * 2, s = rand(1, 5);
-      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1, life: rand(0.3, 0.6), max: 0.6, size: rand(0.1, 0.25), grow: 0.6, color: 'rgba(210,230,240,0.55)', top: true, kind: 'splash' });
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1, life: rand(0.3, 0.6), max: 0.6, size: rand(0.1, 0.25), grow: 0.6, color: 'rgba(210,230,240,0.55)', alphaMax: 1, top: true, kind: 'splash' });
     }
   }
 
@@ -272,10 +422,24 @@ export class Combat {
     const cur: [number, number, number, number] = [bx + ox, by + oy, bx - ox, by - oy];
     const last = this.lastSkid.get(v);
     if (last && dist(last[0], last[1], cur[0], cur[1]) < 3) {
-      this.decals.push({ kind: 'skid', x: last[0], y: last[1], x2: cur[0], y2: cur[1], size: 0.28, age: 0 });
-      this.decals.push({ kind: 'skid', x: last[2], y: last[3], x2: cur[2], y2: cur[3], size: 0.28, age: 0 });
+      const fresh = 0.4 + Math.min(0.28, v.skid * 0.28); // harder skid = darker mark
+      this.paintSkidSeg(last[0], last[1], cur[0], cur[1], fresh);
+      this.paintSkidSeg(last[2], last[3], cur[2], cur[3], fresh);
     }
     this.lastSkid.set(v, cur);
+  }
+
+  private paintSkidSeg(x1: number, y1: number, x2: number, y2: number, alpha: number) {
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    this.decals.paint(mx, my, (ctx) => {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = `rgba(15,15,15,${alpha})`;
+      ctx.lineWidth = 0.28;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    });
   }
 
   noSkid(v: Vehicle) {
@@ -296,11 +460,20 @@ export class Combat {
     if (this.particles.length > PARTICLE_CAP) this.particles.splice(0, this.particles.length - PARTICLE_CAP);
     for (const t of this.tracers) t.life -= dt;
     this.tracers = this.tracers.filter((t) => t.life > 0);
-    for (const d of this.decals) d.age += dt;
-    this.decals = this.decals.filter((d) => d.age < (d.kind === 'skid' ? 25 : 60));
-    if (this.decals.length > 1500) this.decals.splice(0, this.decals.length - 1500);
     for (const ev of this.lightEvents) ev.life -= dt;
     this.lightEvents = this.lightEvents.filter((ev) => ev.life > 0);
+    // lingering wreck fire/smoke, tapering off over ~20s
+    for (const [v, t] of this.burning) {
+      const nt = t - dt;
+      if (nt <= 0) {
+        this.burning.delete(v);
+        continue;
+      }
+      this.burning.set(v, nt);
+      const k = nt > 14 ? 1 : nt / 14;
+      if (Math.random() < dt * 3.5 * k) this.flame(v.x, v.y);
+      if (Math.random() < dt * 2.2) this.smoke(v.x, v.y, rand(1, 2));
+    }
   }
 
   /** Muzzle flashes, fires and explosions. */
@@ -313,37 +486,19 @@ export class Combat {
     for (const p of this.particles) {
       if (p.kind === 'fire') L.point(p.x, p.y, p.size * 2.2, '#ff7a1f', Math.min(1, (p.life / p.max) * 0.7));
     }
+    for (const v of this.burning.keys()) L.point(v.x, v.y, 6, '#ff7a1f', 0.5);
   }
 
   drawDecals(ctx: CanvasRenderingContext2D) {
-    ctx.lineCap = 'round';
-    for (const d of this.decals) {
-      const fade = Math.min(1, (d.kind === 'skid' ? 25 : 60) - d.age);
-      if (d.kind === 'skid') {
-        ctx.strokeStyle = `rgba(15,15,15,${0.4 * fade})`;
-        ctx.lineWidth = d.size;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x2!, d.y2!);
-        ctx.stroke();
-        ctx.strokeStyle = `rgba(15,15,15,${0.18 * fade})`;
-        ctx.lineWidth = d.size * 2.4;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x2!, d.y2!);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = d.kind === 'blood' ? `rgba(110,0,0,${0.68 * fade})` : `rgba(12,10,9,${0.58 * fade})`;
-        drawBlob(ctx, d.x, d.y, d.size, d.shape);
-      }
-    }
+    const v = this.game.view();
+    this.decals.draw(ctx, v.x0, v.y0, v.x1, v.y1);
   }
 
   drawParticles(ctx: CanvasRenderingContext2D, top: boolean) {
     // normal (non-additive) particles first
     for (const p of this.particles) {
-      if (p.top !== top || p.kind === 'fire') continue;
-      ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 1.5));
+      if (p.top !== top || p.kind === 'fire' || p.kind === 'smoke') continue;
+      ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 1.5)) * p.alphaMax;
       if (p.kind === 'spark') {
         ctx.strokeStyle = p.color;
         ctx.lineWidth = p.size * 0.5;
@@ -351,12 +506,13 @@ export class Combat {
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03);
         ctx.stroke();
-      } else if (p.kind === 'debris') {
+      } else if (p.kind === 'debris' || p.kind === 'chunk' || p.kind === 'glass' || p.kind === 'shell') {
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot ?? 0);
         ctx.fillStyle = p.color;
-        ctx.fillRect(-p.size, -p.size * 0.6, p.size * 2, p.size * 1.2);
+        const w = p.kind === 'shell' ? p.size * 0.5 : p.size;
+        ctx.fillRect(-p.size, -w * 0.6, p.size * 2, w * 1.2);
         ctx.restore();
       } else if (p.kind === 'muzzle') {
         ctx.save();
@@ -387,16 +543,22 @@ export class Combat {
         ctx.fill();
       }
     }
-    // fire: additive glow, restored afterwards
+    // soft sprites: smoke (normal blend) then fire (additive glow)
+    for (const p of this.particles) {
+      if (p.top !== top || p.kind !== 'smoke') continue;
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.max)) * p.alphaMax;
+      const spr = softSprite(p.color);
+      const d = p.size * 4;
+      ctx.drawImage(spr, p.x - d / 2, p.y - d / 2, d, d);
+    }
     const prevOp = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = 'lighter';
     for (const p of this.particles) {
       if (p.top !== top || p.kind !== 'fire') continue;
-      ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 0.9));
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 0.9)) * p.alphaMax;
+      const spr = softSprite(fireRgb(p.color));
+      const d = Math.min(p.size, 2.4) * 2.6;
+      ctx.drawImage(spr, p.x - d / 2, p.y - d / 2, d, d);
     }
     ctx.globalCompositeOperation = prevOp;
     ctx.globalAlpha = 1;
@@ -438,6 +600,17 @@ function blobShape() {
 
 function pickFire() {
   return ['#ff6f00', '#ffa000', '#ffca28', '#e65100', '#ff3d00'][(Math.random() * 5) | 0];
+}
+
+const hexRgbCache = new Map<string, string>();
+/** '#rrggbb' -> 'r,g,b' for building sprite cache keys/gradients */
+function fireRgb(hex: string) {
+  let v = hexRgbCache.get(hex);
+  if (v) return v;
+  const n = parseInt(hex.slice(1), 16);
+  v = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  hexRgbCache.set(hex, v);
+  return v;
 }
 
 /** ray AB vs circle, returns t in [0,1] of first hit or -1 */
