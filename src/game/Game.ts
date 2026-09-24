@@ -2,6 +2,8 @@ import { World } from '../world/World';
 import { Renderer, type View } from '../world/Renderer';
 import { Input } from './Input';
 import { AI } from './AI';
+import { Police } from './Police';
+import { drawProps } from '../entities/Props';
 import { Combat, WEAPONS } from './Combat';
 import { Audio } from '../audio/Audio';
 import { Ped, type WeaponId } from '../entities/Ped';
@@ -52,6 +54,7 @@ export class Game {
   input: Input;
   audio: Audio;
   ai!: AI;
+  police!: Police;
   combat: Combat;
   missions!: MissionManager;
   hud: Hud;
@@ -77,6 +80,9 @@ export class Game {
   pickups: Pickup[] = [];
   wanted = 0;
   private unseen = 0;
+  /** last-known-position search circle while the police have lost sight of the player (see updateWanted); grows over time */
+  searchZone: { x: number; y: number; r: number } | null = null;
+  private lastSeenPos = { x: 0, y: 0 };
   playerShotCops = false;
   save: SaveData = { money: 0, done: [], found: [], cumils: [] };
   state: 'play' | 'wasted' | 'busted' = 'play';
@@ -123,9 +129,11 @@ export class Game {
     this.player = new Ped('player', start.x + 3, start.y + 3);
     this.peds.push(this.player);
     this.ai = new AI(this);
+    this.police = new Police(this);
     this.missions = new MissionManager(this);
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
+    this.lastSeenPos = { x: this.player.x, y: this.player.y };
     this.placePickups();
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -225,18 +233,22 @@ export class Game {
     const cd = this.crimeCooldown.get(kind) ?? 0;
     const copNear = (r: number) =>
       this.peds.some((p) => p.kind === 'cop' && !p.dead && dist(p.x, p.y, this.focus().x, this.focus().y) < r);
+    const f = this.focus();
     switch (kind) {
       case 'shoot':
+        this.police.danger(f.x, f.y, 20);
         if (copNear(45) && now > cd) this.raise(1, kind, 5);
         break;
       case 'killPed':
         this.raise(1, kind, 0.5);
         break;
       case 'killCop':
+        this.police.danger(f.x, f.y, 25);
         this.raise(2, kind, 0.5);
         this.playerShotCops = true;
         break;
       case 'shootCop':
+        this.police.danger(f.x, f.y, 22);
         this.playerShotCops = true;
         if (now > cd) this.raise(1, kind, 6);
         break;
@@ -250,6 +262,7 @@ export class Game {
         this.raise(2, kind, 1);
         break;
       case 'destroy':
+        this.police.danger(f.x, f.y, 18);
         if (now > cd) this.raise(0.6, kind, 3);
         break;
     }
@@ -313,8 +326,10 @@ export class Game {
       this.player.weapon = 'fist';
     }
     // clear police from the scene
+    this.police.clear();
     this.vehicles = this.vehicles.filter((v) => v.kind !== 'police' || v.isPlayer);
     this.peds = this.peds.filter((p) => p.kind !== 'cop' || p.vehicle);
+    this.searchZone = null;
     this.message(busted ? 'Policajná stanica' : 'Nemocnica', `${best?.n ?? ''}  −${formatMoney(fee)}`, 4, '#ffffff');
     this.state = 'play';
     this.persist();
@@ -412,6 +427,7 @@ export class Game {
     } else this.updatePlayer(dt);
 
     this.ai.update(dt);
+    this.police.update(dt);
     this.updateVehicles(dt);
     this.updateLevels();
     this.combat.update(dt);
@@ -483,6 +499,7 @@ export class Game {
         this.combat.fire(p, a, p.weapon);
         p.x = saved.x;
         p.y = saved.y;
+        this.police.danger(v.x, v.y, 16);
       }
       if (p.cooldown > 0) p.cooldown -= dt;
       return;
@@ -503,6 +520,7 @@ export class Game {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon !== 'fist') this.ammo[p.weapon]--;
       this.combat.fire(p, p.angle, p.weapon);
+      if (p.weapon !== 'fist') this.police.danger(p.x, p.y, 16);
     }
     // drowning
     if (this.world.inWater(p.x, p.y, p.level)) {
@@ -744,6 +762,8 @@ export class Game {
   private updateWanted(dt: number) {
     if (this.wanted <= 0) {
       this.audio.siren(0);
+      this.searchZone = null;
+      if (this.hud && 'searching' in this.hud) (this.hud as unknown as { searching: boolean }).searching = false;
       return;
     }
     const f = this.focus();
@@ -760,19 +780,28 @@ export class Game {
       nearest = Math.min(nearest, d);
       if (d < 40 && this.world.raycast(p.x, p.y, f.x, f.y) >= 1) seen = true;
     }
+    if (this.police.heli?.sees(this)) seen = true;
     this.audio.siren(clamp(1 - nearest / 120, 0, 1));
-    if (seen) this.unseen = 0;
-    else {
+    if (seen) {
+      this.unseen = 0;
+      this.lastSeenPos = { x: f.x, y: f.y };
+      this.searchZone = null;
+    } else {
       this.unseen += dt;
-      if (this.unseen > 9 + Math.ceil(this.wanted) * 1.5) {
+      if (!this.searchZone) this.searchZone = { x: this.lastSeenPos.x, y: this.lastSeenPos.y, r: 40 };
+      else this.searchZone.r = Math.min(120, this.searchZone.r + dt * 4);
+      const outsideZone = dist(f.x, f.y, this.searchZone.x, this.searchZone.y) > this.searchZone.r;
+      if (outsideZone && this.unseen > 9 + Math.ceil(this.wanted) * 1.5) {
         this.unseen = 0;
         this.wanted = Math.max(0, Math.ceil(this.wanted) - 1);
         if (this.wanted === 0) {
           this.playerShotCops = false;
+          this.searchZone = null;
           this.message('', 'Polícia ťa stratila z dohľadu.', 2, '#90caf9');
         }
       }
     }
+    if (this.hud && 'searching' in this.hud) (this.hud as unknown as { searching: boolean }).searching = !seen;
     // Slovnafta spray shop: repaint + repair + lose the cops
     const v = this.player.vehicle;
     if (this.sprayCooldown > 0) this.sprayCooldown -= dt;
@@ -886,12 +915,15 @@ export class Game {
       for (const veh of this.vehicles) if (veh.level === level && inView(veh.x, veh.y, 8)) veh.draw(ctx, this.time, atmos);
     };
     drawEntities(0);
+    drawProps(ctx, this.police.props, 0);
     this.renderer.drawBridges(ctx, v);
     drawEntities(1);
+    drawProps(ctx, this.police.props, 1);
 
     this.combat.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
+    this.police.heli?.draw(ctx, this, this.time);
 
     // lighting: ambient tint + emitted lights, multiplied over the world
     const L = this.light;
@@ -900,6 +932,7 @@ export class Game {
     for (const t of this.trams) t.emitLights(L, atmos);
     for (const veh of this.vehicles) if (inView(veh.x, veh.y, 30)) veh.emitLights(L, this.time, atmos);
     this.combat.emitLights(L);
+    this.police.heli?.emitLights(L, atmos, this);
     this.emitAtmosphereLights(L, atmos, inView);
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
 

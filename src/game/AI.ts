@@ -18,6 +18,9 @@ export interface Driver {
   /** pursuit progress tracking */
   best: number;
   noProgress: number;
+  /** police search pattern: a random point inside game.searchZone this cop is currently driving to */
+  searchTarget: { x: number; y: number } | null;
+  searchTimer: number;
 }
 
 const TRAFFIC_MIX: [VehicleKind, number][] = [
@@ -33,6 +36,7 @@ function weighted<T>(list: [T, number][]): T {
 }
 
 const laneOffset = (l: Link) => (l.edge.oneway ? 0 : Math.min(l.edge.width / 4, 1.9));
+const EMPTY_PEDS: Ped[] = [];
 
 export class AI {
   drivers = new Map<Vehicle, Driver>();
@@ -49,6 +53,8 @@ export class AI {
   private lodIds = new WeakMap<object, number>();
   private lodNextId = 1;
   private lodAcc = new WeakMap<object, number>();
+  /** cops (on foot) armed this frame, cached once per AI.update() for cheap ped-panic checks */
+  private armedCops: Ped[] = [];
 
   constructor(private game: Game) {
     // Police chase over every street and footway (cars fit through the Old Town),
@@ -98,12 +104,15 @@ export class AI {
       this.spawnTimer = 0.25;
       this.populate();
     }
+    const g = this.game;
+    this.armedCops = g.wanted >= 3 || g.playerShotCops ? g.peds.filter((p) => p.kind === 'cop' && !p.dead && !p.vehicle) : EMPTY_PEDS;
     for (const [v, d] of this.drivers) {
       if (v.wrecked || v.sinking || v.isPlayer || !v.driver || v.driver.dead) {
         if (d.mode !== 'parked') v.setControls(0, 0, true);
         continue;
       }
       if (d.mode === 'traffic') {
+        if (g.wanted > 0 && this.checkPanic(v, d, dt)) continue;
         const eff = this.lodDt(v, v.x, v.y, dt);
         if (eff !== null) this.drive(v, d, eff, false);
       } else if (d.mode === 'police') this.drivePolice(v, d, dt);
@@ -185,7 +194,7 @@ export class AI {
     v.driver = driver;
     this.game.vehicles.push(v);
     this.game.peds.push(driver);
-    const d: Driver = { mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0 };
+    const d: Driver = { mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0, searchTarget: null, searchTimer: 0 };
     this.drivers.set(v, d);
     const sp = Math.min(link.edge.speed * 0.6, 9);
     v.vx = Math.cos(v.angle) * sp;
@@ -338,7 +347,7 @@ export class AI {
     }
     const tx = d.pts[d.idx * 2], ty = d.pts[d.idx * 2 + 1];
     const want = Math.atan2(ty - v.y, tx - v.x);
-    const diff = angleDiff(v.angle, want);
+    let diff = angleDiff(v.angle, want);
     // corner speed: look further ahead
     const j = Math.min(d.idx + 2, d.pts.length / 2 - 1);
     const ahead = Math.atan2(d.pts[j * 2 + 1] - ty, d.pts[j * 2] - tx);
@@ -347,6 +356,20 @@ export class AI {
     if (corner > 0.5) desired = Math.min(desired, chase ? 12 : 6);
     if (Math.abs(diff) > 0.9) desired = Math.min(desired, 4);
     if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5);
+
+    // civilian traffic reacts to nearby gunfire/explosions and to a siren closing in from behind
+    if (!chase && g.wanted > 0) {
+      const danger = g.police.nearestDanger(v.x, v.y, 22);
+      if (danger) {
+        desired = Math.min(v.spec.maxSpeed * 0.85, Math.max(desired, desired * 1.8 + 4));
+        const away = Math.atan2(v.y - danger.y, v.x - danger.x);
+        diff += angleDiff(v.angle, away) * 0.2;
+        if (Math.random() < dt * 1.5) v.horn = 0.5;
+      } else if (this.sirenBehind(v)) {
+        desired *= 0.35;
+        diff += 0.25;
+      }
+    }
 
     // police in pursuit shove through traffic instead of queueing
     const obstacle = chase ? null : this.obstacleAhead(v, 4 + Math.abs(v.fwdSpeed) * 1.1, false);
@@ -357,7 +380,38 @@ export class AI {
     this.steerTo(v, d, diff, desired, dt, obstacle !== null);
   }
 
-  private steerTo(v: Vehicle, d: Driver, diff: number, desired: number, dt: number, waiting: boolean) {
+  /** is a siren-on police car (not the player) closing in from behind this traffic car? */
+  private sirenBehind(v: Vehicle): boolean {
+    for (const o of this.game.vehicles) {
+      if (o === v || o.kind !== 'police' || !o.siren || o.isPlayer) continue;
+      const dx = o.x - v.x, dy = o.y - v.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 256) continue;
+      const behind = -(dx * Math.cos(v.angle) + dy * Math.sin(v.angle));
+      if (behind > 1.5) return true;
+    }
+    return false;
+  }
+
+  /** civilian traffic very close to gunfire/an explosion sometimes bails out and flees on foot */
+  private checkPanic(v: Vehicle, d: Driver, dt: number): boolean {
+    if (v.kind === 'police' || !v.driver || v.driver === this.game.player) return false;
+    const danger = this.game.police.nearestDanger(v.x, v.y, 9);
+    if (!danger || Math.random() > dt * 3) return false;
+    const g = this.game;
+    const drv = v.driver;
+    drv.vehicle = null;
+    v.driver = null;
+    drv.x = v.x - Math.sin(v.angle) * 1.6;
+    drv.y = v.y + Math.cos(v.angle) * 1.6;
+    g.combat.scare(drv, danger.x, danger.y);
+    this.drivers.delete(v);
+    v.setControls(0, 0, true);
+    void d;
+    return true;
+  }
+
+  private steerTo(v: Vehicle, d: Driver, diff: number, desired: number, dt: number, waiting: boolean, boost = false) {
     const sp = v.fwdSpeed;
     if (d.reverse > 0) {
       d.reverse -= dt;
@@ -366,7 +420,7 @@ export class AI {
     }
     let throttle = desired > sp + 0.5 ? 1 : desired < sp - 1.5 ? -1 : desired < 0.5 ? -0.3 : 0.15;
     if (desired > sp + 0.5 && desired - sp < 3) throttle = 0.5;
-    v.setControls(throttle, clamp(diff * 2.2, -1, 1), false);
+    v.setControls(throttle, clamp(diff * 2.2, -1, 1), false, boost);
     if (!waiting && desired > 2 && Math.abs(sp) < 0.6) d.stuck += dt;
     else d.stuck = Math.max(0, d.stuck - dt);
     if (d.stuck > 1.6) {
@@ -418,8 +472,16 @@ export class AI {
     const n = pick(nodes);
     if (this.onScreen(this.policeGraph.nx(n), this.policeGraph.ny(n), 10)) return;
     const link = pick(pg.out[n].filter((l) => l.edge.cls <= 6));
-    const v = this.spawnOnLink('police', link, 'police');
-    if (v) v.siren = true;
+    const swat = stars >= 5 && Math.random() < 0.4;
+    const v = this.spawnOnLink(swat ? 'van' : 'police', link, 'police');
+    if (v) {
+      v.siren = true;
+      if (swat) {
+        v.color = '#1b1f2a';
+        g.police.swat.add(v);
+        if (v.driver) v.driver.outfit = 'swat';
+      }
+    }
   }
 
   private drivePolice(v: Vehicle, d: Driver, dt: number) {
@@ -428,31 +490,62 @@ export class AI {
       // back to normal patrol
       v.siren = false;
       d.route = [];
+      d.searchTarget = null;
       this.drive(v, d, dt, false);
       return;
     }
     v.siren = true;
-    const target = g.focus();
-    const dd = dist(v.x, v.y, target.x, target.y);
+    const real = g.focus();
+    const dd = dist(v.x, v.y, real.x, real.y);
     // a cop that stops closing in while off-screen is recycled by the spawner
     if (dd < d.best - 5) (d.best = dd), (d.noProgress = 0);
     else if ((d.noProgress += dt) > 10 && !this.onScreen(v.x, v.y, 20)) {
       this.retire.add(v);
       return;
     }
-    const los = dd < 55 && g.world.raycast(v.x, v.y, target.x, target.y) >= 1;
+    const los = dd < 55 && g.world.raycast(v.x, v.y, real.x, real.y) >= 1;
+    // no direct sight, and nobody else has either: hunt the last-known-position search zone
+    // instead of homing straight in, so a driver who breaks line of sight can actually lose them
+    const zone = g.searchZone;
+    const searching = !los && !!zone;
+    let target = real;
+    if (searching) {
+      if (!d.searchTarget || d.searchTimer <= 0 || dist(v.x, v.y, d.searchTarget.x, d.searchTarget.y) < 10) {
+        const a = Math.random() * Math.PI * 2, r = Math.random() * zone!.r;
+        d.searchTarget = { x: zone!.x + Math.cos(a) * r, y: zone!.y + Math.sin(a) * r };
+        d.searchTimer = rand(6, 11);
+      }
+      d.searchTimer -= dt;
+      target = d.searchTarget;
+    } else d.searchTarget = null;
+
     // end of the route (target is off-network): go straight for the suspect
-    const close = !d.route.length && dd < 70 && d.idx * 2 >= d.pts.length - 2;
+    const close = !searching && !d.route.length && dd < 70 && d.idx * 2 >= d.pts.length - 2;
     if (los || close) {
       d.direct = true;
-      const want = Math.atan2(target.y - v.y, target.x - v.x);
+      const stars = Math.ceil(g.wanted - 0.01);
+      const playerVeh = g.player.vehicle;
+      const swat = g.police.swat.has(v);
+      let aimX = target.x, aimY = target.y;
+      // 2+ stars, in a car chase, close behind/beside: aim the rear quarter to ram/PIT instead of nose-first
+      if (playerVeh && stars >= 2 && dd < (swat ? 30 : 22)) {
+        const hAngle = Math.hypot(playerVeh.vx, playerVeh.vy) > 1 ? Math.atan2(playerVeh.vy, playerVeh.vx) : playerVeh.angle;
+        const hx = Math.cos(hAngle), hy = Math.sin(hAngle);
+        const px = -hy, py = hx;
+        const side = (v.x - target.x) * px + (v.y - target.y) * py >= 0 ? 1 : -1;
+        const back = swat ? 1 : 1.5, lat = swat ? 1.2 : 1.8;
+        aimX = target.x - hx * back + px * side * lat;
+        aimY = target.y - hy * back + py * side * lat;
+      }
+      const want = Math.atan2(aimY - v.y, aimX - v.x);
       const diff = angleDiff(v.angle, want);
-      const onFoot = !g.player.vehicle;
+      const onFoot = !playerVeh;
       let desired = onFoot ? Math.min(20, (dd - 7) * 1.4) : 30;
       if (Math.abs(diff) > 1.2) desired = Math.min(desired, 8);
-      this.steerTo(v, d, diff, desired, dt, false);
+      const boost = !onFoot && stars >= 2 && dd < 35;
+      this.steerTo(v, d, diff, desired, dt, false, boost);
       // cops get out when the suspect is on foot nearby (or car stopped)
-      if (dd < 14 && (onFoot || g.player.vehicle!.speed < 2) && Math.abs(v.fwdSpeed) < 3) this.copsExit(v);
+      if (dd < 14 && (onFoot || playerVeh!.speed < 2) && Math.abs(v.fwdSpeed) < 3) this.copsExit(v);
       return;
     }
     if (d.direct) {
@@ -528,6 +621,12 @@ export class AI {
       }
       return;
     }
+    // civilians near an armed cop put their hands up
+    if (p.kind === 'civ') {
+      let near = false;
+      for (const c of this.armedCops) if (dist(p.x, p.y, c.x, c.y) < 6) { near = true; break; }
+      if (near !== p.handsUp) p.handsUp = near;
+    }
     // walking groups: follow the leader at a fixed offset instead of navigating independently
     const fo = this.followers.get(p);
     if (fo && p.state === 'walk') {
@@ -559,6 +658,19 @@ export class AI {
       const dx = p.x - p.fleeFrom.x, dy = p.y - p.fleeFrom.y;
       const l = Math.hypot(dx, dy) || 1;
       p.move(dt, g.world, (dx / l) * 4.6, (dy / l) * 4.6);
+      // panic cascade: scare nearby civilians too, with a cooldown so it doesn't loop forever
+      if (p.kind === 'civ' && p.cooldown <= 0) {
+        p.cooldown = 1.2;
+        let spread = false;
+        for (const q of g.peds) {
+          if (q === p || q.kind !== 'civ' || q.dead || q.vehicle || q.state === 'flee') continue;
+          if (dist(p.x, p.y, q.x, q.y) < 8) {
+            g.combat.scare(q, p.fleeFrom.x, p.fleeFrom.y);
+            spread = true;
+          }
+        }
+        if (spread && Math.random() < 0.3) g.audio.scream();
+      }
       if (p.timer <= 0) {
         p.state = 'walk';
         const n = g.world.ped.nearest(p.x, p.y, 80);
