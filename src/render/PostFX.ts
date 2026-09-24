@@ -46,7 +46,8 @@ uniform sampler2D uTex;
 uniform float uThreshold;
 uniform float uBoost;
 void main() {
-  vec3 c = texture2D(uTex, vUv).rgb;
+  // the canvas upload is stored top row first, so flip v to screen orientation
+  vec3 c = texture2D(uTex, vec2(vUv.x, 1.0 - vUv.y)).rgb;
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   float b = clamp((l - uThreshold) / max(1.0 - uThreshold, 0.001), 0.0, 4.0);
   gl_FragColor = vec4(c * b * uBoost, 1.0);
@@ -90,6 +91,10 @@ uniform vec3 uLift, uGamma, uGain;
 uniform float uSaturation;
 uniform float uVignette;
 
+// the world canvas is uploaded top row first (no UNPACK_FLIP_Y, which can cost an
+// extra copy on some browsers), so every read of it flips v back to screen space
+#define SRC(p) texture2D(uTex, vec2((p).x, 1.0 - (p).y))
+
 vec2 applyShock(vec2 uv, vec4 s) {
   if (s.w <= 0.0) return uv;
   vec2 d = uv - s.xy;
@@ -120,18 +125,18 @@ void main() {
     const int N = 6;
     for (int i = 0; i < N; i++) {
       float t = float(i) / float(N - 1);
-      sum += texture2D(uTex, uv + toC * uSpeed * 0.16 * t).rgb;
+      sum += SRC(uv + toC * uSpeed * 0.16 * t).rgb;
     }
     base = sum / float(N);
   } else {
-    base = texture2D(uTex, uv).rgb;
+    base = SRC(uv).rgb;
   }
 
   if (uSharpen > 0.001) {
-    vec3 n = texture2D(uTex, uv + vec2(0.0, uTexel.y)).rgb;
-    vec3 s = texture2D(uTex, uv - vec2(0.0, uTexel.y)).rgb;
-    vec3 e = texture2D(uTex, uv + vec2(uTexel.x, 0.0)).rgb;
-    vec3 w = texture2D(uTex, uv - vec2(uTexel.x, 0.0)).rgb;
+    vec3 n = SRC(uv + vec2(0.0, uTexel.y)).rgb;
+    vec3 s = SRC(uv - vec2(0.0, uTexel.y)).rgb;
+    vec3 e = SRC(uv + vec2(uTexel.x, 0.0)).rgb;
+    vec3 w = SRC(uv - vec2(uTexel.x, 0.0)).rgb;
     base += (base - (n + s + e + w) * 0.25) * uSharpen;
   }
 
@@ -139,8 +144,8 @@ void main() {
   if (uAberration > 0.001) {
     vec2 dir = length(toC) > 0.0001 ? normalize(-toC) : vec2(0.0);
     float amt = uAberration * 0.006;
-    col.r = texture2D(uTex, uv + dir * amt).r;
-    col.b = texture2D(uTex, uv - dir * amt).b;
+    col.r = SRC(uv + dir * amt).r;
+    col.b = SRC(uv - dir * amt).b;
   }
 
   vec3 bloom = texture2D(uBloom0, uv).rgb * uBloomW0
@@ -246,6 +251,10 @@ export class PostFX {
   private slowmoCur = 0;
   private slowmoTarget = 0;
   private lastT = -1;
+  private visible: boolean | null = null;
+  /** size the source texture's storage was allocated at; per-frame uploads reuse it via texSubImage2D */
+  private srcW = 0;
+  private srcH = 0;
 
   constructor(canvas: HTMLCanvasElement, worldCanvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -269,6 +278,10 @@ export class PostFX {
   }
 
   private setVisible(on: boolean) {
+    // called every frame: only touch style when it actually flips (a style write
+    // each frame dirties style recalc even when the value is unchanged in some browsers)
+    if (this.visible === on) return;
+    this.visible = on;
     this.canvas.style.opacity = on ? '1' : '0';
     this.worldCanvas.style.opacity = on ? '0' : '1';
   }
@@ -335,6 +348,13 @@ export class PostFX {
   }
 
   private buildLevels() {
+    const gl = this.gl!;
+    // (re)allocate the source texture's storage once per size, so each frame's upload
+    // is a texSubImage2D into existing storage rather than a full reallocation
+    gl.bindTexture(gl.TEXTURE_2D, this.sourceTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.w, this.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.srcW = this.w;
+    this.srcH = this.h;
     this.freeLevel(this.half);
     this.freeLevel(this.quarter);
     this.freeLevel(this.eighth);
@@ -392,7 +412,12 @@ export class PostFX {
 
     gl.bindTexture(gl.TEXTURE_2D, this.sourceTex);
     try {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, worldCanvas);
+      if (worldCanvas.width === this.srcW && worldCanvas.height === this.srcH) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, worldCanvas);
+      else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, worldCanvas);
+        this.srcW = worldCanvas.width;
+        this.srcH = worldCanvas.height;
+      }
     } catch {
       this.active = false;
       this.setVisible(false);
