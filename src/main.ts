@@ -3,6 +3,9 @@ import { Game } from './game/Game';
 import type { MapJSON } from './types';
 
 const $ = (id: string) => document.getElementById(id)!;
+const QUALITY_KEY = 'blava-city-quality';
+const QUALITY_LABEL: Record<Game['qualityPref'], string> = { auto: 'Auto', high: 'Vysoká', medium: 'Stredná', low: 'Nízka' };
+const QUALITY_CYCLE: Game['qualityPref'][] = ['auto', 'high', 'medium', 'low'];
 
 async function boot() {
   const canvas = $('game') as HTMLCanvasElement;
@@ -16,6 +19,29 @@ async function boot() {
   }
   const game = new Game(canvas, data);
   (window as unknown as { game: Game }).game = game;
+  try {
+    const saved = localStorage.getItem(QUALITY_KEY) as Game['qualityPref'] | null;
+    if (saved && QUALITY_CYCLE.includes(saved)) game.qualityPref = saved;
+  } catch {
+    /* ignore */
+  }
+  const btnQuality = document.getElementById('btn-quality') as HTMLButtonElement | null;
+  if (btnQuality) {
+    btnQuality.textContent = `Grafika: ${QUALITY_LABEL[game.qualityPref]}`;
+    btnQuality.onclick = () => {
+      const i = QUALITY_CYCLE.indexOf(game.qualityPref);
+      game.qualityPref = QUALITY_CYCLE[(i + 1) % QUALITY_CYCLE.length];
+      btnQuality.textContent = `Grafika: ${QUALITY_LABEL[game.qualityPref]}`;
+      try {
+        localStorage.setItem(QUALITY_KEY, game.qualityPref);
+      } catch {
+        /* ignore */
+      }
+    };
+  }
+  // canvas text (HUD/minimap) waits on the Google Fonts load before it looks right;
+  // a re-draw isn't needed since the loop redraws every frame regardless.
+  document.fonts?.ready?.catch(() => {});
   // attract mode (menu) doesn't call game.update, so atmos never ticks there.
   // For a first-time visitor (no save yet, so no meaningful saved clock) park
   // it at a nice golden hour for the background instead of the 9am default.
