@@ -85,7 +85,8 @@ export class Game {
   messages: Msg[] = [];
   radio = 0;
   radioText = { text: '', time: 0 };
-  density = { traffic: 20, parked: 14, peds: 42, trams: 3 };
+  /** base target counts; AI.effectiveDensity() scales these by quality and time of day */
+  density = { traffic: 45, parked: 32, peds: 120, trams: 5 };
   shake = 0;
   time = 0;
   lastPlayerCar: Vehicle | null = null;
@@ -408,6 +409,7 @@ export class Game {
 
     this.ai.update(dt);
     this.updateVehicles(dt);
+    this.updateLevels();
     this.combat.update(dt);
     this.updatePickups(dt);
     this.updateWanted(dt);
@@ -499,7 +501,7 @@ export class Game {
       this.combat.fire(p, p.angle, p.weapon);
     }
     // drowning
-    if (this.world.inWater(p.x, p.y)) {
+    if (this.world.inWater(p.x, p.y, p.level)) {
       this.drown += dt;
       if (this.drown > 1.5) this.wasted();
     } else this.drown = 0;
@@ -557,12 +559,20 @@ export class Game {
     this.pedCollisions(dt);
   }
 
+  /** bridge-deck level (0 ground/underneath, 1 on top) for every ped, vehicle and tram */
+  private updateLevels() {
+    for (const p of this.peds) this.world.updateLevel(p);
+    for (const v of this.vehicles) this.world.updateLevel(v);
+    for (const t of this.trams) this.world.updateLevel(t);
+  }
+
   private vehicleCollisions() {
     const vs = this.vehicles;
     for (let i = 0; i < vs.length; i++) {
       const a = vs[i];
       for (let j = i + 1; j < vs.length; j++) {
         const b = vs[j];
+        if (a.level !== b.level) continue;
         const rr = a.radius + b.radius;
         if (Math.abs(a.x - b.x) > rr || Math.abs(a.y - b.y) > rr) continue;
         let best: { nx: number; ny: number; depth: number } | null = null;
@@ -612,7 +622,7 @@ export class Game {
     // trams push cars out of the way
     for (const t of this.trams)
       for (const v of vs) {
-        if (Math.abs(v.x - t.x) > 40 || Math.abs(v.y - t.y) > 40) continue;
+        if (v.level !== t.level || Math.abs(v.x - t.x) > 40 || Math.abs(v.y - t.y) > 40) continue;
         const s = t.hits(v.x, v.y, v.spec.width / 2);
         if (!s) continue;
         const nx = -Math.sin(s.a), ny = Math.cos(s.a);
@@ -629,7 +639,7 @@ export class Game {
     for (const p of this.peds) {
       if (p.vehicle || p.dead) continue;
       for (const v of this.vehicles) {
-        if (Math.abs(v.x - p.x) > v.radius + 1 || Math.abs(v.y - p.y) > v.radius + 1) continue;
+        if (v.level !== p.level || Math.abs(v.x - p.x) > v.radius + 1 || Math.abs(v.y - p.y) > v.radius + 1) continue;
         const r = v.spec.width / 2 + p.r;
         for (let i = 0; i < v.circles.length; i++) {
           const [cx, cy] = v.circleAt(i);
@@ -660,7 +670,7 @@ export class Game {
         }
       }
       for (const t of this.trams) {
-        if (Math.abs(t.x - p.x) > 40 || Math.abs(t.y - p.y) > 40) continue;
+        if (t.level !== p.level || Math.abs(t.x - p.x) > 40 || Math.abs(t.y - p.y) > 40) continue;
         const s = t.hits(p.x, p.y, p.r);
         if (!s) continue;
         if (t.speed > 3) {
@@ -855,11 +865,17 @@ export class Game {
     this.drawPickups(ctx);
     this.combat.drawParticles(ctx, false);
 
+    // entities below any bridge deck, then the deck itself, then entities on top of it
     const inView = (x: number, y: number, r: number) => x > v.x0 - r && x < v.x1 + r && y > v.y0 - r && y < v.y1 + r;
-    for (const p of this.peds) if (p.dead && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
-    for (const p of this.peds) if (!p.dead && !p.vehicle && p !== this.player && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
-    for (const t of this.trams) if (inView(t.x, t.y, 35)) t.draw(ctx, atmos);
-    for (const veh of this.vehicles) if (inView(veh.x, veh.y, 8)) veh.draw(ctx, this.time, atmos);
+    const drawEntities = (level: 0 | 1) => {
+      for (const p of this.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
+      for (const p of this.peds) if (!p.dead && !p.vehicle && p !== this.player && p.level === level && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
+      for (const t of this.trams) if (t.level === level && inView(t.x, t.y, 35)) t.draw(ctx, atmos);
+      for (const veh of this.vehicles) if (veh.level === level && inView(veh.x, veh.y, 8)) veh.draw(ctx, this.time, atmos);
+    };
+    drawEntities(0);
+    this.renderer.drawBridges(ctx, v);
+    drawEntities(1);
 
     this.combat.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);

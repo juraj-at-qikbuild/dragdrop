@@ -29,6 +29,8 @@ export class Ped {
   skin: string;
   walkPhase = Math.random() * 10;
   vehicle: Vehicle | null = null;
+  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
+  level: 0 | 1 = 0;
   weapon: WeaponId = 'fist';
   cooldown = 0;
   timer = 0;

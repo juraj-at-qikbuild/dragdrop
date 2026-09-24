@@ -158,6 +158,11 @@ function hash01(a: number, b: number) {
   return ((h >>> 0) % 10000) / 10000;
 }
 
+/** true for a ground layer that belongs to a bridge deck (drawn in `drawBridges`, not `drawGround`) */
+function isBridgeLayer(key: string): boolean {
+  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1');
+}
+
 function signedArea(p: ArrayLike<number>): number {
   let a = 0;
   const n = p.length;
@@ -172,6 +177,8 @@ export class Renderer {
   private chunks: Chunk[] = [];
   private layers = new Map<string, Layer>();
   ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
+  /** bridge deck polylines, for the cast shadow + railings drawn by `drawBridges` */
+  private bridges: { p: Float32Array; hw: number; bbox: BBox }[] = [];
   private treeCount = 0;
   private sunKeyLast = NaN;
 
@@ -245,6 +252,7 @@ export class Renderer {
       if (bridge) {
         addPoly(this.path(c, `bc:${wq}`, { kind: 'stroke', color: '#2b2b2e', width: wq + 3 }, base + 1), r.p, false);
         addPoly(this.path(c, `br:${wq}`, { kind: 'stroke', color: '#8f8b84', width: wq + 1.6 }, base + 2), r.p, false);
+        this.bridges.push({ p: Float32Array.from(r.p), hw: r.w / 2, bbox: bboxOf(r.p, r.w / 2 + 1) });
       } else if (ROAD_CASING[r.c]) {
         addPoly(this.path(c, `c:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_CASING[r.c], width: wq + 1.6 }, base + 10 - r.c * 0.1), r.p, false);
       }
@@ -472,6 +480,7 @@ export class Renderer {
     ctx.lineJoin = 'round';
     const wantTex = detail && v.scale > 7.5; // patterns alias when scaled down further
     for (const [key, layer] of keys) {
+      if (isBridgeLayer(key)) continue; // drawn in drawBridges, after entities below the deck
       if (!detail && (key.startsWith('m') || key.startsWith('t:wire') || key.startsWith('z:'))) continue;
       const op = layer.op;
       const col = wantTex && op.tex ? op.tex : op.color;
@@ -495,7 +504,7 @@ export class Renderer {
     if (detail && wet > 0.02) {
       ctx.fillStyle = `rgba(8,12,24,${Math.min(0.4, wet * 0.35)})`;
       for (const [key] of keys) {
-        if (!key.startsWith('f')) continue;
+        if (!key.startsWith('f') || isBridgeLayer(key)) continue;
         for (const c of vis) {
           const p = c.layers.get(key);
           if (p) ctx.fill(p);
@@ -718,6 +727,80 @@ export class Renderer {
       }
     }
     return p;
+  }
+
+  /** Bridge decks: a soft cast shadow onto whatever is below, the deck surface itself
+   *  (casing/asphalt/lane markings/edge highlight, normally drawn in `drawGround`), then railings.
+   *  Called between the level-0 and level-1 entity passes so traffic below stays under the deck. */
+  drawBridges(ctx: CanvasRenderingContext2D, v: View) {
+    const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
+    const keys = [...this.layers.entries()].filter(([k]) => isBridgeLayer(k)).sort((a, b) => a[1].order - b[1].order);
+    if (!keys.length) return;
+
+    // cast shadow: the casing/deck outline offset by the sun direction, dark and translucent
+    const daylight = this.atmos.daylight;
+    if (daylight > 0.02) {
+      const sdx = this.atmos.sun.dx * 3.2, sdy = this.atmos.sun.dy * 3.2;
+      ctx.save();
+      ctx.translate(sdx, sdy);
+      ctx.globalAlpha = Math.min(0.4, 0.32 * daylight);
+      ctx.fillStyle = ctx.strokeStyle = '#0a0c14';
+      for (const [key, layer] of keys) {
+        if (!key.startsWith('bc:')) continue;
+        ctx.lineWidth = (layer.op as { width: number }).width + 1;
+        for (const c of vis) {
+          const p = c.layers.get(key);
+          if (p) ctx.stroke(p);
+        }
+      }
+      ctx.restore();
+    }
+
+    // deck surface
+    const wantTex = v.scale > 7.5;
+    for (const [key, layer] of keys) {
+      const op = layer.op;
+      const col = wantTex && op.tex ? op.tex : op.color;
+      if (op.kind === 'fill') ctx.fillStyle = col;
+      else {
+        ctx.strokeStyle = col;
+        ctx.lineWidth = op.width;
+        ctx.setLineDash(op.dash ?? []);
+      }
+      for (const c of vis) {
+        const p = c.layers.get(key);
+        if (!p) continue;
+        if (op.kind === 'fill') ctx.fill(p, 'evenodd');
+        else ctx.stroke(p);
+      }
+    }
+    ctx.setLineDash([]);
+    this.drawRailings(ctx, v);
+  }
+
+  /** Thin light railings with posts along both edges of every visible bridge deck. */
+  private drawRailings(ctx: CanvasRenderingContext2D, v: View) {
+    if (v.scale < 2.5) return;
+    ctx.save();
+    ctx.lineWidth = 0.1;
+    ctx.strokeStyle = 'rgba(225,225,220,0.8)';
+    for (const br of this.bridges) {
+      if (!bboxHit(br.bbox, v)) continue;
+      for (const side of [1, -1]) {
+        const off = offsetPolyline(br.p, br.hw * side + 0.25);
+        ctx.beginPath();
+        for (let i = 0; i < off.length; i += 2) (i === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, off[i], off[i + 1]);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(50,50,54,0.9)';
+        walkPolyline(br.p, 5, 0, (x, y, nx, ny) => {
+          const px = x + nx * (br.hw * side + 0.25), py = y + ny * (br.hw * side + 0.25);
+          ctx.beginPath();
+          ctx.arc(px, py, 0.09, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+    ctx.restore();
   }
 
   /** Street lamps, lit windows and neon ads. */

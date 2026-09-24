@@ -79,7 +79,7 @@ export class Combat {
     if (weapon === 'fist') {
       // melee: nearest ped in front
       for (const p of g.peds) {
-        if (p === shooter || p.dead || p.vehicle) continue;
+        if (p === shooter || p.dead || p.vehicle || p.level !== shooter.level) continue;
         const d = dist(p.x, p.y, shooter.x, shooter.y);
         if (d > w.range + p.r) continue;
         const a = Math.atan2(p.y - shooter.y, p.x - shooter.x);
@@ -100,12 +100,12 @@ export class Combat {
       let hitPed: Ped | null = null;
       let hitCar: Vehicle | null = null;
       for (const p of g.peds) {
-        if (p === shooter || p.dead || p.vehicle) continue;
+        if (p === shooter || p.dead || p.vehicle || p.level !== shooter.level) continue;
         const pt = rayCircle(sx, sy, ex, ey, p.x, p.y, p.r + 0.15);
         if (pt >= 0 && pt < t) (t = pt), (hitPed = p), (hitCar = null);
       }
       for (const v of g.vehicles) {
-        if (v === shooter.vehicle || v.wrecked) continue;
+        if (v === shooter.vehicle || v.wrecked || v.level !== shooter.level) continue;
         if (dist(v.x, v.y, sx, sy) > w.range + v.radius) continue;
         for (let c = 0; c < v.circles.length; c++) {
           const [cx, cy] = v.circleAt(c);

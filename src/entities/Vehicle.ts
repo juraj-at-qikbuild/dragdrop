@@ -58,6 +58,8 @@ export class Vehicle {
   wrecked = false;
   sinking = 0;
   driver: Ped | null = null;
+  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
+  level: 0 | 1 = 0;
   /** player-controlled? set by Game */
   isPlayer = false;
   siren = false;
@@ -150,7 +152,7 @@ export class Vehicle {
     const r = s.width / 2;
     for (let i = 0; i < this.circles.length; i++) {
       const [cx, cy] = this.circleAt(i);
-      const hit = world.collideCircle(cx, cy, r);
+      const hit = world.collideCircle(cx, cy, r, this.level);
       if (!hit) continue;
       this.x += hit.nx * hit.depth;
       this.y += hit.ny * hit.depth;
@@ -166,7 +168,7 @@ export class Vehicle {
     if (impact > 5) this.damage((impact - 4) * 2.2);
 
     // water
-    if (!this.sinking && world.inWater(this.x, this.y)) {
+    if (!this.sinking && world.inWater(this.x, this.y, this.level)) {
       this.sinking = 0.001;
       Combat.active?.splash(this.x, this.y);
     }

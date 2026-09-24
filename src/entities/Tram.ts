@@ -23,6 +23,8 @@ export class Tram {
   idx = 1;
   blocked = false;
   bell = 0;
+  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
+  level: 0 | 1 = 0;
   length = SECTIONS * (SEG + GAP);
   sections: { x: number; y: number; a: number }[] = [];
 

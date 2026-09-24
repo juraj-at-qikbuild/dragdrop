@@ -3,7 +3,7 @@ import { Vehicle, type VehicleKind } from '../entities/Vehicle';
 import { Ped } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
-import { angleDiff, clamp, dist, pick, rand } from '../util/math';
+import { angleDiff, bboxOf, clamp, dist, pick, rand } from '../util/math';
 
 export interface Driver {
   mode: 'traffic' | 'police' | 'parked' | 'idle';
@@ -21,7 +21,7 @@ export interface Driver {
 }
 
 const TRAFFIC_MIX: [VehicleKind, number][] = [
-  ['hatch', 30], ['sedan', 30], ['taxi', 8], ['van', 8], ['bus', 4], ['sport', 4], ['classic', 3],
+  ['hatch', 30], ['sedan', 30], ['taxi', 8], ['van', 8], ['bus', 6], ['sport', 4], ['classic', 3],
 ];
 const PARKED_MIX: [VehicleKind, number][] = [['hatch', 35], ['sedan', 35], ['van', 8], ['sport', 6], ['classic', 6], ['taxi', 5]];
 
@@ -40,6 +40,15 @@ export class AI {
   private spawnTimer = 0;
   private retire = new Set<Vehicle>();
   private warm = false;
+  /** walking groups: follower -> leader + fixed offset (WeakMap so despawned peds can be GC'd) */
+  private followers = new WeakMap<Ped, { leader: Ped; ox: number; oy: number }>();
+  /** pedestrian/landmark spawn hotspots, built lazily */
+  private hotspots: { x: number; y: number }[] | null = null;
+  /** AI LOD: per-frame counter + stable per-entity ids + accumulated skipped dt */
+  private frameCount = 0;
+  private lodIds = new WeakMap<object, number>();
+  private lodNextId = 1;
+  private lodAcc = new WeakMap<object, number>();
 
   constructor(private game: Game) {
     // Police chase over every street and footway (cars fit through the Old Town),
@@ -47,8 +56,43 @@ export class AI {
     this.policeGraph = new Graph(game.world.data.graph.ped, false, (e) => e.len * (e.cls <= 5 ? 1 : e.cls <= 7 ? 1.3 : e.cls === 8 ? 1.8 : 3));
   }
 
+  /** ~city-feel target counts: base density scaled by render quality and time of day. */
+  effectiveDensity() {
+    const g = this.game;
+    const q = g.quality === 0 ? 0.6 : 1;
+    const h = g.atmos.time;
+    const rush = (h >= 7 && h < 9) || (h >= 16 && h < 18);
+    const night = h >= 23 || h < 5;
+    const d = g.density;
+    return {
+      traffic: Math.round(d.traffic * q * (rush ? 1.3 : night ? 0.7 : 1)),
+      parked: Math.round(d.parked * q),
+      peds: Math.round(d.peds * q * (night ? 0.6 : 1)),
+      trams: Math.max(1, Math.round(d.trams * q)),
+    };
+  }
+
+  /** Entities far from the camera think less often; returns the dt to simulate with, or
+   *  null to skip this frame entirely (the skipped time is folded into the next update). */
+  private lodDt(o: object, x: number, y: number, dt: number): number | null {
+    const g = this.game;
+    const d = dist(x, y, g.cam.x, g.cam.y);
+    if (d < 150) return dt;
+    const period = d < 280 ? 2 : 3;
+    let id = this.lodIds.get(o);
+    if (id === undefined) (id = this.lodNextId++), this.lodIds.set(o, id);
+    const acc = (this.lodAcc.get(o) ?? 0) + dt;
+    if ((this.frameCount + id) % period !== 0) {
+      this.lodAcc.set(o, acc);
+      return null;
+    }
+    this.lodAcc.set(o, 0);
+    return acc;
+  }
+
   // ------------------------------------------------------------ spawning
   update(dt: number) {
+    this.frameCount++;
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = 0.25;
@@ -59,10 +103,19 @@ export class AI {
         if (d.mode !== 'parked') v.setControls(0, 0, true);
         continue;
       }
-      if (d.mode === 'traffic') this.drive(v, d, dt, false);
-      else if (d.mode === 'police') this.drivePolice(v, d, dt);
+      if (d.mode === 'traffic') {
+        const eff = this.lodDt(v, v.x, v.y, dt);
+        if (eff !== null) this.drive(v, d, eff, false);
+      } else if (d.mode === 'police') this.drivePolice(v, d, dt);
     }
-    for (const p of this.game.peds) this.updatePed(p, dt);
+    for (const p of this.game.peds) {
+      if (p === this.game.player || p.vehicle || p.dead || p.state === 'chase' || p.state === 'flee') {
+        this.updatePed(p, dt);
+        continue;
+      }
+      const eff = this.lodDt(p, p.x, p.y, dt);
+      if (eff !== null) this.updatePed(p, eff);
+    }
     for (const t of this.game.trams) this.updateTram(t, dt);
   }
 
@@ -100,11 +153,12 @@ export class AI {
     const traffic = g.vehicles.filter((v) => this.drivers.get(v)?.mode === 'traffic').length;
     const parked = g.vehicles.filter((v) => v.parked).length;
     const peds = g.peds.filter((p) => p.kind === 'civ' && !p.vehicle && !p.dead).length;
+    const density = this.effectiveDensity();
 
-    if (traffic < g.density.traffic) this.spawnTraffic(x, y, vr + 25, far);
-    if (parked < g.density.parked) this.spawnParked(x, y, vr + 10, far - 40);
-    if (peds < g.density.peds) this.spawnPed(x, y, vr + 5, 170);
-    if (g.trams.length < g.density.trams) this.spawnTram(x, y, vr + 40, far + 100);
+    if (traffic < density.traffic) this.spawnTraffic(x, y, vr + 25, far);
+    if (parked < density.parked) this.spawnParked(x, y, vr + 10, far - 40);
+    if (peds < density.peds) this.spawnPed(x, y, vr + 5, 170);
+    if (g.trams.length < density.trams) this.spawnTram(x, y, vr + 40, far + 100);
     this.policeSpawn(x, y, vr);
   }
 
@@ -157,12 +211,13 @@ export class AI {
     const { x, y } = this.game.focus();
     this.warm = true;
     const g = this.game;
+    const density = this.effectiveDensity();
     const count = (f: () => number, max: number, spawn: () => void) => {
-      for (let i = 0; i < 60 && f() < max; i++) spawn();
+      for (let i = 0; i < max + 40 && f() < max; i++) spawn();
     };
-    count(() => g.peds.filter((p) => p.kind === 'civ' && !p.vehicle).length, g.density.peds, () => this.spawnPed(x, y, 4, 150));
-    count(() => g.vehicles.filter((v) => v.parked).length, g.density.parked, () => this.spawnParked(x, y, 8, 200));
-    count(() => [...this.drivers.values()].filter((d) => d.mode === 'traffic').length, g.density.traffic, () => this.spawnTraffic(x, y, 20, 240));
+    count(() => g.peds.filter((p) => p.kind === 'civ' && !p.vehicle).length, density.peds, () => this.spawnPed(x, y, 4, 150));
+    count(() => g.vehicles.filter((v) => v.parked).length, density.parked, () => this.spawnParked(x, y, 8, 200));
+    count(() => [...this.drivers.values()].filter((d) => d.mode === 'traffic').length, density.traffic, () => this.spawnTraffic(x, y, 20, 240));
     this.warm = false;
   }
 
@@ -183,9 +238,31 @@ export class AI {
     this.game.vehicles.push(v);
   }
 
+  /** landmarks, shops and Old-Town squares: pedestrians spawn biased towards these. */
+  private getHotspots() {
+    if (this.hotspots) return this.hotspots;
+    const w = this.game.world;
+    const pts: { x: number; y: number }[] = [];
+    for (const l of w.landmarks.values()) pts.push({ x: l.x, y: l.y });
+    for (const p of w.pois('shop')) pts.push({ x: p.x, y: p.y });
+    for (const rings of w.data.areas.plaza) {
+      const bb = bboxOf(rings[0]);
+      pts.push({ x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 });
+    }
+    return (this.hotspots = pts);
+  }
+
   spawnPed(x: number, y: number, rMin: number, rMax: number) {
     const w = this.game.world;
-    const nodes = w.ped.nodesAround(x, y, rMin, rMax);
+    let cx = x, cy = y, rm = rMin, rM = rMax, hot = false;
+    if (Math.random() < 0.4) {
+      const spots = this.getHotspots().filter((h) => dist(h.x, h.y, x, y) < rMax + 45);
+      if (spots.length) {
+        const h = pick(spots);
+        (cx = h.x), (cy = h.y), (rm = 0), (rM = 30), (hot = true);
+      }
+    }
+    const nodes = w.ped.nodesAround(cx, cy, rm, rM);
     if (!nodes.length) return;
     const n = pick(nodes);
     const px = w.ped.nx(n), py = w.ped.ny(n);
@@ -193,6 +270,22 @@ export class AI {
     const p = new Ped('civ', px, py);
     this.startWalk(p, n);
     this.game.peds.push(p);
+    if (!hot) return;
+    // near a hotspot: sometimes a knot of people chatting, sometimes a small walking group
+    const r = Math.random();
+    if (r < 0.15) {
+      p.state = 'idle';
+      p.timer = rand(4, 10);
+      p.link = null;
+    } else if (r < 0.35) {
+      const size = 1 + ((Math.random() * 3) | 0);
+      for (let i = 0; i < size; i++) {
+        const a = Math.random() * Math.PI * 2, off = 0.5 + Math.random() * 0.7;
+        const f = new Ped('civ', px + Math.cos(a) * off, py + Math.sin(a) * off);
+        this.followers.set(f, { leader: p, ox: Math.cos(a) * off, oy: Math.sin(a) * off });
+        this.game.peds.push(f);
+      }
+    }
   }
 
   private spawnTram(x: number, y: number, rMin: number, rMax: number) {
@@ -426,11 +519,36 @@ export class AI {
     if (p === g.player || p.vehicle) return;
     if (p.dead) {
       p.deadTime += dt;
+      this.followers.delete(p);
       if (Math.hypot(p.vx, p.vy) > 0.05) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.vx *= 1 - dt * 4;
         p.vy *= 1 - dt * 4;
+      }
+      return;
+    }
+    // walking groups: follow the leader at a fixed offset instead of navigating independently
+    const fo = this.followers.get(p);
+    if (fo && p.state === 'walk') {
+      if (fo.leader.dead || fo.leader.vehicle) this.followers.delete(p);
+      else {
+        const tx = fo.leader.x + fo.ox, ty = fo.leader.y + fo.oy;
+        const d = dist(p.x, p.y, tx, ty) || 1e-3;
+        const sp = Math.min(fo.leader.speed * 1.15, d * 3);
+        p.move(dt, g.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp);
+        return;
+      }
+    }
+    // idle: standing still (chatting knot, or briefly waiting at a crossing)
+    if (p.state === 'idle') {
+      p.timer -= dt;
+      if (p.timer <= 0) {
+        p.state = 'walk';
+        if (!p.link) {
+          const n = g.world.ped.nearest(p.x, p.y, 60);
+          if (n >= 0) this.startWalk(p, n);
+        }
       }
       return;
     }
@@ -464,7 +582,13 @@ export class AI {
       p.idx++;
       if (p.idx * 2 >= p.pts.length) {
         const opts = g.world.ped.out[p.link.to].filter((l) => l.edge !== p.link!.edge);
-        this.setPedLink(p, opts.length ? pick(opts) : g.world.ped.out[p.link.to][0]);
+        const next = opts.length ? pick(opts) : g.world.ped.out[p.link.to][0];
+        // briefly wait before stepping onto a road crossing
+        if (next.edge.cls <= 6 && Math.random() < 0.3) {
+          p.state = 'idle';
+          p.timer = rand(0.4, 1.3);
+        }
+        this.setPedLink(p, next);
         if (Math.random() < 0.15) p.side = -p.side;
       }
       return;

@@ -44,6 +44,8 @@ export class World {
   private roadSegs: Float32Array;
   private roadGrid = new Map<number, number[]>();
   private water: { rings: Float32Array[]; bbox: BBox }[] = [];
+  /** deck-end points of bridge polylines (where a ramp meets the deck), flat [x,y,...] */
+  private bridgeEnds: Float32Array = new Float32Array(0);
 
   constructor(data: MapJSON) {
     this.data = data;
@@ -92,6 +94,14 @@ export class World {
     this.roadSegs = Float32Array.from(segs);
     for (let i = 0; i < this.roadSegs.length; i += 7) this.addToGrid(this.roadGrid, i, this.roadSegs, 12);
 
+    // bridge deck-end points: first/last vertex of every bridge polyline, where ramps meet the deck
+    const ends: number[] = [];
+    for (const r of data.roads) {
+      if (!r.b || r.p.length < 4) continue;
+      ends.push(r.p[0], r.p[1], r.p[r.p.length - 2], r.p[r.p.length - 1]);
+    }
+    this.bridgeEnds = Float32Array.from(ends);
+
     for (const w of data.areas.water) {
       const rings = w.map((r) => Float32Array.from(r));
       if (ringArea(rings[0]) < 4000) continue; // fountains are decoration only
@@ -139,8 +149,8 @@ export class World {
       }
   }
 
-  /** Push a circle out of walls. Returns the collision normal and depth (or null). */
-  collideCircle(x: number, y: number, r: number): { nx: number; ny: number; depth: number } | null {
+  /** Push a circle out of walls, and (with level 1) off a bridge deck's railings. Returns the collision normal and depth (or null). */
+  collideCircle(x: number, y: number, r: number, level?: 0 | 1): { nx: number; ny: number; depth: number } | null {
     let px = x, py = y, hit = false;
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
@@ -161,6 +171,14 @@ export class World {
         }
       });
       if (!moved) break;
+    }
+    if (level === 1) {
+      const rp = this.railPush(px, py, r);
+      if (rp) {
+        px += rp.nx * rp.depth;
+        py += rp.ny * rp.depth;
+        hit = true;
+      }
     }
     // world edge
     const b = this.bounds;
@@ -198,6 +216,50 @@ export class World {
     return best;
   }
 
+  /** Push a point back toward a bridge deck's centreline if it strays past the railing. */
+  private railPush(x: number, y: number, r: number): { nx: number; ny: number; depth: number } | null {
+    const c = this.roadGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (!c) return null;
+    const s = this.roadSegs;
+    let bestDepth = 0, bestNx = 0, bestNy = 0, hit = false;
+    for (const i of c) {
+      if (!s[i + 6]) continue;
+      const ax = s[i], ay = s[i + 1], bx = s[i + 2], by = s[i + 3], hw = s[i + 4];
+      const dx = bx - ax, dy = by - ay;
+      const l2 = dx * dx + dy * dy;
+      let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const cx = ax + dx * t, cy = ay + dy * t;
+      const ex = x - cx, ey = y - cy;
+      const d = Math.hypot(ex, ey) || 1e-4;
+      const limit = hw - r;
+      if (limit > 0 && d > limit) {
+        const depth = d - limit;
+        if (depth > bestDepth) (bestDepth = depth), (bestNx = -ex / d), (bestNy = -ey / d), (hit = true);
+      }
+    }
+    return hit ? { nx: bestNx, ny: bestNy, depth: bestDepth } : null;
+  }
+
+  /** Update an entity's bridge level: 0 on the ground/underneath, 1 on the deck.
+   *  Entering a bridge footprint from ground level only promotes to 1 near a deck end (a ramp); once on
+   *  a level the entity keeps it until it leaves the bridge footprint entirely. */
+  updateLevel(e: { x: number; y: number; level: 0 | 1 }) {
+    if (!this.onBridge(e.x, e.y)) {
+      e.level = 0;
+      return;
+    }
+    if (e.level === 0) {
+      const ends = this.bridgeEnds;
+      for (let i = 0; i < ends.length; i += 2) {
+        if ((ends[i] - e.x) ** 2 + (ends[i + 1] - e.y) ** 2 < 64) {
+          e.level = 1;
+          return;
+        }
+      }
+    }
+  }
+
   insideBuilding(x: number, y: number) {
     // cheap test: only buildings whose bbox contains the point
     const c = this.wallGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
@@ -209,10 +271,13 @@ export class World {
     return false;
   }
 
-  inWater(x: number, y: number) {
+  /** `level`: pass an entity's bridge level so someone underneath a deck (0) still drowns in the
+   *  water below it, while the default (omitted) keeps the bridge footprint dry, as before. */
+  inWater(x: number, y: number, level?: 0 | 1) {
     for (const w of this.water) {
       if (x < w.bbox.x0 || x > w.bbox.x1 || y < w.bbox.y0 || y > w.bbox.y1) continue;
-      if (pointInRings(x, y, w.rings) && !this.onBridge(x, y)) return true;
+      if (!pointInRings(x, y, w.rings)) continue;
+      if (level === 0 || !this.onBridge(x, y)) return true;
     }
     return false;
   }
