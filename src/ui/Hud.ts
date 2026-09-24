@@ -1,0 +1,223 @@
+import type { Game } from '../game/Game';
+import { WEAPONS } from '../game/Combat';
+import { formatMoney } from '../util/math';
+
+const FONT = '"Arial Black", "Helvetica Neue", Impact, sans-serif';
+
+export class Hud {
+  hurt = 0;
+  flashStars = 0;
+  private shownMoney = 0;
+
+  constructor(private g: Game) {
+    this.shownMoney = g.save.money;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const g = this.g;
+    const W = g.viewW, H = g.viewH;
+    const small = W < 700;
+    const dt = 1 / 60;
+    if (this.hurt > 0) {
+      ctx.fillStyle = `rgba(200,0,0,${this.hurt * 0.5})`;
+      ctx.fillRect(0, 0, W, H);
+      this.hurt -= dt;
+    }
+    this.shownMoney += (g.save.money - this.shownMoney) * 0.15;
+    if (Math.abs(g.save.money - this.shownMoney) < 1) this.shownMoney = g.save.money;
+
+    // money
+    const pad = small ? 10 : 18;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.font = `${small ? 22 : 30}px ${FONT}`;
+    outlined(ctx, formatMoney(this.shownMoney), W - pad, pad, '#8bdc6b');
+
+    // wanted stars
+    const stars = Math.ceil(g.wanted - 0.001);
+    const sy = pad + (small ? 30 : 40);
+    const flash = this.flashStars > 0 && Math.floor(g.time * 8) % 2 === 0;
+    if (this.flashStars > 0) this.flashStars -= dt;
+    for (let i = 0; i < 5; i++) {
+      const x = W - pad - 12 - (4 - i) * (small ? 22 : 28);
+      drawStar(ctx, x, sy + 12, small ? 9 : 12, i < stars ? (flash ? '#fff' : '#ffd600') : 'rgba(0,0,0,0.35)');
+    }
+
+    // health + weapon
+    const hy = sy + (small ? 32 : 40);
+    const bw = small ? 110 : 150;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W - pad - bw, hy, bw, 10);
+    ctx.fillStyle = g.player.health > 30 ? '#e53935' : Math.floor(g.time * 4) % 2 ? '#ff8a80' : '#b71c1c';
+    ctx.fillRect(W - pad - bw + 2, hy + 2, Math.max(0, (bw - 4) * g.player.health / 100), 6);
+    const w = g.player.weapon;
+    ctx.font = `${small ? 14 : 17}px ${FONT}`;
+    const ammo = w === 'fist' ? '' : `  ${g.ammo[w]}`;
+    outlined(ctx, WEAPONS[w].name + ammo, W - pad, hy + 16, '#fff');
+    const car = g.player.vehicle;
+    if (car) {
+      ctx.font = `${small ? 12 : 14}px ${FONT}`;
+      const kmh = Math.round(car.speed * 3.6);
+      outlined(ctx, `${car.spec.name}  ${kmh} km/h`, W - pad, hy + 38, '#b3e5fc');
+      const hp = Math.max(0, car.health / car.spec.health);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(W - pad - bw, hy + 58, bw, 6);
+      ctx.fillStyle = hp > 0.35 ? '#90caf9' : '#ff7043';
+      ctx.fillRect(W - pad - bw + 1, hy + 59, (bw - 2) * hp, 4);
+    }
+
+    // minimap
+    const mr = small ? 62 : 90;
+    g.mapView.drawMini(ctx, pad + mr, H - pad - mr, mr);
+
+    // street and district name
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    if (g.street.timer > 0 && g.street.name) {
+      ctx.globalAlpha = Math.min(1, g.street.timer);
+      ctx.font = `${small ? 16 : 22}px ${FONT}`;
+      outlined(ctx, g.street.name, W - pad, H - pad - (small ? 22 : 28), '#fff');
+      ctx.globalAlpha = 1;
+    }
+    ctx.font = `600 ${small ? 11 : 13}px system-ui, sans-serif`;
+    outlined(ctx, `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
+
+    // mission objective + timer
+    const m = g.missions;
+    if (m.active) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = `700 ${small ? 13 : 16}px system-ui, sans-serif`;
+      const t = m.text();
+      if (t) wrapOutlined(ctx, t, W / 2, pad + (small ? 44 : 8), Math.min(W * 0.55, 560), small ? 17 : 21, '#fff59d');
+      if (m.timeLeft > 0) {
+        ctx.font = `${small ? 20 : 26}px ${FONT}`;
+        const s = Math.ceil(m.timeLeft);
+        outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, W / 2, pad + (small ? 80 : 56), s < 20 ? '#ff5252' : '#fff');
+      }
+      // arrow toward the objective
+      const tgt = m.target();
+      if (tgt) this.drawArrow(ctx, tgt.x, tgt.y);
+    }
+
+    // messages (one at a time)
+    const msg = g.messages[0];
+    if (msg) {
+      const a = Math.min(1, msg.time * 2);
+      ctx.globalAlpha = a;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      let y = H * 0.28;
+      if (msg.title) {
+        ctx.font = `${small ? 24 : 38}px ${FONT}`;
+        outlined(ctx, msg.title, W / 2, y, msg.color);
+        y += small ? 30 : 42;
+      }
+      ctx.font = `700 ${small ? 14 : 18}px system-ui, sans-serif`;
+      wrapOutlined(ctx, msg.text, W / 2, y, Math.min(W * 0.8, 680), small ? 18 : 24, '#fff');
+      ctx.globalAlpha = 1;
+    }
+
+    // radio
+    if (g.radioText.time > 0) {
+      ctx.globalAlpha = Math.min(1, g.radioText.time);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.font = `700 ${small ? 12 : 15}px system-ui, sans-serif`;
+      wrapOutlined(ctx, g.radioText.text, W / 2, H - pad - (small ? 40 : 10), Math.min(W * 0.6, 700), 20, '#f8bbd0', true);
+      ctx.globalAlpha = 1;
+    }
+
+    // wasted / busted
+    if (g.state !== 'play') {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${small ? 44 : 84}px ${FONT}`;
+      outlined(ctx, g.state === 'busted' ? 'ZATKNUTÝ' : 'ZOŠROTOVANÝ', W / 2, H / 2, g.state === 'busted' ? '#448aff' : '#ff1744', 6);
+    }
+    if (g.paused) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  private drawArrow(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+    const g = this.g;
+    const f = g.focus();
+    const a = Math.atan2(ty - f.y, tx - f.x);
+    const d = Math.hypot(tx - f.x, ty - f.y);
+    const cx = g.viewW / 2 + (tx - g.cam.x) * g.cam.scale;
+    const cy = g.viewH / 2 + (ty - g.cam.y) * g.cam.scale;
+    const onScreen = cx > 40 && cx < g.viewW - 40 && cy > 40 && cy < g.viewH - 40;
+    ctx.save();
+    if (onScreen) {
+      ctx.translate(cx, cy - 26 + Math.sin(g.time * 5) * 5);
+      ctx.rotate(Math.PI / 2);
+    } else {
+      const r = Math.min(g.viewW, g.viewH) * 0.38;
+      ctx.translate(g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r);
+      ctx.rotate(a);
+    }
+    ctx.fillStyle = '#ffd600';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-10, -11);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-10, 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    if (!onScreen) {
+      const r = Math.min(g.viewW, g.viewH) * 0.38 - 28;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 12px system-ui, sans-serif';
+      outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, '#ffd600');
+    }
+  }
+}
+
+export function outlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, width = 4) {
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = width;
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function wrapOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, color: string, up = false) {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line) {
+      lines.push(line);
+      line = w;
+    } else line = t;
+  }
+  if (line) lines.push(line);
+  const y0 = up ? y - (lines.length - 1) * lh : y;
+  lines.forEach((l, i) => outlined(ctx, l, x, y0 + i * lh, color, 3.5));
+}
+
+function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}

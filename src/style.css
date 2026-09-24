@@ -1,0 +1,203 @@
+:root {
+  --red: #d7141a;
+  --gold: #ffd600;
+  --ink: #0e0f12;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: #fff;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+canvas {
+  display: block;
+  cursor: crosshair;
+}
+.hidden {
+  display: none !important;
+}
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 16px;
+}
+#loading {
+  background: var(--ink);
+  gap: 12px;
+}
+#menu {
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.75));
+}
+#pause {
+  background: rgba(0, 0, 0, 0.35);
+}
+.erb {
+  width: 84px;
+  height: auto;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.6));
+}
+.erb.spin {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    transform: scale(1.08);
+  }
+}
+.menu-card {
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: rgba(14, 15, 18, 0.82);
+  border: 2px solid rgba(255, 214, 0, 0.6);
+  border-radius: 14px;
+  padding: 22px 22px 14px;
+  text-align: center;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.menu-card.small {
+  width: min(320px, 100%);
+}
+h1 {
+  font-family: 'Arial Black', Impact, sans-serif;
+  font-size: clamp(38px, 9vw, 58px);
+  margin: 8px 0 0;
+  letter-spacing: 2px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 3px 3px 0 var(--red), 6px 6px 0 #000;
+  font-style: italic;
+}
+h1 span {
+  color: var(--gold);
+}
+h2 {
+  font-family: 'Arial Black', Impact, sans-serif;
+  margin: 0 0 12px;
+}
+.tagline {
+  margin: 10px 0 18px;
+  color: #cfd8dc;
+  font-style: italic;
+}
+.buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+button:active {
+  transform: scale(0.98);
+}
+button.primary {
+  background: var(--red);
+  border-color: #ff5252;
+}
+button.primary:hover {
+  background: #ef2a30;
+}
+.panel {
+  margin-top: 14px;
+  text-align: left;
+  font-size: 14px;
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.panel td {
+  padding: 3px 4px;
+  vertical-align: top;
+}
+.panel td:first-child {
+  color: var(--gold);
+  font-weight: 700;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+.panel a {
+  color: #80d8ff;
+}
+.hint {
+  margin: 8px 0 0;
+  color: #b0bec5;
+}
+.osm {
+  font-size: 11px;
+  color: #90a4ae;
+  margin: 14px 0 0;
+}
+#touch {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#stick {
+  position: absolute;
+  left: 24px;
+  bottom: 190px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  pointer-events: auto;
+}
+#knob {
+  position: absolute;
+  left: 40px;
+  top: 40px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+.tbtns {
+  position: absolute;
+  right: 16px;
+  bottom: 60px;
+  display: grid;
+  grid-template-columns: repeat(2, 64px);
+  gap: 10px;
+  pointer-events: auto;
+}
+.tbtns button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 26px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.35);
+}

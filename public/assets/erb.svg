@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240">
+  <!-- Original simplified drawing inspired by the Bratislava coat of arms:
+       a red shield with a silver three-towered city gate. -->
+  <path d="M10 10 H190 V130 C190 190 140 222 100 234 C60 222 10 190 10 130 Z" fill="#d7141a" stroke="#1a1a1a" stroke-width="6"/>
+  <g fill="#f4f4f4" stroke="#1a1a1a" stroke-width="3">
+    <rect x="35" y="112" width="130" height="80"/>
+    <rect x="35" y="72" width="36" height="120"/>
+    <rect x="129" y="72" width="36" height="120"/>
+    <rect x="80" y="52" width="40" height="80"/>
+  </g>
+  <g fill="#d7141a" stroke="#1a1a1a" stroke-width="3">
+    <path d="M31 74 L53 40 L75 74 Z"/>
+    <path d="M125 74 L147 40 L169 74 Z"/>
+    <path d="M76 54 L100 16 L124 54 Z"/>
+  </g>
+  <g fill="#f2c200" stroke="#1a1a1a" stroke-width="2">
+    <circle cx="53" cy="36" r="6"/>
+    <circle cx="147" cy="36" r="6"/>
+    <circle cx="100" cy="12" r="6"/>
+  </g>
+  <path d="M78 192 V160 A22 22 0 0 1 122 160 V192 Z" fill="#1a1a1a"/>
+  <g stroke="#f2c200" stroke-width="3">
+    <line x1="84" y1="150" x2="84" y2="172"/>
+    <line x1="93" y1="142" x2="93" y2="172"/>
+    <line x1="102" y1="140" x2="102" y2="172"/>
+    <line x1="111" y1="143" x2="111" y2="172"/>
+    <line x1="80" y1="158" x2="120" y2="158"/>
+    <line x1="80" y1="168" x2="120" y2="168"/>
+  </g>
+  <g fill="#1a1a1a">
+    <rect x="47" y="95" width="12" height="16" rx="6"/>
+    <rect x="141" y="95" width="12" height="16" rx="6"/>
+    <rect x="94" y="72" width="12" height="18" rx="6"/>
+  </g>
+</svg>
