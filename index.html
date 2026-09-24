@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="sk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Blava City</title>
+    <meta name="description" content="Top-down open-world crime game on the real streets of Bratislava, built from OpenStreetMap data." />
+    <link rel="icon" href="./assets/erb.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="loading" class="screen">
+      <img src="./assets/erb.svg" alt="" class="erb spin" />
+      <p id="loading-text">Načítavam Bratislavu…</p>
+    </div>
+
+    <div id="menu" class="screen hidden">
+      <div class="menu-card">
+        <img src="./assets/erb.svg" alt="" class="erb" />
+        <h1>BLAVA <span>CITY</span></h1>
+        <p class="tagline">Veľká krádež na brehu Dunaja</p>
+        <div class="buttons">
+          <button id="btn-continue" class="primary hidden">Pokračovať</button>
+          <button id="btn-new" class="primary">Nová hra</button>
+          <button id="btn-controls">Ovládanie</button>
+          <button id="btn-credits">O hre</button>
+        </div>
+        <div id="panel-controls" class="panel hidden">
+          <table>
+            <tr><td>WASD / šípky</td><td>chôdza / jazda</td></tr>
+            <tr><td>Myš</td><td>mierenie, ľavé tlačidlo = streľba</td></tr>
+            <tr><td>F / Enter</td><td>nastúpiť / vystúpiť (aj ukradnúť auto)</td></tr>
+            <tr><td>Medzerník</td><td>ručná brzda (v aute) · streľba (pešo)</td></tr>
+            <tr><td>Shift</td><td>beh</td></tr>
+            <tr><td>Q / 1-4</td><td>zmena zbrane</td></tr>
+            <tr><td>R</td><td>ďalšia rádiostanica</td></tr>
+            <tr><td>H</td><td>klaksón</td></tr>
+            <tr><td>M / Tab</td><td>mapa mesta</td></tr>
+            <tr><td>Esc / P</td><td>pauza</td></tr>
+          </table>
+          <p class="hint">☎ Žlté telefónne búdky spúšťajú misie. Hľadaj 10 skrytých Čumilov a objav pamiatky. Na čerpacích staniciach Slovnafta ti prestriekajú auto a zbavia ťa polície (€250).</p>
+        </div>
+        <div id="panel-credits" class="panel hidden">
+          <p>Každá ulica, budova, električková trať a most pochádzajú zo skutočných mapových dát Bratislavy.</p>
+          <p>Mapové dáta © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">prispievatelia OpenStreetMap</a>, licencia ODbL.</p>
+          <p>Všetky značky a reklamy v hre sú paródie (Kofolka, Slovnafta, Strieborný Bažant…). Akákoľvek podobnosť je čisto satirická.</p>
+          <p>Fan projekt inšpirovaný klasickými top-down akčnými hrami. Nie je spojený s Rockstar Games.</p>
+        </div>
+        <p class="osm">© OpenStreetMap contributors</p>
+      </div>
+    </div>
+
+    <div id="pause" class="screen hidden">
+      <div class="menu-card small">
+        <h2>PAUZA</h2>
+        <div class="buttons">
+          <button id="btn-resume" class="primary">Pokračovať</button>
+          <button id="btn-mute">Zvuk: zapnutý</button>
+          <button id="btn-quit">Hlavné menu</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="touch" class="hidden">
+      <div id="stick"><div id="knob"></div></div>
+      <div class="tbtns">
+        <button data-code="fire">🔫</button>
+        <button data-code="KeyF">🚗</button>
+        <button data-code="Space">✋</button>
+        <button data-code="KeyM">🗺️</button>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -1,11 +1,21 @@
 {
-  "name": "ww-dragdrop",
-  "version": "0.0.1",
+  "name": "gta-bratislava",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Top-down open-world crime game on the real streets of Bratislava (OpenStreetMap data).",
   "scripts": {
-    "build": "weweb build",
-    "serve": "weweb serve"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "fetch:osm": "node scripts/fetch-osm.mjs",
+    "build:map": "node scripts/fetch-osm.mjs && node scripts/build-map.mjs"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
   },
   "devDependencies": {
-    "@weweb/cli": "latest"
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
   }
 }
