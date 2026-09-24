@@ -15,6 +15,9 @@ export interface Driver {
   stuck: number;
   reverse: number;
   direct: boolean;
+  /** pursuit progress tracking */
+  best: number;
+  noProgress: number;
 }
 
 const TRAFFIC_MIX: [VehicleKind, number][] = [
@@ -35,9 +38,13 @@ export class AI {
   drivers = new Map<Vehicle, Driver>();
   policeGraph: Graph;
   private spawnTimer = 0;
+  private retire = new Set<Vehicle>();
+  private warm = false;
 
   constructor(private game: Game) {
-    this.policeGraph = new Graph(game.world.data.graph.car, false);
+    // Police chase over every street and footway (cars fit through the Old Town),
+    // preferring real roads.
+    this.policeGraph = new Graph(game.world.data.graph.ped, false, (e) => e.len * (e.cls <= 5 ? 1 : e.cls <= 7 ? 1.3 : e.cls === 8 ? 1.8 : 3));
   }
 
   // ------------------------------------------------------------ spawning
@@ -73,6 +80,12 @@ export class AI {
     // despawn
     g.vehicles = g.vehicles.filter((v) => {
       if (v.isPlayer || v.mission) return true;
+      if (this.retire.has(v)) {
+        this.retire.delete(v);
+        if (v.driver) g.peds = g.peds.filter((p) => p !== v.driver);
+        this.drivers.delete(v);
+        return false;
+      }
       const d = dist(v.x, v.y, x, y);
       const keep = d < far + 60 || (d < far + 200 && this.onScreen(v.x, v.y, 20));
       if (!keep) {
@@ -97,6 +110,7 @@ export class AI {
 
   onScreen(x: number, y: number, pad = 0) {
     const g = this.game;
+    if (this.warm) return false;
     const hw = g.viewW / 2 / g.cam.scale + pad, hh = g.viewH / 2 / g.cam.scale + pad;
     return Math.abs(x - g.cam.x) < hw && Math.abs(y - g.cam.y) < hh;
   }
@@ -107,8 +121,7 @@ export class AI {
     return true;
   }
 
-  spawnOnLink(kind: VehicleKind, link: Link, mode: Driver['mode'], graph = this.game.world.car) {
-    void graph;
+  spawnOnLink(kind: VehicleKind, link: Link, mode: Driver['mode']) {
     const pts = linkPoints(link, laneOffset(link));
     const x = pts[0], y = pts[1];
     if (!this.freeSpot(x, y, 4)) return null;
@@ -118,7 +131,7 @@ export class AI {
     v.driver = driver;
     this.game.vehicles.push(v);
     this.game.peds.push(driver);
-    const d: Driver = { mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false };
+    const d: Driver = { mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0 };
     this.drivers.set(v, d);
     const sp = Math.min(link.edge.speed * 0.6, 9);
     v.vx = Math.cos(v.angle) * sp;
@@ -137,6 +150,20 @@ export class AI {
     let kind = weighted(TRAFFIC_MIX);
     if (kind === 'bus' && link.edge.cls > 4) kind = 'sedan';
     this.spawnOnLink(kind, link, 'traffic');
+  }
+
+  /** Fill the surroundings immediately (game start / respawn), on-screen included. */
+  prewarm() {
+    const { x, y } = this.game.focus();
+    this.warm = true;
+    const g = this.game;
+    const count = (f: () => number, max: number, spawn: () => void) => {
+      for (let i = 0; i < 60 && f() < max; i++) spawn();
+    };
+    count(() => g.peds.filter((p) => p.kind === 'civ' && !p.vehicle).length, g.density.peds, () => this.spawnPed(x, y, 4, 150));
+    count(() => g.vehicles.filter((v) => v.parked).length, g.density.parked, () => this.spawnParked(x, y, 8, 200));
+    count(() => [...this.drivers.values()].filter((d) => d.mode === 'traffic').length, g.density.traffic, () => this.spawnTraffic(x, y, 20, 240));
+    this.warm = false;
   }
 
   private spawnParked(x: number, y: number, rMin: number, rMax: number) {
@@ -223,12 +250,13 @@ export class AI {
     const j = Math.min(d.idx + 2, d.pts.length / 2 - 1);
     const ahead = Math.atan2(d.pts[j * 2 + 1] - ty, d.pts[j * 2] - tx);
     const corner = Math.abs(angleDiff(v.angle, ahead));
-    let desired = (d.link?.edge.speed ?? 10) * (chase ? 1.6 : 0.75);
+    let desired = chase ? Math.max(10, (d.link?.edge.speed ?? 10) * 1.6) : (d.link?.edge.speed ?? 10) * 0.75;
     if (corner > 0.5) desired = Math.min(desired, chase ? 12 : 6);
     if (Math.abs(diff) > 0.9) desired = Math.min(desired, 4);
     if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5);
 
-    const obstacle = this.obstacleAhead(v, 4 + Math.abs(v.fwdSpeed) * 1.1, chase);
+    // police in pursuit shove through traffic instead of queueing
+    const obstacle = chase ? null : this.obstacleAhead(v, 4 + Math.abs(v.fwdSpeed) * 1.1, false);
     if (obstacle) {
       desired = 0;
       if (obstacle === 'player' && !chase && Math.random() < dt * 0.4) v.horn = 0.6;
@@ -248,13 +276,13 @@ export class AI {
     v.setControls(throttle, clamp(diff * 2.2, -1, 1), false);
     if (!waiting && desired > 2 && Math.abs(sp) < 0.6) d.stuck += dt;
     else d.stuck = Math.max(0, d.stuck - dt);
-    if (d.stuck > 2.2) {
+    if (d.stuck > 1.6) {
       d.stuck = 0;
-      d.reverse = 1.2;
+      d.reverse = 1.5;
     }
   }
 
-  private obstacleAhead(v: Vehicle, range: number, chase: boolean): 'player' | 'other' | null {
+  obstacleAhead(v: Vehicle, range: number, chase: boolean): 'player' | 'other' | null {
     const g = this.game;
     const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
     const front = v.spec.length / 2;
@@ -291,12 +319,13 @@ export class AI {
     const want = stars <= 0 ? 0 : [0, 2, 3, 5, 7, 9][stars];
     const cops = g.vehicles.filter((v) => this.drivers.get(v)?.mode === 'police' && v.driver && !v.driver.dead && !v.wrecked).length;
     if (cops >= want) return;
-    const nodes = this.policeGraph.nodesAround(x, y, vr + 30, vr + 140);
+    const pg = this.policeGraph;
+    const nodes = pg.nodesAround(x, y, vr + 25, vr + 90).filter((n) => pg.out[n].some((l) => l.edge.cls <= 6));
     if (!nodes.length) return;
     const n = pick(nodes);
     if (this.onScreen(this.policeGraph.nx(n), this.policeGraph.ny(n), 10)) return;
-    const link = pick(this.policeGraph.out[n]);
-    const v = this.spawnOnLink('police', link, 'police', this.policeGraph);
+    const link = pick(pg.out[n].filter((l) => l.edge.cls <= 6));
+    const v = this.spawnOnLink('police', link, 'police');
     if (v) v.siren = true;
   }
 
@@ -312,8 +341,16 @@ export class AI {
     v.siren = true;
     const target = g.focus();
     const dd = dist(v.x, v.y, target.x, target.y);
+    // a cop that stops closing in while off-screen is recycled by the spawner
+    if (dd < d.best - 5) (d.best = dd), (d.noProgress = 0);
+    else if ((d.noProgress += dt) > 10 && !this.onScreen(v.x, v.y, 20)) {
+      this.retire.add(v);
+      return;
+    }
     const los = dd < 55 && g.world.raycast(v.x, v.y, target.x, target.y) >= 1;
-    if (los) {
+    // end of the route (target is off-network): go straight for the suspect
+    const close = !d.route.length && dd < 70 && d.idx * 2 >= d.pts.length - 2;
+    if (los || close) {
       d.direct = true;
       const want = Math.atan2(target.y - v.y, target.x - v.x);
       const diff = angleDiff(v.angle, want);

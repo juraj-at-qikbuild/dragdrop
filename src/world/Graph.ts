@@ -22,15 +22,19 @@ export interface Link {
 }
 
 const CELL = 64;
+/** default speed (m/s) by road class when the data has none */
+const CLASS_SPEED = [22, 18, 14, 13, 12, 10, 6, 6, 5, 4, 3];
 
 /** Street network used for AI navigation (cars, trams, pedestrians). */
 export class Graph {
   nodes: Float32Array;
   edges: Edge[];
   out: Link[][];
+  /** path cost per edge id (defaults to length) */
+  cost: Float32Array;
   private grid = new Map<number, number[]>();
 
-  constructor(json: GraphJSON, directed: boolean) {
+  constructor(json: GraphJSON, directed: boolean, costFn?: (e: Edge) => number) {
     this.nodes = Float32Array.from(json.nodes);
     const n = this.nodes.length / 2;
     this.out = Array.from({ length: n }, () => []);
@@ -44,8 +48,9 @@ export class Graph {
       width: e.w,
       oneway: directed ? (e.o ?? 0) : 0,
       name: e.n ?? -1,
-      speed: e.s ?? 1.4,
+      speed: e.s ?? CLASS_SPEED[e.c] ?? 5,
     }));
+    this.cost = Float32Array.from(this.edges, (e) => (costFn ? costFn(e) : e.len));
     for (const e of this.edges) {
       if (e.oneway !== -1) this.out[e.a].push({ edge: e, fwd: true, to: e.b });
       if (e.oneway !== 1) this.out[e.b].push({ edge: e, fwd: false, to: e.a });
@@ -141,7 +146,7 @@ export class Graph {
       }
       if (cur === to) break;
       for (const link of this.out[cur]) {
-        const ng = g[cur] + link.edge.len;
+        const ng = g[cur] + this.cost[link.edge.id];
         if (ng < g[link.to]) {
           g[link.to] = ng;
           prev[link.to] = link;

@@ -44,6 +44,7 @@ async function boot() {
     $('menu').classList.add('hidden');
     game.cam.x = game.player.x;
     game.cam.y = game.player.y;
+    game.ai.prewarm();
     if (!game.save.done.length && !game.save.found.length)
       game.message('Vitaj v Bratislave', 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).', 7);
   };

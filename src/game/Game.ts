@@ -296,6 +296,7 @@ export class Game {
     this.persist();
     this.cam.x = pos.x;
     this.cam.y = pos.y;
+    this.ai.prewarm();
   }
 
   dropCash(x: number, y: number, amount: number) {
@@ -760,8 +761,8 @@ export class Game {
     const k = Math.min(1, dt * 5);
     this.cam.x = lerp(this.cam.x, tx, k);
     this.cam.y = lerp(this.cam.y, ty, k);
-    const base = Math.min(this.viewW, this.viewH) / 62;
-    const target = v ? base / (1 + v.speed / 26) : base;
+    const base = Math.min(this.viewW, this.viewH) / 46;
+    const target = v ? (base * 0.78) / (1 + v.speed / 24) : base;
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
   }
 
