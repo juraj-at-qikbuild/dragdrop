@@ -4,7 +4,7 @@ import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
 import { texture, animateWater, type TexKind } from './Textures';
-import { facadeTexture, groundTexture, type FacadeStyle } from './Facades';
+import { facadeTexture, groundTexture, facadeGlow, groundGlow, type FacadeStyle } from './Facades';
 
 const CHUNK = 128;
 
@@ -54,6 +54,10 @@ interface BGroup {
   /** baked facade/ground CanvasPatterns for this group's 3 variants, keyed by day/night
    *  so the per-edge draw loop never has to touch the Facades pattern cache itself */
   facadeCache?: { lit: boolean; upper: CanvasPattern[]; door: CanvasPattern[]; shop: CanvasPattern[] };
+  /** glow-only (transparent except lit windows) variants, redrawn after the light composite */
+  glowCache?: { upper: CanvasPattern[]; door: CanvasPattern[]; shop: CanvasPattern[] };
+  /** shop/brand signs on this group's walls */
+  signs: SignInfo[];
 }
 
 interface TreeSet {
@@ -63,13 +67,11 @@ interface TreeSet {
 }
 
 interface SignInfo {
-  chunk: Chunk;
   ax: number;
   ay: number;
   ux: number;
   uy: number;
   u0: number;
-  h: number;
   name: string;
   colors?: [string, string];
 }
@@ -83,6 +85,9 @@ interface Chunk {
   trees?: TreeSet;
   lamps?: number[];
   lampPath?: Path2D;
+  manholePath?: Path2D;
+  /** puddle shapes along roads; only filled at runtime when atmos.wet > 0.3 */
+  puddlePath?: Path2D;
 }
 
 export interface View {
@@ -193,7 +198,7 @@ function hash01(a: number, b: number) {
 
 /** true for a ground layer that belongs to a bridge deck (drawn in `drawBridges`, not `drawGround`) */
 function isBridgeLayer(key: string): boolean {
-  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1');
+  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1') || key.startsWith('kerb1');
 }
 
 function signedArea(p: ArrayLike<number>): number {
@@ -212,7 +217,6 @@ export class Renderer {
   ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
   /** bridge deck polylines, for the cast shadow + railings drawn by `drawBridges` */
   private bridges: { p: Float32Array; hw: number; bbox: BBox }[] = [];
-  signs: SignInfo[] = [];
   private treeCount = 0;
   private sunKeyLast = NaN;
   /** hard per-frame cap on facade edges drawn, so a dense Old Town view can't blow the frame budget */
@@ -306,6 +310,33 @@ export class Renderer {
       if (r.c <= 3 && r.w >= 9) {
         addPoly(this.path(c, `edge${bridge}`, { kind: 'stroke', color: 'rgba(240,236,220,0.7)', width: 0.14 }, base + 51), offsetPolyline(r.p, r.w / 2 - 0.4), false);
         addPoly(this.path(c, `edge${bridge}`, { kind: 'stroke', color: 'rgba(240,236,220,0.7)', width: 0.14 }, base + 51), offsetPolyline(r.p, -r.w / 2 + 0.4), false);
+        // kerb bevel: a darker line just outside the light edge line, so the road
+        // reads as raised/cambered at close zoom instead of a flat colour change
+        addPoly(this.path(c, `kerb${bridge}`, { kind: 'stroke', color: 'rgba(30,28,24,0.35)', width: 0.16 }, base + 50.5), offsetPolyline(r.p, r.w / 2 - 0.62), false);
+        addPoly(this.path(c, `kerb${bridge}`, { kind: 'stroke', color: 'rgba(30,28,24,0.35)', width: 0.16 }, base + 50.5), offsetPolyline(r.p, -r.w / 2 + 0.62), false);
+      }
+      // manholes and puddles scattered deterministically along paved car roads
+      if (!bridge && r.c <= 5 && r.w >= 7) {
+        walkPolyline(r.p, 19, hash01(r.p[0] | 0, r.p[1] | 0) * 19, (x, y, nx, ny) => {
+          const hs = hash01((x * 37) | 0, (y * 53) | 0);
+          if (hs < 0.14) {
+            const off = (hash01((x * 11) | 0, (y * 17) | 0) - 0.5) * (r.w - 2);
+            const mx = x + nx * off, my = y + ny * off;
+            const mc = this.chunkAt({ x0: mx, y0: my, x1: mx, y1: my }, map);
+            const mp = (mc.manholePath ??= new Path2D());
+            mp.moveTo(mx + 0.32, my);
+            mp.arc(mx, my, 0.32, 0, Math.PI * 2);
+          } else if (hs < 0.22) {
+            const off = (hash01((x * 19) | 0, (y * 23) | 0) - 0.5) * (r.w - 3);
+            const px_ = x + nx * off, py_ = y + ny * off;
+            const pc = this.chunkAt({ x0: px_, y0: py_, x1: px_, y1: py_ }, map);
+            const pp = (pc.puddlePath ??= new Path2D());
+            const rw = 0.9 + hash01((x * 29) | 0, (y * 31) | 0) * 1.6;
+            const angle = Math.atan2(-nx, ny) + hash01((x * 41) | 0, (y * 43) | 0) * 0.6; // roughly road-aligned
+            pp.moveTo(px_ + rw, py_);
+            pp.ellipse(px_, py_, rw, rw * 0.55, angle, 0, Math.PI * 2);
+          }
+        });
       }
     }
 
@@ -412,6 +443,7 @@ export class Renderer {
 
     // buildings grouped by chunk, height bin and colour
     const groups = new Map<Chunk, Map<string, BGroup>>();
+    const buildingGroup = new Map<Building, BGroup>();
     const oldTownAt = w.landmark('main');
     for (const b of w.buildings) {
       const c = this.chunkAt(b.bbox, map);
@@ -457,10 +489,12 @@ export class Renderer {
           rings: [],
           levels: Math.max(1, bin),
           facade,
+          signs: [],
         };
         gm.set(key, g);
         c.bgroups.push(g);
       }
+      buildingGroup.set(b, g);
       // pick a shopfront edge (longest, near a named street) for commercial-ish buildings
       let shopEdge = -1;
       if (facade && b.rings.length === 1 && b.area > 30 && (b.kind === 3 || (facade === 'oldtown' && hash01(b.seed, 9) < 0.35))) {
@@ -481,10 +515,10 @@ export class Renderer {
           if (!nearPoi) {
             const elen = Math.hypot(ring[shopEdge + 2] - ring[shopEdge], ring[shopEdge + 3] - ring[shopEdge + 1]) || 1;
             const [name, bg, fg] = GENERIC_SIGNS[(hash01(b.seed, 13) * GENERIC_SIGNS.length) | 0];
-            this.signs.push({
-              chunk: c, ax: ring[shopEdge], ay: ring[shopEdge + 1],
+            g.signs.push({
+              ax: ring[shopEdge], ay: ring[shopEdge + 1],
               ux: (ring[shopEdge + 2] - ring[shopEdge]) / elen, uy: (ring[shopEdge + 3] - ring[shopEdge + 1]) / elen,
-              u0: elen / 2, h: bin * 3.2, name, colors: [bg, fg],
+              u0: elen / 2, name, colors: [bg, fg],
             });
           }
         }
@@ -572,13 +606,14 @@ export class Renderer {
         }
       }
       if (!bestB || bestK < 0) continue;
+      const g = buildingGroup.get(bestB);
+      if (!g) continue;
       const ring = bestB.rings[0];
       const ax = ring[bestK], ay = ring[bestK + 1];
       const elen = Math.hypot(ring[bestK + 2] - ax, ring[bestK + 3] - ay) || 1;
-      const bin = bestB.kind === 4 ? 0.6 : Math.min(14, Math.round(bestB.levels));
-      this.signs.push({
-        chunk: this.chunkAt(bestB.bbox, map), ax, ay, ux: (ring[bestK + 2] - ax) / elen, uy: (ring[bestK + 3] - ay) / elen,
-        u0: elen / 2, h: Math.max(1, bin) * 3.2, name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
+      g.signs.push({
+        ax, ay, ux: (ring[bestK + 2] - ax) / elen, uy: (ring[bestK + 3] - ay) / elen,
+        u0: elen / 2, name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
       });
     }
   }
@@ -628,6 +663,104 @@ export class Renderer {
         }
       }
     }
+
+    // manholes: small dark discs baked once per chunk, cheap enough to always draw close up
+    if (wantTex) {
+      ctx.fillStyle = 'rgba(35,33,30,0.55)';
+      for (const c of vis) if (c.manholePath) ctx.fill(c.manholePath);
+    }
+    // puddles: baked shapes along roads, only shown once it's actually wet; reflect
+    // the sky (lighter) by day, or a faint warm glint (from streetlights) by night
+    if (detail && wet > 0.3) {
+      const night = this.atmos.night;
+      ctx.fillStyle = night > 0.3 ? `rgba(60,70,95,${Math.min(0.55, (wet - 0.3) * 0.8)})` : `rgba(200,215,225,${Math.min(0.4, (wet - 0.3) * 0.6)})`;
+      for (const c of vis) if (c.puddlePath) ctx.fill(c.puddlePath);
+      if (night > 0.3) {
+        ctx.fillStyle = `rgba(255,210,150,${Math.min(0.3, (wet - 0.3) * (night - 0.3) * 1.2)})`;
+        for (const c of vis) if (c.puddlePath) ctx.fill(c.puddlePath);
+      }
+    }
+
+    if (detail) this.drawWaterFx(ctx, v, vis);
+  }
+
+  /** Shimmer, sun glints, shoreline foam and (at night) wobbly lamp reflections on water. */
+  private drawWaterFx(ctx: CanvasRenderingContext2D, v: View, vis: Chunk[]) {
+    const waterVis = vis.filter((c) => c.layers.has('a:water'));
+    if (!waterVis.length) return;
+    const night = this.atmos.night;
+    const t = performance.now() / 1000;
+
+    // second ripple layer, drifting at its own speed/angle for a shimmering surface
+    if (v.scale > 4) {
+      ctx.fillStyle = texture('waterShimmer', 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.55;
+      for (const c of waterVis) ctx.fill(c.layers.get('a:water')!, 'evenodd');
+      ctx.globalAlpha = 1;
+    }
+
+    // shoreline foam: an animated dashed line lapping along the water's edge
+    if (v.scale > 4) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 0.3;
+      ctx.setLineDash([1, 1.6]);
+      ctx.lineDashOffset = -(t * 0.6) % 2.6;
+      for (const c of waterVis) {
+        const e = c.layers.get('a:water:edge');
+        if (e) ctx.stroke(e);
+      }
+      ctx.restore();
+    }
+
+    if (night < 0.35) {
+      // sun glints: small bright sparkles aligned with the sun direction, twinkling
+      const sunDir = this.atmos.sunDir;
+      const angle = Math.atan2(sunDir.y, sunDir.x);
+      ctx.fillStyle = 'rgba(255,252,225,0.9)';
+      for (const c of waterVis) {
+        const p = c.layers.get('a:water')!;
+        ctx.save();
+        ctx.clip(p, 'evenodd');
+        for (let i = 0; i < 6; i++) {
+          const hx = hash01((c.cx * 13 + i * 977) | 0, (c.cy * 7) | 0), hy = hash01((c.cy * 11 + i * 613) | 0, (c.cx * 5) | 0);
+          const gx = c.bbox.x0 + hx * (c.bbox.x1 - c.bbox.x0), gy = c.bbox.y0 + hy * (c.bbox.y1 - c.bbox.y0);
+          const twinkle = 0.5 + 0.5 * Math.sin(t * 3.2 + i * 11 + hx * 40);
+          if (twinkle < 0.35) continue;
+          ctx.globalAlpha = (twinkle - 0.35) * 1.1 * (1 - night * 2.5);
+          const s = 0.25 + hx * 0.35;
+          ctx.beginPath();
+          ctx.ellipse(gx, gy, s, s * 0.35, angle, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      // night: wobbly vertical reflections of nearby streetlamps/city lights on the water.
+      // lamps and water polygons don't share chunks often, so search a margin around
+      // each water chunk rather than just its own lamp list.
+      const margin = 30;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const wc of waterVis) {
+        const x0 = wc.bbox.x0 - margin, y0 = wc.bbox.y0 - margin, x1 = wc.bbox.x1 + margin, y1 = wc.bbox.y1 + margin;
+        for (const c of vis) {
+          if (!c.lamps || c.bbox.x1 < x0 || c.bbox.x0 > x1 || c.bbox.y1 < y0 || c.bbox.y0 > y1) continue;
+          for (let i = 0; i < c.lamps.length; i += 2) {
+            const lx = c.lamps[i], ly = c.lamps[i + 1];
+            if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue;
+            const wob = Math.sin(t * 1.4 + lx * 0.4) * 0.5;
+            const grad = ctx.createLinearGradient(lx, ly, lx + wob, ly + 8);
+            grad.addColorStop(0, `rgba(255,214,150,${0.4 * night})`);
+            grad.addColorStop(1, 'rgba(255,214,150,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(lx - 0.35, ly, 0.7, 8);
+          }
+        }
+      }
+      ctx.restore();
+    }
   }
 
   /** Fake-3D buildings: walls are extruded from the footprint towards the shifted roof. */
@@ -644,18 +777,26 @@ export class Renderer {
     vis.sort((a, b) => Math.hypot(b.cx - v.camX, b.cy - v.camY) - Math.hypot(a.cx - v.camX, a.cy - v.camY));
     ctx.lineJoin = 'miter';
     const sunDir = this.atmos.sunDir;
-    const wantWindows = v.scale > 6;
+    // cheap storey-lines/lit-dash fallback while zoomed out (e.g. driving) - lowered
+    // so moderate-speed driving still reads as a lit-up city, not flat slabs
+    const wantWindows = v.scale > 3;
     const night = this.atmos.night;
-    // buildings within this radius of the camera, and zoomed in enough, get real
-    // facade patterns (windows/doors/shopfronts); farther/zoomed-out ones keep the
-    // cheap flat Lambert-tone quads
+    // any wall on screen gets real facade patterns (windows/doors/shopfronts) once
+    // zoomed in enough to read them - no distance-from-camera cap, so a big building
+    // like Eurovea gets windows on the part of it that's actually on screen, not just
+    // near-camera chunks. Eligibility instead requires the chunk to actually intersect
+    // the true viewport `v` (not `vis`'s 60m-padded rect) - otherwise buildings just
+    // outside the frame would compete for the pixel budget below and starve the ones
+    // actually visible, since `vis` is sorted far-to-near and budget is spent in that
+    // order. Cost is further bounded per-edge (tiny projected edges stay flat).
     const facadeReady = v.scale > 6;
-    this.facadeBudget = 650;
+    this.facadeBudget = 200000; // px of on-screen wall-edge width, this frame
     for (const c of vis) {
+      const chunkOnScreen = bboxHit(c.bbox, v);
       for (const g of c.bgroups) {
         const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
         const px = Math.hypot(ox, oy) * v.scale;
-        const useFacade = facadeReady && g.facade && px > 14 && Math.hypot(c.cx - v.camX, c.cy - v.camY) < 70;
+        const useFacade = facadeReady && g.facade && px > 10 && chunkOnScreen && this.facadeBudget > 0;
         ctx.save();
         if (px > 0.6) {
           // wall-quad geometry only needs rebuilding when the (quantised) roof
@@ -700,8 +841,8 @@ export class Renderer {
             ctx.fill(buckets[k]);
           }
           if (useFacade) {
-            if (this.facadeBudget > 0) this.drawFacade(ctx, g, ox, oy, night, v.scale);
-          } else if (wantWindows && px > 14 && g.levels >= 2) {
+            this.drawFacade(ctx, g, ox, oy, night, v.scale);
+          } else if (wantWindows && px > 10 && g.levels >= 2) {
             // storey lines (and lit windows at night): the cached footprint outline
             // translated part-way up the wall; the roof drawn next hides the parts
             // that fall on the far side of the building
@@ -735,6 +876,7 @@ export class Renderer {
               ctx.restore();
             }
           }
+          if (facadeReady && g.signs.length) this.drawGroupSigns(ctx, g, ox, oy, v);
         }
         ctx.translate(ox, oy);
         ctx.fillStyle = v.scale > 7.5 && g.roofTex ? g.roofTex : g.roof;
@@ -775,19 +917,30 @@ export class Renderer {
       }
     }
     this.drawAds(ctx, v);
-    if (facadeReady) this.drawShopSigns(ctx, v);
   }
 
-  /** Small brand/shop sign boards on the ground-floor band, oriented along the wall. */
-  private drawShopSigns(ctx: CanvasRenderingContext2D, v: View) {
+  /** Small brand/shop sign boards, one wall-edge's worth of ground-floor band. Drawn
+   *  inline in the building pass (between that group's walls and its roof) so nearer
+   *  buildings drawn later still correctly overlap a farther one's sign, and so the
+   *  sign sits on the wall face rather than floating over the roof. Only the storey
+   *  a shop actually occupies (t in [0.5,0.85] of one level, up from the footprint
+   *  edge) is used, and only when that edge is the one actually facing the camera. */
+  private drawGroupSigns(ctx: CanvasRenderingContext2D, g: BGroup, ox: number, oy: number, v: View) {
+    const invLevels = 1 / g.levels;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const fs = 0.62;
     ctx.font = `800 ${fs}px system-ui, sans-serif`;
-    for (const s of this.signs) {
+    for (const s of g.signs) {
       if (s.ax < v.x0 - 20 || s.ax > v.x1 + 20 || s.ay < v.y0 - 20 || s.ay > v.y1 + 20) continue;
-      const [ox, oy] = this.roofOffset(s.chunk.cx, s.chunk.cy, s.h, v);
-      const px = s.ax + s.ux * s.u0 + ox * 0.34, py = s.ay + s.uy * s.u0 + oy * 0.34;
+      const ex = s.ux * s.u0 * 2, ey = s.uy * s.u0 * 2;
+      // visibility uses a roof offset computed at the edge's own position, not the
+      // group's chunk-centre one (ox,oy) - that coarser approximation can point the
+      // "wrong" way for an edge far from the chunk centre and hide every sign
+      const [eox, eoy] = this.roofOffset(s.ax + s.ux * s.u0, s.ay + s.uy * s.u0, g.h, v);
+      if (ex * eoy - ey * eox < 0) continue; // edge faces away from the camera: not visible, skip
+      const t = 0.55 + hash01((s.ax * 53) | 0, (s.ay * 97) | 0) * 0.3; // 0.55-0.85 up the ground floor
+      const px = s.ax + s.ux * s.u0 + ox * invLevels * t, py = s.ay + s.uy * s.u0 + oy * invLevels * t;
       let angle = Math.atan2(s.uy, s.ux);
       if (angle > Math.PI / 2) angle -= Math.PI;
       if (angle < -Math.PI / 2) angle += Math.PI;
@@ -827,6 +980,15 @@ export class Renderer {
         shop.push(groundTexture(style, g.wall, variant, lit, true));
       }
       g.facadeCache = { lit, upper, door, shop };
+      if (lit && !g.glowCache) {
+        const gu: CanvasPattern[] = [], gd: CanvasPattern[] = [], gs: CanvasPattern[] = [];
+        for (let variant = 0; variant < 3; variant++) {
+          gu.push(facadeGlow(style, g.wall, variant));
+          gd.push(groundGlow(style, g.wall, variant, false));
+          gs.push(groundGlow(style, g.wall, variant, true));
+        }
+        g.glowCache = { upper: gu, door: gd, shop: gs };
+      }
     }
     const { upper, door, shop: shopTex } = g.facadeCache;
     // one base transform captured up front; each edge overwrites the CTM directly
@@ -839,7 +1001,8 @@ export class Renderer {
         const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
         const ex = bx - ax, ey = by - ay;
         const elen = Math.hypot(ex, ey);
-        if (elen < 1.4 || elen * scale < 13) continue;
+        const epx = elen * scale;
+        if (elen < 1.4 || epx < 4) continue;
         let nx = ey / elen, ny = -ex / elen;
         if (rr.sign < 0) (nx = -nx), (ny = -ny);
         // back-facing edges (far side of the footprint from the camera) never read on screen
@@ -848,7 +1011,7 @@ export class Renderer {
         const seed = (ax * 131 + ay * 977) | 0;
         const variant = (hash01(seed, 4) * 3) | 0;
         const shop = i === rr.shopEdge;
-        if (--this.facadeBudget < 0) break;
+        if ((this.facadeBudget -= epx) < 0) break; // pixel-width budget, not edge count
         ctx.setTransform(base.translate(ax, ay).multiply(new DOMMatrix([ux, uy, ox * invLevels, oy * invLevels, 0, 0])));
         dirty = true;
         if (g.levels > 1) {
@@ -868,6 +1031,55 @@ export class Renderer {
       }
     }
     if (dirty) ctx.setTransform(base);
+  }
+
+  /** Redraw lit windows/shopfronts additively, on top of the night light-map composite
+   *  (call once, right after `LightLayer.composite`) so they glow instead of getting
+   *  darkened along with the rest of the world by that multiply pass. Reuses the exact
+   *  same per-edge geometry as `drawFacade`, so the glow lines up window-for-window. */
+  drawNightWindows(ctx: CanvasRenderingContext2D, v: View) {
+    const night = this.atmos.night;
+    if (night < 0.28 || v.scale <= 6) return;
+    const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
+    let budget = 40000;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(0.85, (night - 0.28) * 1.3);
+    const base0 = ctx.getTransform();
+    for (const c of vis) {
+      for (const g of c.bgroups) {
+        if (!g.facade || !g.glowCache) continue;
+        const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
+        const px = Math.hypot(ox, oy) * v.scale;
+        if (px < 10 || budget <= 0) continue;
+        const { upper, door, shop: shopTex } = g.glowCache;
+        const invLevels = 1 / g.levels;
+        for (const rr of g.rings) {
+          const pts = rr.pts;
+          for (let i = 0; i < pts.length - 2; i += 2) {
+            const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+            const ex = bx - ax, ey = by - ay;
+            const elen = Math.hypot(ex, ey);
+            const epx = elen * v.scale;
+            if (elen < 1.4 || epx < 4 || ex * oy - ey * ox < 0) continue;
+            const ux = ex / elen, uy = ey / elen;
+            const variant = (hash01((ax * 131 + ay * 977) | 0, 4) * 3) | 0;
+            const shop = i === rr.shopEdge;
+            budget -= epx;
+            ctx.setTransform(base0.translate(ax, ay).multiply(new DOMMatrix([ux, uy, ox * invLevels, oy * invLevels, 0, 0])));
+            if (g.levels > 1) {
+              ctx.fillStyle = upper[variant];
+              ctx.fillRect(0, 1, elen, g.levels - 1);
+            }
+            ctx.fillStyle = shop ? shopTex[variant] : door[variant];
+            ctx.fillRect(0, 0, elen, 1);
+            if (budget <= 0) break;
+          }
+        }
+      }
+    }
+    ctx.setTransform(base0);
+    ctx.restore();
   }
 
   private drawTrees(ctx: CanvasRenderingContext2D, v: View, vis: Chunk[]) {

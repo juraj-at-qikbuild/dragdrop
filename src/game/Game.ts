@@ -1004,6 +1004,7 @@ export class Game {
     this.police.heli?.emitLights(L, atmos, this);
     this.emitAtmosphereLights(L, atmos, inView);
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
+    this.renderer.drawNightWindows(ctx, v);
 
     this.drawSigns(ctx, v);
     this.juice.drawTexts(ctx);
