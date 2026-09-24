@@ -43,13 +43,27 @@ export class Hud {
       drawStar(ctx, x, sy + 12, small ? 9 : 12, i < stars ? (flash ? '#fff' : '#ffd600') : 'rgba(0,0,0,0.35)');
     }
 
+    // clock + weather glyph, under the money/stars area
+    const cy = sy + (small ? 26 : 32);
+    this.drawClock(ctx, W - pad, cy, small);
+
     // health + weapon
-    const hy = sy + (small ? 32 : 40);
+    const hy = cy + (small ? 22 : 26);
     const bw = small ? 110 : 150;
+    const bh = 10;
+    roundRect(ctx, W - pad - bw, hy, bw, bh, bh / 2);
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(W - pad - bw, hy, bw, 10);
-    ctx.fillStyle = g.player.health > 30 ? '#e53935' : Math.floor(g.time * 4) % 2 ? '#ff8a80' : '#b71c1c';
-    ctx.fillRect(W - pad - bw + 2, hy + 2, Math.max(0, (bw - 4) * g.player.health / 100), 6);
+    ctx.fill();
+    const hpFrac = Math.max(0, g.player.health / 100);
+    if (hpFrac > 0) {
+      roundRect(ctx, W - pad - bw + 2, hy + 2, Math.max(4, (bw - 4) * hpFrac), bh - 4, (bh - 4) / 2);
+      ctx.fillStyle = g.player.health > 30 ? '#e53935' : Math.floor(g.time * 4) % 2 ? '#ff8a80' : '#b71c1c';
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, W - pad - bw, hy, bw, bh, bh / 2);
+    ctx.stroke();
     const w = g.player.weapon;
     ctx.font = `${small ? 14 : 17}px ${FONT}`;
     const ammo = w === 'fist' ? '' : `  ${g.ammo[w]}`;
@@ -60,10 +74,14 @@ export class Hud {
       const kmh = Math.round(car.speed * 3.6);
       outlined(ctx, `${car.spec.name}  ${kmh} km/h`, W - pad, hy + 38, '#b3e5fc');
       const hp = Math.max(0, car.health / car.spec.health);
+      roundRect(ctx, W - pad - bw, hy + 58, bw, 6, 3);
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(W - pad - bw, hy + 58, bw, 6);
-      ctx.fillStyle = hp > 0.35 ? '#90caf9' : '#ff7043';
-      ctx.fillRect(W - pad - bw + 1, hy + 59, (bw - 2) * hp, 4);
+      ctx.fill();
+      if (hp > 0) {
+        roundRect(ctx, W - pad - bw + 1, hy + 59, Math.max(3, (bw - 2) * hp), 4, 2);
+        ctx.fillStyle = hp > 0.35 ? '#90caf9' : '#ff7043';
+        ctx.fill();
+      }
     }
 
     // minimap
@@ -80,7 +98,7 @@ export class Hud {
       ctx.globalAlpha = 1;
     }
     ctx.font = `600 ${small ? 11 : 13}px system-ui, sans-serif`;
-    outlined(ctx, `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
+    shadowed(ctx, `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
 
     // mission objective + timer
     const m = g.missions;
@@ -143,6 +161,28 @@ export class Hud {
     }
   }
 
+  /** clock + a small sun/moon/rain glyph, drawn as canvas paths (no emoji). */
+  private drawClock(ctx: CanvasRenderingContext2D, right: number, y: number, small: boolean) {
+    const g = this.g;
+    const atmos = g.atmos;
+    const fs = small ? 15 : 18;
+    ctx.font = `700 ${fs}px system-ui, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const text = atmos.clock();
+    const tw = ctx.measureText(text).width;
+    shadowed(ctx, text, right, y, '#e8eef2');
+    const r = fs * 0.42;
+    const cx = right - tw - fs * 0.7 - r;
+    if (atmos.rain > 0.15) {
+      drawRainGlyph(ctx, cx, y, r, atmos.rain);
+    } else if (atmos.daylight > 0.35) {
+      drawSunGlyph(ctx, cx, y, r, atmos.daylight);
+    } else {
+      drawMoonGlyph(ctx, cx, y, r);
+    }
+  }
+
   private drawArrow(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
     const g = this.g;
     const f = g.focus();
@@ -189,6 +229,78 @@ export function outlined(ctx: CanvasRenderingContext2D, text: string, x: number,
   ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+}
+
+/** softer alternative to `outlined`: a drop shadow instead of a heavy stroke, for less critical text */
+function shadowed(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawSunGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, strength: number) {
+  ctx.save();
+  ctx.fillStyle = `rgba(255,214,90,${0.6 + 0.4 * strength})`;
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = r * 0.22;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(a) * r * 1.25, y + Math.sin(a) * r * 1.25);
+    ctx.lineTo(x + Math.cos(a) * r * 1.75, y + Math.sin(a) * r * 1.75);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMoonGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.save();
+  ctx.fillStyle = '#cfd8dc';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(20,24,32,0.92)';
+  ctx.beginPath();
+  ctx.arc(x + r * 0.45, y - r * 0.15, r * 0.85, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRainGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, intensity: number) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(207,213,219,0.95)';
+  ctx.beginPath();
+  ctx.arc(x - r * 0.35, y - r * 0.1, r * 0.6, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.25, y - r * 0.25, r * 0.7, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.15, y + r * 0.1, r * 0.75, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(120,180,235,${0.6 + 0.4 * intensity})`;
+  ctx.lineWidth = r * 0.2;
+  ctx.lineCap = 'round';
+  for (const dx of [-0.35, 0.15, 0.55]) {
+    ctx.beginPath();
+    ctx.moveTo(x + dx * r, y + r * 0.7);
+    ctx.lineTo(x + dx * r - r * 0.15, y + r * 1.25);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function wrapOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, color: string, up = false) {

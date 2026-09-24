@@ -18,6 +18,10 @@ export class Audio {
   private step = 0;
   private nextTime = 0;
   muted = false;
+  private rainSrc: AudioBufferSourceNode | null = null;
+  private rainFilter!: BiquadFilterNode;
+  private rainGain!: GainNode;
+  private rainLevel = 0;
 
   init() {
     if (this.ctx) {
@@ -66,6 +70,20 @@ export class Audio {
     this.sirenOsc.type = 'triangle';
     this.sirenOsc.connect(this.sirenGain);
     this.sirenOsc.start();
+
+    // rain ambience: filtered looping white noise, gain follows atmos.rain
+    this.rainFilter = c.createBiquadFilter();
+    this.rainFilter.type = 'bandpass';
+    this.rainFilter.frequency.value = 3200;
+    this.rainFilter.Q.value = 0.5;
+    this.rainGain = c.createGain();
+    this.rainGain.gain.value = 0;
+    this.rainFilter.connect(this.rainGain).connect(this.sfx);
+    this.rainSrc = c.createBufferSource();
+    this.rainSrc.buffer = this.noise;
+    this.rainSrc.loop = true;
+    this.rainSrc.connect(this.rainFilter);
+    this.rainSrc.start();
 
     window.setInterval(() => this.schedule(), 50);
   }
@@ -181,6 +199,22 @@ export class Audio {
     const f = 650 + Math.sin(t * Math.PI * 1.5) * 220;
     this.sirenOsc.frequency.setTargetAtTime(f, t, 0.03);
     this.sirenGain.gain.setTargetAtTime(level * 0.06, t, 0.2);
+  }
+
+  /** Rain ambience loop; `level` 0..1 follows `atmos.rain`. */
+  rain(level: number) {
+    if (!this.ctx || !this.rainGain) return;
+    this.rainLevel = level;
+    const t = this.now();
+    this.rainFilter.frequency.setTargetAtTime(2200 + level * 2200, t, 0.8);
+    this.rainGain.gain.setTargetAtTime(level * 0.16, t, 0.6);
+  }
+
+  thunder() {
+    if (!this.ctx) return;
+    const v = Math.min(1, 0.5 + this.rainLevel * 0.5);
+    this.noiseBurst(1.1, 220, 0.55 * v, 0.7, 'lowpass');
+    this.tone(60, 1.0, 'sine', 0.35 * v, 0, undefined, 0.4);
   }
 
   // ------------------------------------------------------------- radio

@@ -15,6 +15,7 @@ import { clamp, dist, formatMoney, lerp, rand, rng } from '../util/math';
 import type { MapJSON } from '../types';
 import { Atmosphere } from '../world/Atmosphere';
 import { LightLayer } from '../world/Lighting';
+import { Weather } from '../world/Weather';
 
 export interface SaveData {
   money: number;
@@ -56,6 +57,13 @@ export class Game {
   mapView: MapView;
   atmos: Atmosphere;
   light = new LightLayer();
+  weather = new Weather();
+  /** 1 = full quality, 0 = auto-lowered after sustained slow frames (see `draw`) */
+  quality = 1;
+  private frameAvg = 16;
+  private slowTimer = 0;
+  private lastFrameT = 0;
+  private vignette: HTMLCanvasElement | null = null;
   ctx: CanvasRenderingContext2D;
   dpr = 1;
   viewW = 0;
@@ -158,6 +166,7 @@ export class Game {
     this.canvas.height = Math.round(this.viewH * this.dpr);
     this.canvas.style.width = this.viewW + 'px';
     this.canvas.style.height = this.viewH + 'px';
+    this.vignette = null; // rebuilt lazily at the new size
   }
 
   // ---------------------------------------------------------------- setup
@@ -390,6 +399,7 @@ export class Game {
     }
     this.time += dt;
     this.atmos.update(dt);
+    this.weather.update(dt, this.atmos, this.view(), this.quality, this.audio);
 
     if (this.state !== 'play') {
       this.stateTimer -= dt;
@@ -818,6 +828,7 @@ export class Game {
   }
 
   draw(hud = true) {
+    this.trackFrameTime();
     const ctx = this.ctx;
     const v = this.view();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -837,6 +848,7 @@ export class Game {
     const atmos = this.atmos;
     this.renderer.drawGround(ctx, v, v.scale > 3);
     this.renderer.drawShadows(ctx, v);
+    this.weather.drawWorld(ctx, atmos);
     this.combat.drawDecals(ctx);
     this.missions.drawWorld(ctx, this.time);
     this.drawPickups(ctx);
@@ -859,13 +871,26 @@ export class Game {
     for (const t of this.trams) t.emitLights(L, atmos);
     for (const veh of this.vehicles) if (inView(veh.x, veh.y, 30)) veh.emitLights(L, this.time, atmos);
     this.combat.emitLights(L);
+    this.emitAtmosphereLights(L, atmos, inView);
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
 
     this.drawSigns(ctx, v);
-    if (!hud) return;
-    this.drawPlayerMarker(ctx);
+    if (hud) this.drawPlayerMarker(ctx);
 
+    // screen-space post: rain, wet sheen, vignette — also shown behind the menu (attract mode)
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.weather.drawScreen(ctx, this.viewW, this.viewH, atmos, this.time, this.quality);
+    if (atmos.wet > 0.05) {
+      // cheap fake reflections: the light map again, additive, low alpha
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = Math.min(0.22, 0.18 * atmos.wet);
+      ctx.drawImage(L.canvas, 0, 0, this.viewW, this.viewH);
+      ctx.restore();
+    }
+    this.drawVignette(ctx, atmos);
+
+    if (!hud) return;
     this.hud.draw(ctx);
     if (this.showMap) this.mapView.drawFull(ctx);
   }
@@ -874,6 +899,12 @@ export class Game {
     const bob = Math.sin(this.time * 4) * 0.12;
     for (const p of this.pickups) {
       if (p.hidden > 0) continue;
+      // soft ground contact shadow, shrinks slightly as the item bobs up
+      const shrink = 1 - (bob + 0.12) * 0.18;
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 0.55, 0.55 * shrink, 0.22 * shrink, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.save();
       ctx.translate(p.x, p.y + bob);
       if (p.kind === 'cash') {
@@ -971,9 +1002,10 @@ export class Game {
         if (l.x < v.x0 || l.x > v.x1 || l.y < v.y0 || l.y > v.y1) continue;
         const fs = 13 / v.scale;
         ctx.font = `700 ${fs}px system-ui, sans-serif`;
-        ctx.lineWidth = fs * 0.25;
-        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-        ctx.strokeText(l.name, l.x, l.y);
+        const w = ctx.measureText(l.name).width;
+        ctx.fillStyle = 'rgba(10,12,16,0.45)';
+        roundRect(ctx, l.x - w / 2 - fs * 0.4, l.y - fs * 0.68, w + fs * 0.8, fs * 1.36, fs * 0.3);
+        ctx.fill();
         ctx.fillStyle = this.save.found.includes(l.id) ? '#e1f5fe' : '#fff59d';
         ctx.fillText(l.name, l.x, l.y);
       }
@@ -982,6 +1014,7 @@ export class Game {
 
   private drawSigns(ctx: CanvasRenderingContext2D, v: View) {
     const fs = Math.max(1.1, 12 / v.scale);
+    const rad = fs * 0.3;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${fs}px system-ui, sans-serif`;
@@ -991,11 +1024,19 @@ export class Game {
       const [bg, fg] = BRAND_COLORS[p.n] ?? ['#37474f', '#fff'];
       const label = p.k === 'fuel' ? `⛽ ${p.n}` : p.n;
       const w = ctx.measureText(label).width + fs * 0.8;
+      const bx = p.x - w / 2, by = p.y - fs * 0.75, bh = fs * 1.5;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.55)';
+      ctx.shadowBlur = fs * 0.35;
+      ctx.shadowOffsetY = fs * 0.12;
+      roundRect(ctx, bx, by, w, bh, rad);
       ctx.fillStyle = bg;
-      ctx.fillRect(p.x - w / 2, p.y - fs * 0.75, w, fs * 1.5);
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth = fs * 0.08;
-      ctx.strokeRect(p.x - w / 2, p.y - fs * 0.75, w, fs * 1.5);
+      ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = fs * 0.06;
+      roundRect(ctx, bx, by, w, bh, rad);
+      ctx.stroke();
       ctx.fillStyle = fg;
       ctx.fillText(label, p.x, p.y + fs * 0.05);
     }
@@ -1013,4 +1054,91 @@ export class Game {
     ctx.arc(f.x, f.y, p.vehicle ? p.vehicle.radius + 0.6 : 0.9, 0, Math.PI * 2);
     ctx.stroke();
   }
+
+  // --------------------------------------------------------- atmosphere fx
+  /** must run between `L.begin` and `L.composite`: night light around the player,
+   *  a glow on pickups and mission markers so they read well after dark. */
+  private emitAtmosphereLights(L: LightLayer, atmos: Atmosphere, inView: (x: number, y: number, r: number) => boolean) {
+    // keep the player visible even deep under building shadow
+    if (atmos.night > 0.05) {
+      const f = this.focus();
+      L.point(f.x, f.y, 6, 'rgba(255,246,222,1)', 0.4 * atmos.night);
+    }
+    if (atmos.night > 0.12) {
+      const bob = Math.sin(this.time * 4) * 0.12;
+      for (const p of this.pickups) {
+        if (p.hidden > 0 || !inView(p.x, p.y, 3)) continue;
+        const color = PICKUP_GLOW[p.kind];
+        L.glow(p.x, p.y + bob, 1.6, color, 0.5 * atmos.night);
+      }
+      if (!this.missions.active)
+        for (const b of this.missions.available()) {
+          if (!inView(b.x, b.y, 4)) continue;
+          L.point(b.x, b.y, 4.5, '#ffd600', 0.5 * atmos.night);
+          L.glow(b.x, b.y, 2.2, '#ffd600', 0.45 * atmos.night);
+        }
+      const t = this.missions.target();
+      if (t && inView(t.x, t.y, 4)) {
+        L.point(t.x, t.y, 5, '#ffea00', 0.55 * atmos.night);
+        L.glow(t.x, t.y, 2.6, '#ffea00', 0.5 * atmos.night);
+      }
+    }
+  }
+
+  private drawVignette(ctx: CanvasRenderingContext2D, atmos: Atmosphere) {
+    const W = this.viewW, H = this.viewH;
+    if (W <= 0 || H <= 0) return;
+    if (!this.vignette || this.vignette.width !== Math.round(W * this.dpr) || this.vignette.height !== Math.round(H * this.dpr)) {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(W * this.dpr));
+      c.height = Math.max(1, Math.round(H * this.dpr));
+      const vc = c.getContext('2d')!;
+      const r = Math.hypot(c.width, c.height) / 2;
+      const g = vc.createRadialGradient(c.width / 2, c.height / 2, r * 0.55, c.width / 2, c.height / 2, r);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, 'rgba(0,0,0,1)');
+      vc.fillStyle = g;
+      vc.fillRect(0, 0, c.width, c.height);
+      this.vignette = c;
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.22 + atmos.night * 0.16;
+    ctx.drawImage(this.vignette, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  /** rolling frame-time average; after ~2s consistently slow, drop light-map res and `quality`. */
+  private trackFrameTime() {
+    const now = performance.now();
+    if (this.lastFrameT) {
+      const ft = now - this.lastFrameT;
+      this.frameAvg += (ft - this.frameAvg) * 0.08;
+      if (this.frameAvg > 22) this.slowTimer += ft / 1000;
+      else this.slowTimer = 0;
+      if (this.slowTimer > 2 && this.quality === 1) {
+        this.quality = 0;
+        this.light.res = 0.35;
+      }
+    }
+    this.lastFrameT = now;
+  }
+}
+
+const PICKUP_GLOW: Record<Pickup['kind'], string> = {
+  cash: '#69f0ae',
+  health: '#ff5252',
+  pistol: '#ffd600',
+  uzi: '#ffd600',
+  shotgun: '#ffd600',
+  cumil: '#ffd600',
+};
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

@@ -16,6 +16,10 @@ async function boot() {
   }
   const game = new Game(canvas, data);
   (window as unknown as { game: Game }).game = game;
+  // attract mode (menu) doesn't call game.update, so atmos never ticks there.
+  // For a first-time visitor (no save yet, so no meaningful saved clock) park
+  // it at a nice golden hour for the background instead of the 9am default.
+  if (!Game.hasSave() && !game.save.money && !new URLSearchParams(location.search).has('t')) game.atmos.setTime(18.4);
 
   let mode: 'menu' | 'play' = 'menu';
   let attractT = 0;

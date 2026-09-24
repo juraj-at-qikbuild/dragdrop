@@ -131,11 +131,28 @@ export class MapView {
       return [cx + dx, cy + dy];
     };
     this.blips(ctx, toScreen, Math.max(3, r / 22), false);
+    // night dimming: a translucent navy wash over the tile, before the frame
+    const night = g.atmos.night;
+    if (night > 0.02) {
+      ctx.fillStyle = `rgba(12,18,42,${(night * 0.4).toFixed(3)})`;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
     ctx.restore();
+    // outer ring: subtle bevel + gold hairline over the dark frame
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,214,0,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 2, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#fff';
     ctx.font = '900 12px Arial';
@@ -154,9 +171,16 @@ export class MapView {
     const iw = img.width * s, ih = img.height * s;
     const ox = (W - iw) / 2, oy = (H - ih) / 2 + 20;
     ctx.drawImage(img, ox, oy, iw, ih);
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,214,0,0.35)';
+    ctx.shadowBlur = 12;
     ctx.strokeStyle = '#ffd600';
     ctx.lineWidth = 2;
     ctx.strokeRect(ox, oy, iw, ih);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox - 4, oy - 4, iw + 8, ih + 8);
     const b = g.world.bounds;
     const toScreen = (x: number, y: number): [number, number] => [ox + (x - b.x0) * PX * s, oy + (y - b.y0) * PX * s];
     this.blips(ctx, toScreen, 5, true);
