@@ -22,6 +22,9 @@ export class Audio {
   private rainFilter!: BiquadFilterNode;
   private rainGain!: GainNode;
   private rainLevel = 0;
+  private rotorSrc: AudioBufferSourceNode | null = null;
+  private rotorFilter!: BiquadFilterNode;
+  private rotorGain!: GainNode;
 
   init() {
     if (this.ctx) {
@@ -84,6 +87,20 @@ export class Audio {
     this.rainSrc.loop = true;
     this.rainSrc.connect(this.rainFilter);
     this.rainSrc.start();
+
+    // police helicopter rotor: filtered noise thump, gain/pitch follow distance
+    this.rotorFilter = c.createBiquadFilter();
+    this.rotorFilter.type = 'bandpass';
+    this.rotorFilter.frequency.value = 85;
+    this.rotorFilter.Q.value = 5;
+    this.rotorGain = c.createGain();
+    this.rotorGain.gain.value = 0;
+    this.rotorFilter.connect(this.rotorGain).connect(this.sfx);
+    this.rotorSrc = c.createBufferSource();
+    this.rotorSrc.buffer = this.noise;
+    this.rotorSrc.loop = true;
+    this.rotorSrc.connect(this.rotorFilter);
+    this.rotorSrc.start();
 
     window.setInterval(() => this.schedule(), 50);
   }
@@ -199,6 +216,14 @@ export class Audio {
     const f = 650 + Math.sin(t * Math.PI * 1.5) * 220;
     this.sirenOsc.frequency.setTargetAtTime(f, t, 0.03);
     this.sirenGain.gain.setTargetAtTime(level * 0.06, t, 0.2);
+  }
+
+  /** Police helicopter rotor thump; `level` 0..1 follows proximity to the player. */
+  rotor(level: number) {
+    if (!this.ctx || !this.rotorGain) return;
+    const t = this.now();
+    this.rotorFilter.frequency.setTargetAtTime(80 + level * 25, t, 0.15);
+    this.rotorGain.gain.setTargetAtTime(level * 0.2, t, 0.2);
   }
 
   /** Rain ambience loop; `level` 0..1 follows `atmos.rain`. */

@@ -29,6 +29,21 @@ export class MapView {
     return c;
   }
 
+  /** police "last seen" area: stay out of it for the stars to drop */
+  private searchZone(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+    const blue = Math.floor(this.g.time * 3) % 2 === 0;
+    ctx.save();
+    ctx.fillStyle = blue ? 'rgba(66,133,244,0.22)' : 'rgba(229,57,53,0.22)';
+    ctx.strokeStyle = blue ? 'rgba(66,133,244,0.85)' : 'rgba(229,57,53,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private blips(ctx: CanvasRenderingContext2D, toScreen: (x: number, y: number) => [number, number], size: number, full: boolean) {
     const g = this.g;
     // mission booths and targets
@@ -131,6 +146,8 @@ export class MapView {
       if (d > r - 6) (dx *= (r - 6) / d), (dy *= (r - 6) / d);
       return [cx + dx, cy + dy];
     };
+    const z = g.searchZone;
+    if (z) this.searchZone(ctx, cx + (z.x - f.x) * k, cy + (z.y - f.y) * k, z.r * k);
     this.blips(ctx, toScreen, Math.max(3, r / 22), false);
     // night dimming: a translucent navy wash over the tile, before the frame
     const night = g.atmos.night;
@@ -208,6 +225,11 @@ export class MapView {
     ctx.strokeRect(ox - 4, oy - 4, iw + 8, ih + 8);
     const b = g.world.bounds;
     const toScreen = (x: number, y: number): [number, number] => [ox + (x - b.x0) * PX * s, oy + (y - b.y0) * PX * s];
+    const z = g.searchZone;
+    if (z) {
+      const [zx, zy] = toScreen(z.x, z.y);
+      this.searchZone(ctx, zx, zy, z.r * PX * s);
+    }
     this.blips(ctx, toScreen, 5, true);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
