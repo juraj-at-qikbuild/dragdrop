@@ -252,10 +252,18 @@ export class Ped {
         shy = (-wx * sa + wy * ca) / 1.45;
       }
     }
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    // contact shadow under the feet, plus a softer cast shadow stretched from them along the sun
+    ctx.fillStyle = 'rgba(0,0,0,0.26)';
     ctx.beginPath();
-    ctx.ellipse(shx, shy, 0.3 * b, 0.4 * b, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 0.26 * b, 0.32 * b, 0, 0, Math.PI * 2);
     ctx.fill();
+    const slen = Math.min(0.9, Math.hypot(shx, shy));
+    if (slen > 0.08) {
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.beginPath();
+      ctx.ellipse(shx / Math.hypot(shx, shy) * slen / 2, shy / Math.hypot(shx, shy) * slen / 2, slen / 2 + 0.15, 0.22 * b, Math.atan2(shy, shx), 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const armed = this.weapon !== 'fist' && this.kind !== 'civ';
     const punchT = this.weapon === 'fist' && this.cooldown > 0 ? Math.min(1, this.cooldown / 0.45) : 0;
