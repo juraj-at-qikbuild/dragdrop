@@ -1,3 +1,4 @@
+import type { LightLayer } from '../world/Lighting';
 import type { Game } from './Game';
 import type { Ped, WeaponId } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
@@ -227,6 +228,11 @@ export class Combat {
     for (const d of this.decals) d.age += dt;
     this.decals = this.decals.filter((d) => d.age < (d.kind === 'skid' ? 25 : 60));
     if (this.decals.length > 1500) this.decals.splice(0, this.decals.length - 1500);
+  }
+
+  /** Muzzle flashes, fires and explosions. */
+  emitLights(_L: LightLayer) {
+    // TODO(visual): implement
   }
 
   drawDecals(ctx: CanvasRenderingContext2D) {

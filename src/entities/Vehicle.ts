@@ -1,3 +1,5 @@
+import type { Atmosphere } from '../world/Atmosphere';
+import type { LightLayer } from '../world/Lighting';
 import type { World } from '../world/World';
 import { clamp, pick } from '../util/math';
 import type { Ped } from './Ped';
@@ -183,7 +185,12 @@ export class Vehicle {
     this.ctrl.handbrake = handbrake;
   }
 
-  draw(ctx: CanvasRenderingContext2D, time: number) {
+  /** Headlights, tail/brake lights, police flashers, fire. */
+  emitLights(_L: LightLayer, _time: number, _atmos: Atmosphere) {
+    // TODO(visual): implement
+  }
+
+  draw(ctx: CanvasRenderingContext2D, time: number, _atmos?: Atmosphere) {
     const s = this.spec;
     const L = s.length, W = s.width;
     ctx.save();

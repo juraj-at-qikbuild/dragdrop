@@ -1,3 +1,4 @@
+import type { Atmosphere } from '../world/Atmosphere';
 import type { World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
@@ -92,7 +93,7 @@ export class Ped {
     this.deadTime = 0;
   }
 
-  draw(ctx: CanvasRenderingContext2D) {
+  draw(ctx: CanvasRenderingContext2D, _atmos?: Atmosphere) {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);

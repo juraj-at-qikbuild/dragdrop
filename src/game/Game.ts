@@ -13,12 +13,16 @@ import { MapView } from '../ui/MapView';
 import { LANDMARK_INFO, RADIO, BRAND_COLORS } from '../data/brands';
 import { clamp, dist, formatMoney, lerp, rand, rng } from '../util/math';
 import type { MapJSON } from '../types';
+import { Atmosphere } from '../world/Atmosphere';
+import { LightLayer } from '../world/Lighting';
 
 export interface SaveData {
   money: number;
   done: string[];
   found: string[];
   cumils: number[];
+  /** time of day in hours */
+  clock?: number;
 }
 
 const SAVE_KEY = 'blava-city-save-v1';
@@ -50,6 +54,8 @@ export class Game {
   missions!: MissionManager;
   hud: Hud;
   mapView: MapView;
+  atmos: Atmosphere;
+  light = new LightLayer();
   ctx: CanvasRenderingContext2D;
   dpr = 1;
   viewW = 0;
@@ -97,6 +103,9 @@ export class Game {
     this.hud = new Hud(this);
     this.mapView = new MapView(this);
     this.load();
+    this.atmos = new Atmosphere(this.save.clock);
+    this.renderer.atmos = this.atmos;
+    if (matchMedia('(pointer: coarse)').matches) this.light.res = 0.35;
     const start = this.world.walkableNear(this.world.landmark('main').x, this.world.landmark('main').y);
     this.player = new Ped('player', start.x + 3, start.y + 3);
     this.peds.push(this.player);
@@ -119,6 +128,7 @@ export class Game {
     }
   }
   persist() {
+    this.save.clock = this.atmos.time;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
     } catch {
@@ -379,6 +389,7 @@ export class Game {
       return;
     }
     this.time += dt;
+    this.atmos.update(dt);
 
     if (this.state !== 'play') {
       this.stateTimer -= dt;
@@ -823,21 +834,33 @@ export class Game {
     ctx.fillRect(v.x0 - 10, v.y0 - 10, b.x0 - v.x0 + 10, v.y1 - v.y0 + 20);
     ctx.fillRect(b.x1, v.y0 - 10, v.x1 - b.x1 + 10, v.y1 - v.y0 + 20);
 
+    const atmos = this.atmos;
     this.renderer.drawGround(ctx, v, v.scale > 3);
+    this.renderer.drawShadows(ctx, v);
     this.combat.drawDecals(ctx);
     this.missions.drawWorld(ctx, this.time);
     this.drawPickups(ctx);
     this.combat.drawParticles(ctx, false);
 
     const inView = (x: number, y: number, r: number) => x > v.x0 - r && x < v.x1 + r && y > v.y0 - r && y < v.y1 + r;
-    for (const p of this.peds) if (p.dead && inView(p.x, p.y, 2)) p.draw(ctx);
-    for (const p of this.peds) if (!p.dead && !p.vehicle && p !== this.player && inView(p.x, p.y, 2)) p.draw(ctx);
-    for (const t of this.trams) if (inView(t.x, t.y, 35)) t.draw(ctx);
-    for (const veh of this.vehicles) if (inView(veh.x, veh.y, 8)) veh.draw(ctx, this.time);
+    for (const p of this.peds) if (p.dead && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
+    for (const p of this.peds) if (!p.dead && !p.vehicle && p !== this.player && inView(p.x, p.y, 2)) p.draw(ctx, atmos);
+    for (const t of this.trams) if (inView(t.x, t.y, 35)) t.draw(ctx, atmos);
+    for (const veh of this.vehicles) if (inView(veh.x, veh.y, 8)) veh.draw(ctx, this.time, atmos);
 
     this.combat.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
+
+    // lighting: ambient tint + emitted lights, multiplied over the world
+    const L = this.light;
+    L.begin(v, this.viewW, this.viewH, atmos);
+    this.renderer.emitLights(L, v);
+    for (const t of this.trams) t.emitLights(L, atmos);
+    for (const veh of this.vehicles) if (inView(veh.x, veh.y, 30)) veh.emitLights(L, this.time, atmos);
+    this.combat.emitLights(L);
+    L.composite(ctx, this.dpr, this.viewW, this.viewH);
+
     this.drawSigns(ctx, v);
     if (!hud) return;
     this.drawPlayerMarker(ctx);
@@ -981,7 +1004,7 @@ export class Game {
   private drawPlayerMarker(ctx: CanvasRenderingContext2D) {
     // the player is drawn above roofs as a subtle marker when hidden under buildings
     const p = this.player;
-    if (!p.vehicle) p.draw(ctx);
+    if (!p.vehicle) p.draw(ctx, this.atmos);
     if (this.state !== 'play') return;
     const f = this.focus();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';

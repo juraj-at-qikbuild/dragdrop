@@ -1,3 +1,5 @@
+import type { Atmosphere } from '../world/Atmosphere';
+import type { LightLayer } from '../world/Lighting';
 import type { Graph, Link } from '../world/Graph';
 import { linkPoints } from '../world/Graph';
 import { pick } from '../util/math';
@@ -129,7 +131,12 @@ export class Tram {
     if (this.bell > 0) this.bell -= dt;
   }
 
-  draw(ctx: CanvasRenderingContext2D) {
+  /** Headlights and interior glow. */
+  emitLights(_L: LightLayer, _atmos: Atmosphere) {
+    // TODO(visual): implement
+  }
+
+  draw(ctx: CanvasRenderingContext2D, _atmos?: Atmosphere) {
     for (let i = this.sections.length - 1; i >= 0; i--) {
       const s = this.sections[i];
       ctx.save();

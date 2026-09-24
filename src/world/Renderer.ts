@@ -1,6 +1,8 @@
 import type { World, Building } from './World';
 import { bboxOf, bboxHit, rng, type BBox } from '../util/math';
 import { ROOF_ADS } from '../data/brands';
+import { Atmosphere } from './Atmosphere';
+import type { LightLayer } from './Lighting';
 
 const CHUNK = 128;
 
@@ -54,6 +56,9 @@ export class Renderer {
   private chunks: Chunk[] = [];
   private layers = new Map<string, Layer>();
   ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
+
+  /** set by Game after construction; read for sun direction, night and rain */
+  atmos = new Atmosphere();
 
   constructor(private world: World) {
     this.build();
@@ -292,6 +297,16 @@ export class Renderer {
       fitText(ctx, a.ad.slogan, 0, h * 0.28, w * 0.9);
       ctx.restore();
     }
+  }
+
+  /** Building ground shadows cast by the sun (drawn after the ground, before entities). */
+  drawShadows(_ctx: CanvasRenderingContext2D, _v: View) {
+    // TODO(visual): implement
+  }
+
+  /** Street lamps, lit windows and neon ads. */
+  emitLights(_L: LightLayer, _v: View) {
+    // TODO(visual): implement
   }
 
   /** Flat 2D rendering of all buildings, for the pause map. */
