@@ -49,7 +49,7 @@ On touch devices a virtual joystick and buttons appear automatically.
 
 ## Map data pipeline
 
-The baked map (`public/data/bratislava.json`, ~3 MB, ~0.6 MB gzipped) is committed, so you don't need to rebuild it. To regenerate it from fresh OpenStreetMap data:
+The baked map (`public/data/bratislava.json`, ~3 MB, ~0.8 MB gzipped) is committed, so you don't need to rebuild it. To regenerate it from fresh OpenStreetMap data:
 
 ```bash
 npm run build:map
