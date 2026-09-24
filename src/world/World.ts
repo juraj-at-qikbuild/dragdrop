@@ -43,6 +43,9 @@ export class World {
   /** named road segments [ax, ay, bx, by, halfWidth, nameIdx, bridge] */
   private roadSegs: Float32Array;
   private roadGrid = new Map<number, number[]>();
+  /** all road segments for surface queries [ax, ay, bx, by, halfWidth, class] */
+  private surfSegs: Float32Array;
+  private surfGrid = new Map<number, number[]>();
   private water: { rings: Float32Array[]; bbox: BBox }[] = [];
 
   constructor(data: MapJSON) {
@@ -91,6 +94,13 @@ export class World {
     }
     this.roadSegs = Float32Array.from(segs);
     for (let i = 0; i < this.roadSegs.length; i += 7) this.addToGrid(this.roadGrid, i, this.roadSegs, 12);
+
+    // surface lookup: every road (not just named/bridged ones), tagged with its class
+    const surf: number[] = [];
+    for (const r of data.roads)
+      for (let i = 0; i < r.p.length - 2; i += 2) surf.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2, r.c);
+    this.surfSegs = Float32Array.from(surf);
+    for (let i = 0; i < this.surfSegs.length; i += 6) this.addToGrid(this.surfGrid, i, this.surfSegs, 6);
 
     for (const w of data.areas.water) {
       const rings = w.map((r) => Float32Array.from(r));
@@ -241,6 +251,21 @@ export class World {
       if (d < bestD) (bestD = d), (best = s[i + 5]);
     }
     return best >= 0 && bestD < 15 ? this.names[best] : null;
+  }
+
+  /** Surface under a point, for tyre grip/drag: bridge deck, cobble (class >= 8), asphalt, or off-road. */
+  surfaceAt(x: number, y: number): 'asphalt' | 'cobble' | 'offroad' | 'bridge' {
+    if (this.onBridge(x, y)) return 'bridge';
+    const c = this.surfGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (!c) return 'offroad';
+    const s = this.surfSegs;
+    let bestD = Infinity, bestCls = -1;
+    for (const i of c) {
+      const d = Math.sqrt(segDist2(x, y, s[i], s[i + 1], s[i + 2], s[i + 3])) - s[i + 4];
+      if (d < bestD) (bestD = d), (bestCls = s[i + 5]);
+    }
+    if (bestD > 2) return 'offroad';
+    return bestCls >= 8 ? 'cobble' : 'asphalt';
   }
 
   district(x: number, y: number): string {

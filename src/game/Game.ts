@@ -5,8 +5,9 @@ import { AI } from './AI';
 import { Combat, WEAPONS } from './Combat';
 import { Audio } from '../audio/Audio';
 import { Ped, type WeaponId } from '../entities/Ped';
-import { Vehicle } from '../entities/Vehicle';
+import { Vehicle, resolveContact } from '../entities/Vehicle';
 import type { Tram } from '../entities/Tram';
+import { SpatialHash } from '../util/SpatialHash';
 import { MissionManager } from '../missions/Missions';
 import { Hud } from '../ui/Hud';
 import { MapView } from '../ui/MapView';
@@ -97,6 +98,9 @@ export class Game {
   private sprayCooldown = 0;
   private crimeCooldown = new Map<string, number>();
   private drown = 0;
+  /** fixed-step vehicle physics accumulator */
+  private vehAccum = 0;
+  private vehHash = new SpatialHash<Vehicle>(10);
   private radioLineTimer = 4;
   running = false;
   onPause?: (paused: boolean) => void;
@@ -455,7 +459,7 @@ export class Game {
         throttle = mag > 0.3 ? (Math.abs(diff) > 2.2 ? -1 : 1) : 0;
         steer = clamp(diff * 2, -1, 1) * (throttle < 0 ? -1 : 1);
       }
-      v.setControls(throttle, steer, inp.down('Space'));
+      v.setControls(throttle, steer, inp.down('Space'), inp.down('ShiftLeft', 'ShiftRight'));
       if (inp.hit('KeyH')) {
         this.audio.horn();
         for (const q of this.peds) if (q.kind === 'civ' && dist(q.x, q.y, v.x, v.y) < 12 && !q.vehicle) this.combat.scare(q, v.x, v.y);
@@ -512,17 +516,20 @@ export class Game {
   }
 
   private updateVehicles(dt: number) {
-    const steps = 2;
-    const h = dt / steps;
-    for (let s = 0; s < steps; s++) {
+    Vehicle.env.wet = this.atmos.wet;
+    const STEP = 1 / 120;
+    this.vehAccum = Math.min(this.vehAccum + dt, STEP * 8);
+    while (this.vehAccum >= STEP) {
       for (const v of this.vehicles) {
         if (v.parked && !v.isPlayer && v.speed < 0.01) continue;
-        const impact = v.update(h, this.world);
+        const impact = v.update(STEP, this.world);
         if (impact > 6 && (v.isPlayer || dist(v.x, v.y, this.player.x, this.player.y) < 40)) this.audio.crash(impact);
         if (impact > 7 && v.isPlayer) this.shake = Math.max(this.shake, impact / 30);
       }
       this.vehicleCollisions();
+      this.vehAccum -= STEP;
     }
+    // per-frame post-processing (once, not per physics substep)
     for (const v of this.vehicles) {
       if (v.skid && v.speed > 4 && !v.sinking) this.combat.skid(v);
       else this.combat.noSkid(v);
@@ -559,13 +566,14 @@ export class Game {
 
   private vehicleCollisions() {
     const vs = this.vehicles;
-    for (let i = 0; i < vs.length; i++) {
-      const a = vs[i];
-      for (let j = i + 1; j < vs.length; j++) {
-        const b = vs[j];
+    this.vehHash.clear();
+    for (const v of vs) this.vehHash.insert(v, v.x, v.y, v.radius);
+    for (const a of vs) {
+      this.vehHash.query(a.x, a.y, a.radius, (b) => {
+        if (b.id <= a.id) return;
         const rr = a.radius + b.radius;
-        if (Math.abs(a.x - b.x) > rr || Math.abs(a.y - b.y) > rr) continue;
-        let best: { nx: number; ny: number; depth: number } | null = null;
+        if (Math.abs(a.x - b.x) > rr || Math.abs(a.y - b.y) > rr) return;
+        let best: { nx: number; ny: number; depth: number; cx: number; cy: number } | null = null;
         const ra = a.spec.width / 2, rb = b.spec.width / 2;
         for (let ci = 0; ci < a.circles.length; ci++) {
           const [ax, ay] = a.circleAt(ci);
@@ -573,10 +581,11 @@ export class Game {
             const [bx, by] = b.circleAt(cj);
             const d = Math.hypot(bx - ax, by - ay);
             const depth = ra + rb - d;
-            if (depth > 0 && (!best || depth > best.depth)) best = { nx: (bx - ax) / (d || 1), ny: (by - ay) / (d || 1), depth };
+            if (depth > 0 && (!best || depth > best.depth))
+              best = { nx: (bx - ax) / (d || 1), ny: (by - ay) / (d || 1), depth, cx: (ax + bx) / 2, cy: (ay + by) / 2 };
           }
         }
-        if (!best) continue;
+        if (!best) return;
         const ma = a.parked && !a.isPlayer ? a.spec.mass * 1.5 : a.spec.mass;
         const mb = b.parked && !b.isPlayer ? b.spec.mass * 1.5 : b.spec.mass;
         const tot = ma + mb;
@@ -584,22 +593,16 @@ export class Game {
         a.y -= best.ny * best.depth * (mb / tot);
         b.x += best.nx * best.depth * (ma / tot);
         b.y += best.ny * best.depth * (ma / tot);
-        const rv = (b.vx - a.vx) * best.nx + (b.vy - a.vy) * best.ny;
-        if (rv < 0) {
-          const jimp = (-(1 + 0.3) * rv) / (1 / ma + 1 / mb);
-          a.vx -= (jimp / ma) * best.nx;
-          a.vy -= (jimp / ma) * best.ny;
-          b.vx += (jimp / mb) * best.nx;
-          b.vy += (jimp / mb) * best.ny;
+        const sev = resolveContact(a, best.cx, best.cy, b, best.cx, best.cy, best.nx, best.ny, 0.25, 0.4);
+        if (sev > 0) {
           if (a.parked || b.parked) {
             a.parked = a.parked && !a.isPlayer && a.speed < 0.5 ? a.parked : false;
             b.parked = b.parked && !b.isPlayer && b.speed < 0.5 ? b.parked : false;
           }
-          const sev = -rv;
+          if (sev > 4) this.combat.metalSpark(best.cx, best.cy);
           if (sev > 5) {
             a.damage((sev - 4) * 2 * (mb / tot) * 1.6);
             b.damage((sev - 4) * 2 * (ma / tot) * 1.6);
-            this.combat.metalSpark((a.x + b.x) / 2, (a.y + b.y) / 2);
             if (a.isPlayer || b.isPlayer) {
               this.audio.crash(sev);
               const other = a.isPlayer ? b : a;
@@ -607,9 +610,9 @@ export class Game {
             }
           }
         }
-      }
+      });
     }
-    // trams push cars out of the way
+    // trams: infinite-mass contact through the same impulse solver
     for (const t of this.trams)
       for (const v of vs) {
         if (Math.abs(v.x - t.x) > 40 || Math.abs(v.y - t.y) > 40) continue;
@@ -617,19 +620,28 @@ export class Game {
         if (!s) continue;
         const nx = -Math.sin(s.a), ny = Math.cos(s.a);
         const side = (v.x - s.x) * nx + (v.y - s.y) * ny >= 0 ? 1 : -1;
-        v.x += nx * side * 0.15;
-        v.y += ny * side * 0.15;
-        v.vx += nx * side * 0.5;
-        v.vy += ny * side * 0.5;
-        if (t.speed > 3) v.damage(t.speed * 0.1);
+        const n2x = nx * side, n2y = ny * side;
+        v.x += n2x * 0.15;
+        v.y += n2y * 0.15;
+        const sev = resolveContact(v, v.x, v.y, null, v.x, v.y, n2x, n2y, 0.15, 0.5, {
+          vx: Math.cos(s.a) * t.speed, vy: Math.sin(s.a) * t.speed, av: 0,
+        });
+        if (sev > 2) {
+          if (t.speed > 3) v.damage(t.speed * 0.1);
+          if (v.isPlayer || dist(v.x, v.y, this.player.x, this.player.y) < 40) this.audio.crash(sev);
+        }
       }
   }
 
   private pedCollisions(dt: number) {
+    this.vehHash.clear();
+    for (const v of this.vehicles) this.vehHash.insert(v, v.x, v.y, v.radius);
     for (const p of this.peds) {
       if (p.vehicle || p.dead) continue;
-      for (const v of this.vehicles) {
-        if (Math.abs(v.x - p.x) > v.radius + 1 || Math.abs(v.y - p.y) > v.radius + 1) continue;
+      let hit = false;
+      this.vehHash.query(p.x, p.y, 3, (v) => {
+        if (hit) return;
+        if (Math.abs(v.x - p.x) > v.radius + 1 || Math.abs(v.y - p.y) > v.radius + 1) return;
         const r = v.spec.width / 2 + p.r;
         for (let i = 0; i < v.circles.length; i++) {
           const [cx, cy] = v.circleAt(i);
@@ -656,9 +668,10 @@ export class Game {
             p.x += nx * (r - d);
             p.y += ny * (r - d);
           }
+          hit = true;
           break;
         }
-      }
+      });
       for (const t of this.trams) {
         if (Math.abs(t.x - p.x) > 40 || Math.abs(t.y - p.y) > 40) continue;
         const s = t.hits(p.x, p.y, p.r);
