@@ -94,11 +94,19 @@ export class World {
     this.roadSegs = Float32Array.from(segs);
     for (let i = 0; i < this.roadSegs.length; i += 7) this.addToGrid(this.roadGrid, i, this.roadSegs, 12);
 
-    // bridge deck-end points: first/last vertex of every bridge polyline, where ramps meet the deck
+    // bridge deck-end points: first/last vertex of every bridge polyline, where ramps meet the deck.
+    // OSM splits long bridges into several ways, so an end only counts if the road continues off the
+    // bridge there (a probe a few metres further out is no longer on any deck).
     const ends: number[] = [];
+    const addEnd = (x: number, y: number, nx: number, ny: number) => {
+      const d = Math.hypot(x - nx, y - ny) || 1;
+      if (!this.onBridge(x + ((x - nx) / d) * 6, y + ((y - ny) / d) * 6)) ends.push(x, y);
+    };
     for (const r of data.roads) {
       if (!r.b || r.p.length < 4) continue;
-      ends.push(r.p[0], r.p[1], r.p[r.p.length - 2], r.p[r.p.length - 1]);
+      const p = r.p, n = p.length;
+      addEnd(p[0], p[1], p[2], p[3]);
+      addEnd(p[n - 2], p[n - 1], p[n - 4], p[n - 3]);
     }
     this.bridgeEnds = Float32Array.from(ends);
 
