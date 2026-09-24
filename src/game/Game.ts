@@ -17,6 +17,7 @@ import type { MapJSON } from '../types';
 import { Atmosphere } from '../world/Atmosphere';
 import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
+import { PostFX } from '../render/PostFX';
 
 export interface SaveData {
   money: number;
@@ -59,13 +60,24 @@ export class Game {
   atmos: Atmosphere;
   light = new LightLayer();
   weather = new Weather();
-  /** 1 = full quality, 0 = auto-lowered after sustained slow frames (see `draw`) */
+  /** 1 = full quality, 0 = low (kept for old call sites: true whenever qualityTier > 0) */
   quality = 1;
+  /** 2 = high, 1 = medium, 0 = low — drives PostFX detail and quality (see `trackFrameTime`) */
+  qualityTier: 0 | 1 | 2 = 2;
+  /** user choice from the pause menu: 'auto' adapts qualityTier to frame time, others pin it */
+  qualityPref: 'auto' | 'high' | 'medium' | 'low' = 'auto';
   private frameAvg = 16;
+  private goodTimer = 0;
   private slowTimer = 0;
   private lastFrameT = 0;
+  private baseLightRes: number | null = null;
   private vignette: HTMLCanvasElement | null = null;
   ctx: CanvasRenderingContext2D;
+  /** GPU post-processing (bloom/grade/vignette/grain/fx); null-safe no-ops when WebGL is unavailable */
+  postFx: PostFX | null = null;
+  /** transparent overlay canvas the HUD + full map draw into, so post-processing never touches them */
+  private hudCanvas: HTMLCanvasElement | null = null;
+  private hudCtx: CanvasRenderingContext2D | null = null;
   dpr = 1;
   viewW = 0;
   viewH = 0;
@@ -108,6 +120,13 @@ export class Game {
 
   constructor(public canvas: HTMLCanvasElement, data: MapJSON) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
+    const hudEl = document.getElementById('hud') as HTMLCanvasElement | null;
+    const fxEl = document.getElementById('fx') as HTMLCanvasElement | null;
+    if (hudEl) {
+      this.hudCanvas = hudEl;
+      this.hudCtx = hudEl.getContext('2d')!;
+    }
+    if (fxEl) this.postFx = new PostFX(fxEl, canvas);
     this.world = new World(data);
     this.renderer = new Renderer(this.world);
     this.input = new Input(canvas);
@@ -167,11 +186,24 @@ export class Game {
     this.dpr = Math.min(2, devicePixelRatio || 1);
     this.viewW = innerWidth;
     this.viewH = innerHeight;
-    this.canvas.width = Math.round(this.viewW * this.dpr);
-    this.canvas.height = Math.round(this.viewH * this.dpr);
+    const w = Math.round(this.viewW * this.dpr), h = Math.round(this.viewH * this.dpr);
+    this.canvas.width = w;
+    this.canvas.height = h;
     this.canvas.style.width = this.viewW + 'px';
     this.canvas.style.height = this.viewH + 'px';
+    if (this.hudCanvas) {
+      this.hudCanvas.width = w;
+      this.hudCanvas.height = h;
+      this.hudCanvas.style.width = this.viewW + 'px';
+      this.hudCanvas.style.height = this.viewH + 'px';
+    }
+    this.postFx?.resize(w, h);
     this.vignette = null; // rebuilt lazily at the new size
+  }
+
+  /** CSS-pixel screen position of a world coordinate; multiply by `dpr` before passing to `postFx.shockwave`. */
+  worldToScreen(x: number, y: number): { x: number; y: number } {
+    return { x: this.viewW / 2 + (x - this.cam.x) * this.cam.scale, y: this.viewH / 2 + (y - this.cam.y) * this.cam.scale };
   }
 
   // ---------------------------------------------------------------- setup
@@ -918,11 +950,22 @@ export class Game {
       ctx.drawImage(L.canvas, 0, 0, this.viewW, this.viewH);
       ctx.restore();
     }
-    this.drawVignette(ctx, atmos);
 
+    // GPU post-processing (bloom, colour grade, vignette, grain, damage/shockwave/speed fx):
+    // re-processes the whole world canvas on the GPU. Falls back to the plain 2D vignette
+    // when WebGL is unavailable, the context was lost, or quality is pinned to "low".
+    const handled = this.postFx?.render(this.canvas, { night: atmos.night, daylight: atmos.daylight, rain: atmos.rain, wet: atmos.wet, time: atmos.time }, this.time, this.qualityTier) ?? false;
+    if (!handled) this.drawVignette(ctx, atmos);
+
+    // HUD + full map draw onto a separate transparent overlay canvas, above PostFX,
+    // so post-processing (bloom/grain/aberration/etc.) never touches them.
+    if (this.hudCtx && this.hudCanvas) this.hudCtx.clearRect(0, 0, this.hudCanvas.width, this.hudCanvas.height);
     if (!hud) return;
-    this.hud.draw(ctx);
-    if (this.showMap) this.mapView.drawFull(ctx);
+    if (this.hudCtx) {
+      this.hudCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.hud.draw(this.hudCtx);
+      if (this.showMap) this.mapView.drawFull(this.hudCtx);
+    }
   }
 
   private drawPickups(ctx: CanvasRenderingContext2D) {
@@ -1135,18 +1178,32 @@ export class Game {
     ctx.restore();
   }
 
-  /** rolling frame-time average; after ~2s consistently slow, drop light-map res and `quality`. */
+  /** rolling frame-time average; adapts `qualityTier` both ways with hysteresis, pinned by `qualityPref`. */
   private trackFrameTime() {
     const now = performance.now();
     if (this.lastFrameT) {
       const ft = now - this.lastFrameT;
       this.frameAvg += (ft - this.frameAvg) * 0.08;
-      if (this.frameAvg > 22) this.slowTimer += ft / 1000;
-      else this.slowTimer = 0;
-      if (this.slowTimer > 2 && this.quality === 1) {
-        this.quality = 0;
-        this.light.res = 0.35;
+      if (this.qualityPref === 'auto') {
+        if (this.frameAvg > 26) this.slowTimer += ft / 1000;
+        else this.slowTimer = 0;
+        if (this.frameAvg < 14) this.goodTimer += ft / 1000;
+        else this.goodTimer = 0;
+        if (this.slowTimer > 1.5 && this.qualityTier > 0) {
+          this.qualityTier = (this.qualityTier - 1) as 0 | 1 | 2;
+          this.slowTimer = 0;
+          this.goodTimer = 0;
+        } else if (this.goodTimer > 4 && this.qualityTier < 2) {
+          this.qualityTier = (this.qualityTier + 1) as 0 | 1 | 2;
+          this.goodTimer = 0;
+          this.slowTimer = 0;
+        }
+      } else {
+        this.qualityTier = this.qualityPref === 'high' ? 2 : this.qualityPref === 'medium' ? 1 : 0;
       }
+      this.quality = this.qualityTier > 0 ? 1 : 0;
+      if (this.baseLightRes === null) this.baseLightRes = this.light.res;
+      this.light.res = this.qualityTier > 0 ? this.baseLightRes : 0.35;
     }
     this.lastFrameT = now;
   }

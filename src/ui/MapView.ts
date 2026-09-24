@@ -2,6 +2,7 @@ import type { Game } from '../game/Game';
 import { outlined } from './Hud';
 
 const PX = 0.6; // pixels per metre in the cached map image
+const GOLD_FRAME = '#ffd600';
 
 /** Pre-rendered city map used by the minimap and the full-screen map (M). */
 export class MapView {
@@ -138,27 +139,51 @@ export class MapView {
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
     ctx.restore();
-    // outer ring: subtle bevel + gold hairline over the dark frame
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.lineWidth = 4;
+    // outer ring: dark bevel, gold hairline, soft outer glow, gloss highlight along the top
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,214,0,0.35)';
-    ctx.lineWidth = 1.5;
+    const bevel = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+    bevel.addColorStop(0, 'rgba(255,255,255,0.5)');
+    bevel.addColorStop(0.5, 'rgba(255,214,0,0.4)');
+    bevel.addColorStop(1, 'rgba(120,90,0,0.4)');
+    ctx.strokeStyle = bevel;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r - 1.5, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(cx, cy, r + 2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = '#fff';
+    ctx.restore();
+    // north marker: small gold pointer + "S" (Sever) tab riding the ring
+    ctx.save();
+    ctx.translate(cx, cy - r);
+    ctx.fillStyle = GOLD_FRAME;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0, -9);
+    ctx.lineTo(6, 2);
+    ctx.lineTo(-6, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
     ctx.font = '900 12px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    outlined(ctx, 'S', cx, cy - r + 9, '#fff', 3);
+    outlined(ctx, 'S', cx, cy - r + 12, '#fff', 3);
   }
 
   drawFull(ctx: CanvasRenderingContext2D) {

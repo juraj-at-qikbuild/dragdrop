@@ -6,9 +6,14 @@
     <title>Blava City</title>
     <meta name="description" content="Top-down open-world crime game on the real streets of Bratislava, built from OpenStreetMap data." />
     <link rel="icon" href="./assets/erb.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   </head>
   <body>
     <canvas id="game"></canvas>
+    <canvas id="fx"></canvas>
+    <canvas id="hud"></canvas>
 
     <div id="loading" class="screen">
       <img src="./assets/erb.svg" alt="" class="erb spin" />
@@ -57,6 +62,7 @@
         <div class="buttons">
           <button id="btn-resume" class="primary">Pokračovať</button>
           <button id="btn-mute">Zvuk: zapnutý</button>
+          <button id="btn-quality">Grafika: Auto</button>
           <button id="btn-quit">Hlavné menu</button>
         </div>
       </div>
