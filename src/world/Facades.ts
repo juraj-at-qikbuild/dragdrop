@@ -46,13 +46,14 @@ function litGlass(r: () => number) {
 }
 
 const cache = new Map<string, CanvasPattern>();
-const glowCache = new Map<string, CanvasPattern>();
+/** null = the tile has no lit glass at all, so the additive night pass can skip it */
+const glowCache = new Map<string, CanvasPattern | null>();
 
 /** Pull just the lit-glass pixels out of an already-painted tile into a
  *  transparent-background copy, so it can be redrawn additively after the
  *  night light-map multiply without re-darkening the whole wall. Deriving it
  *  from the real tile (same seed) guarantees it lines up window-for-window. */
-function extractGlow(cv: HTMLCanvasElement): HTMLCanvasElement {
+function extractGlow(cv: HTMLCanvasElement): HTMLCanvasElement | null {
   const w = cv.width, h = cv.height;
   const src = cv.getContext('2d')!.getImageData(0, 0, w, h);
   const out = document.createElement('canvas');
@@ -61,14 +62,17 @@ function extractGlow(cv: HTMLCanvasElement): HTMLCanvasElement {
   const octx = out.getContext('2d')!;
   const dst = octx.createImageData(w, h);
   const d = src.data, o = dst.data;
+  let any = false;
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
     const warm = r >= 245 && g >= 195 && g <= 245 && b >= 120 && b <= 165;
     const cool = r >= 190 && r <= 212 && g >= 215 && g <= 235 && b >= 245;
     if (warm || cool) {
       (o[i] = r), (o[i + 1] = g), (o[i + 2] = b), (o[i + 3] = 255);
+      any = true;
     } else o[i + 3] = 0;
   }
+  if (!any) return null;
   octx.putImageData(dst, 0, 0);
   return out;
 }
@@ -107,33 +111,35 @@ export function groundTexture(style: FacadeStyle, wall: string, variant: number,
 
 /** Glow-only upper-storey tile (transparent except lit windows): same seed as the
  *  real lit tile, so it redraws exactly over the windows that are actually lit. */
-export function facadeGlow(style: FacadeStyle, wall: string, variant: number): CanvasPattern {
+export function facadeGlow(style: FacadeStyle, wall: string, variant: number): CanvasPattern | null {
   const key = `fg|${style}|${wall}|${variant}`;
   let p = glowCache.get(key);
-  if (p) return p;
+  if (p !== undefined) return p;
   const cv = document.createElement('canvas');
   cv.width = PXW;
   cv.height = PXH;
   const c = cv.getContext('2d')!;
   paintUpper(c, style, num(wall), variant, true, rng(hashStr(`f|${style}|${wall}|${variant}|1`)));
-  p = c.createPattern(extractGlow(cv), 'repeat')!;
-  p.setTransform(new DOMMatrix().scale(BAY_W[style] / PXW, 1 / PXH));
+  const glow = extractGlow(cv);
+  p = glow && c.createPattern(glow, 'repeat');
+  p?.setTransform(new DOMMatrix().scale(BAY_W[style] / PXW, 1 / PXH));
   glowCache.set(key, p);
   return p;
 }
 
 /** Glow-only ground-floor band tile (door or shopfront). */
-export function groundGlow(style: FacadeStyle, wall: string, variant: number, shop: boolean): CanvasPattern {
+export function groundGlow(style: FacadeStyle, wall: string, variant: number, shop: boolean): CanvasPattern | null {
   const key = `gg|${style}|${wall}|${variant}|${shop ? 1 : 0}`;
   let p = glowCache.get(key);
-  if (p) return p;
+  if (p !== undefined) return p;
   const cv = document.createElement('canvas');
   cv.width = GPXW;
   cv.height = GPXH;
   const c = cv.getContext('2d')!;
   paintGround(c, style, num(wall), variant, shop, true, rng(hashStr(`g|${style}|${wall}|${variant}|1|${shop ? 1 : 0}`)));
-  p = c.createPattern(extractGlow(cv), 'repeat')!;
-  p.setTransform(new DOMMatrix().scale(GROUND_BAY_W[style] / GPXW, 1 / GPXH));
+  const glow = extractGlow(cv);
+  p = glow && c.createPattern(glow, 'repeat');
+  p?.setTransform(new DOMMatrix().scale(GROUND_BAY_W[style] / GPXW, 1 / GPXH));
   glowCache.set(key, p);
   return p;
 }
