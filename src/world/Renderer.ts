@@ -1,9 +1,10 @@
 import type { World, Building } from './World';
 import { bboxOf, bboxHit, rng, pointInRings, ringArea, type BBox } from '../util/math';
-import { ROOF_ADS } from '../data/brands';
+import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
 import { texture, animateWater, type TexKind } from './Textures';
+import { facadeTexture, groundTexture, type FacadeStyle } from './Facades';
 
 const CHUNK = 128;
 
@@ -21,6 +22,8 @@ interface Ring {
   pts: Float32Array;
   /** +1/-1 winding sign, used to find the outward normal of each edge */
   sign: number;
+  /** vertex index of the edge (in `pts`) chosen as this ring's shopfront edge, or -1 for doors-only */
+  shopEdge: number;
 }
 
 interface BGroup {
@@ -37,18 +40,38 @@ interface BGroup {
   outline: Path2D;
   /** decorative ridge line(s) for pitched roofs */
   ridge: Path2D;
-  /** HVAC/skylight/vent details for large flat roofs */
+  /** HVAC/skylight/vent details for large flat roofs, chimneys for pitched ones */
   roofDetail: Path2D;
+  chimneys: Path2D;
   rings: Ring[];
   levels: number;
   shadow?: Path2D;
   shadowKey?: number;
+  /** facade style for close-up window/door rendering; undefined = fences/kind4, keep flat */
+  facade?: FacadeStyle;
+  /** cached wall-quad Path2D buckets, rebuilt only when the quantised roof offset changes */
+  bucketCache?: { key: string; buckets: Path2D[] };
+  /** baked facade/ground CanvasPatterns for this group's 3 variants, keyed by day/night
+   *  so the per-edge draw loop never has to touch the Facades pattern cache itself */
+  facadeCache?: { lit: boolean; upper: CanvasPattern[]; door: CanvasPattern[]; shop: CanvasPattern[] };
 }
 
 interface TreeSet {
   shadow: Path2D;
   canopy: Path2D[];
   highlight: Path2D;
+}
+
+interface SignInfo {
+  chunk: Chunk;
+  ax: number;
+  ay: number;
+  ux: number;
+  uy: number;
+  u0: number;
+  h: number;
+  name: string;
+  colors?: [string, string];
 }
 
 interface Chunk {
@@ -97,6 +120,16 @@ const OLD_WALLS = ['#d9c9a8', '#e3d3b4', '#cdb89a', '#e6dcc8', '#c9b79c', '#d8c3
 
 /** wall brightness from away-from-sun to facing-sun (ambient keeps shaded walls readable) */
 const WALL_SHADE_LEVELS = [0.7, 0.8, 0.92, 1.04];
+
+/** generic Old Town shopfront labels for buildings without a named POI */
+const GENERIC_SIGNS: [string, string, string][] = [
+  ['Potraviny', '#2e7d32', '#fff'],
+  ['Kaviareň', '#4e342e', '#ffcc80'],
+  ['Lekáreň', '#00897b', '#fff'],
+  ['Bar', '#37474f', '#ffca28'],
+  ['Trafika', '#5d4037', '#fff'],
+  ['Pekáreň', '#f9a825', '#3e2723'],
+];
 
 /** Walk a flat [x0,y0,x1,y1,...] polyline at a fixed arc-length step, calling
  *  fn(x, y, nx, ny) at each sample (nx,ny = unit normal to the segment). */
@@ -179,8 +212,11 @@ export class Renderer {
   ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
   /** bridge deck polylines, for the cast shadow + railings drawn by `drawBridges` */
   private bridges: { p: Float32Array; hw: number; bbox: BBox }[] = [];
+  signs: SignInfo[] = [];
   private treeCount = 0;
   private sunKeyLast = NaN;
+  /** hard per-frame cap on facade edges drawn, so a dense Old Town view can't blow the frame budget */
+  private facadeBudget = 0;
 
   /** set by Game after construction; read for sun direction, night and rain */
   atmos = new Atmosphere();
@@ -376,6 +412,7 @@ export class Renderer {
 
     // buildings grouped by chunk, height bin and colour
     const groups = new Map<Chunk, Map<string, BGroup>>();
+    const oldTownAt = w.landmark('main');
     for (const b of w.buildings) {
       const c = this.chunkAt(b.bbox, map);
       const r = rng(b.seed * 7919);
@@ -387,7 +424,19 @@ export class Renderer {
       if (b.kind === 2) (wall = '#e9e3d6'), (roof = '#b8553a');
       if (b.kind === 4) (wall = 'rgba(80,80,80,0.5)'), (roof = 'rgba(150,150,150,0.55)');
       if (b.color) (roof = b.color), (wall = b.wallColor ?? wall);
-      const key = `${bin}|${wall}|${roof}`;
+
+      // facade style: churches/castles are always baroque-ish; otherwise by height,
+      // then Old Town proximity, then a coin flip between panel and office/industrial
+      let facade: FacadeStyle | undefined;
+      if (b.kind !== 4) {
+        if (b.kind === 1 || b.kind === 2) facade = 'oldtown';
+        else if (bin >= 8) facade = hash01(b.seed, 1) < 0.55 ? 'panel' : 'office';
+        else if (Math.hypot(b.cx - oldTownAt.x, b.cy - oldTownAt.y) < 450) facade = 'oldtown';
+        else if (bin <= 2 && b.area > 700) facade = 'industrial';
+        else facade = hash01(b.seed, 2) < 0.5 ? 'panel' : 'office';
+      }
+
+      const key = `${bin}|${wall}|${roof}|${facade ?? ''}`;
       let gm = groups.get(c);
       if (!gm) groups.set(c, (gm = new Map()));
       let g = gm.get(key);
@@ -404,15 +453,45 @@ export class Renderer {
           outline: new Path2D(),
           ridge: new Path2D(),
           roofDetail: new Path2D(),
+          chimneys: new Path2D(),
           rings: [],
           levels: Math.max(1, bin),
+          facade,
         };
         gm.set(key, g);
         c.bgroups.push(g);
       }
+      // pick a shopfront edge (longest, near a named street) for commercial-ish buildings
+      let shopEdge = -1;
+      if (facade && b.rings.length === 1 && b.area > 30 && (b.kind === 3 || (facade === 'oldtown' && hash01(b.seed, 9) < 0.35))) {
+        const ring = b.rings[0];
+        let best = 0, bestK = -1;
+        for (let k = 0; k < ring.length - 2; k += 2) {
+          const l = Math.hypot(ring[k + 2] - ring[k], ring[k + 3] - ring[k + 1]);
+          if (l > best) (best = l), (bestK = k);
+        }
+        if (bestK >= 0) {
+          const mx = (ring[bestK] + ring[bestK + 2]) / 2, my = (ring[bestK + 1] + ring[bestK + 3]) / 2;
+          if (w.streetName(mx, my) !== null) shopEdge = bestK;
+        }
+        // Old Town shopfronts without a named POI get a generic label (Potraviny, Bar, ...)
+        if (shopEdge >= 0 && facade === 'oldtown' && hash01(b.seed, 12) < 0.5) {
+          const mx = (ring[shopEdge] + ring[shopEdge + 2]) / 2, my = (ring[shopEdge + 1] + ring[shopEdge + 3]) / 2;
+          const nearPoi = w.data.pois.some((p) => p.k === 'shop' && Math.hypot(p.x - mx, p.y - my) < 15);
+          if (!nearPoi) {
+            const elen = Math.hypot(ring[shopEdge + 2] - ring[shopEdge], ring[shopEdge + 3] - ring[shopEdge + 1]) || 1;
+            const [name, bg, fg] = GENERIC_SIGNS[(hash01(b.seed, 13) * GENERIC_SIGNS.length) | 0];
+            this.signs.push({
+              chunk: c, ax: ring[shopEdge], ay: ring[shopEdge + 1],
+              ux: (ring[shopEdge + 2] - ring[shopEdge]) / elen, uy: (ring[shopEdge + 3] - ring[shopEdge + 1]) / elen,
+              u0: elen / 2, h: bin * 3.2, name, colors: [bg, fg],
+            });
+          }
+        }
+      }
       for (const ring of b.rings) {
         addPoly(g.path, ring, true);
-        g.rings.push({ pts: ring, sign: signedArea(ring) >= 0 ? 1 : -1 });
+        g.rings.push({ pts: ring, sign: signedArea(ring) >= 0 ? 1 : -1, shopEdge: ring === b.rings[0] ? shopEdge : -1 });
       }
       addPoly(g.outline, b.rings[0], true);
 
@@ -428,6 +507,18 @@ export class Renderer {
           const len = Math.min(best, Math.sqrt(b.area)) * 0.42;
           g.ridge.moveTo(b.cx - Math.cos(angle) * len, b.cy - Math.sin(angle) * len);
           g.ridge.lineTo(b.cx + Math.cos(angle) * len, b.cy + Math.sin(angle) * len);
+          // chimney(s) near the ridge ends, offset off-centre so they read as boxes, not the ridge itself
+          if (b.area > 70) {
+            const nx = -Math.sin(angle), ny = Math.cos(angle);
+            const cr = rng(b.seed * 331 + 5);
+            const n = 1 + (cr() < 0.4 ? 1 : 0);
+            for (let k = 0; k < n; k++) {
+              const t = (cr() - 0.5) * len * 1.1;
+              const s = 0.7 + cr() * 0.4;
+              const px = b.cx + Math.cos(angle) * t + nx * len * 0.18, py = b.cy + Math.sin(angle) * t + ny * len * 0.18;
+              g.chimneys.rect(px - s / 2, py - s / 2, s, s * 1.6);
+            }
+          }
         } else if (b.area > 600) {
           const rr = rng(b.seed * 131 + 7);
           const n = 1 + ((rr() * 3) | 0);
@@ -464,6 +555,32 @@ export class Renderer {
       const len = Math.min(best * 0.7, Math.sqrt(b.area) * 1.1);
       this.ads.push({ b, ad: ROOF_ADS[i % ROOF_ADS.length], chunk, h: Math.min(14, Math.round(b.levels)) * 3.2, angle, w: len * 0.32, len });
     });
+
+    // shop/fuel POI signs: projected onto the nearest building wall edge
+    for (const p of w.data.pois) {
+      if (p.k !== 'shop' && p.k !== 'fuel') continue;
+      let bestD = 30 * 30, bestB: Building | null = null, bestK = -1;
+      for (const b of w.buildings) {
+        if (b.kind === 4 || p.x < b.bbox.x0 - 30 || p.x > b.bbox.x1 + 30 || p.y < b.bbox.y0 - 30 || p.y > b.bbox.y1 + 30) continue;
+        const ring = b.rings[0];
+        for (let k = 0; k < ring.length - 2; k += 2) {
+          const ax = ring[k], ay = ring[k + 1], dx = ring[k + 2] - ax, dy = ring[k + 3] - ay;
+          const l2 = dx * dx + dy * dy || 1;
+          const t = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / l2));
+          const d = (ax + dx * t - p.x) ** 2 + (ay + dy * t - p.y) ** 2;
+          if (d < bestD) (bestD = d), (bestB = b), (bestK = k);
+        }
+      }
+      if (!bestB || bestK < 0) continue;
+      const ring = bestB.rings[0];
+      const ax = ring[bestK], ay = ring[bestK + 1];
+      const elen = Math.hypot(ring[bestK + 2] - ax, ring[bestK + 3] - ay) || 1;
+      const bin = bestB.kind === 4 ? 0.6 : Math.min(14, Math.round(bestB.levels));
+      this.signs.push({
+        chunk: this.chunkAt(bestB.bbox, map), ax, ay, ux: (ring[bestK + 2] - ax) / elen, uy: (ring[bestK + 3] - ay) / elen,
+        u0: elen / 2, h: Math.max(1, bin) * 3.2, name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
+      });
+    }
   }
 
   roofOffset(x: number, y: number, h: number, v: View): [number, number] {
@@ -529,48 +646,65 @@ export class Renderer {
     const sunDir = this.atmos.sunDir;
     const wantWindows = v.scale > 6;
     const night = this.atmos.night;
+    // buildings within this radius of the camera, and zoomed in enough, get real
+    // facade patterns (windows/doors/shopfronts); farther/zoomed-out ones keep the
+    // cheap flat Lambert-tone quads
+    const facadeReady = v.scale > 6;
+    this.facadeBudget = 650;
     for (const c of vis) {
       for (const g of c.bgroups) {
         const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
         const px = Math.hypot(ox, oy) * v.scale;
+        const useFacade = facadeReady && g.facade && px > 14 && Math.hypot(c.cx - v.camX, c.cy - v.camY) < 70;
         ctx.save();
         if (px > 0.6) {
-          // extruded walls: one quad per footprint edge, wound consistently so
-          // a single nonzero fill covers them; edges are bucketed into 4 Lambert tones
-          const buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
-          for (const rr of g.rings) {
-            const pts = rr.pts;
-            for (let i = 0; i < pts.length - 2; i += 2) {
-              const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
-              const ex = bx - ax, ey = by - ay;
-              const elen = Math.hypot(ex, ey) || 1;
-              let nx = ey / elen, ny = -ex / elen;
-              if (rr.sign < 0) (nx = -nx), (ny = -ny);
-              const lambert = Math.max(0, nx * sunDir.x + ny * sunDir.y);
-              const tone = Math.min(3, (lambert * 3.4) | 0);
-              const p = buckets[tone];
-              if (ex * oy - ey * ox >= 0) {
-                p.moveTo(ax, ay);
-                p.lineTo(bx, by);
-                p.lineTo(bx + ox, by + oy);
-                p.lineTo(ax + ox, ay + oy);
-              } else {
-                p.moveTo(ax, ay);
-                p.lineTo(ax + ox, ay + oy);
-                p.lineTo(bx + ox, by + oy);
-                p.lineTo(bx, by);
+          // wall-quad geometry only needs rebuilding when the (quantised) roof
+          // offset actually changes - camera pans/zooms shift it every frame in
+          // theory, but the quantisation lets a mostly-still camera reuse it
+          const qkey = `${Math.round(ox * 20)}|${Math.round(oy * 20)}`;
+          let buckets: Path2D[];
+          if (g.bucketCache && g.bucketCache.key === qkey) buckets = g.bucketCache.buckets;
+          else {
+            // extruded walls: one quad per footprint edge, wound consistently so
+            // a single nonzero fill covers them; edges are bucketed into 4 Lambert tones
+            buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+            for (const rr of g.rings) {
+              const pts = rr.pts;
+              for (let i = 0; i < pts.length - 2; i += 2) {
+                const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+                const ex = bx - ax, ey = by - ay;
+                const elen = Math.hypot(ex, ey) || 1;
+                let nx = ey / elen, ny = -ex / elen;
+                if (rr.sign < 0) (nx = -nx), (ny = -ny);
+                const lambert = Math.max(0, nx * sunDir.x + ny * sunDir.y);
+                const tone = Math.min(3, (lambert * 3.4) | 0);
+                const p = buckets[tone];
+                if (ex * oy - ey * ox >= 0) {
+                  p.moveTo(ax, ay);
+                  p.lineTo(bx, by);
+                  p.lineTo(bx + ox, by + oy);
+                  p.lineTo(ax + ox, ay + oy);
+                } else {
+                  p.moveTo(ax, ay);
+                  p.lineTo(ax + ox, ay + oy);
+                  p.lineTo(bx + ox, by + oy);
+                  p.lineTo(bx, by);
+                }
+                p.closePath();
               }
-              p.closePath();
             }
+            g.bucketCache = { key: qkey, buckets };
           }
           for (let k = 0; k < 4; k++) {
             ctx.fillStyle = g.wallShades[k];
             ctx.fill(buckets[k]);
           }
-          // storey lines (and lit windows at night): the cached footprint outline
-          // translated part-way up the wall; the roof drawn next hides the parts
-          // that fall on the far side of the building
-          if (wantWindows && px > 14 && g.levels >= 2) {
+          if (useFacade) {
+            if (this.facadeBudget > 0) this.drawFacade(ctx, g, ox, oy, night, v.scale);
+          } else if (wantWindows && px > 14 && g.levels >= 2) {
+            // storey lines (and lit windows at night): the cached footprint outline
+            // translated part-way up the wall; the roof drawn next hides the parts
+            // that fall on the far side of the building
             const rows = Math.min(g.levels, 5);
             ctx.save();
             ctx.strokeStyle = 'rgba(30,26,22,0.16)';
@@ -610,9 +744,20 @@ export class Renderer {
             ctx.strokeStyle = 'rgba(255,235,215,0.22)';
             ctx.lineWidth = 0.22;
             ctx.stroke(g.ridge);
+            // chimney pots: shadow then brick-coloured box with a dark cap
+            ctx.fillStyle = 'rgba(0,0,0,0.22)';
+            ctx.save();
+            ctx.translate(0.15, 0.2);
+            ctx.fill(g.chimneys);
+            ctx.restore();
+            ctx.fillStyle = '#6b5850';
+            ctx.fill(g.chimneys);
           } else {
-            ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-            ctx.lineWidth = 0.35;
+            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+            ctx.lineWidth = 0.4;
+            ctx.stroke(g.outline);
+            ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+            ctx.lineWidth = 0.16;
             ctx.stroke(g.outline);
             ctx.fillStyle = 'rgba(0,0,0,0.18)';
             ctx.save();
@@ -630,6 +775,99 @@ export class Renderer {
       }
     }
     this.drawAds(ctx, v);
+    if (facadeReady) this.drawShopSigns(ctx, v);
+  }
+
+  /** Small brand/shop sign boards on the ground-floor band, oriented along the wall. */
+  private drawShopSigns(ctx: CanvasRenderingContext2D, v: View) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const fs = 0.62;
+    ctx.font = `800 ${fs}px system-ui, sans-serif`;
+    for (const s of this.signs) {
+      if (s.ax < v.x0 - 20 || s.ax > v.x1 + 20 || s.ay < v.y0 - 20 || s.ay > v.y1 + 20) continue;
+      const [ox, oy] = this.roofOffset(s.chunk.cx, s.chunk.cy, s.h, v);
+      const px = s.ax + s.ux * s.u0 + ox * 0.34, py = s.ay + s.uy * s.u0 + oy * 0.34;
+      let angle = Math.atan2(s.uy, s.ux);
+      if (angle > Math.PI / 2) angle -= Math.PI;
+      if (angle < -Math.PI / 2) angle += Math.PI;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      const [bg, fg] = s.colors ?? ['#37474f', '#fff'];
+      const w = ctx.measureText(s.name).width + fs * 1.1;
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.fillRect(-w / 2, -fs * 0.7, w, fs * 1.15);
+      ctx.fillStyle = bg;
+      ctx.fillRect(-w / 2, -fs * 0.78, w, fs * 1.15);
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 0.04;
+      ctx.strokeRect(-w / 2, -fs * 0.78, w, fs * 1.15);
+      ctx.fillStyle = fg;
+      ctx.fillText(s.name, 0, -fs * 0.2);
+      ctx.restore();
+    }
+  }
+
+  /** Windows, doors and shopfronts for one building group's walls, close up. One
+   *  fillRect per edge: ctx.transform maps (u, level) -> world metres so a facade
+   *  tile always lands as one bay per storey regardless of the edge's own angle. */
+  private drawFacade(ctx: CanvasRenderingContext2D, g: BGroup, ox: number, oy: number, night: number, scale: number) {
+    const style = g.facade!;
+    const lit = night > 0.3;
+    const sunDir = this.atmos.sunDir;
+    const invLevels = 1 / g.levels;
+    // bake this group's 3 variants once (day/night) instead of hitting the Facades
+    // pattern cache (string keys + Map.get) on every edge, every frame
+    if (!g.facadeCache || g.facadeCache.lit !== lit) {
+      const upper: CanvasPattern[] = [], door: CanvasPattern[] = [], shop: CanvasPattern[] = [];
+      for (let variant = 0; variant < 3; variant++) {
+        upper.push(facadeTexture(style, g.wall, variant, lit));
+        door.push(groundTexture(style, g.wall, variant, lit, false));
+        shop.push(groundTexture(style, g.wall, variant, lit, true));
+      }
+      g.facadeCache = { lit, upper, door, shop };
+    }
+    const { upper, door, shop: shopTex } = g.facadeCache;
+    // one base transform captured up front; each edge overwrites the CTM directly
+    // instead of save/restore (cheaper - no full canvas-state clone per edge)
+    const base = ctx.getTransform();
+    let dirty = false;
+    for (const rr of g.rings) {
+      const pts = rr.pts;
+      for (let i = 0; i < pts.length - 2; i += 2) {
+        const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+        const ex = bx - ax, ey = by - ay;
+        const elen = Math.hypot(ex, ey);
+        if (elen < 1.4 || elen * scale < 13) continue;
+        let nx = ey / elen, ny = -ex / elen;
+        if (rr.sign < 0) (nx = -nx), (ny = -ny);
+        // back-facing edges (far side of the footprint from the camera) never read on screen
+        if (ex * oy - ey * ox < 0) continue;
+        const ux = ex / elen, uy = ey / elen;
+        const seed = (ax * 131 + ay * 977) | 0;
+        const variant = (hash01(seed, 4) * 3) | 0;
+        const shop = i === rr.shopEdge;
+        if (--this.facadeBudget < 0) break;
+        ctx.setTransform(base.translate(ax, ay).multiply(new DOMMatrix([ux, uy, ox * invLevels, oy * invLevels, 0, 0])));
+        dirty = true;
+        if (g.levels > 1) {
+          ctx.fillStyle = upper[variant];
+          ctx.fillRect(0, 1, elen, g.levels - 1);
+        }
+        ctx.fillStyle = shop ? shopTex[variant] : door[variant];
+        ctx.fillRect(0, 0, elen, 1);
+        // Lambert shading on top so the baked tile still reads sun direction (skip
+        // the extra fillRect where it would barely register)
+        const lambert = Math.max(0, nx * sunDir.x + ny * sunDir.y);
+        const shadeAlpha = (0.5 - lambert) * 0.5;
+        if (Math.abs(shadeAlpha) > 0.04) {
+          ctx.fillStyle = shadeAlpha >= 0 ? `rgba(10,10,16,${shadeAlpha})` : `rgba(255,250,235,${-shadeAlpha * 0.6})`;
+          ctx.fillRect(0, 0, elen, g.levels);
+        }
+      }
+    }
+    if (dirty) ctx.setTransform(base);
   }
 
   private drawTrees(ctx: CanvasRenderingContext2D, v: View, vis: Chunk[]) {
