@@ -188,10 +188,15 @@ export class Tram {
       } else {
         ctx.fillRect(-SEG / 2, -1.2, SEG, 2.4);
       }
-      // cream window strip, both sides
+      // cream window strip, both sides, with a subtle reflection gradient in the glass
       ctx.fillStyle = '#f4f0e6';
       ctx.fillRect(-SEG / 2 + 0.3, -0.95, SEG - 0.9, 1.9);
-      ctx.fillStyle = '#27343f';
+      const glassGrad = ctx.createLinearGradient(0, -0.72, 0, 0.72);
+      glassGrad.addColorStop(0, '#3a4954');
+      glassGrad.addColorStop(0.45, '#27343f');
+      glassGrad.addColorStop(0.55, '#27343f');
+      glassGrad.addColorStop(1, '#1c262e');
+      ctx.fillStyle = glassGrad;
       for (let w = 0; w < 3; w++) ctx.fillRect(-SEG / 2 + 0.65 + w * (SEG - 1.6) / 2.6, -0.72, (SEG - 1.6) / 3.4, 1.44);
       // door lines
       ctx.strokeStyle = 'rgba(0,0,0,0.3)';

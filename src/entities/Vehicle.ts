@@ -217,8 +217,9 @@ export class Vehicle {
       L.glow(this.x, this.y, 3.5, '#ff7a20', fl * 0.6);
     }
 
+    const dmg = ((this as any).dmg ?? { front: 0, rear: 0, left: 0, right: 0 }) as { front: number; rear: number; left: number; right: number };
     const k = Math.max(atmos.night, atmos.rain * 0.5);
-    if (k > 0.02) {
+    if (k > 0.02 && dmg.front <= 0.7) {
       L.cone(noseX, noseY, this.angle, 16, 0.35, '#fff1c8', k);
       L.point(noseX + rx * hw, noseY + ry * hw, 1.8, '#fff1c8', 0.65 * k);
       L.point(noseX - rx * hw, noseY - ry * hw, 1.8, '#fff1c8', 0.65 * k);
@@ -287,12 +288,56 @@ export class Vehicle {
     drawWheel(ctx, -wx0, -wy0, 0, wheelLen, wheelWid);
     drawWheel(ctx, -wx0, wy0, 0, wheelLen, wheelWid);
 
+    const dmg = ((this as any).dmg ?? { front: 0, rear: 0, left: 0, right: 0 }) as { front: number; rear: number; left: number; right: number };
     const body = this.wrecked ? '#2a2623' : this.color;
-    ctx.fillStyle = this.wrecked ? body : bodyGradient(ctx, body);
+    ctx.save();
     roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
-    ctx.fill();
+    ctx.clip();
+    ctx.fillStyle = this.wrecked ? body : bodyGradient(ctx, body);
+    ctx.fillRect(-L / 2 - 0.1, -W / 2 - 0.1, L + 0.2, W + 0.2);
+    // panel lines: hood/trunk seams and a door crease
+    if (!this.wrecked && s.kind !== 'bus') {
+      ctx.strokeStyle = shade(body, -0.32);
+      ctx.lineWidth = 0.03;
+      ctx.beginPath();
+      ctx.moveTo(L * 0.06, -W / 2 + 0.08);
+      ctx.lineTo(L * 0.06, W / 2 - 0.08);
+      ctx.stroke();
+    }
+    // sun-dependent specular sweep: a soft diagonal highlight band across the paint
+    if (!this.wrecked && atmos) {
+      const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+      const lx = -atmos.sun.dx * ca - atmos.sun.dy * sa; // light dir in car-local x
+      const t = Math.max(-1, Math.min(1, lx)) * L * 0.3;
+      const g = ctx.createLinearGradient(t - L * 0.22, -W / 2, t + L * 0.22, W / 2);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.5, `rgba(255,255,255,${0.22 + 0.16 * (atmos.daylight ?? 0.6)})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-L / 2 - 0.1, -W / 2 - 0.1, L + 0.2, W + 0.2);
+    }
+    // per-side damage: crumpled dents + a scorch tint at the hit end
+    for (const side of ['front', 'rear', 'left', 'right'] as const) {
+      const v = dmg[side];
+      if (!v) continue;
+      ctx.save();
+      let cx = 0, cy = 0, w = 0, h = 0;
+      if (side === 'front') { cx = L / 2 - 0.3; cy = 0; w = 0.7; h = W - 0.2; }
+      else if (side === 'rear') { cx = -L / 2 + 0.3; cy = 0; w = 0.7; h = W - 0.2; }
+      else if (side === 'left') { cx = 0; cy = -W / 2 + 0.15; w = L - 0.4; h = 0.5; }
+      else { cx = 0; cy = W / 2 - 0.15; w = L - 0.4; h = 0.5; }
+      ctx.globalAlpha = Math.min(0.8, v);
+      ctx.fillStyle = shade(body, -0.4);
+      roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 0.15);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(30,15,10,0.35)';
+      ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+      ctx.restore();
+    }
+    ctx.restore();
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = 0.08;
+    roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
     ctx.stroke();
 
     const glass = this.wrecked ? '#111' : '#27343f';
@@ -344,8 +389,12 @@ export class Vehicle {
       mirrors(ctx, L, W, body);
     } else {
       const k = s.kind === 'sport' ? 0.9 : 1;
-      // windscreen
-      ctx.fillStyle = glass;
+      // windscreen with a soft reflection gradient
+      const wsGrad = ctx.createLinearGradient(L * 0.2, -W / 2, L * 0.36, W / 2);
+      wsGrad.addColorStop(0, shade(glass, 0.22));
+      wsGrad.addColorStop(0.5, glass);
+      wsGrad.addColorStop(1, shade(glass, -0.15));
+      ctx.fillStyle = this.wrecked ? glass : wsGrad;
       ctx.beginPath();
       ctx.moveTo(L * 0.2, -W / 2 + 0.18);
       ctx.lineTo(L * 0.33 * k, -W / 2 + 0.3);
@@ -359,6 +408,19 @@ export class Vehicle {
         ctx.beginPath();
         ctx.moveTo(L * 0.23, -W / 2 + 0.26);
         ctx.lineTo(L * 0.29 * k, -0.02);
+        ctx.stroke();
+      }
+      if (dmg.front > 0.35 && !this.wrecked) {
+        // cracked glass: a small spiderweb where the impact hit
+        ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.7, dmg.front)})`;
+        ctx.lineWidth = 0.02;
+        const cx = L * 0.27, cy = 0;
+        ctx.beginPath();
+        for (let a = 0; a < 6; a++) {
+          const ang = (a / 6) * Math.PI * 2;
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(ang) * 0.16, cy + Math.sin(ang) * 0.12);
+        }
         ctx.stroke();
       }
       // rear window
@@ -436,15 +498,34 @@ export class Vehicle {
         ctx.stroke();
       }
     }
-    // lights
+    // lights (dead/dark if that end took heavy damage)
     if (!this.wrecked) {
-      ctx.fillStyle = '#fff6c4';
+      ctx.fillStyle = dmg.front > 0.7 ? '#3a352c' : '#fff6c4';
       ctx.fillRect(L / 2 - 0.16, -W / 2 + 0.12, 0.14, 0.38);
       ctx.fillRect(L / 2 - 0.16, W / 2 - 0.5, 0.14, 0.38);
       const braking = this.ctrl.throttle < 0 && this.fwdSpeed > 0.5;
-      ctx.fillStyle = braking ? '#ff1f1f' : '#9b1111';
+      ctx.fillStyle = dmg.rear > 0.7 ? '#3a2c2c' : braking ? '#ff1f1f' : '#9b1111';
       ctx.fillRect(-L / 2 + 0.02, -W / 2 + 0.12, 0.14, 0.34);
       ctx.fillRect(-L / 2 + 0.02, W / 2 - 0.46, 0.14, 0.34);
+      // missing bumper on a badly-hit end
+      if (dmg.front > 0.7) { ctx.fillStyle = '#15130f'; ctx.fillRect(L / 2 - 0.1, -W / 2 + 0.35, 0.25, W - 0.7); }
+      if (dmg.rear > 0.7) { ctx.fillStyle = '#15130f'; ctx.fillRect(-L / 2 - 0.1, -W / 2 + 0.35, 0.25, W - 0.7); }
+    }
+    // exhaust flame when boosting
+    if ((this as any).boosting && !this.wrecked) {
+      const flick = 0.7 + Math.random() * 0.3;
+      const fx0 = -L / 2 - 0.05;
+      const g = ctx.createLinearGradient(fx0, 0, fx0 - 0.9 * flick, 0);
+      g.addColorStop(0, `rgba(255,220,120,${0.9 * flick})`);
+      g.addColorStop(0.5, `rgba(255,120,30,${0.7 * flick})`);
+      g.addColorStop(1, 'rgba(255,60,20,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(fx0, -0.16);
+      ctx.lineTo(fx0 - 0.9 * flick, 0);
+      ctx.lineTo(fx0, 0.16);
+      ctx.closePath();
+      ctx.fill();
     }
     if (this.mission && !this.wrecked) {
       ctx.strokeStyle = `rgba(255,214,0,${0.5 + 0.5 * Math.sin(time * 6)})`;
