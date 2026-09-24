@@ -170,12 +170,36 @@ const DEFS = {
       }
     },
   },
+  /** sparse diagonal highlight streaks, drifted independently of `water` for shimmer */
+  waterShimmer: {
+    m: 11,
+    px: 140,
+    paint(c, px, r) {
+      for (let i = 0; i < 22; i++) {
+        const x = r() * px, y = r() * px, w = 12 + r() * 26;
+        c.strokeStyle = `rgba(255,255,255,${0.05 + r() * 0.1})`;
+        c.lineWidth = 0.5 + r() * 1;
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + w, y + (r() - 0.5) * 3);
+        c.stroke();
+        if (x + w > px) {
+          c.beginPath();
+          c.moveTo(x - px, y);
+          c.lineTo(x - px + w, y + (r() - 0.5) * 3);
+          c.stroke();
+        }
+      }
+    },
+  },
 } satisfies Record<string, TexDef>;
 
 export type TexKind = keyof typeof DEFS;
 
 const cache = new Map<string, CanvasPattern>();
-const waterPatterns: CanvasPattern[] = [];
+/** kinds animated each frame by `animateWater`, with their own drift speed (m/s) */
+const ANIM_SPEED: Partial<Record<TexKind, [number, number]>> = { water: [0.35, 0.12], waterShimmer: [-0.7, 0.2] };
+const animPatterns: Partial<Record<TexKind, CanvasPattern[]>> = {};
 
 /**
  * A repeating pattern of texture `kind` baked over `base` (any CSS colour).
@@ -197,14 +221,18 @@ export function texture(kind: TexKind, base: string): CanvasPattern {
   p = c.createPattern(cv, 'repeat')!;
   p.setTransform(new DOMMatrix().scale(def.m / def.px));
   cache.set(key, p);
-  if (kind === 'water') waterPatterns.push(p);
+  if (ANIM_SPEED[kind]) (animPatterns[kind] ??= []).push(p);
   return p;
 }
 
-/** call once per frame to drift the water ripples */
+/** call once per frame to drift the water/shimmer ripples, each at its own speed */
 export function animateWater(nowMs: number) {
   const t = nowMs / 1000;
-  const d = DEFS.water;
-  const m = new DOMMatrix().translate((t * 0.35) % d.m, (t * 0.12) % d.m).scale(d.m / d.px);
-  for (const p of waterPatterns) p.setTransform(m);
+  for (const kind in animPatterns) {
+    const list = animPatterns[kind as TexKind]!;
+    const d = DEFS[kind as TexKind];
+    const [sx, sy] = ANIM_SPEED[kind as TexKind]!;
+    const m = new DOMMatrix().translate((t * sx) % d.m, (t * sy) % d.m).scale(d.m / d.px);
+    for (const p of list) p.setTransform(m);
+  }
 }

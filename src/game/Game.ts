@@ -934,6 +934,7 @@ export class Game {
     this.combat.emitLights(L);
     this.emitAtmosphereLights(L, atmos, inView);
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
+    this.renderer.drawNightWindows(ctx, v);
 
     this.drawSigns(ctx, v);
     if (hud) this.drawPlayerMarker(ctx);
