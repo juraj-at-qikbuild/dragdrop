@@ -92,3 +92,13 @@ src/
 - Brands and ads are parodies; any resemblance is satirical. This is a fan project and is not affiliated with Rockstar Games or any company whose products are spoofed.
 
 See [ATTRIBUTION.md](ATTRIBUTION.md).
+
+## Hosting
+
+`npm run build` produces a self-contained static site in `dist/` that any web server can host. It must be served over HTTP; opening `index.html` straight from disk won't load the map data.
+
+```bash
+npm run build && npx serve dist
+```
+
+**GitHub Pages:** `.github/workflows/pages.yml` builds and deploys on every push to `main`. It can also be started by hand from the Actions tab. If Pages isn't enabled yet, go to *Settings → Pages* and set the source to **GitHub Actions**.
