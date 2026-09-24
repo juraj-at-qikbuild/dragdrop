@@ -75,6 +75,8 @@ export class Game {
   qualityTier: 0 | 1 | 2 = 2;
   /** user choice from the pause menu: 'auto' adapts qualityTier to frame time, others pin it */
   qualityPref: 'auto' | 'high' | 'medium' | 'low' = 'auto';
+  /** textured building facades; Auto drops them only if frames stay slow with post-processing already off */
+  facades = true;
   private frameAvg = 16;
   private goodTimer = 0;
   private slowTimer = 0;
@@ -967,7 +969,7 @@ export class Game {
     ctx.fillRect(b.x1, v.y0 - 10, v.x1 - b.x1 + 10, v.y1 - v.y0 + 20);
 
     const atmos = this.atmos;
-    this.renderer.facades = this.qualityTier > 0;
+    this.renderer.facades = this.facades;
     this.renderer.drawGround(ctx, v, v.scale > 3);
     this.renderer.drawShadows(ctx, v);
     this.weather.drawWorld(ctx, atmos);
@@ -1267,6 +1269,13 @@ export class Game {
           this.qualityTier = (this.qualityTier - 1) as 0 | 1 | 2;
           this.slowTimer = 0;
           this.goodTimer = 0;
+        } else if (this.slowTimer > 3 && this.facades) {
+          // still slow with post-processing off: last resort, drop the textured facades
+          this.facades = false;
+          this.slowTimer = 0;
+        } else if (this.goodTimer > 4 && !this.facades) {
+          this.facades = true;
+          this.goodTimer = 0;
         } else if (this.goodTimer > 4 && this.qualityTier < 2) {
           this.qualityTier = (this.qualityTier + 1) as 0 | 1 | 2;
           this.goodTimer = 0;
@@ -1274,6 +1283,7 @@ export class Game {
         }
       } else {
         this.qualityTier = this.qualityPref === 'high' ? 2 : this.qualityPref === 'medium' ? 1 : 0;
+        this.facades = this.qualityPref !== 'low';
       }
       this.quality = this.qualityTier > 0 ? 1 : 0;
       if (this.baseLightRes === null) this.baseLightRes = this.light.res;
