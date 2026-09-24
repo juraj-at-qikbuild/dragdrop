@@ -33,6 +33,8 @@ On touch devices a virtual joystick and buttons appear automatically.
 ## What's in the game
 
 - **The real city.** 4,600+ buildings with fake-3D extrusion from real `building:levels`, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace. The UFO sits on top of the Most SNP pylon.
+- **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
+- **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, zebra crossings, trees in parks and along avenues, cars with steering wheels, visible damage and brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
 - **Traffic AI** on the real road graph, which respects one-way streets and drives on the right. **Red-and-white trams** run on the actual tram tracks, and **pedestrians** walk the sidewalks and footpaths.
 - **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
 - **Six missions tied to real places**, started from phone booths:
@@ -77,7 +79,11 @@ src/
   game/Combat.ts       weapons, explosions, particles, decals
   world/World.ts       map data, collision grid, water/bridge/street queries
   world/Graph.ts       road network + A*
-  world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings, rooftop ads
+  world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings, shadows, trees, lamps
+  world/Textures.ts    procedural surface textures (asphalt, cobbles, grass, roof tiles…)
+  world/Atmosphere.ts  time of day, sun, ambient colour, rain
+  world/Lighting.ts    light map (lamps, headlights, explosions) multiplied over the world
+  world/Weather.ts     rain streaks, splashes, lightning
   entities/            Vehicle (arcade physics), Ped, Tram
   missions/Missions.ts mission definitions and runner
   ui/                  HUD, minimap and full map

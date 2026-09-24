@@ -15,8 +15,8 @@ const AMBIENT_KEYS: [number, RGB][] = [
   [5.2, [104, 98, 142]], // pre-dawn violet
   [6.0, [214, 175, 178]], // dawn, pinkish
   [7.0, [255, 226, 206]], // warm sunrise
-  [9, [255, 248, 238]], // day, a hair warm — cheap, no perf cost
-  [16.6, [255, 248, 238]],
+  [9, [255, 255, 255]], // day: neutral, so the lighting pass is skipped entirely
+  [16.6, [255, 255, 255]],
   [18.1, [255, 224, 194]], // golden hour, gentle warm tint
   [19.3, [227, 178, 168]], // soft warm dusk (was a strong orange-red before)
   [20.3, [150, 128, 168]], // dusk, soft purple-blue

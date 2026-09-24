@@ -1,16 +1,54 @@
 import type { World, Building } from './World';
-import { bboxOf, bboxHit, rng, type BBox } from '../util/math';
+import { bboxOf, bboxHit, rng, pointInRings, ringArea, type BBox } from '../util/math';
 import { ROOF_ADS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
+import { texture, animateWater, type TexKind } from './Textures';
 
 const CHUNK = 128;
 
-type DrawOp = { kind: 'fill'; color: string } | { kind: 'stroke'; color: string; width: number; dash?: number[] };
+/** `tex` (a pattern baked over `color`) replaces `color` when zoomed in enough to see it */
+type DrawOp =
+  | { kind: 'fill'; color: string; tex?: CanvasPattern }
+  | { kind: 'stroke'; color: string; width: number; dash?: number[]; tex?: CanvasPattern };
 
 interface Layer {
   op: DrawOp;
   order: number;
+}
+
+interface Ring {
+  pts: Float32Array;
+  /** +1/-1 winding sign, used to find the outward normal of each edge */
+  sign: number;
+}
+
+interface BGroup {
+  h: number;
+  wall: string;
+  wallDark: string;
+  /** 4 quantised Lambert wall tones, dark to bright */
+  wallShades: string[];
+  roof: string;
+  /** roof colour baked with a tile/concrete texture */
+  roofTex?: CanvasPattern;
+  pitched: boolean;
+  path: Path2D;
+  outline: Path2D;
+  /** decorative ridge line(s) for pitched roofs */
+  ridge: Path2D;
+  /** HVAC/skylight/vent details for large flat roofs */
+  roofDetail: Path2D;
+  rings: Ring[];
+  levels: number;
+  shadow?: Path2D;
+  shadowKey?: number;
+}
+
+interface TreeSet {
+  shadow: Path2D;
+  canopy: Path2D[];
+  highlight: Path2D;
 }
 
 interface Chunk {
@@ -18,8 +56,10 @@ interface Chunk {
   cx: number;
   cy: number;
   layers: Map<string, Path2D>;
-  /** building groups: key `${heightBin}|${wall}|${roof}` */
-  bgroups: { h: number; wall: string; wallDark: string; roof: string; path: Path2D; outline: Path2D; rings: Float32Array[] }[];
+  bgroups: BGroup[];
+  trees?: TreeSet;
+  lamps?: number[];
+  lampPath?: Path2D;
 }
 
 export interface View {
@@ -45,17 +85,95 @@ const AREA_COLORS: Record<string, string> = {
   water: '#3a6f93',
 };
 const AREA_ORDER = ['plaza', 'parking', 'rail', 'pitch', 'sand', 'green', 'wood', 'water'];
+const AREA_TEX: Partial<Record<string, TexKind>> = { plaza: 'cobble', green: 'grass', pitch: 'grass', wood: 'wood', sand: 'sand', parking: 'asphalt', water: 'water' };
 
 const ROAD_FILL = ['#3f4045', '#414247', '#45464b', '#47484d', '#4a4b50', '#4d4e52', '#555558', '#58595c', '#d6ccb4', '#c8bca1', '#a69a7f'];
-const ROAD_CASING = ['#6d6a64', '#6d6a64', '#76736d', '#76736d', '#7a7771', '#7d7a74', '#8a867f', '#8a867f', '#b5aa92', '', ''];
+const ROAD_CASING = ['#77746d', '#77746d', '#807d76', '#807d76', '#84817a', '#87847d', '#948f87', '#948f87', '#bcb096', '', ''];
 
 const ROOFS = ['#b0583a', '#a04d33', '#b86b4b', '#8b8580', '#7b7772', '#6a6d72', '#94613f', '#b2a28e'];
 const FLAT_ROOFS = ['#9fa2a5', '#b3b4b3', '#8e9196', '#a7a39b'];
+/** warm pastel Central-European facade palette, replacing the old single brown wall */
+const OLD_WALLS = ['#d9c9a8', '#e3d3b4', '#cdb89a', '#e6dcc8', '#c9b79c', '#d8c3a5', '#bfb2a0'];
+
+/** wall brightness from away-from-sun to facing-sun (ambient keeps shaded walls readable) */
+const WALL_SHADE_LEVELS = [0.7, 0.8, 0.92, 1.04];
+
+/** Walk a flat [x0,y0,x1,y1,...] polyline at a fixed arc-length step, calling
+ *  fn(x, y, nx, ny) at each sample (nx,ny = unit normal to the segment). */
+function walkPolyline(p: ArrayLike<number>, step: number, start: number, fn: (x: number, y: number, nx: number, ny: number) => void) {
+  let carry = start;
+  for (let i = 0; i < p.length - 2; i += 2) {
+    const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3];
+    const segLen = Math.hypot(bx - ax, by - ay);
+    if (segLen < 1e-3) continue;
+    const dx = (bx - ax) / segLen, dy = (by - ay) / segLen;
+    const nx = -dy, ny = dx;
+    let d = carry;
+    while (d < segLen) {
+      fn(ax + dx * d, ay + dy * d, nx, ny);
+      d += step;
+    }
+    carry = d - segLen;
+  }
+}
+
+/** Point at arc-length `dist` from the start of a flat polyline, plus its direction. */
+function pointAlong(p: ArrayLike<number>, dist: number): { x: number; y: number; dx: number; dy: number } {
+  let acc = 0;
+  for (let i = 0; i < p.length - 2; i += 2) {
+    const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3];
+    const segLen = Math.hypot(bx - ax, by - ay);
+    const dx = segLen > 1e-4 ? (bx - ax) / segLen : 1;
+    const dy = segLen > 1e-4 ? (by - ay) / segLen : 0;
+    if (acc + segLen >= dist || i + 4 >= p.length) {
+      const t = segLen > 1e-4 ? Math.min(1, Math.max(0, (dist - acc) / segLen)) : 0;
+      return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t, dx, dy };
+    }
+    acc += segLen;
+  }
+  const n = p.length;
+  return { x: p[n - 2], y: p[n - 1], dx: 1, dy: 0 };
+}
+
+/** offset every vertex of a flat polyline perpendicular to its local direction */
+function offsetPolyline(p: ArrayLike<number>, off: number): number[] {
+  const n = p.length / 2;
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = p[i * 2], y = p[i * 2 + 1];
+    let dx = 0, dy = 0;
+    if (i > 0) { dx += x - p[(i - 1) * 2]; dy += y - p[(i - 1) * 2 + 1]; }
+    if (i < n - 1) { dx += p[(i + 1) * 2] - x; dy += p[(i + 1) * 2 + 1] - y; }
+    const len = Math.hypot(dx, dy) || 1;
+    out.push(x + (-dy / len) * off, y + (dx / len) * off);
+  }
+  return out;
+}
+
+/** cheap deterministic hash -> [0,1) */
+function hash01(a: number, b: number) {
+  let h = (a * 374761393 + b * 668265263) ^ ((a << 13) | 0);
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  h ^= h >>> 13;
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+function signedArea(p: ArrayLike<number>): number {
+  let a = 0;
+  const n = p.length;
+  for (let i = 0; i < n; i += 2) {
+    const j = (i + 2) % n;
+    a += p[i] * p[j + 1] - p[j] * p[i + 1];
+  }
+  return a / 2;
+}
 
 export class Renderer {
   private chunks: Chunk[] = [];
   private layers = new Map<string, Layer>();
   ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
+  private treeCount = 0;
+  private sunKeyLast = NaN;
 
   /** set by Game after construction; read for sun direction, night and rain */
   atmos = new Atmosphere();
@@ -103,16 +221,22 @@ export class Renderer {
       if (close) p.closePath();
     };
 
-    // areas
+    // areas (+ a textured overlay for the ones that benefit from it)
     AREA_ORDER.forEach((kind, i) => {
+      const tex = AREA_TEX[kind];
       for (const rings of w.data.areas[kind as keyof typeof w.data.areas]) {
         const c = this.chunkAt(bboxOf(rings[0]), map);
-        const p = this.path(c, 'a:' + kind, { kind: 'fill', color: AREA_COLORS[kind] }, i);
+        const col = AREA_COLORS[kind];
+        const p = this.path(c, 'a:' + kind, { kind: 'fill', color: col, tex: tex && texture(tex, col) }, i);
         for (const r of rings) addPoly(p, r, true);
+        if (kind === 'water') {
+          const edge = this.path(c, 'a:water:edge', { kind: 'stroke', color: 'rgba(220,240,255,0.35)', width: 0.5 }, i + 0.6);
+          for (const r of rings) addPoly(edge, r, true);
+        }
       }
     });
 
-    // roads: casing and fill per (bridge, class, width) group
+    // roads: casing, asphalt/cobble fill + grain overlay
     for (const r of w.data.roads) {
       const bridge = r.b ? 1 : 0;
       const wq = Math.round(r.w * 2) / 2;
@@ -122,9 +246,11 @@ export class Renderer {
         addPoly(this.path(c, `bc:${wq}`, { kind: 'stroke', color: '#2b2b2e', width: wq + 3 }, base + 1), r.p, false);
         addPoly(this.path(c, `br:${wq}`, { kind: 'stroke', color: '#8f8b84', width: wq + 1.6 }, base + 2), r.p, false);
       } else if (ROAD_CASING[r.c]) {
-        addPoly(this.path(c, `c:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_CASING[r.c], width: wq + 1.2 }, base + 10 - r.c * 0.1), r.p, false);
+        addPoly(this.path(c, `c:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_CASING[r.c], width: wq + 1.6 }, base + 10 - r.c * 0.1), r.p, false);
       }
-      addPoly(this.path(c, `f${bridge}:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_FILL[r.c], width: wq }, base + 30 - r.c * 0.1), r.p, false);
+      const fill = ROAD_FILL[r.c];
+      const tex = texture(r.c >= 8 ? 'cobble' : 'asphalt', fill);
+      addPoly(this.path(c, `f${bridge}:${r.c}:${wq}`, { kind: 'stroke', color: fill, width: wq, tex }, base + 30 - r.c * 0.1), r.p, false);
       if (r.c <= 5 && r.w >= 7) {
         const key = r.o ? `m${bridge}:lane` : `m${bridge}:center`;
         addPoly(
@@ -133,25 +259,122 @@ export class Renderer {
           false,
         );
       }
+      if (r.c <= 3 && r.w >= 9) {
+        addPoly(this.path(c, `edge${bridge}`, { kind: 'stroke', color: 'rgba(240,236,220,0.7)', width: 0.14 }, base + 51), offsetPolyline(r.p, r.w / 2 - 0.4), false);
+        addPoly(this.path(c, `edge${bridge}`, { kind: 'stroke', color: 'rgba(240,236,220,0.7)', width: 0.14 }, base + 51), offsetPolyline(r.p, -r.w / 2 + 0.4), false);
+      }
     }
 
-    // tram tracks: two rails drawn as a thick stroke with a road-coloured core
+    // zebra crossings: where >=3 car roads of class <=5 meet
+    {
+      const deg = new Map<number, number>();
+      for (const e of w.car.edges) {
+        if (e.cls > 5) continue;
+        deg.set(e.a, (deg.get(e.a) ?? 0) + 1);
+        deg.set(e.b, (deg.get(e.b) ?? 0) + 1);
+      }
+      for (const e of w.car.edges) {
+        if (e.cls > 5) continue;
+        const len = e.len;
+        const hw = e.width / 2;
+        if (e.width > 18) continue;
+        const chw = Math.min(hw, 6.5);
+        const place = (fromStart: boolean) => {
+          const dist = fromStart ? Math.min(len, 4.5) : Math.max(0, len - 4.5);
+          const { x, y, dx, dy } = pointAlong(e.p, dist);
+          const nx = -dy, ny = dx;
+          const c = this.chunkAt({ x0: x - chw, y0: y - chw, x1: x + chw, y1: y + chw }, map);
+          const stripe = this.path(c, 'z:cross', { kind: 'stroke', color: 'rgba(233,230,218,0.85)', width: 0.55, dash: [0.55, 0.45] }, 260);
+          stripe.moveTo(x - nx * chw * 0.9, y - ny * chw * 0.9);
+          stripe.lineTo(x + nx * chw * 0.9, y + ny * chw * 0.9);
+        };
+        if ((deg.get(e.a) ?? 0) >= 3) place(true);
+        if ((deg.get(e.b) ?? 0) >= 3) place(false);
+      }
+    }
+
+    // tram tracks: ballast bed + two thin steel rails at ~1.435m gauge
     for (const t of w.data.trams) {
       const c = this.chunkAt(bboxOf(t, 2), map);
-      addPoly(this.path(c, 't:rail', { kind: 'stroke', color: '#2d2d30', width: 1.75 }, 260), t, false);
-      addPoly(this.path(c, 't:bed', { kind: 'stroke', color: '#6b6760', width: 1.45 }, 261), t, false);
-      addPoly(this.path(c, 't:wire', { kind: 'stroke', color: 'rgba(20,20,20,0.35)', width: 0.06 }, 262), t, false);
+      addPoly(this.path(c, 't:bed', { kind: 'stroke', color: '#65615a', width: 1.7 }, 260), t, false);
+      addPoly(this.path(c, 't:railL', { kind: 'stroke', color: '#232326', width: 0.14 }, 261), offsetPolyline(t, 0.72), false);
+      addPoly(this.path(c, 't:railR', { kind: 'stroke', color: '#232326', width: 0.14 }, 261), offsetPolyline(t, -0.72), false);
+      addPoly(this.path(c, 't:wire', { kind: 'stroke', color: 'rgba(20,20,20,0.3)', width: 0.06 }, 262), t, false);
+    }
+
+    // street lamps every ~28m along car roads (class <=6), one side of the road
+    for (const r of w.data.roads) {
+      if (r.c > 6) continue;
+      walkPolyline(r.p, 28, hash01(r.p[0] | 0, r.p[1] | 0) * 20, (x, y, nx, ny) => {
+        const off = r.w / 2 + 0.8;
+        const lx = x + nx * off, ly = y + ny * off;
+        const c = this.chunkAt({ x0: lx, y0: ly, x1: lx, y1: ly }, map);
+        (c.lamps ??= []).push(lx, ly);
+        const lp = (c.lampPath ??= new Path2D());
+        lp.moveTo(lx + 0.45, ly);
+        lp.arc(lx, ly, 0.45, 0, Math.PI * 2);
+        lp.moveTo(lx + 0.12, ly);
+        lp.arc(lx, ly, 0.12, 0, Math.PI * 2);
+      });
+    }
+
+    // trees: scattered through wood/green polygons, plus rows along major roads
+    const addTree = (x: number, y: number, seed: number) => {
+      if (this.treeCount >= 6000) return;
+      if (w.insideBuilding(x, y)) return;
+      const c = this.chunkAt({ x0: x, y0: y, x1: x, y1: y }, map);
+      const t = (c.trees ??= { shadow: new Path2D(), canopy: [new Path2D(), new Path2D(), new Path2D(), new Path2D()], highlight: new Path2D() });
+      const r = rng(seed);
+      const rad = 2 + r() * 2.5;
+      const tone = (r() * 4) | 0;
+      t.shadow.moveTo(x + rad * 0.9, y + rad * 0.4);
+      t.shadow.arc(x + rad * 0.15, y + rad * 0.3, rad * 0.85, 0, Math.PI * 2);
+      const cp = t.canopy[tone];
+      cp.moveTo(x + rad, y);
+      cp.arc(x, y, rad, 0, Math.PI * 2);
+      cp.moveTo(x + rad * 0.35 + rad * 0.7, y - rad * 0.25);
+      cp.arc(x + rad * 0.35, y - rad * 0.25, rad * 0.68, 0, Math.PI * 2);
+      t.highlight.moveTo(x + rad * 0.4, y - rad * 0.35);
+      t.highlight.arc(x, y - rad * 0.35, rad * 0.38, 0, Math.PI * 2);
+      this.treeCount++;
+    };
+    const scatterArea = (kind: 'wood' | 'green', perM2: number, maxPer: number) => {
+      for (const rings of w.data.areas[kind]) {
+        const bb = bboxOf(rings[0]);
+        const area = ringArea(rings[0]);
+        const n = Math.min(maxPer, Math.round(area / perM2));
+        const r = rng(((bb.x0 * 131) ^ (bb.y0 * 977) ^ (n * 17)) | 0);
+        let placed = 0, tries = 0;
+        while (placed < n && tries < n * 6 && this.treeCount < 6000) {
+          tries++;
+          const x = bb.x0 + r() * (bb.x1 - bb.x0);
+          const y = bb.y0 + r() * (bb.y1 - bb.y0);
+          if (!pointInRings(x, y, rings)) continue;
+          addTree(x, y, (x * 7349 + y * 613 + tries * 97) | 0);
+          placed++;
+        }
+      }
+    };
+    scatterArea('wood', 85, 500);
+    scatterArea('green', 260, 220);
+    for (const r of w.data.roads) {
+      if (r.c > 4 || r.b || this.treeCount >= 6000) continue;
+      const side = hash01(r.p[0] | 0, r.p[1] | 0) < 0.5 ? 1 : -1;
+      walkPolyline(r.p, 15, hash01(r.p[1] | 0, r.p[0] | 0) * 15, (x, y, nx, ny) => {
+        const off = r.w / 2 + 1.5;
+        addTree(x + nx * off * side, y + ny * off * side, (x * 331 + y * 971) | 0);
+      });
     }
 
     // buildings grouped by chunk, height bin and colour
-    const groups = new Map<Chunk, Map<string, Chunk['bgroups'][number]>>();
+    const groups = new Map<Chunk, Map<string, BGroup>>();
     for (const b of w.buildings) {
       const c = this.chunkAt(b.bbox, map);
       const r = rng(b.seed * 7919);
       const bin = b.kind === 4 ? 0.6 : Math.min(14, Math.round(b.levels));
-      let wall = '#857a6d', roof = ROOFS[(r() * ROOFS.length) | 0];
-      if (b.kind === 3 || (b.area > 2500 && b.levels >= 4)) (wall = '#767b82'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]);
-      if (b.levels >= 8) (wall = '#6c7179'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]);
+      let wall = OLD_WALLS[(r() * OLD_WALLS.length) | 0], roof = ROOFS[(r() * ROOFS.length) | 0], flat = false;
+      if (b.kind === 3 || (b.area > 2500 && b.levels >= 4)) (wall = '#767b82'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]), (flat = true);
+      if (b.levels >= 8) (wall = '#6c7179'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]), (flat = true);
       if (b.kind === 1) (wall = '#cfc6b4'), (roof = r() < 0.6 ? '#5c8a73' : '#8c4a36');
       if (b.kind === 2) (wall = '#e9e3d6'), (roof = '#b8553a');
       if (b.kind === 4) (wall = 'rgba(80,80,80,0.5)'), (roof = 'rgba(150,150,150,0.55)');
@@ -161,13 +384,54 @@ export class Renderer {
       if (!gm) groups.set(c, (gm = new Map()));
       let g = gm.get(key);
       if (!g) {
-        g = { h: bin * 3.2, wall, wallDark: darken(wall), roof, path: new Path2D(), outline: new Path2D(), rings: [] };
+        g = {
+          h: bin * 3.2,
+          wall,
+          wallDark: darken(wall),
+          wallShades: WALL_SHADE_LEVELS.map((f) => shade(wall, f)),
+          roof,
+          roofTex: roof.startsWith('#') && b.kind !== 4 ? texture(flat ? 'concrete' : 'roofTile', roof) : undefined,
+          pitched: !flat && b.kind !== 4,
+          path: new Path2D(),
+          outline: new Path2D(),
+          ridge: new Path2D(),
+          roofDetail: new Path2D(),
+          rings: [],
+          levels: Math.max(1, bin),
+        };
         gm.set(key, g);
         c.bgroups.push(g);
       }
-      for (const ring of b.rings) addPoly(g.path, ring, true);
-      g.rings.push(...b.rings);
+      for (const ring of b.rings) {
+        addPoly(g.path, ring, true);
+        g.rings.push({ pts: ring, sign: signedArea(ring) >= 0 ? 1 : -1 });
+      }
       addPoly(g.outline, b.rings[0], true);
+
+      // roof ridge (pitched) or rooftop details (large flat roofs)
+      if (b.kind !== 4 && b.rings.length === 1 && b.area > 40) {
+        if (!flat) {
+          const ring = b.rings[0];
+          let best = 0, angle = 0;
+          for (let k = 0; k < ring.length - 2; k += 2) {
+            const l = Math.hypot(ring[k + 2] - ring[k], ring[k + 3] - ring[k + 1]);
+            if (l > best) (best = l), (angle = Math.atan2(ring[k + 3] - ring[k + 1], ring[k + 2] - ring[k]));
+          }
+          const len = Math.min(best, Math.sqrt(b.area)) * 0.42;
+          g.ridge.moveTo(b.cx - Math.cos(angle) * len, b.cy - Math.sin(angle) * len);
+          g.ridge.lineTo(b.cx + Math.cos(angle) * len, b.cy + Math.sin(angle) * len);
+        } else if (b.area > 600) {
+          const rr = rng(b.seed * 131 + 7);
+          const n = 1 + ((rr() * 3) | 0);
+          const bw = b.bbox.x1 - b.bbox.x0, bh = b.bbox.y1 - b.bbox.y0;
+          for (let k = 0; k < n; k++) {
+            const dw = Math.min(bw, bh) * (0.08 + rr() * 0.07);
+            const dx = b.bbox.x0 + bw * (0.2 + rr() * 0.6), dy = b.bbox.y0 + bh * (0.2 + rr() * 0.6);
+            if (!pointInRings(dx, dy, b.rings)) continue;
+            g.roofDetail.rect(dx - dw / 2, dy - dw / 2, dw, dw);
+          }
+        }
+      }
     }
     for (const c of this.chunks) c.bgroups.sort((a, b) => a.h - b.h);
 
@@ -201,16 +465,19 @@ export class Renderer {
   }
 
   drawGround(ctx: CanvasRenderingContext2D, v: View, detail = true) {
+    if (detail) animateWater(performance.now());
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
     const keys = [...this.layers.entries()].sort((a, b) => a[1].order - b[1].order);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    const wantTex = detail && v.scale > 7.5; // patterns alias when scaled down further
     for (const [key, layer] of keys) {
-      if (!detail && (key.startsWith('m') || key.startsWith('t:wire'))) continue;
+      if (!detail && (key.startsWith('m') || key.startsWith('t:wire') || key.startsWith('z:'))) continue;
       const op = layer.op;
-      if (op.kind === 'fill') ctx.fillStyle = op.color;
+      const col = wantTex && op.tex ? op.tex : op.color;
+      if (op.kind === 'fill') ctx.fillStyle = col;
       else {
-        ctx.strokeStyle = op.color;
+        ctx.strokeStyle = col;
         ctx.lineWidth = op.width;
         ctx.setLineDash(op.dash ?? []);
       }
@@ -222,14 +489,37 @@ export class Renderer {
       }
     }
     ctx.setLineDash([]);
+
+    // wet roads: cheap translucent overlay reusing the same fill geometry
+    const wet = this.atmos.wet;
+    if (detail && wet > 0.02) {
+      ctx.fillStyle = `rgba(8,12,24,${Math.min(0.4, wet * 0.35)})`;
+      for (const [key] of keys) {
+        if (!key.startsWith('f')) continue;
+        for (const c of vis) {
+          const p = c.layers.get(key);
+          if (p) ctx.fill(p);
+        }
+      }
+    }
   }
 
   /** Fake-3D buildings: walls are extruded from the footprint towards the shifted roof. */
   drawBuildings(ctx: CanvasRenderingContext2D, v: View) {
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, { x0: v.x0 - 60, y0: v.y0 - 60, x1: v.x1 + 60, y1: v.y1 + 60 }));
+
+    this.drawTrees(ctx, v, vis);
+
+    // lamp posts (cheap, always drawn - dark by day, glow comes from emitLights at night)
+    ctx.fillStyle = '#2c2c2e';
+    for (const c of vis) if (c.lampPath) ctx.fill(c.lampPath);
+
     // draw far chunks first so nearer tall roofs overlap them
     vis.sort((a, b) => Math.hypot(b.cx - v.camX, b.cy - v.camY) - Math.hypot(a.cx - v.camX, a.cy - v.camY));
     ctx.lineJoin = 'miter';
+    const sunDir = this.atmos.sunDir;
+    const wantWindows = v.scale > 6;
+    const night = this.atmos.night;
     for (const c of vis) {
       for (const g of c.bgroups) {
         const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
@@ -237,13 +527,19 @@ export class Renderer {
         ctx.save();
         if (px > 0.6) {
           // extruded walls: one quad per footprint edge, wound consistently so
-          // a single nonzero fill covers them; edges are split into two tones
-          const lit = new Path2D(), dark = new Path2D();
-          for (const r of g.rings) {
-            for (let i = 0; i < r.length - 2; i += 2) {
-              const ax = r[i], ay = r[i + 1], bx = r[i + 2], by = r[i + 3];
+          // a single nonzero fill covers them; edges are bucketed into 4 Lambert tones
+          const buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+          for (const rr of g.rings) {
+            const pts = rr.pts;
+            for (let i = 0; i < pts.length - 2; i += 2) {
+              const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
               const ex = bx - ax, ey = by - ay;
-              const p = Math.abs(ex) > Math.abs(ey) ? dark : lit;
+              const elen = Math.hypot(ex, ey) || 1;
+              let nx = ey / elen, ny = -ex / elen;
+              if (rr.sign < 0) (nx = -nx), (ny = -ny);
+              const lambert = Math.max(0, nx * sunDir.x + ny * sunDir.y);
+              const tone = Math.min(3, (lambert * 3.4) | 0);
+              const p = buckets[tone];
               if (ex * oy - ey * ox >= 0) {
                 p.moveTo(ax, ay);
                 p.lineTo(bx, by);
@@ -258,14 +554,66 @@ export class Renderer {
               p.closePath();
             }
           }
-          ctx.fillStyle = g.wall;
-          ctx.fill(lit);
-          ctx.fillStyle = g.wallDark;
-          ctx.fill(dark);
+          for (let k = 0; k < 4; k++) {
+            ctx.fillStyle = g.wallShades[k];
+            ctx.fill(buckets[k]);
+          }
+          // storey lines (and lit windows at night): the cached footprint outline
+          // translated part-way up the wall; the roof drawn next hides the parts
+          // that fall on the far side of the building
+          if (wantWindows && px > 14 && g.levels >= 2) {
+            const rows = Math.min(g.levels, 5);
+            ctx.save();
+            ctx.strokeStyle = 'rgba(30,26,22,0.16)';
+            ctx.lineWidth = 0.12;
+            let px0 = 0, py0 = 0;
+            for (let k = 1; k < rows; k++) {
+              const t = k / rows;
+              ctx.translate(ox * t - px0, oy * t - py0);
+              (px0 = ox * t), (py0 = oy * t);
+              ctx.stroke(g.outline);
+            }
+            ctx.restore();
+            if (night > 0.3 && hash01((c.cx * 7 + g.h) | 0, (c.cy * 3) | 0) < 0.6) {
+              ctx.save();
+              ctx.lineCap = 'butt';
+              ctx.strokeStyle = `rgba(255,214,140,${Math.min(0.85, (night - 0.3) * 1.5)})`;
+              ctx.lineWidth = Math.min(0.55, Math.hypot(ox, oy) / rows * 0.35);
+              ctx.setLineDash([0.9, 2.6]);
+              ctx.lineDashOffset = hash01(c.cx | 0, c.cy | 0) * 3;
+              px0 = 0; py0 = 0;
+              for (let k = 0; k < rows; k++) {
+                const t = (k + 0.5) / rows;
+                ctx.translate(ox * t - px0, oy * t - py0);
+                (px0 = ox * t), (py0 = oy * t);
+                ctx.lineDashOffset += 1.3;
+                ctx.stroke(g.outline);
+              }
+              ctx.restore();
+            }
+          }
         }
         ctx.translate(ox, oy);
-        ctx.fillStyle = g.roof;
+        ctx.fillStyle = v.scale > 7.5 && g.roofTex ? g.roofTex : g.roof;
         ctx.fill(g.path, 'evenodd');
+        if (v.scale > 5) {
+          if (g.pitched) {
+            ctx.strokeStyle = 'rgba(255,235,215,0.22)';
+            ctx.lineWidth = 0.22;
+            ctx.stroke(g.ridge);
+          } else {
+            ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+            ctx.lineWidth = 0.35;
+            ctx.stroke(g.outline);
+            ctx.fillStyle = 'rgba(0,0,0,0.18)';
+            ctx.save();
+            ctx.translate(0.25, 0.3);
+            ctx.fill(g.roofDetail);
+            ctx.restore();
+            ctx.fillStyle = '#7d8084';
+            ctx.fill(g.roofDetail);
+          }
+        }
         ctx.strokeStyle = 'rgba(0,0,0,0.28)';
         ctx.lineWidth = 0.35;
         ctx.stroke(g.outline);
@@ -273,6 +621,29 @@ export class Renderer {
       }
     }
     this.drawAds(ctx, v);
+  }
+
+  private drawTrees(ctx: CanvasRenderingContext2D, v: View, vis: Chunk[]) {
+    if (v.scale < 3) return;
+    const sdx = this.atmos.sun.dx * 6, sdy = this.atmos.sun.dy * 6;
+    const daylight = this.atmos.daylight;
+    if (daylight > 0.03) {
+      ctx.save();
+      ctx.translate(sdx, sdy);
+      ctx.fillStyle = `rgba(15,20,35,${0.22 * daylight})`;
+      for (const c of vis) if (c.trees) ctx.fill(c.trees.shadow);
+      ctx.restore();
+    }
+    const TONE_COLORS = ['#3f6b3a', '#4c7a42', '#588c4a', '#6a9c55'];
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = TONE_COLORS[i];
+      for (const c of vis) if (c.trees) ctx.fill(c.trees.canopy[i]);
+    }
+    ctx.save();
+    ctx.translate(-this.atmos.sunDir.x * 0.5, -this.atmos.sunDir.y * 0.5);
+    ctx.fillStyle = 'rgba(210,230,150,0.35)';
+    for (const c of vis) if (c.trees) ctx.fill(c.trees.highlight);
+    ctx.restore();
   }
 
   private drawAds(ctx: CanvasRenderingContext2D, v: View) {
@@ -300,13 +671,80 @@ export class Renderer {
   }
 
   /** Building ground shadows cast by the sun (drawn after the ground, before entities). */
-  drawShadows(_ctx: CanvasRenderingContext2D, _v: View) {
-    // TODO(visual): implement
+  drawShadows(ctx: CanvasRenderingContext2D, v: View) {
+    const alpha = 0.28 * this.atmos.daylight;
+    if (alpha < 0.015) return;
+    const vis = this.chunks.filter((c) => bboxHit(c.bbox, { x0: v.x0 - 55, y0: v.y0 - 55, x1: v.x1 + 55, y1: v.y1 + 55 }));
+    const sdx = this.atmos.sun.dx, sdy = this.atmos.sun.dy;
+    const sunKey = Math.round(sdx * 20) * 1000 + Math.round(sdy * 20);
+    const sunMoved = sunKey !== this.sunKeyLast;
+    if (sunMoved) this.sunKeyLast = sunKey;
+    let budget = 60;
+    const merged = new Path2D();
+    for (const c of vis) {
+      for (const g of c.bgroups) {
+        if (!g.shadow || (sunMoved && g.shadowKey !== sunKey && budget > 0)) {
+          g.shadow = this.buildShadow(g, sdx, sdy);
+          g.shadowKey = sunKey;
+          budget--;
+        }
+        merged.addPath(g.shadow);
+      }
+    }
+    ctx.fillStyle = `rgba(20,25,45,${alpha})`;
+    ctx.fill(merged);
+  }
+
+  private buildShadow(g: BGroup, sdx: number, sdy: number): Path2D {
+    const ox = sdx * g.h, oy = sdy * g.h;
+    const p = new Path2D();
+    for (const rr of g.rings) {
+      const pts = rr.pts;
+      for (let i = 0; i < pts.length - 2; i += 2) {
+        const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+        const ex = bx - ax, ey = by - ay;
+        if (ex * oy - ey * ox >= 0) {
+          p.moveTo(ax, ay);
+          p.lineTo(bx, by);
+          p.lineTo(bx + ox, by + oy);
+          p.lineTo(ax + ox, ay + oy);
+        } else {
+          p.moveTo(ax, ay);
+          p.lineTo(ax + ox, ay + oy);
+          p.lineTo(bx + ox, by + oy);
+          p.lineTo(bx, by);
+        }
+        p.closePath();
+      }
+    }
+    return p;
   }
 
   /** Street lamps, lit windows and neon ads. */
-  emitLights(_L: LightLayer, _v: View) {
-    // TODO(visual): implement
+  emitLights(L: LightLayer, v: View) {
+    const night = this.atmos.night;
+    if (night > 0.03) {
+      const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
+      for (const c of vis) {
+        if (c.lamps) {
+          for (let i = 0; i < c.lamps.length; i += 2) {
+            const x = c.lamps[i], y = c.lamps[i + 1];
+            if (!L.visible(x, y, 11)) continue;
+            L.point(x, y, 11, '#ffc978', 0.85 * night);
+            L.glow(x, y, 1.8, '#ffdca0', 0.5 * night);
+          }
+        }
+        if (c.bgroups.length && L.visible(c.cx, c.cy, 45)) {
+          L.point(c.cx, c.cy, 42, '#ffb26b', Math.min(0.3, c.bgroups.length * 0.018) * night);
+        }
+      }
+    }
+    if (night > 0.05) {
+      for (const a of this.ads) {
+        if (!bboxHit(a.b.bbox, v)) continue;
+        L.point(a.b.cx, a.b.cy, Math.max(a.len, a.w) * 0.85, a.ad.accent, 0.55 * night);
+      }
+    }
   }
 
   /** Flat 2D rendering of all buildings, for the pause map. */
@@ -324,6 +762,22 @@ function darken(c: string) {
   const n = parseInt(c.slice(1), 16);
   const f = (v: number) => Math.round(v * 0.78);
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+function shade(color: string, factor: number): string {
+  let r = 255, g = 255, b = 255, a = 1;
+  if (color.startsWith('#')) {
+    const n = parseInt(color.slice(1, 7), 16);
+    (r = n >> 16), (g = (n >> 8) & 255), (b = n & 255);
+  } else {
+    const m = color.match(/[\d.]+/g);
+    if (m) {
+      (r = +m[0]), (g = +m[1]), (b = +m[2]);
+      if (m[3] !== undefined) a = +m[3];
+    }
+  }
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v * factor)));
+  return a < 1 ? `rgba(${f(r)},${f(g)},${f(b)},${a})` : `rgb(${f(r)},${f(g)},${f(b)})`;
 }
 
 function fitText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number) {

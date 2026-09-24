@@ -233,13 +233,13 @@ export function outlined(ctx: CanvasRenderingContext2D, text: string, x: number,
 
 /** softer alternative to `outlined`: a drop shadow instead of a heavy stroke, for less critical text */
 function shadowed(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string) {
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.85)';
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetY = 1;
+  // offset copies instead of shadowBlur, which is slow on software canvases
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillText(text, x + 1, y + 1.5);
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillText(text, x, y + 1);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
-  ctx.restore();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

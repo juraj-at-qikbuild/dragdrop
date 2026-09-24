@@ -881,11 +881,12 @@ export class Game {
     // screen-space post: rain, wet sheen, vignette — also shown behind the menu (attract mode)
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.weather.drawScreen(ctx, this.viewW, this.viewH, atmos, this.time, this.quality);
-    if (atmos.wet > 0.05) {
-      // cheap fake reflections: the light map again, additive, low alpha
+    if (atmos.wet > 0.05 && atmos.night > 0.3 && L.active) {
+      // cheap fake reflections: the light map again, additive, low alpha. Only
+      // when it is dark: by day the light map is near-white and would wash out.
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
-      ctx.globalAlpha = Math.min(0.22, 0.18 * atmos.wet);
+      ctx.globalAlpha = Math.min(0.22, 0.18 * atmos.wet) * Math.min(1, (atmos.night - 0.3) * 2);
       ctx.drawImage(L.canvas, 0, 0, this.viewW, this.viewH);
       ctx.restore();
     }
@@ -1026,14 +1027,12 @@ export class Game {
       const label = p.k === 'fuel' ? `⛽ ${p.n}` : p.n;
       const w = ctx.measureText(label).width + fs * 0.8;
       const bx = p.x - w / 2, by = p.y - fs * 0.75, bh = fs * 1.5;
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur = fs * 0.35;
-      ctx.shadowOffsetY = fs * 0.12;
+      roundRect(ctx, bx, by + fs * 0.14, w, bh, rad);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fill();
       roundRect(ctx, bx, by, w, bh, rad);
       ctx.fillStyle = bg;
       ctx.fill();
-      ctx.restore();
       ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = fs * 0.06;
       roundRect(ctx, bx, by, w, bh, rad);
