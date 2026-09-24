@@ -56,7 +56,7 @@ export class Hud {
     const topW = small ? 168 : 214;
     let topH = small ? 74 : 92;
     const car = g.player.vehicle;
-    const armor = (g.player as unknown as { armor?: number }).armor ?? 0;
+    const armor = g.player.armor;
     if (armor > 0) topH += small ? 12 : 14;
     panel(ctx, W - pad - topW, pad, topW, topH);
 

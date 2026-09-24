@@ -87,7 +87,7 @@ export class Juice {
   triggerSlowmo(sec: number, factor = 0.35) {
     this.slowT = Math.max(this.slowT, sec);
     this.slowFactor = factor;
-    (this.game as any).postFx?.setSlowmo?.(1);
+    this.game.postFx?.setSlowmo(1);
   }
 
   /** multiplier to apply to real dt for the simulation this frame. */
@@ -98,7 +98,7 @@ export class Juice {
     }
     if (this.slowT > 0) {
       this.slowT -= dtReal;
-      if (this.slowT <= 0) (this.game as any).postFx?.setSlowmo?.(0);
+      if (this.slowT <= 0) this.game.postFx?.setSlowmo(0);
       return this.slowFactor;
     }
     return 1;
@@ -222,9 +222,9 @@ export class Juice {
       this.hitstopMs(clamp(40 + impact * 2, 40, 90));
       this.punchZoom(Math.min(0.35, impact / 40));
     }
-    const scr = g.worldToScreenSafe(v.x, v.y);
-    (g as any).postFx?.pulse?.({ aberration: Math.min(1, impact / 24), flash: 0 });
-    (g as any).postFx?.shockwave?.(scr.x, scr.y, Math.min(1, impact / 25));
+    const scr = g.worldToScreen(v.x, v.y);
+    g.postFx?.pulse({ aberration: Math.min(1, impact / 24) });
+    g.postFx?.shockwave(scr.x * g.dpr, scr.y * g.dpr, Math.min(1, impact / 25));
   }
 
   takedown(x: number, y: number) {
@@ -247,7 +247,7 @@ export class Juice {
     this.kick((g.player.x - x) || 0.01, (g.player.y - y) || 0.01, clamp(16 - d * 0.3, 0, 16));
     this.hitstopMs(d < 15 ? 80 : 40);
     if (d < 25) this.triggerSlowmo(0.7, 0.35);
-    const scr = g.worldToScreenSafe(x, y);
-    (g as any).postFx?.shockwave?.(scr.x, scr.y, clamp(1.3 - d / 25, 0, 1));
+    const scr = g.worldToScreen(x, y);
+    g.postFx?.shockwave(scr.x * g.dpr, scr.y * g.dpr, clamp(1.3 - d / 25, 0, 1));
   }
 }

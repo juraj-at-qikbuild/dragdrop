@@ -34,7 +34,7 @@ const SAVE_KEY = 'blava-city-save-v1';
 interface Pickup {
   x: number;
   y: number;
-  kind: 'cash' | 'health' | 'pistol' | 'uzi' | 'shotgun' | 'cumil';
+  kind: 'cash' | 'health' | 'armor' | 'pistol' | 'uzi' | 'shotgun' | 'cumil';
   amount: number;
   respawn: number; // seconds, 0 = one-off
   hidden: number;
@@ -229,6 +229,9 @@ export class Game {
     add(at('sad', 30, 30), 'uzi', 120, 60);
     add(at('kamenne', -10, 10), 'health', 100, 40);
     for (const h of w.pois('hospital')) add(w.walkableNear(h.x, h.y), 'health', 100, 30);
+    add(at('michael', 15, 10), 'armor', 100, 60);
+    add(at('snp', -20, 25), 'armor', 100, 60);
+    for (const ps of w.pois('police')) add(w.walkableNear(ps.x + 12, ps.y + 12), 'armor', 50, 90);
 
     // ten hidden Čumil statues spread over the city
     const r = rng(1337);
@@ -257,13 +260,6 @@ export class Game {
   addMoney(v: number, x?: number, y?: number) {
     this.save.money = Math.max(0, this.save.money + v);
     if (v > 0 && x !== undefined && y !== undefined) this.juice.cashText(x, y, v);
-  }
-
-  /** `postFx?.worldToScreen` isn't merged everywhere yet; fall back to the camera math. */
-  worldToScreenSafe(x: number, y: number): { x: number; y: number } {
-    const fx = (this as any).worldToScreen?.(x, y);
-    if (fx) return fx;
-    return { x: (x - this.cam.x) * this.cam.scale + this.viewW / 2, y: (y - this.cam.y) * this.cam.scale + this.viewH / 2 };
   }
 
   // ----------------------------------------------------------------- crime
@@ -313,12 +309,15 @@ export class Game {
 
   hurtPlayer(dmg: number, fx: number, fy: number) {
     if (this.state !== 'play') return;
-    this.player.health -= dmg;
+    // body armour soaks most of the hit until it is used up
+    const soak = Math.min(this.player.armor, dmg * 0.7);
+    this.player.armor -= soak;
+    this.player.health -= dmg - soak;
     this.hud.hurt = 0.5;
     this.combat.blood(this.player.x, this.player.y, 0.3);
     const ang = Math.atan2(fy - this.player.y, fx - this.player.x);
-    (this.hud as any).hitFrom?.(ang);
-    (this as any).postFx?.pulse?.({ aberration: clamp(dmg / 55, 0, 1), flash: clamp(dmg / 60, 0, 0.5) });
+    this.hud.hitFrom(ang);
+    this.postFx?.pulse({ aberration: clamp(dmg / 55, 0, 1), flash: [0.9, 0.05, 0.05, clamp(dmg / 60, 0, 0.5)] });
     if (this.player.health <= 0) this.wasted();
   }
 
@@ -351,6 +350,7 @@ export class Game {
     this.player.x = pos.x;
     this.player.y = pos.y;
     this.player.health = 100;
+    this.player.armor = 0;
     this.player.state = 'walk';
     const fee = Math.round(this.save.money * 0.1);
     this.addMoney(-fee);
@@ -575,7 +575,7 @@ export class Game {
     this.vehAccum = Math.min(this.vehAccum + dt, STEP * 8);
     while (this.vehAccum >= STEP) {
       for (const v of this.vehicles) {
-        if (v.parked && !v.isPlayer && v.speed < 0.01) continue;
+        if (v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0) continue;
         const impact = v.update(STEP, this.world);
         if (impact > 6 && (v.isPlayer || dist(v.x, v.y, this.player.x, this.player.y) < 40)) this.audio.crash(impact);
         if (impact > 7) this.juice.crashImpact(v, impact, -Math.cos(v.angle), -Math.sin(v.angle));
@@ -784,6 +784,12 @@ export class Game {
           this.audio.pickup();
           this.message('', 'Zdravie doplnené', 1.5, '#69f0ae');
           break;
+        case 'armor':
+          if (this.player.armor >= 100) continue;
+          this.player.armor = Math.min(100, this.player.armor + pk.amount);
+          this.audio.pickup();
+          this.message('', 'Nepriestrelná vesta', 1.5, '#90caf9');
+          break;
         case 'cumil':
           this.save.cumils.push(pk.id!);
           this.addMoney(pk.amount);
@@ -870,6 +876,7 @@ export class Game {
     const base = Math.min(this.viewW, this.viewH) / 46;
     const target = (v ? (base * 0.78) / (1 + v.speed / 24) : base) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
+    this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }
 
   private updateInfo(dt: number) {
@@ -1041,16 +1048,17 @@ export class Game {
       } else {
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.fillRect(-0.5, -0.4, 1.1, 1);
-        ctx.fillStyle = p.kind === 'health' ? '#fafafa' : '#37474f';
+        const accent = p.kind === 'health' ? '#e53935' : p.kind === 'armor' ? '#42a5f5' : '#ffd600';
+        ctx.fillStyle = p.kind === 'health' ? '#fafafa' : p.kind === 'armor' ? '#0d2440' : '#37474f';
         ctx.fillRect(-0.55, -0.55, 1.1, 1.1);
-        ctx.strokeStyle = p.kind === 'health' ? '#e53935' : '#ffd600';
+        ctx.strokeStyle = accent;
         ctx.lineWidth = 0.1;
         ctx.strokeRect(-0.55, -0.55, 1.1, 1.1);
-        ctx.fillStyle = p.kind === 'health' ? '#e53935' : '#ffd600';
+        ctx.fillStyle = accent;
         ctx.font = '900 0.6px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(p.kind === 'health' ? '+' : p.kind === 'pistol' ? 'P' : p.kind === 'uzi' ? 'U' : 'B', 0, 0.04);
+        ctx.fillText(p.kind === 'health' ? '+' : p.kind === 'armor' ? 'V' : p.kind === 'pistol' ? 'P' : p.kind === 'uzi' ? 'U' : 'B', 0, 0.04);
       }
       ctx.restore();
     }
@@ -1243,6 +1251,7 @@ export class Game {
 const PICKUP_GLOW: Record<Pickup['kind'], string> = {
   cash: '#69f0ae',
   health: '#ff5252',
+  armor: '#42a5f5',
   pistol: '#ffd600',
   uzi: '#ffd600',
   shotgun: '#ffd600',

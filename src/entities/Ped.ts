@@ -40,6 +40,7 @@ export class Ped {
   vy = 0;
   r = 0.34;
   health = 100;
+  armor = 0;
   kind: PedKind;
   state: PedState = 'walk';
   shirt: string;
