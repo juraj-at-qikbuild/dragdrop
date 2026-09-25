@@ -89,6 +89,8 @@ export class Vehicle {
   kinematic = false;
   /** bumped when a static field (kind/colour/mission) changes, so snapshots resend it */
   rev = 0;
+  /** far from every camera: the server integrates it at half rate (AI traffic only) */
+  coarse = false;
   /** last player whose shots/ram damaged it, for kill credit */
   lastDamagedBy = 0;
   lastDamagedAt = -1e9;
@@ -146,6 +148,13 @@ export class Vehicle {
   circleAt(i: number): [number, number] {
     const o = this.circles[i];
     return [this.x + Math.cos(this.angle) * o, this.y + Math.sin(this.angle) * o];
+  }
+  /** centre of collision circle i, without allocating (hot paths) */
+  circleX(i: number) {
+    return this.x + Math.cos(this.angle) * this.circles[i];
+  }
+  circleY(i: number) {
+    return this.y + Math.sin(this.angle) * this.circles[i];
   }
 
   /** Fixed-step (Game calls this at 1/120 s) tyre-model update: axle slip-angle forces, weight transfer, yaw inertia. */
@@ -254,7 +263,7 @@ export class Vehicle {
     let impact = 0;
     const r = s.width / 2;
     for (let i = 0; i < this.circles.length; i++) {
-      const [cx, cy] = this.circleAt(i);
+      const cx = this.circleX(i), cy = this.circleY(i);
       const hit = world.collideCircle(cx, cy, r, this.level);
       if (!hit) continue;
       this.x += hit.nx * hit.depth;

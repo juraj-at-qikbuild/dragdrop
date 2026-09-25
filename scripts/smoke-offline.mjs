@@ -58,14 +58,23 @@ try {
   const inCar = await page.evaluate(() => !!window.game.player.vehicle);
   check(inCar, 'entered a car with F');
   const start = await page.evaluate(() => ({ x: window.game.player.vehicle.x, y: window.game.player.vehicle.y }));
-  await page.keyboard.down('KeyW');
-  await sleep(2500);
-  const drive = await page.evaluate(() => {
-    const v = window.game.player.vehicle;
-    return { x: v.x, y: v.y, speed: v.speed };
-  });
-  await page.keyboard.up('KeyW');
-  const moved = Math.hypot(drive.x - start.x, drive.y - start.y);
+  const driveFor = async (key) => {
+    await page.keyboard.down(key);
+    await sleep(2500);
+    const d = await page.evaluate(() => {
+      const v = window.game.player.vehicle;
+      return { x: v.x, y: v.y, speed: v.speed };
+    });
+    await page.keyboard.up(key);
+    return d;
+  };
+  let drive = await driveFor('KeyW');
+  let moved = Math.hypot(drive.x - start.x, drive.y - start.y);
+  // parked with its nose against a wall or another car: back out instead
+  if (moved <= 4) {
+    drive = await driveFor('KeyS');
+    moved = Math.max(moved, Math.hypot(drive.x - start.x, drive.y - start.y));
+  }
   check(moved > 4, `the car drives (${moved.toFixed(1)} m, ${drive.speed.toFixed(1)} m/s)`);
   await page.keyboard.down('Space');
   await sleep(1500);
@@ -114,12 +123,25 @@ try {
   } else check(false, 'found a civilian to shoot');
 
   // 3 stars: police show up
-  await page.evaluate(() => (window.game.wanted = 3));
-  await sleep(6000);
-  const police = await page.evaluate(() => window.game.vehicles.filter((v) => v.kind === 'police' && v.siren).length);
-  check(police >= 2, `police cars chase at 3 stars (${police})`);
+  // by the Eurovea riverside roads: some spots (the Old Town square, the castle) have no streets for police cars nearby
+  await page.evaluate(() => {
+    const g = window.game;
+    const l = g.world.landmark('eurovea');
+    const s = g.world.walkableNear(l.x, l.y - 40);
+    g.player.x = s.x;
+    g.player.y = s.y;
+    g.wanted = 3;
+  });
+  let police = 0;
+  for (let t = 0; t < 15000 && police < 2; t += 1000) {
+    await sleep(1000);
+    police = await page.evaluate(() => window.game.vehicles.filter((v) => v.kind === 'police' && v.siren).length);
+  }
+  const where = await page.evaluate(() => ({ x: Math.round(window.game.player.x), y: Math.round(window.game.player.y), wanted: window.game.wanted }));
+  check(police >= 2, `police cars chase at 3 stars (${police} at ${JSON.stringify(where)})`);
 
-  // die and respawn at a hospital with a fee
+  // die and respawn at a hospital with a fee (after any combo from the shooting has paid out)
+  for (let t = 0; t < 10000 && (await page.evaluate(() => window.game.juice.combo.timer > 0)); t += 250) await sleep(250);
   const before = await page.evaluate(() => {
     const g = window.game;
     g.save.money = 1000;

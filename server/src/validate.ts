@@ -57,3 +57,53 @@ export class Bucket {
     return true;
   }
 }
+
+// ------------------------------------------------------------- hit claims
+
+/** a claimed hit may be this far off the target's recorded position (m), plus 5 cm per m/s it moved */
+export const HIT_TOLERANCE = 0.75;
+/** rewinding further than this into the past isn't allowed (ms) */
+export const MAX_REWIND_MS = 1000;
+
+export interface PelletClaim {
+  /** muzzle */
+  ox: number;
+  oy: number;
+  /** pellet direction */
+  a: number;
+  /** claimed end point */
+  hx: number;
+  hy: number;
+  range: number;
+}
+
+export interface TargetThen {
+  x: number;
+  y: number;
+  lvl: 0 | 1;
+  alive: boolean;
+  speed: number;
+  /** body radius: ped radius, or half the car's width plus half its length for cars */
+  radius: number;
+}
+
+/**
+ * Is this pellet's claimed hit plausible? The end point must lie on the pellet's ray, within range,
+ * near where the target was at the shooter's render time, with no wall in between.
+ * `wallT` is world.raycast(ox, oy, hx, hy): the fraction of the way before the first wall (1 = clear).
+ */
+export function plausibleHit(c: PelletClaim, target: TargetThen | null, lvl: 0 | 1, wallT: number): boolean {
+  if (!target || !target.alive || target.lvl !== lvl) return false;
+  const dx = c.hx - c.ox, dy = c.hy - c.oy;
+  const along = dx * Math.cos(c.a) + dy * Math.sin(c.a);
+  const off = Math.abs(-dx * Math.sin(c.a) + dy * Math.cos(c.a));
+  if (along < -0.5 || along > c.range + 1 || off > 0.3) return false;
+  if (Math.hypot(c.hx - target.x, c.hy - target.y) > target.radius + HIT_TOLERANCE + 0.05 * target.speed) return false;
+  return wallT >= 0.98;
+}
+
+/** clamp a client-supplied render time to the rewind window */
+export function rewindTime(rt: unknown, now: number) {
+  const t = typeof rt === 'number' && Number.isFinite(rt) ? rt : now;
+  return Math.min(now, Math.max(now - MAX_REWIND_MS, t));
+}

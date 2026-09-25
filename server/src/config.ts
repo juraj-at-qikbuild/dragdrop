@@ -18,6 +18,8 @@ export const config = {
   tickHz: num(process.env.TICK_HZ, 20),
   /** tick time the load governor aims to stay under (ms) */
   tickBudgetMs: num(process.env.TICK_BUDGET_MS, 12),
+  /** multiplies the world-wide NPC caps (2 = twice the traffic/pedestrians; for bigger machines) */
+  npcScale: num(process.env.NPC_SCALE, 1),
   /** max concurrent connected players */
   maxPlayers: num(process.env.MAX_PLAYERS, 150),
   /** bearer token for /stats (loopback requests are always allowed) */

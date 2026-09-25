@@ -59,6 +59,8 @@ export class AI {
   private lodIds = new WeakMap<object, number>();
   private lodNextId = 1;
   private lodAcc = new WeakMap<object, number>();
+  /** distance to the nearest camera, refreshed every few updates per entity */
+  private camDist = new WeakMap<object, number>();
   /** cops (on foot) whose target is armed-level wanted, cached once per update for cheap panic checks */
   private armedCops: Ped[] = [];
   private counts = new CountGrid(4);
@@ -73,11 +75,11 @@ export class AI {
   /** Entities far from every camera think less often; returns the dt to simulate with, or
    *  null to skip this update entirely (the skipped time is folded into the next one). */
   private lodDt(o: object, x: number, y: number, dt: number): number | null {
-    const d = this.sim.nearestCamera(x, y, 150);
-    if (d < 150) return dt;
-    const period = d < 280 ? 2 : 3;
     let id = this.lodIds.get(o);
     if (id === undefined) (id = this.lodNextId++), this.lodIds.set(o, id);
+    const d = this.distToCamera(o, id, x, y);
+    if (d < 150) return dt;
+    const period = d < 280 ? 2 : 3;
     const acc = (this.lodAcc.get(o) ?? 0) + dt;
     if ((this.frameCount + id) % period !== 0) {
       this.lodAcc.set(o, acc);
@@ -85,6 +87,16 @@ export class AI {
     }
     this.lodAcc.set(o, 0);
     return acc;
+  }
+
+  /** nearest camera distance, cached per entity and refreshed on a staggered 5-update cycle */
+  private distToCamera(o: object, id: number, x: number, y: number) {
+    let d = this.camDist.get(o);
+    if (d === undefined || (this.frameCount + id) % 5 === 0) {
+      d = this.sim.nearestCamera(x, y);
+      this.camDist.set(o, d);
+    }
+    return d;
   }
 
   // ------------------------------------------------------------ spawning
@@ -109,6 +121,8 @@ export class AI {
       if (d.mode === 'traffic') {
         if (danger && this.checkPanic(v, d, dt)) continue;
         const eff = this.lodDt(v, v.x, v.y, dt);
+        // traffic nobody is watching closely gets coarser physics (server only: offline there's one camera)
+        v.coarse = this.sim.coarsePhysics && (this.camDist.get(v) ?? 0) > 120;
         if (eff !== null) this.drive(v, d, eff, false);
       } else if (d.mode === 'police') this.drivePolice(v, d, dt);
     }
@@ -170,8 +184,12 @@ export class AI {
     }
     for (const p of sim.peds) if (p.kind === 'civ' && !p.vehicle && !p.dead) peds++, g.add(p.x, p.y, C_PEDS);
     for (const t of sim.trams) g.add(t.x, t.y, C_TRAMS);
-    const caps = sim.caps;
-    const target = targetDensity(sim.density, sim.quality, sim.clock.time, playerScale(obs.length) * sim.governor);
+    // the load governor shrinks the world-wide caps too, and anything over them that nobody can see is
+    // thinned out a few at a time, so an overloaded server actually gets lighter
+    const k = sim.governor;
+    const caps = k < 1 ? { ...sim.caps, traffic: sim.caps.traffic * k, parked: sim.caps.parked * k, peds: sim.caps.peds * k } : sim.caps;
+    if (k < 1) this.thin(traffic - caps.traffic, parked - caps.parked, peds - caps.peds);
+    const target = targetDensity(sim.density, sim.quality, sim.clock.time, playerScale(obs.length) * k);
     this.lastTargets = target;
     const solo = ranges.length === 1;
     // the neediest players spawn first, so a crowded server fills the empty streets before the busy ones
@@ -188,9 +206,34 @@ export class AI {
     for (const p of sim.players.values()) if (p.stars > 0 && police < caps.police) police += this.policeSpawn(p);
   }
 
+  /** retire up to a few off-screen NPCs of each kind that is over its cap */
+  private thin(traffic: number, parked: number, peds: number) {
+    const sim = this.sim;
+    const n = (x: number) => Math.min(6, Math.ceil(x));
+    let t = n(traffic), p = n(parked), q = n(peds);
+    if (t > 0 || p > 0)
+      for (const v of sim.vehicles) {
+        if (t <= 0 && p <= 0) break;
+        if (v.isPlayer || v.mission || v.kinematic || sim.visibleToAny(v.x, v.y, 15)) continue;
+        const d = this.drivers.get(v);
+        if (t > 0 && d?.mode === 'traffic') (this.retire.add(v), t--);
+        else if (p > 0 && v.parked && !v.driver) (this.retire.add(v), p--);
+      }
+    if (q > 0) {
+      const gone = new Set<Ped>();
+      for (const ped of sim.peds) {
+        if (q <= 0) break;
+        if (ped.kind !== 'civ' || ped.vehicle || ped.playerId || sim.visibleToAny(ped.x, ped.y, 5)) continue;
+        gone.add(ped);
+        q--;
+      }
+      if (gone.size) sim.peds = sim.peds.filter((x) => !gone.has(x));
+    }
+  }
+
   private freeSpot(x: number, y: number, r: number) {
     let free = true;
-    this.sim.physics.hash.query(x, y, r + 8, (v) => {
+    this.sim.forVehiclesNear(x, y, r + 8, (v) => {
       if (free && dist(v.x, v.y, x, y) < r + v.radius) free = false;
     });
     if (!free) return false;
@@ -422,7 +465,7 @@ export class AI {
   /** is a siren-on police car (not a player's) closing in from behind this traffic car? */
   private sirenBehind(v: Vehicle): boolean {
     let found = false;
-    this.sim.physics.hash.query(v.x, v.y, 16, (o) => {
+    this.sim.forVehiclesNear(v.x, v.y, 16, (o) => {
       if (found || o === v || o.kind !== 'police' || !o.siren || o.isPlayer) return;
       const dx = o.x - v.x, dy = o.y - v.y;
       const d2 = dx * dx + dy * dy;
@@ -481,7 +524,7 @@ export class AI {
     let res: 'player' | 'other' | null = null;
     const cx = v.x + fx * (front + range / 2), cy = v.y + fy * (front + range / 2);
     const qr = range / 2 + 8;
-    sim.physics.hash.query(cx, cy, qr, (o) => {
+    sim.forVehiclesNear(cx, cy, qr, (o) => {
       if (res === 'player' || o === v) return;
       if (Math.abs(o.x - v.x) > range + 8 || Math.abs(o.y - v.y) > range + 8) return;
       if (test(o.x, o.y, o.spec.width / 2)) {
@@ -862,7 +905,7 @@ export class AI {
       const lat = Math.abs(-dx * fy + dy * fx);
       return lon > -1 && lon < 5 + t.speed * 1.2 && lat < 1.3 + r;
     };
-    sim.physics.hash.query(t.x, t.y, 25, (v) => {
+    sim.forVehiclesNear(t.x, t.y, 25, (v) => {
       if (!blocked && !v.wrecked && Math.abs(v.x - t.x) < 25 && Math.abs(v.y - t.y) < 25 && check(v.x, v.y, v.spec.width / 2)) blocked = true;
     });
     for (const p of sim.pedsNear(t.x, t.y, 20))

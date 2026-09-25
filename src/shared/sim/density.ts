@@ -18,8 +18,14 @@ export const BASE_DENSITY: Density = { traffic: 45, parked: 32, peds: 120, trams
 
 export const NO_CAPS: Caps = { traffic: Infinity, parked: Infinity, peds: Infinity, trams: Infinity, police: Infinity, helis: Infinity, roadblocks: Infinity };
 
-/** server defaults, sized for one shared vCPU (see docs/deploy.md) */
-export const SERVER_CAPS: Caps = { traffic: 450, parked: 600, peds: 1500, trams: 24, police: 60, helis: 6, roadblocks: 10 };
+/** server defaults, sized for one shared vCPU (see docs/deploy.md); scale with NPC_SCALE on bigger machines */
+export const SERVER_CAPS: Caps = { traffic: 220, parked: 260, peds: 700, trams: 16, police: 40, helis: 4, roadblocks: 6 };
+
+export function scaleCaps(c: Caps, k: number): Caps {
+  const out = { ...c };
+  for (const key of Object.keys(out) as (keyof Caps)[]) out[key] = Math.max(1, Math.round(out[key] * k));
+  return out;
+}
 
 /** per-player share of the base density when N players are spread out; overlapping players share NPCs anyway */
 export function playerScale(n: number) {

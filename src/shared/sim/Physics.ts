@@ -36,38 +36,58 @@ interface Contact {
   cy: number;
 }
 
+/** a parked car that isn't moving or burning: nothing to integrate, and it can't hit another sleeper */
+const asleep = (v: Vehicle) => v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0 && !v.kinematic;
+
 export class VehiclePhysics {
   private accum = 0;
   readonly hash = new SpatialHash<Vehicle>(10);
   /** server: kinematic bodies coast along their last reported velocity between reports */
   extrapolateKinematic = false;
+  /** substep length; the server can use 1/60 for its AI traffic (players drive at 1/120 on their clients) */
+  step_ = PHYS_STEP;
+  private substep = 0;
 
   /** Advance `dt` seconds in fixed substeps. Call with every vehicle and tram that can touch. */
   step(dt: number, vehicles: readonly Vehicle[], trams: readonly Tram[], world: World, hooks: PhysicsHooks) {
-    this.accum = Math.min(this.accum + dt, PHYS_STEP * 8);
+    const STEP = this.step_;
+    this.accum = Math.min(this.accum + dt, Math.max(STEP * 8, PHYS_STEP * 8));
+    let fastest = 0;
     for (const v of vehicles) {
+      const sp = v.speed;
+      if (sp > fastest) fastest = sp;
       if (v.levelInit || v.kinematic) continue;
       v.level = world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
       v.levelInit = true;
     }
-    while (this.accum >= PHYS_STEP) {
+    // broad phase once per step: every pair that could touch before the substeps are done
+    // (each car can travel at most ~fastest × accum; accelerating adds a little)
+    this.findPairs(vehicles, Math.min(12, (fastest + 5) * this.accum * 2 + 0.3));
+    while (this.accum >= STEP) {
       for (const v of vehicles) {
         if (v.kinematic) {
           if (this.extrapolateKinematic) {
-            v.x += v.vx * PHYS_STEP;
-            v.y += v.vy * PHYS_STEP;
-            v.angle += v.av * PHYS_STEP;
+            v.x += v.vx * STEP;
+            v.y += v.vy * STEP;
+            v.angle += v.av * STEP;
           }
           continue;
         }
-        if (v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0) continue;
+        if (asleep(v)) continue;
+        // far from every camera: every other substep, twice as long (staggered by id)
+        let h = STEP;
+        if (v.coarse) {
+          if ((this.substep + v.id) & 1) continue;
+          h = STEP * 2;
+        }
         // per substep: the water check inside update() must see the deck level for this position
         world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
-        const impact = v.update(PHYS_STEP, world);
+        const impact = v.update(h, world);
         if (impact > 6) hooks.impact?.(v, impact);
       }
       this.collide(vehicles, trams, hooks);
-      this.accum -= PHYS_STEP;
+      this.accum -= STEP;
+      this.substep++;
     }
   }
 
@@ -77,17 +97,45 @@ export class VehiclePhysics {
     for (const v of vehicles) this.hash.insert(v, v.x, v.y, v.radius);
   }
 
-  private collide(vs: readonly Vehicle[], trams: readonly Tram[], hooks: PhysicsHooks) {
-    this.rehash(vs);
+  /** candidate pairs [a, b, a, b, …] for this step's substeps */
+  private pairs: Vehicle[] = [];
+
+  private findPairs(vs: readonly Vehicle[], margin: number) {
+    const pairs = this.pairs;
+    pairs.length = 0;
+    this.hash.clear();
+    for (const v of vs) this.hash.insert(v, v.x, v.y, v.radius + margin);
     for (const a of vs) {
-      this.hash.query(a.x, a.y, a.radius, (b) => {
-        if (b.id <= a.id || a.level !== b.level) return;
-        const rr = a.radius + b.radius;
+      // sleeping cars are only ever the passive side of a contact
+      if (asleep(a)) continue;
+      this.hash.query(a.x, a.y, a.radius + margin, (b) => {
+        if (b === a || (!asleep(b) && b.id <= a.id)) return;
+        const rr = a.radius + b.radius + 2 * margin;
         if (Math.abs(a.x - b.x) > rr || Math.abs(a.y - b.y) > rr) return;
+        pairs.push(a, b);
+      });
+    }
+  }
+
+  private collide(vs: readonly Vehicle[], trams: readonly Tram[], hooks: PhysicsHooks) {
+    const pairs = this.pairs;
+    for (let i = 0; i < pairs.length; i += 2) {
+      const a = pairs[i], b = pairs[i + 1];
+      {
+        if (a.level !== b.level) continue;
+        const rr = a.radius + b.radius;
+        if (Math.abs(a.x - b.x) > rr || Math.abs(a.y - b.y) > rr) continue;
+        if (a.kinematic && b.kinematic && !hooks.kinematicPair) continue;
         const best = deepest(a, b);
-        if (!best) return;
-        if (a.kinematic && b.kinematic) return void hooks.kinematicPair?.(a, b);
-        if (a.kinematic || b.kinematic) return kinematicContact(a, b, best, hooks);
+        if (!best) continue;
+        if (a.kinematic && b.kinematic) {
+          hooks.kinematicPair?.(a, b);
+          continue;
+        }
+        if (a.kinematic || b.kinematic) {
+          kinematicContact(a, b, best, hooks);
+          continue;
+        }
         const ma = a.parked && !a.isPlayer ? a.spec.mass * 1.5 : a.spec.mass;
         const mb = b.parked && !b.isPlayer ? b.spec.mass * 1.5 : b.spec.mass;
         const tot = ma + mb;
@@ -96,7 +144,7 @@ export class VehiclePhysics {
         b.x += best.nx * best.depth * (ma / tot);
         b.y += best.ny * best.depth * (ma / tot);
         const sev = resolveContact(a, best.cx, best.cy, b, best.cx, best.cy, best.nx, best.ny, 0.25, 0.4);
-        if (sev <= 0) return;
+        if (sev <= 0) continue;
         if (a.parked || b.parked) {
           a.parked = a.parked && !a.isPlayer && a.speed < 0.5 ? a.parked : false;
           b.parked = b.parked && !b.isPlayer && b.speed < 0.5 ? b.parked : false;
@@ -106,7 +154,7 @@ export class VehiclePhysics {
           b.damage((sev - 4) * 2 * (ma / tot) * 1.6);
         }
         hooks.carContact?.(a, b, sev, best.cx, best.cy, best.nx, best.ny);
-      });
+      }
     }
     // trams: infinite-mass contact through the same impulse solver
     for (const t of trams)
@@ -135,9 +183,9 @@ function deepest(a: Vehicle, b: Vehicle): Contact | null {
   let best: Contact | null = null;
   const ra = a.spec.width / 2, rb = b.spec.width / 2;
   for (let ci = 0; ci < a.circles.length; ci++) {
-    const [ax, ay] = a.circleAt(ci);
+    const ax = a.circleX(ci), ay = a.circleY(ci);
     for (let cj = 0; cj < b.circles.length; cj++) {
-      const [bx, by] = b.circleAt(cj);
+      const bx = b.circleX(cj), by = b.circleY(cj);
       const d = Math.hypot(bx - ax, by - ay);
       const depth = ra + rb - d;
       if (depth > 0 && (!best || depth > best.depth))
@@ -187,7 +235,7 @@ export function pedContact(p: Ped, hash: SpatialHash<Vehicle>, trams: readonly T
     if (Math.abs(v.x - p.x) > v.radius + 1 || Math.abs(v.y - p.y) > v.radius + 1) return;
     const r = v.spec.width / 2 + p.r;
     for (let i = 0; i < v.circles.length; i++) {
-      const [cx, cy] = v.circleAt(i);
+      const cx = v.circleX(i), cy = v.circleY(i);
       const d = dist(cx, cy, p.x, p.y);
       if (d >= r) continue;
       const sp = v.speed;

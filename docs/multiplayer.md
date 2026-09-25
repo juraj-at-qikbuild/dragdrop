@@ -127,3 +127,45 @@ src/shared/           # protocol types + (phase 2) the DOM-free simulation
 ## Why not Cloudflare Durable Objects
 
 It was considered and rejected. A Durable Object is a single-threaded instance with a soft limit of about 1,000 requests/s, and every incoming WebSocket message counts. It also bills per message and can't hibernate while a tick loop runs. That caps a single global world at roughly a few dozen players once the server runs the full simulation. A single Node process on Fly has more CPU headroom and no per-message cost, and restarts happen only when we deploy. To keep migration possible later, keep the game logic in `Room.ts` independent of the transport: it should expose `onMessage`/`tick`/`onJoin`/`onLeave` and never touch `ws` directly.
+
+## Implementation notes (as built)
+
+All three phases are implemented. Where the build differs from the plan above, this section wins.
+Deployment and measured capacity are in [deploy.md](deploy.md).
+
+### One simulation, three hosts
+- `src/shared/` is DOM-free (`tsconfig.shared.json` enforces it) and holds the whole game world: `World`/`Graph`, entity state and physics, and `sim/Sim.ts` with AI, police, combat rules, pickups, the clock and per-player state (`SimPlayer`).
+- **Offline** single-player runs the same `Sim` in the browser (`src/game/LocalSimHost.ts`), with no caps and a fixed governor, so it plays as before. Saves stay in `localStorage`.
+- **The server** (`server/src/Room.ts`) runs one `Sim` for everyone. Every client sees the same NPCs, and an NPC killed by one player is dead for all of them.
+- **Online clients** (`src/net/NetSimHost.ts`) run no NPC logic. They render mirrors of snapshot entities (`Mirrors.ts`, interpolated 100 ms behind by `Interp.ts`) and simulate only their own ped and car, which bump into the mirrors.
+- The rules code never touches audio or rendering. It emits events (`sim/events.ts`), which `src/game/ClientEvents.ts` turns into effects. On the server, `NetEvents.ts` routes them to the players in range.
+
+### Networking
+- **Client → server:** binary `STATE` at 20 Hz (pose, weapon, camera extents, plus the car's full state when driving). Everything else is JSON: `hello`, `fire`, `punch`, `enter`, `exit`, `hit`, `horn`, `nick`, `ping`, `leave`.
+- **Server → client:** a binary snapshot every tick, with private state followed by entity records. Only records that changed since the last snapshot are sent; the first sighting also carries a static block. Entities beyond 150 m are refreshed at half rate, and ones that leave interest are listed as removals. Events, roster, clock and profile go as JSON. `src/shared/net/codec.ts` does the encoding.
+- **Interest:** 300 m for vehicles, trams, props and helicopters, 200 m for peds, with 30 m of hysteresis.
+- **Density:** players' cameras are the spawn/despawn observers. Each player's share shrinks as more join (`playerScale`), under global caps (`SERVER_CAPS` × `NPC_SCALE`) and a load governor that thins the city when ticks run over budget.
+
+### Authority
+- **Movement is client-authoritative.** The server rejects NaN and out-of-map reports, and answers speed jumps and teleports with a `correct` message. Every server-side teleport (respawn) bumps the player's `epoch`, and reports from an older epoch are ignored.
+- **Players' cars are kinematic on the server**, extrapolated from reports. NPC cars treat them as moving walls, and running over an NPC is detected there.
+- **Shots are traced by the client and validated by the server.** It checks the weapon, ammo and fire rate, and that the muzzle is near the reported position. It then rewinds each claimed target through a ~1.2 s position history (`server/src/history.ts`) to the shooter's render time. A claim passes only if the pellet is within the weapon's spread and range, the hit point is close to where the target was, and no wall is in the way (`validate.ts`). Punches are checked for reach and facing against the same history.
+- **A player hit by a car or tram reports it** (`hit`). The server checks the source's speed and position in history before applying damage.
+- **Entering a car is a request.** The server grants it first come, first served. A car another player is driving can be jacked only when it is nearly stopped, and its driver is ejected.
+- **Wanted level, police targeting, the helicopter, roadblocks and spikes are per player**, under world-wide caps. PvP is a crime: `hitPlayer` and `killPlayer` raise the attacker's stars.
+
+### Identity and persistence
+- The client keeps an anonymous UUID and a nickname in `localStorage` (`src/net/identity.ts`). The first Online click asks for the nickname; the pause menu can change it.
+- `server/src/db.ts` uses SQLite (WAL) on the Fly volume and stores only a SHA-256 of the token. It has three tables:
+  - `players`: nickname, money, landmarks found, Čumils collected
+  - `sessions`: position, health, armour, weapons, wanted level; valid for 2 h
+  - `world`: the clock and weather
+- Dirty profiles are written every 5 s, everyone every 30 s, and again on leave and on SIGTERM.
+- A reconnect within 30 s gets the same figure and car back. After a deploy, the saved session (or, failing that, the position the client sends in `resume`) puts players back where they were.
+- **Missions are single-player only.** Online, the phone booths say so.
+
+### Tests and tools
+- `npm test` runs the codec, simulation, room and persistence tests.
+- `npm run smoke` runs the offline game in headless Chromium.
+- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart.
+- `npm run loadtest` and `npm --prefix server run bench` measure capacity.

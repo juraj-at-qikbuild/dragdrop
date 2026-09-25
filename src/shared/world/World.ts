@@ -72,6 +72,8 @@ export class World {
    *  segment end that is a real deck end, where entities may drive or walk off the deck */
   private roadSegs: Float32Array;
   private roadGrid = new Map<number, number[]>();
+  /** road-grid cells that contain at least one bridge segment (fast "not on a bridge" answers) */
+  private bridgeCells = new Set<number>();
   /** all road segments for surface queries [ax, ay, bx, by, halfWidth, class] */
   private surfSegs: Float32Array;
   private surfGrid = new Map<number, number[]>();
@@ -155,6 +157,7 @@ export class World {
     }
     this.roadSegs = Float32Array.from(segs);
     for (let i = 0; i < this.roadSegs.length; i += SEG) this.addToGrid(this.roadGrid, i, this.roadSegs, 12);
+    for (const [k, list] of this.roadGrid) if (list.some((i) => this.roadSegs[i + 6])) this.bridgeCells.add(k);
 
     // deck ends: first/last vertex of every bridge polyline where the deck meets a ramp or street.
     // OSM splits long bridges into several ways, so an end only counts if the road continues off
@@ -453,7 +456,9 @@ export class World {
   }
 
   onBridge(x: number, y: number) {
-    const c = this.roadGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    const k = this.key(Math.floor(x / CELL), Math.floor(y / CELL));
+    if (!this.bridgeCells.has(k)) return false;
+    const c = this.roadGrid.get(k);
     if (!c) return false;
     const s = this.roadSegs;
     for (const i of c) {

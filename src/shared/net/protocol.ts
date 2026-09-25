@@ -9,7 +9,7 @@ import type { PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;

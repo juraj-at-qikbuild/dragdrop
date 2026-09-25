@@ -32,6 +32,19 @@ describe('Sim', () => {
     expect(sim.vehicles.filter((v) => v.parked).length).toBeGreaterThan(t.parked * 0.6);
   });
 
+  it('prewarm never spawns cars on top of each other', () => {
+    const sim = new Sim(loadWorld(), { rng: new Rng(7) });
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
+    look(p);
+    sim.prewarm(p);
+    const cars = sim.vehicles.filter((v) => !v.isPlayer);
+    expect(cars.length).toBeGreaterThan(10);
+    let overlaps = 0;
+    for (let i = 0; i < cars.length; i++)
+      for (let j = i + 1; j < cars.length; j++) if (Math.hypot(cars[i].x - cars[j].x, cars[i].y - cars[j].y) < 3) overlaps++;
+    expect(overlaps).toBe(0);
+  });
+
   it('never exceeds the global caps, however many players there are', () => {
     const caps = { ...SERVER_CAPS, traffic: 60, parked: 80, peds: 150, trams: 6 };
     const sim = new Sim(loadWorld(), { rng: new Rng(2), caps });

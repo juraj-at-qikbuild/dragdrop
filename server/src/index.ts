@@ -7,11 +7,18 @@ import { config, originMatcher } from './config';
 import { Room } from './Room';
 import { World } from '../../src/shared/world/World';
 import type { MapJSON } from '../../src/shared/types';
+import { Store } from './db';
+import { SERVER_CAPS, scaleCaps } from '../../src/shared/sim/density';
 
 const t0 = performance.now();
 const world = new World(JSON.parse(readFileSync(config.mapPath, 'utf8')) as MapJSON);
 console.log(`map loaded in ${(performance.now() - t0).toFixed(0)} ms`);
-const room = new Room({ world, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e });
+const store = new Store(config.dbPath);
+console.log(`database ${config.dbPath}: ${store.playerCount()} profiles`);
+const room = new Room({
+  world, store, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e,
+  caps: scaleCaps(SERVER_CAPS, config.npcScale),
+});
 const originOk = originMatcher(config.allowedOrigins);
 
 const server = http.createServer((req, res) => {
@@ -113,7 +120,8 @@ async function shutdown(sig: string) {
   console.log(`${sig}: shutting down`);
   server.close();
   try {
-    await room.shutdown();
+    room.shutdown();
+    store.close();
   } catch (e) {
     console.error('shutdown failed', e);
   }

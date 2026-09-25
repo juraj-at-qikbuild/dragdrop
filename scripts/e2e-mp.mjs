@@ -171,8 +171,9 @@ async function main() {
   check(err < 1.5, `B's mirror of A matches A's own position (${err.toFixed(2)} m off)`);
 
   // phase-specific checks
-  const phase = Number(process.env.E2E_PHASE ?? 1);
+  const phase = Number(process.env.E2E_PHASE ?? 3);
   if (phase >= 2) await import('./e2e-phase2.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
+  if (phase >= 3) await import('./e2e-phase3.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
 
   // server restart (fly deploy): both clients reconnect by themselves
   log('restarting server…');

@@ -38,6 +38,8 @@ kill_timeout = "15s"
   source = "data"
   destination = "/data"
 
+# Fine for a handful of players. For regular busy evenings use size = "performance-1x", memory = "2gb"
+# (and raise --max-old-space-size above); see "Capacity" in docs/deploy.md.
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"

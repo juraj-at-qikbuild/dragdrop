@@ -213,7 +213,7 @@ export class Police {
     const sim = this.sim;
     for (const p of this.props) {
       if (p.kind !== 'spike' || !p.active) continue;
-      sim.physics.hash.query(p.x, p.y, p.len + 2, (v) => {
+      sim.forVehiclesNear(p.x, p.y, p.len + 2, (v) => {
         // players' own cars are checked by their clients (spikeCheck), which simulate them
         if (!p.active || v.wrecked || v.kinematic || v.level !== p.level || v.tyresBurst) return;
         if (!spikeHit(p, v)) return;

@@ -16,7 +16,9 @@ import { Rng } from '../../src/shared/util/Rng';
 import { dist } from '../../src/shared/util/math';
 import { NetEvents } from './NetEvents';
 import { ClientView, SnapshotBuilder } from './snapshot';
-import { Bucket, checkMove, type Bounds } from './validate';
+import { History } from './history';
+import type { Store } from './db';
+import { Bucket, checkMove, plausibleHit, rewindTime, type Bounds } from './validate';
 
 export interface ClientLink {
   send(data: string | Uint8Array): void;
@@ -35,8 +37,11 @@ export interface Conn {
   link: ClientLink;
   session: Session | null;
   stateBucket: Bucket;
+  /** far above any honest rate: overflowing it is flooding, and counts against the connection */
+  floodBucket: Bucket;
   otherBucket: Bucket;
   strikes: number;
+  strikeAt: number;
 }
 
 /** one identity (token) in the world: survives reconnects within the grace period */
@@ -48,6 +53,8 @@ export class Session {
   lastPoseAt = 0;
   lastReportAt = 0;
   wasInCar = false;
+  /** the epoch lastPose belongs to: a server-side teleport (respawn) starts a new baseline */
+  poseEpoch = -1;
   ack = 0;
   fireBucket: Bucket;
   hitAt = new Map<number, number>();
@@ -60,11 +67,6 @@ export class Session {
   }
 }
 
-export interface ProfileStore {
-  load(token: string): { nick: string; profile: Profile } | null;
-  save(token: string, nick: string, p: SimPlayer): void;
-}
-
 export interface RoomOptions {
   world: World;
   now?: () => number;
@@ -72,7 +74,10 @@ export interface RoomOptions {
   caps?: Caps;
   seed?: number;
   tickBudgetMs?: number;
-  store?: ProfileStore;
+  /** SQLite persistence (profiles, sessions, clock); none in tests unless given */
+  store?: Store;
+  /** wall clock for snapshot/event timestamps and hit rewinding (ms) */
+  wallClock?: () => number;
   /** accept test-only `debug` messages */
   debug?: boolean;
 }
@@ -91,9 +96,16 @@ export class Room {
   private clockTimer = 0;
   private budget: number;
   private tickAvg = 0;
-  private store: ProfileStore | null;
+  private store: Store | null;
   private debug: boolean;
   private nextLook = 0;
+  private history = new History();
+  private wall: () => number;
+  private dirty = new Set<Session>();
+  private flushTimer = 0;
+  private saveTimer = 0;
+  /** set by shutdown(): everyone is already saved and the store is about to close */
+  private closing = false;
   counters = { bytesOut: 0, msgsIn: 0, rejected: 0, teleports: 0, shots: 0, badHits: 0 };
   tickMs = 0;
 
@@ -105,15 +117,35 @@ export class Room {
     this.budget = opts.tickBudgetMs ?? 12;
     this.store = opts.store ?? null;
     this.debug = !!opts.debug;
+    this.wall = opts.wallClock ?? (() => Date.now());
     this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true });
+    // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
+    // watching closely even less
+    this.sim.physics.step_ = 1 / 60;
+    this.sim.coarsePhysics = true;
     this.snaps = new SnapshotBuilder(this.sim);
-    this.sim.onProfileChange = (p) => this.saveProfile(p);
+    this.sim.onProfileChange = (p) => {
+      const s = this.sessionOf(p);
+      if (s) this.dirty.add(s);
+    };
+    const c = this.store?.loadClock();
+    if (c) {
+      this.sim.clock.setTime(c.time);
+      this.sim.clock.rain = c.rain;
+      this.sim.clock.wet = c.wet;
+      this.sim.clock.rainTarget = c.target;
+    }
+  }
+
+  private sessionOf(p: SimPlayer) {
+    for (const s of this.sessions.values()) if (s.player === p) return s;
+    return undefined;
   }
 
   // ------------------------------------------------------------- transport
   onJoin(link: ClientLink): Conn {
     const t = this.now();
-    const c: Conn = { link, session: null, stateBucket: new Bucket(40, 60, t), otherBucket: new Bucket(30, 60, t), strikes: 0 };
+    const c: Conn = { link, session: null, stateBucket: new Bucket(40, 60, t), floodBucket: new Bucket(120, 240, t), otherBucket: new Bucket(30, 60, t), strikes: 0, strikeAt: t };
     this.conns.add(c);
     return c;
   }
@@ -128,7 +160,7 @@ export class Room {
     // freeze the figure/car where they are
     const v = s.player.ped.vehicle;
     if (v) (v.vx = 0), (v.vy = 0), (v.av = 0);
-    this.saveProfile(s.player);
+    this.save([s]);
   }
 
   onMessage(c: Conn, data: string | ArrayBuffer | Uint8Array) {
@@ -136,7 +168,9 @@ export class Room {
     const t = this.now();
     if (typeof data !== 'string') {
       const s = c.session;
-      if (!s || !c.stateBucket.take(t)) return this.strike(c);
+      if (!s || !c.floodBucket.take(t)) return this.strike(c);
+      // a burst after a stalled tab: drop the excess quietly (the next report supersedes it anyway)
+      if (!c.stateBucket.take(t)) return;
       let r: StateReport;
       try {
         r = decodeState(new Reader(data instanceof Uint8Array ? data : new Uint8Array(data)));
@@ -168,18 +202,18 @@ export class Room {
       case 'fire':
         return this.onFire(s, msg);
       case 'punch':
-        return this.onPunch(s, msg.target);
+        return this.onPunch(s, msg.target, msg.rt);
       case 'horn':
         return this.onHorn(p);
       case 'hit':
-        return this.onHit(s, msg.src, msg.speed, msg.tram === 1);
+        return this.onHit(s, msg.src, msg.speed, msg.tram === 1, msg.rt);
       case 'nick': {
         const n = cleanNick(msg.nick);
-        if (n) (p.nick = n), this.saveProfile(p);
+        if (n) (p.nick = n), this.dirty.add(s);
         return;
       }
       case 'ping':
-        if (typeof msg.ct === 'number') this.send(c, { t: 'pong', ct: msg.ct, st: Date.now() });
+        if (typeof msg.ct === 'number') this.send(c, { t: 'pong', ct: msg.ct, st: this.wall() });
         return;
       case 'leave':
         this.drop(s);
@@ -194,10 +228,13 @@ export class Room {
     }
   }
 
-  /** misbehaving connection: drop after repeated offences */
+  /** misbehaving connection: drop after repeated offences (one is forgiven every 2 s, so only a burst closes it) */
   private strike(c: Conn) {
     this.counters.rejected++;
-    if (++c.strikes > 50) c.link.close(1008, 'policy');
+    const t = this.now();
+    c.strikes = Math.max(0, c.strikes - (t - c.strikeAt) / 2000) + 1;
+    c.strikeAt = t;
+    if (c.strikes > 50) c.link.close(1008, 'policy');
   }
 
   private hello(c: Conn, msg: HelloMsg) {
@@ -242,17 +279,31 @@ export class Room {
         c.link.close(4003, 'full');
         return;
       }
-      const stored = this.store?.load(msg.token);
+      const stored = this.store?.loadProfile(msg.token);
       const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [] };
-      let x: number | undefined, y: number | undefined;
-      if (r && resumeOk) {
-        const w = this.sim.world.walkableNear(r.x, r.y);
-        if (dist(w.x, w.y, r.x, r.y) < 20) (x = r.x), (y = r.y);
+      const last = this.store?.loadSession(msg.token);
+      let x: number | undefined, y: number | undefined, lvl: 0 | 1 = 0;
+      // where to put them: where their client says it is (reconnect after a restart), else where they
+      // were when last saved, else the square
+      if (r && resumeOk) (x = r.x), (y = r.y), (lvl = r.lvl === 1 ? 1 : 0);
+      else if (last) (x = last.x), (y = last.y), (lvl = last.level);
+      if (x !== undefined && y !== undefined) {
+        const w = this.sim.world.walkableNear(x, y);
+        if (dist(w.x, w.y, x, y) > 20) x = y = undefined;
       }
       const look = this.nextLook++ % PLAYER_SHIRTS.length;
       const p = this.sim.addPlayer({ nick, look, profile, kinematic: true, x, y });
-      if (r?.lvl === 1) p.ped.level = 1;
+      p.ped.level = lvl;
       p.ped.levelInit = true;
+      if (last) {
+        p.ped.health = Math.min(100, Math.max(1, last.health));
+        p.ped.armor = Math.min(100, Math.max(0, last.armor));
+        p.ammo.pistol = last.ammo.pistol;
+        p.ammo.uzi = last.ammo.uzi;
+        p.ammo.shotgun = last.ammo.shotgun;
+        p.ped.weapon = last.weapon === 'fist' || p.ammo[last.weapon] > 0 ? last.weapon : 'fist';
+        p.wanted = Math.min(5, Math.max(0, last.wanted));
+      }
       s = new Session(msg.token, p, this.now());
       this.sessions.set(msg.token, s);
       this.sim.prewarm(p);
@@ -267,7 +318,7 @@ export class Room {
     const p = s.player;
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
-      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: Date.now(), clock: this.clockSync(),
+      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(),
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils });
   }
@@ -283,6 +334,12 @@ export class Room {
     o.hw = Math.min(150, Math.max(5, r.hw));
     o.hh = Math.min(150, Math.max(5, r.hh));
     if (r.epoch !== p.epoch || p.state !== 'play') return;
+    if (s.poseEpoch !== p.epoch) {
+      // first report since a respawn: measure moves from where the server put them
+      s.poseEpoch = p.epoch;
+      s.lastPose = { x: p.ped.x, y: p.ped.y };
+      s.lastPoseAt = t;
+    }
     const inCar = !!r.veh;
     const verdict = checkMove(s.lastPose, r, t - s.lastPoseAt, inCar || s.wasInCar, this.bounds);
     if (verdict === 'reject') return this.strike(s.conn!);
@@ -377,23 +434,55 @@ export class Room {
     const f = p.focus();
     if (dist(m.ox, m.oy, f.x, f.y) > 4 || (m.lvl !== 0 && m.lvl !== 1)) return;
     const pellets: PelletReport[] = [];
+    const rt = rewindTime(m.rt, this.wall());
     for (const pl of m.pellets) {
       if (!pl || ![pl.a, pl.hx, pl.hy].every(Number.isFinite)) return;
       if (Math.abs(Math.atan2(Math.sin(pl.a - m.a), Math.cos(pl.a - m.a))) > w.spread + 0.02) return;
       if (dist(pl.hx, pl.hy, m.ox, m.oy) > w.range + 1) return;
-      pellets.push({ a: pl.a, kind: pl.kind, hit: pl.hit | 0, hx: pl.hx, hy: pl.hy });
+      let kind = pl.kind === 1 || pl.kind === 2 || pl.kind === 3 ? pl.kind : 0;
+      let hit = pl.hit | 0;
+      if (kind === 2 || kind === 3) {
+        // check the claim against where that ped/car was when the shooter saw it
+        const then = this.targetAt(hit, kind === 2, rt);
+        const claim = { ox: m.ox, oy: m.oy, a: pl.a, hx: pl.hx, hy: pl.hy, range: w.range };
+        if (!plausibleHit(claim, then, m.lvl, this.sim.world.raycast(m.ox, m.oy, pl.hx, pl.hy))) {
+          this.counters.badHits++;
+          kind = 0;
+          hit = 0;
+        }
+      }
+      pellets.push({ a: pl.a, kind, hit, hx: pl.hx, hy: pl.hy });
     }
     p.ammo[m.w]--;
     this.counters.shots++;
     this.sim.applyShot(p, { w: m.w, ox: m.ox, oy: m.oy, a: m.a, lvl: m.lvl, pellets });
   }
 
-  private onPunch(s: Session, target: number) {
+  /** where a ped (or car) was at time t, with its body radius, for validating hit claims */
+  private targetAt(id: number, ped: boolean, t: number) {
+    const e = ped ? this.sim.pedById(id) : this.sim.vehicleById(id);
+    if (!e) return null;
+    const h = this.history.at(id, t);
+    if (!h) return null;
+    const radius = ped ? (e as { r: number }).r + 0.15 : (e as { radius: number }).radius;
+    return { ...h, radius };
+  }
+
+  private onPunch(s: Session, target: number, rt: number) {
     const p = s.player;
     const t = this.now();
     if (p.state !== 'play' || p.ped.vehicle || !s.fireBucket.take(t)) return;
     const tp = target ? this.sim.pedById(target) : null;
-    if (tp && (dist(tp.x, tp.y, p.ped.x, p.ped.y) > 3 || tp.level !== p.ped.level)) return this.sim.applyMelee(p, 0);
+    if (tp) {
+      // in reach (then or now), roughly in front
+      const then = this.history.at(tp.id, rewindTime(rt, this.wall())) ?? tp;
+      const d = Math.min(dist(then.x, then.y, p.ped.x, p.ped.y), dist(tp.x, tp.y, p.ped.x, p.ped.y));
+      const a = Math.atan2(tp.y - p.ped.y, tp.x - p.ped.x);
+      if (d > 1.4 + tp.r + 0.8 || tp.level !== p.ped.level || Math.abs(Math.atan2(Math.sin(a - p.ped.angle), Math.cos(a - p.ped.angle))) > 1.2) {
+        this.counters.badHits++;
+        return this.sim.applyMelee(p, 0);
+      }
+    }
     // no claim: let the server look for someone in front of them
     const hit = tp ?? traceMelee(this.sim.pedsNear(p.ped.x, p.ped.y, 3), p.ped, p.ped.angle);
     this.sim.applyMelee(p, hit?.id ?? 0);
@@ -407,24 +496,32 @@ export class Room {
   }
 
   /** the victim's client says a car or tram ran them over */
-  private onHit(s: Session, src: number, speed: number, tram: boolean) {
+  private onHit(s: Session, src: number, speed: number, tram: boolean, rt: number) {
     const p = s.player;
     if (p.state !== 'play' || p.ped.vehicle || !Number.isFinite(speed)) return;
     const now = this.now();
     if (now - (s.hitAt.get(src) ?? -1e9) < 500) return;
     s.hitAt.set(src, now);
-    const sp = Math.min(Math.max(speed, 0), 60);
+    // it must really have been there, and not slower than it moved then (plus slack)
+    const then = this.history.at(src, rewindTime(rt, this.wall()));
     let sx: number, sy: number, by = 0;
     if (tram) {
       const t = this.sim.trams.find((q) => q.id === src);
-      if (!t || dist(t.x, t.y, p.ped.x, p.ped.y) > 25) return;
+      if (!t || dist(t.x, t.y, p.ped.x, p.ped.y) > 25) return this.badHit();
       (sx = t.x), (sy = t.y);
     } else {
       const v = this.sim.vehicleById(src);
-      if (!v || dist(v.x, v.y, p.ped.x, p.ped.y) > 10) return;
+      const near = (x: number, y: number) => dist(x, y, p.ped.x, p.ped.y) < v!.radius + 3;
+      if (!v || !(near(v.x, v.y) || (then && near(then.x, then.y)))) return this.badHit();
       (sx = v.x), (sy = v.y), (by = v.owner);
     }
+    const sp = Math.min(Math.max(speed, 0), 60, (then?.speed ?? 60) * 1.3 + 3);
+    if (sp < 4) return;
     this.sim.hurtPlayer(p, tram ? sp * 5 : sp * 3, sx, sy, by);
+  }
+
+  private badHit() {
+    this.counters.badHits++;
   }
 
   private onDebug(p: SimPlayer, m: Extract<ClientMsg, { t: 'debug' }>) {
@@ -436,14 +533,34 @@ export class Room {
 
   /** remove a player for good (quit, or grace expired) */
   private drop(s: Session) {
-    this.saveProfile(s.player);
+    this.save([s]);
     this.sim.removePlayer(s.player);
     this.sessions.delete(s.token);
+    this.dirty.delete(s);
   }
 
-  private saveProfile(p: SimPlayer) {
-    const s = [...this.sessions.values()].find((q) => q.player === p);
-    if (s && this.store) this.store.save(s.token, p.nick, p);
+  /** write players' profiles and sessions to the database */
+  private save(list: Iterable<Session>) {
+    if (!this.store || this.closing) return;
+    const rows = [...list].map((s) => ({ token: s.token, nick: s.player.nick, player: s.player }));
+    if (!rows.length) return;
+    try {
+      this.store.savePlayers(rows);
+    } catch (e) {
+      console.error('saving players failed', e);
+    }
+  }
+
+  /** flush everything (periodically, and on shutdown) */
+  flush() {
+    if (this.closing) return;
+    this.save(this.sessions.values());
+    this.dirty.clear();
+    try {
+      this.store?.saveClock(this.clockSync());
+    } catch (e) {
+      console.error('saving clock failed', e);
+    }
   }
 
   connectedCount() {
@@ -467,8 +584,9 @@ export class Room {
       else if (s.conn) s.player.afk = t - s.lastReportAt > AFK_MS;
     }
     this.sim.step(dtMs / 1000);
+    const st = this.wall();
+    this.recordHistory(st);
     this.snaps.prepare(this.tickNo);
-    const st = Date.now();
     for (const s of this.sessions.values()) {
       const c = s.conn;
       if (!c) continue;
@@ -499,8 +617,28 @@ export class Room {
       this.clockTimer = 5000;
       this.broadcast({ t: 'clock', c: this.clockSync() });
     }
+    // progress: changed profiles within a few seconds, everyone (money, position…) every 30 s
+    this.flushTimer -= dtMs;
+    if (this.flushTimer <= 0 && this.dirty.size) {
+      this.flushTimer = 5000;
+      this.save(this.dirty);
+      this.dirty.clear();
+    }
+    this.saveTimer -= dtMs;
+    if (this.saveTimer <= 0) {
+      this.saveTimer = 30_000;
+      this.flush();
+    }
     this.tickMs = performance.now() - t0;
     this.govern(dtMs);
+  }
+
+  private recordHistory(t: number) {
+    const h = this.history;
+    for (const v of this.sim.vehicles) h.record(t, v.id, v.x, v.y, v.level, !v.wrecked);
+    for (const p of this.sim.peds) if (!p.vehicle || p.playerId) h.record(t, p.id, p.x, p.y, p.level, !p.dead);
+    for (const tr of this.sim.trams) h.record(t, tr.id, tr.x, tr.y, tr.level, true);
+    h.endTick();
   }
 
   /** thin the city out when ticks run long (a throttled shared vCPU), fill it back when there's room */
@@ -508,13 +646,16 @@ export class Room {
     this.tickAvg += (this.tickMs - this.tickAvg) * 0.05;
     const s = dtMs / 1000;
     const sim = this.sim;
-    if (this.tickAvg > this.budget) sim.governor = Math.max(0.3, sim.governor - 0.02 * s);
-    else if (this.tickAvg < this.budget * 0.6) sim.governor = Math.min(1, sim.governor + 0.005 * s);
+    // back off quickly when over budget (harder the further over), recover slowly
+    const over = this.tickAvg / this.budget;
+    if (over > 1) sim.governor = Math.max(0.2, sim.governor - Math.min(0.15, 0.04 * over) * s);
+    else if (over < 0.6) sim.governor = Math.min(1, sim.governor + 0.01 * s);
   }
 
   /** graceful shutdown (deploy): save everyone, tell every client to reconnect shortly */
   shutdown() {
-    for (const s of this.sessions.values()) this.saveProfile(s.player);
+    this.flush();
+    this.closing = true;
     for (const c of this.conns) {
       this.send(c, { t: 'bye', reason: 'restart' });
       c.link.close(1012, 'restart');

@@ -73,12 +73,19 @@ export class Sim {
   driveClock: boolean;
   /** called when a player's persistent progress changed (save it) */
   onProfileChange?: (p: SimPlayer) => void;
-  private pedHash = new SpatialHash<Ped>(10);
+  private pedHash = new SpatialHash<Ped>(16);
+  /** vehicles for AI neighbourhood queries (coarser cells than the physics broad phase) */
+  private vehHash = new SpatialHash<Vehicle>(25);
+  /** observing players by camera centre, for "is anyone looking here" queries */
+  private camHash = new SpatialHash<SimPlayer>(200);
+  private maxHalf = 0;
   private nextPlayerId = 1;
   private sweepTimer = 1;
   private byId = new Map<number, Vehicle | Ped>();
   /** any player currently wanted (cheap check for AI panic reactions) */
   anyWanted = false;
+  /** integrate traffic far from every camera at half rate (server) */
+  coarsePhysics = false;
 
   constructor(world: World, opts: SimOptions = {}) {
     this.world = world;
@@ -99,12 +106,15 @@ export class Sim {
     if (!v.id) v.id = this.ids.alloc(this.time);
     this.vehicles.push(v);
     this.byId.set(v.id, v);
+    // visible to neighbour queries right away, so back-to-back spawns (prewarm) see each other
+    this.vehHash.insert(v, v.x, v.y, v.radius);
     return v;
   }
   addPed(p: Ped) {
     if (!p.id) p.id = this.ids.alloc(this.time);
     this.peds.push(p);
     this.byId.set(p.id, p);
+    this.pedHash.insert(p, p.x, p.y);
     return p;
   }
   addTram(t: Tram) {
@@ -139,14 +149,28 @@ export class Sim {
   }
   vehiclesNear(x: number, y: number, r: number): Vehicle[] {
     const out: Vehicle[] = [];
-    this.physics.hash.query(x, y, r, (v) => out.push(v));
+    this.vehHash.query(x, y, r, (v) => out.push(v));
     return out;
+  }
+
+  /** visit vehicles near (x, y) (AI queries; hash rebuilt once per step) */
+  forVehiclesNear(x: number, y: number, r: number, fn: (v: Vehicle) => void) {
+    this.vehHash.query(x, y, r, fn);
   }
 
   private rehash() {
     this.physics.rehash(this.vehicles);
+    this.vehHash.clear();
+    for (const v of this.vehicles) this.vehHash.insert(v, v.x, v.y, v.radius);
     this.pedHash.clear();
     for (const p of this.peds) this.pedHash.insert(p, p.x, p.y);
+    this.camHash.clear();
+    this.maxHalf = 0;
+    for (const p of this.players.values()) {
+      if (!p.observing) continue;
+      this.camHash.insert(p, p.observer.cx, p.observer.cy);
+      this.maxHalf = Math.max(this.maxHalf, p.observer.hw, p.observer.hh);
+    }
   }
 
   // ------------------------------------------------------------------ players
@@ -201,25 +225,23 @@ export class Sim {
 
   /** is (x, y) inside anyone's view (plus `pad` metres)? `except` is ignored (prewarming) */
   visibleToAny(x: number, y: number, pad: number, except: SimPlayer | null = null) {
-    for (const p of this.players.values()) {
-      if (p === except || !p.observing) continue;
+    let seen = false;
+    this.camHash.query(x, y, this.maxHalf + pad, (p) => {
+      if (seen || p === except || !p.observing) return;
       const o = p.observer;
-      if (Math.abs(x - o.cx) < o.hw + pad && Math.abs(y - o.cy) < o.hh + pad) return true;
-    }
-    return false;
+      if (Math.abs(x - o.cx) < o.hw + pad && Math.abs(y - o.cy) < o.hh + pad) seen = true;
+    });
+    return seen;
   }
 
-  /** distance to the nearest observer's camera centre (early out below `enough`) */
-  nearestCamera(x: number, y: number, enough = 0) {
+  /** distance to the nearest observer's camera centre, or Infinity when none is within `range` */
+  nearestCamera(x: number, y: number, range = 300) {
     let best = Infinity;
-    for (const p of this.players.values()) {
-      if (!p.observing) continue;
+    this.camHash.query(x, y, range, (p) => {
+      if (!p.observing) return;
       const d = dist(x, y, p.observer.cx, p.observer.cy);
-      if (d < best) {
-        best = d;
-        if (best < enough) break;
-      }
-    }
+      if (d < best) best = d;
+    });
     return best;
   }
 
