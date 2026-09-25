@@ -28,6 +28,8 @@ const PED_STATES: PedState[] = ['walk', 'flee', 'dead', 'chase', 'idle'];
 const PED_KINDS = ['civ', 'cop', 'player'] as const;
 const PROP_KINDS: PropKind[] = ['barrier', 'cone', 'spike'];
 const TWO_PI = Math.PI * 2;
+/** a level from its two wire bits: 1 on a deck, 2 (-1) in a tunnel, 3 on an upper deck (2) */
+const levelOf = (bits: number): Level => ([0, 1, -1, 2] as const)[bits & 3];
 
 // ------------------------------------------------------------------ writer/reader
 export class Writer {
@@ -220,8 +222,8 @@ export function encodeState(w: Writer, s: StateReport) {
   w.u8(MSG_STATE);
   w.u16(s.seq & 0xffff);
   w.u8(s.epoch & 0xff);
-  // flags: driving, on a bridge deck, in a tunnel
-  w.u8((s.veh ? 1 : 0) | (s.lvl === 1 ? 2 : 0) | (s.lvl === -1 ? 4 : 0));
+  // flags: driving, on a bridge deck, in a tunnel (both: on an upper deck)
+  w.u8((s.veh ? 1 : 0) | (s.lvl === 1 || s.lvl === 2 ? 2 : 0) | (s.lvl === -1 || s.lvl === 2 ? 4 : 0));
   w.pos(s.x);
   w.pos(s.y);
   w.ang16(s.a);
@@ -251,7 +253,7 @@ export function decodeState(r: Reader): StateReport {
   if (r.u8() !== MSG_STATE) throw new RangeError('not a state message');
   const seq = r.u16(), epoch = r.u8(), flags = r.u8();
   const s: StateReport = {
-    seq, epoch, lvl: flags & 4 ? -1 : flags & 2 ? 1 : 0,
+    seq, epoch, lvl: levelOf(flags >> 1),
     x: r.pos(), y: r.pos(), a: r.ang16(), vx: r.vel(), vy: r.vel(),
     weapon: WEAPON_LIST[r.u8()] ?? 'fist',
     camDx: r.i8(), camDy: r.i8(), hw: r.u16() / 10, hh: r.u16() / 10,
@@ -309,7 +311,7 @@ export function encodeSnapshotHeader(w: Writer, tick: number, serverMs: number, 
 // entity records: u16 id, u8 head (type:3 | static:1<<3 | on a deck:1<<4 | in a tunnel:1<<5), [static], dynamic
 export function entityHead(w: Writer, id: number, type: Ent, withStatic: boolean, level: Level) {
   w.u16(id);
-  w.u8(type | (withStatic ? 8 : 0) | (level === 1 ? 16 : 0) | (level === -1 ? 32 : 0));
+  w.u8(type | (withStatic ? 8 : 0) | (level === 1 || level === 2 ? 16 : 0) | (level === -1 || level === 2 ? 32 : 0));
 }
 
 /** static part of a vehicle: changes only when `rev` bumps */
@@ -517,7 +519,7 @@ export function decodeSnapshot(r: Reader): Snapshot {
 
 function decodeEntity(r: Reader): EntityRec {
   const id = r.u16(), head = r.u8();
-  const type = (head & 7) as Ent, full = !!(head & 8), level: Level = head & 32 ? -1 : head & 16 ? 1 : 0;
+  const type = (head & 7) as Ent, full = !!(head & 8), level = levelOf(head >> 4);
   switch (type) {
     case Ent.Vehicle: {
       const v = {} as VehicleRec;

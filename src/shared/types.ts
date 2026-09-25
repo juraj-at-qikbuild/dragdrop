@@ -52,6 +52,15 @@ export interface EdgeJSON {
   o?: 1 | -1;
   n?: number;
   s?: number; // speed m/s (car graph)
+  x?: 1; // pedestrian graph: bollards or blocks across it stop cars
+  // baked by the map builder from World's fitting (see MapJSON.fit), only where not the default:
+  lf?: number; // car graph: lane offset a -> b
+  lr?: number; // car graph: lane offset b -> a
+  bf?: 1; // car graph: that lane runs into a building
+  br?: 1;
+  wr?: number; // pedestrian graph: walking line offset right of a -> b
+  wl?: number; // ...and left of it
+  nw?: 1; // pedestrian graph: nobody walks it
 }
 
 export interface GraphJSON {
@@ -90,6 +99,12 @@ export interface MapJSON {
   tramStops?: number[];
   /** railway tracks */
   rails?: { p: number[]; b?: 1 }[];
+  /** solid street furniture and monuments: bollards, blocks, planters, statues, columns; flat
+   *  [x, y, radius, kind, ...], `kind` indexes World.POSTS */
+  posts?: number[];
+  /** World.FIT_VERSION the lanes and walking lines in the graphs were baked with (else the game
+   *  fits them itself at startup) */
+  fit?: number;
 }
 
 export const enum RoadClass {

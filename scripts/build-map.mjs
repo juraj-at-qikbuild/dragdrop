@@ -697,10 +697,58 @@ const passages = [];
   console.log(`passages: ${passages.length} (${tagged} tagged as passage/covered, ${untagged} untagged crossings)`);
 }
 
+// ---------------------------------------------------------------- fountains
+// Fountains are water inside a stone basin: the rim stops people and cars. OSM maps most of the
+// big ones (the Roland fountain on Hlavné námestie, Ganymede's in front of the theatre) as
+// amenity=fountain outlines without natural=water, so they become water areas here; smaller
+// fountains mapped as a point get a basin a few metres across. Every small water area (the
+// fountains, ornamental pools) gets a rim, opened like a wall where a path crosses it.
+/** water smaller than this is ornamental (must match the World's drowning cut-off) */
+const POOL_MAX = 4000;
+/** outlines of the basins, for the barrier pass below */
+const fountainRims = [];
+{
+  const isWater = (t) => t.natural === 'water' || t.waterway === 'riverbank' || t.landuse === 'basin' || t.landuse === 'reservoir';
+  let added = 0;
+  for (const w of ways.values()) {
+    const t = w.tags;
+    if (t.amenity !== 'fountain' || isWater(t) || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+    const pts = wayPts(w);
+    if (pts.length < 4 || !inView(pts)) continue;
+    areas.water.push([flat(simplify(pts, 0.15))]);
+    added++;
+  }
+  const circle = (x, y, r) => {
+    const out = [];
+    for (let i = 0; i <= 12; i++) out.push([x + Math.cos((i / 12) * Math.PI * 2) * r, y + Math.sin((i / 12) * Math.PI * 2) * r]);
+    return out;
+  };
+  const onWay = new Set();
+  for (const w of ways.values()) for (const n of w.nds) onWay.add(n);
+  for (const [id, n] of nodes) {
+    const t = n.tags;
+    if (t.amenity !== 'fountain' || onWay.has(id) || ['splash_pad', 'bubbler', 'drinking', 'toilets', 'nozzle'].includes(t.fountain)) continue;
+    const [x, y] = project(n.lat, n.lon);
+    if (!inBounds(x, y) || insideOf(solidGrid, x, y)) continue;
+    // already inside a mapped basin
+    if (areas.water.some((rings) => pointInRings(x, y, rings))) continue;
+    // a basin can't stand on a street or a path (the point is a spout on it, or a drinking fountain)
+    let onPath = false;
+    for (const k of kept)
+      for (let i = 1; i < k.pts.length && !onPath; i++)
+        if (Math.abs(k.pts[i][0] - x) < 40 && segDist(x, y, k.pts[i - 1][0], k.pts[i - 1][1], k.pts[i][0], k.pts[i][1]) < k.width / 2 + 1.8) onPath = true;
+    if (onPath) continue;
+    areas.water.push([flat(circle(x, y, 1.6))]);
+    added++;
+  }
+  for (const rings of areas.water) if (flatArea(rings[0]) < POOL_MAX) for (const r of rings) fountainRims.push(r);
+  console.log(`fountains: ${added} basins added, ${fountainRims.length} rims`);
+}
+
 // ---------------------------------------------------------------- barriers
 // Walls, fortifications, fences and hedges, cut open wherever a street or path goes through
 // them (gates and entrances included), and wherever the line conflicts with a street's roadway.
-/** 0 wall, 1 fortification (city/castle walls), 2 retaining wall, 3 fence, 4 hedge, 5 concrete barrier, 6 noise barrier, 7 flood wall */
+/** 0 wall, 1 fortification (city/castle walls), 2 retaining wall, 3 fence, 4 hedge, 5 concrete barrier, 6 noise barrier, 7 flood wall, 8 fountain rim */
 function barrierKind(t) {
   const b = t.barrier;
   if (b === 'city_wall' || t.wall === 'castle_wall' || (b === 'wall' && (t.historic === 'citywalls' || t.historic === 'city_wall'))) return 1;
@@ -712,39 +760,50 @@ function barrierKind(t) {
   return -1;
 }
 /** half-thickness per barrier kind (must match World.BARRIERS[].ht) */
-const BARRIER_HT = [0.25, 0.9, 0.3, 0.06, 0.45, 0.3, 0.15, 0.25];
+const BARRIER_HT = [0.25, 0.9, 0.3, 0.06, 0.45, 0.3, 0.15, 0.25, 0.3];
 const GATES = new Set(['gate', 'entrance', 'lift_gate', 'swing_gate', 'wicket_gate', 'kissing_gate', 'turnstile', 'sliding_gate', 'hampshire_gate', 'stile', 'cattle_grid', 'full-height_turnstile', 'bump_gate', 'chain', 'cycle_barrier', 'bollard']);
 const barriers = [];
-{
-  // surface street segments (bridges and tunnels don't cut ground-level walls)
-  const segGrid = new Grid(16);
-  for (const k of kept) {
-    if (k.bridge) continue;
-    for (let i = 1; i < k.pts.length; i++) {
-      const [ax, ay] = k.pts[i - 1], [bx, by] = k.pts[i];
-      const s = { ax, ay, bx, by, hw: k.width / 2 };
-      segGrid.add(s, Math.min(ax, bx) - s.hw, Math.min(ay, by) - s.hw, Math.max(ax, bx) + s.hw, Math.max(ay, by) + s.hw);
-    }
+// surface street segments (bridges and tunnels don't cut ground-level walls), with their class
+const segGrid = new Grid(16);
+for (const k of kept) {
+  if (k.bridge) continue;
+  for (let i = 1; i < k.pts.length; i++) {
+    const [ax, ay] = k.pts[i - 1], [bx, by] = k.pts[i];
+    const s = { ax, ay, bx, by, hw: k.width / 2, c: k.c, w: k.w };
+    segGrid.add(s, Math.min(ax, bx) - s.hw, Math.min(ay, by) - s.hw, Math.max(ax, bx) + s.hw, Math.max(ay, by) + s.hw);
   }
-  const keptNodes = new Set();
-  for (const k of kept) if (!k.bridge) for (const n of k.w.nds) keptNodes.add(n);
+}
+const keptNodes = new Set();
+for (const k of kept) if (!k.bridge) for (const n of k.w.nds) keptNodes.add(n);
+{
   let total = 0, removed = 0;
+  const lines = [];
   for (const w of ways.values()) {
-    const t = w.tags;
-    if (!t.barrier) continue;
-    const kind = barrierKind(t);
-    if (kind < 0) continue;
-    const pts = wayPts(w);
+    const kind = w.tags.barrier ? barrierKind(w.tags) : -1;
+    if (kind >= 0) lines.push({ pts: wayPts(w), nds: w.nds, kind });
+  }
+  for (const r of fountainRims) {
+    const pts = [];
+    for (let i = 0; i < r.length; i += 2) pts.push([r[i], r[i + 1]]);
+    lines.push({ pts, nds: null, kind: 8 });
+  }
+  for (const { pts, nds, kind } of lines) {
     if (pts.length < 2 || !inView(pts)) continue;
     const cum = cumLen(pts);
     const L = cum[cum.length - 1];
     if (L < 0.5) continue;
     total += L;
+    if (kind === 8) {
+      // a fountain's basin stays whole: paths run round it (a path mapped across one is a
+      // mapping shortcut people walk round, see `crossesFountain`)
+      barriers.push({ p: flat(simplify(pts, 0.1)), k: kind });
+      continue;
+    }
     const gaps = [];
     // shared nodes with streets and paths, and gate nodes on the barrier
-    for (let i = 0; i < w.nds.length; i++) {
-      const nt = nodes.get(w.nds[i])?.tags ?? {};
-      if (keptNodes.has(w.nds[i])) gaps.push([cum[i] - 1.7, cum[i] + 1.7]);
+    for (let i = 0; nds && i < nds.length; i++) {
+      const nt = nodes.get(nds[i])?.tags ?? {};
+      if (keptNodes.has(nds[i])) gaps.push([cum[i] - 1.7, cum[i] + 1.7]);
       else if (GATES.has(nt.barrier) || nt.entrance) gaps.push([cum[i] - 1.6, cum[i] + 1.6]);
     }
     for (let i = 1; i < pts.length; i++) {
@@ -793,6 +852,106 @@ const barriers = [];
     removed += L - pieces.reduce((a, [s0, s1]) => a + (s1 - s0), 0);
   }
   console.log(`barriers: ${Math.round(total)} m, ${Math.round(removed)} m opened at streets and gates, ${barriers.length} pieces`);
+}
+
+// ------------------------------------------------- street furniture and monuments
+// Solid things OSM maps as points: bollards, concrete blocks and big planters that close a street
+// or path to cars (a row across the way, with gaps people walk through), and free-standing
+// statues, columns and memorials. Flat [x, y, radius, kind] with kinds indexing World.POSTS:
+// 0 bollard, 1 block, 2 planter, 3 statue, 4 column, 5 memorial stone.
+const posts = [];
+/** node id of a bollard (block, planter) row -> the ways it closes to cars, and where the row is */
+const closes = new Map();
+const closesWay = (n, w) => closes.get(n)?.ways.has(w) ?? false;
+{
+  const onWay = new Set();
+  for (const w of ways.values()) for (const n of w.nds) onWay.add(n);
+  const waysAt = new Map();
+  for (const k of kept) if (!k.bridge) k.w.nds.forEach((n, i) => (waysAt.get(n) ?? waysAt.set(n, []).get(n)).push({ k, i }));
+  const bigWater = areas.water.filter((rings) => flatArea(rings[0]) >= POOL_MAX);
+  const clear = (x, y) => inBounds(x, y) && !insideOf(solidGrid, x, y) && !bigWater.some((rings) => pointInRings(x, y, rings));
+  /** [kind, radius, centre spacing] of a row across a way */
+  const ROW = { bollard: [0, 0.12, 1.5], block: [1, 0.45, 1.9], jersey_barrier: [1, 0.45, 1.9], planter: [2, 0.55, 2.2] };
+  let rows = 0, free = 0, monuments = 0;
+  for (const [id, n] of nodes) {
+    const spec = ROW[n.tags.barrier];
+    if (!spec) continue;
+    const [kind, r, spacing0] = spec;
+    const [x, y] = project(n.lat, n.lon);
+    const at = waysAt.get(id);
+    if (!at) {
+      // a free-standing post (they line the edges of squares): never in a carriageway
+      let inRoad = false;
+      segGrid.query(x - 10, y - 10, x + 10, y + 10, (s) => {
+        if (!inRoad && s.c <= 7 && segDist(x, y, s.ax, s.ay, s.bx, s.by) < s.hw - 0.2) inRoad = true;
+      });
+      if (!inRoad && clear(x, y)) posts.push(r1(x), r1(y), r2(r), kind), free++;
+      continue;
+    }
+    // the way the row closes: a path or pedestrian street it stands at the end of (the street it
+    // meets stays open), else the smallest way through it
+    const ends = at.filter((a) => a.i === 0 || a.i === a.k.w.nds.length - 1);
+    const { k, i } = (ends.length && ends.length < at.length ? ends : at).reduce((a, b) => (b.k.c > a.k.c ? b : a));
+    const pts = k.pts, m = pts.length;
+    if (m < 2 || i >= m) continue;
+    const [ax, ay] = pts[Math.max(0, i - 1)], [bx, by] = pts[Math.min(m - 1, i + 1)];
+    const L = Math.hypot(bx - ax, by - ay) || 1;
+    const ux = (bx - ax) / L, uy = (by - ay) / L;
+    // at a junction, set the row a little way into the way it closes
+    const into = at.length > 1 ? (i === 0 ? 0.9 : i === m - 1 ? -0.9 : 0) : 0;
+    const cx = x + ux * into, cy = y + uy * into;
+    const gap = parseFloat(n.tags['maxwidth:physical']);
+    const spacing = gap > 0.4 && gap < 3 ? gap + 2 * r : spacing0;
+    const hw = k.width / 2;
+    // it closes the way it stands across, and any other way that ends at it (two streets meeting
+    // end to end at a row of bollards are no longer one street for cars)
+    const cut = new Set([k.w]);
+    for (const a of ends) cut.add(a.k.w);
+    // ...but never stands in a street that stays open beside it
+    const inOpenRoad = (px, py) => {
+      let hit = false;
+      segGrid.query(px - 10, py - 10, px + 10, py + 10, (sg) => {
+        if (!hit && sg.c <= 7 && !cut.has(sg.w) && segDist(px, py, sg.ax, sg.ay, sg.bx, sg.by) < sg.hw + r) hit = true;
+      });
+      return hit;
+    };
+    for (let j = -Math.floor((hw - 0.15) / spacing); j * spacing <= hw - 0.15; j++) {
+      const px = cx - uy * j * spacing, py = cy + ux * j * spacing;
+      if (clear(px, py) && !inOpenRoad(px, py)) posts.push(r1(px), r1(py), r2(r), kind);
+    }
+    closes.set(id, { ways: cut, x: cx, y: cy });
+    rows++;
+  }
+  // statues, columns and memorials standing free (a point on a way is a plaque or a relief in a
+  // wall), and not in a street or on a path
+  const monument = (t) => {
+    const m = t.memorial ?? t.artwork_type ?? '';
+    if (t.man_made === 'column' || t.man_made === 'obelisk' || m === 'column' || m === 'obelisk') return [4, 1.8];
+    if (t.historic === 'memorial' || t.tourism === 'artwork') {
+      if (m === 'statue' || m === 'sculpture') return [3, 0.8];
+      if (m === 'bust') return [3, 0.45];
+      if (m === 'war_memorial') return [5, 1.2];
+      if (m === 'stele' || m === 'stone' || m === 'cross') return [5, 0.5];
+    }
+    if (t.historic === 'wayside_cross' || t.historic === 'wayside_shrine') return [5, 0.5];
+    return null;
+  };
+  for (const [id, n] of nodes) {
+    const m = monument(n.tags);
+    if (!m || onWay.has(id)) continue;
+    const [kind, r] = m;
+    const [x, y] = project(n.lat, n.lon);
+    if (!clear(x, y)) continue;
+    let inWay = false;
+    segGrid.query(x - 12, y - 12, x + 12, y + 12, (s) => {
+      const d = segDist(x, y, s.ax, s.ay, s.bx, s.by);
+      if (s.c <= 7 ? d < s.hw + r - 0.2 : d < r + 0.8) inWay = true;
+    });
+    if (inWay) continue;
+    posts.push(r1(x), r1(y), r2(r), kind);
+    monuments++;
+  }
+  console.log(`posts: ${rows} bollard/block rows closing ways to cars, ${free} free-standing posts, ${monuments} statues/columns/memorials`);
 }
 
 // ------------------------------------------------------------ street features
@@ -909,6 +1068,9 @@ function buildGraph(list) {
           if (oneway) e.o = oneway;
           if (name >= 0) e.n = name;
           if (speed) e.s = r1(speed);
+          // a row of bollards across it (people get through, cars don't), or it's mapped across a
+          // fountain: no way for a car
+          if (seg.some((n) => closesWay(n, w)) || crossesFountain(pts)) e.x = 1;
           if (e.a !== e.b) edges.push(e);
         }
         start = i;
@@ -1046,7 +1208,71 @@ for (const l of landmarks) {
   } else console.warn(`no building for landmark ${l.id}`);
 }
 
-const car = buildGraph(graphWays.car);
+/** Does a polyline cross a fountain's rim? */
+const rimGrid = new Grid(16);
+for (const r of fountainRims) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < r.length; i += 2) (x0 = Math.min(x0, r[i])), (x1 = Math.max(x1, r[i])), (y0 = Math.min(y0, r[i + 1])), (y1 = Math.max(y1, r[i + 1]));
+  rimGrid.add({ r }, x0, y0, x1, y1);
+}
+function crossesFountain(pts) {
+  let hit = false;
+  for (let i = 1; i < pts.length && !hit; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+    rimGrid.query(Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by), ({ r }) => {
+      for (let j = 0; !hit && j < r.length - 2; j += 2) if (segIntersect(ax, ay, bx, by, r[j], r[j + 1], r[j + 2], r[j + 3]) >= 0) hit = true;
+    });
+  }
+  return hit;
+}
+
+/** Split every drivable way at the bollard rows that close it. Each side ends in its own dead end
+ *  a couple of metres short of the row (a new node), so traffic never routes through or up to it. */
+function cutAtClosures(list) {
+  const out = [];
+  let copies = 0;
+  /** a dead end STOP metres from the row towards `toward` (null when that's too close to keep) */
+  const STOP = 2.5;
+  const stub = (row, toward) => {
+    const [tx, ty] = xy(toward);
+    const d = Math.hypot(tx - row.x, ty - row.y);
+    if (d < STOP + 1) return null;
+    const id = `stub${copies++}`;
+    nodes.set(id, nodes.get(toward));
+    nodeXY.set(id, [row.x + ((tx - row.x) * STOP) / d, row.y + ((ty - row.y) * STOP) / d]);
+    return id;
+  };
+  for (const e of list) {
+    const nds = e.w.nds.filter((n) => nodes.has(n));
+    if (!nds.some((n) => closesWay(n, e.w))) {
+      out.push(e);
+      continue;
+    }
+    let piece = [];
+    for (let i = 0; i < nds.length; i++) {
+      const n = nds[i];
+      if (!closesWay(n, e.w)) {
+        piece.push(n);
+        continue;
+      }
+      const row = closes.get(n);
+      // end the piece so far short of the row, and start the next one past it
+      if (piece.length) {
+        const end = stub(row, piece[piece.length - 1]);
+        if (end) piece.push(end);
+        if (piece.length >= 2) out.push({ ...e, w: { nds: piece, tags: e.w.tags } });
+      }
+      piece = [];
+      if (i + 1 < nds.length) {
+        const start = stub(row, nds[i + 1]);
+        if (start) piece.push(start);
+      }
+    }
+    if (piece.length >= 2) out.push({ ...e, w: { nds: piece, tags: e.w.tags } });
+  }
+  return out;
+}
+const car = buildGraph(cutAtClosures(graphWays.car));
 const ped = buildGraph(graphWays.ped);
 const tram = buildGraph(graphWays.tram);
 for (const e of car.edges) e.s ??= SPEED[e.c] ?? 8;
@@ -1067,6 +1293,7 @@ const map = {
   tunnels,
   passages,
   barriers,
+  posts,
   trees,
   lamps,
   crossings,
@@ -1075,6 +1302,21 @@ const map = {
   rails,
   flagsUntagged: 1,
 };
+// Bake the lanes and walking lines the game fits to the streets (World.fitLanes/fitWalks: traffic
+// keeps as far right as each street allows, people walk where there's room), so clients and the
+// server don't spend a few hundred milliseconds on it at startup: run the game's own World on the
+// finished map and store the offsets that differ from the defaults.
+{
+  const { build } = await import('esbuild');
+  const out = await build({ entryPoints: [new URL('../src/shared/world/World.ts', import.meta.url).pathname], bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'warning' });
+  const { World } = await import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64'));
+  const t = performance.now();
+  new World(map).bakeFits(map);
+  const nLanes = map.graph.car.edges.filter((e) => e.lf !== undefined || e.lr !== undefined).length;
+  const nWalks = map.graph.ped.edges.filter((e) => e.wr !== undefined || e.wl !== undefined).length;
+  console.log(`fitted in ${Math.round(performance.now() - t)} ms: ${nLanes} lanes moved off their default, ${nWalks} walking lines, ${map.graph.ped.edges.filter((e) => e.nw).length} ways nobody walks`);
+}
+
 await mkdir(new URL('.', OUT), { recursive: true });
 const json = JSON.stringify(map);
 await writeFile(OUT, json);

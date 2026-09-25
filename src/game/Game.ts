@@ -571,6 +571,7 @@ export class Game {
     this.renderer.drawPortals(ctx, v);
     this.renderer.drawShadows(ctx, v);
     this.renderer.drawBarriers(ctx, v);
+    this.renderer.drawPosts(ctx, v);
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);
@@ -604,9 +605,12 @@ export class Game {
     drawEntities(0);
     drawProps(ctx, host.props, 0);
     this.renderer.drawTrafficLights(ctx, v, lightsTime);
-    this.renderer.drawBridges(ctx, v);
+    this.renderer.drawBridges(ctx, v, 1);
     drawEntities(1);
     drawProps(ctx, host.props, 1);
+    // upper decks (Most SNP's road over its footways, flyovers over their ramps) and what's on them
+    this.renderer.drawBridges(ctx, v, 2);
+    drawEntities(2);
 
     this.fx.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);

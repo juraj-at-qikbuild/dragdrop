@@ -99,7 +99,7 @@ export class Store {
     const r = this.q.getSession.get(hashToken(token));
     if (!r || now - r.saved_at > SESSION_TTL_MS) return null;
     return {
-      x: r.x, y: r.y, level: r.level === 1 || r.level === -1 ? r.level : 0, health: r.health, armor: r.armor, weapon: (r.weapon as WeaponId) ?? 'fist',
+      x: r.x, y: r.y, level: r.level === 1 || r.level === 2 || r.level === -1 ? r.level : 0, health: r.health, armor: r.armor, weapon: (r.weapon as WeaponId) ?? 'fist',
       ammo: { pistol: 0, uzi: 0, shotgun: 0, ...safeJson(r.ammo, {}) }, wanted: r.wanted, savedAt: r.saved_at,
     };
   }

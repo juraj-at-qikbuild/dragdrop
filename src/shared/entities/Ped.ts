@@ -79,6 +79,8 @@ export class Ped {
   pts: number[] = [];
   idx = 0;
   side = 1;
+  /** walking: the closest they've got to the point they're walking to (progress check) */
+  bestD = Infinity;
   speed = 1.4;
   money = 20;
   bustTimer = 0;
@@ -105,13 +107,14 @@ export class Ped {
   }
 
   /** Move with velocity and resolve collisions against buildings, walls and fences (on a bridge
-   *  deck only what stands on it, in a tunnel only its walls). */
+   *  deck only what stands on it, and its railings: nobody walks off the side of a bridge; in a
+   *  tunnel only its walls). */
   move(dt: number, world: World, vx: number, vy: number) {
     this.vx = vx;
     this.vy = vy;
     this.x += vx * dt;
     this.y += vy * dt;
-    const hit = world.collideCircle(this.x, this.y, this.r, this.level, false);
+    const hit = world.collideCircle(this.x, this.y, this.r, this.level);
     if (hit) {
       this.x += hit.nx * hit.depth;
       this.y += hit.ny * hit.depth;

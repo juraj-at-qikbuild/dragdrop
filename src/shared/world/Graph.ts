@@ -12,6 +12,23 @@ export interface Edge {
   oneway: 0 | 1 | -1;
   name: number;
   speed: number;
+  /** car graph: how far right of the centre line traffic drives, going a -> b (laneF) and
+   *  b -> a (laneR); fitted to the street by World so cars keep clear of the buildings */
+  laneF?: number;
+  laneR?: number;
+  /** car graph: even the best lane that way runs into a building (a garage door, a courtyard the
+   *  map has no passage into): traffic doesn't use it */
+  blockedF?: boolean;
+  blockedR?: boolean;
+  /** pedestrian graph: how far from the centre line people walk on the right (walkR) and the
+   *  left (walkL) of a -> b; fitted by World so they stay clear of walls and water */
+  walkR?: number;
+  walkL?: number;
+  /** pedestrian graph: bollards or blocks across it stop cars (police routing avoids it) */
+  noCars?: boolean;
+  /** pedestrian graph: nobody walks it: it leads off the map, or even its best walking line runs
+   *  into a building or the river (steps down to the water, a door the path ends at) */
+  noWalk?: boolean;
 }
 
 /** A directed traversal of an edge: forward (a -> b) or reverse (b -> a). */
@@ -32,6 +49,9 @@ export class Graph {
   out: Link[][];
   /** path cost per edge id (defaults to length) */
   cost: Float32Array;
+  /** car graph: per node, how many links it is into a dead-end branch (cul-de-sac, courtyard,
+   *  a road off the edge of the map); 0 on the through network. Set by World. */
+  depth: Int32Array | null = null;
   private grid = new Map<number, number[]>();
 
   constructor(json: GraphJSON, directed: boolean, costFn?: (e: Edge) => number) {
@@ -49,6 +69,7 @@ export class Graph {
       oneway: directed ? (e.o ?? 0) : 0,
       name: e.n ?? -1,
       speed: e.s ?? CLASS_SPEED[e.c] ?? 5,
+      noCars: e.x === 1 || undefined,
     }));
     this.cost = Float32Array.from(this.edges, (e) => (costFn ? costFn(e) : e.len));
     for (const e of this.edges) {

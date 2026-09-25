@@ -1,4 +1,4 @@
-import { BARRIERS, type World, type Building } from '../shared/world/World';
+import { BARRIERS, POSTS, deckLevel, type World, type Building } from '../shared/world/World';
 import { bboxOf, bboxHit, rng, pointInRings, type BBox } from '../shared/util/math';
 import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
@@ -161,6 +161,8 @@ interface Chunk {
   puddlePath?: Path2D;
   /** walls, fences and hedges by barrier kind (see World.BARRIERS) */
   barriers?: (Path2D | undefined)[];
+  /** bollards, blocks, planters, statues and columns: flat x, y, radius, kind (see World.POSTS) */
+  posts?: number[];
 }
 
 export interface View {
@@ -265,9 +267,11 @@ function offsetPolyline(p: ArrayLike<number>, off: number): number[] {
   return out;
 }
 
-/** true for a ground layer that belongs to a bridge deck (drawn in `drawBridges`, not `drawGround`) */
-function isBridgeLayer(key: string): boolean {
-  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1') || key.startsWith('kerb1') || key.startsWith('rl1');
+/** the deck level (1 or 2) of a layer that belongs to a bridge deck (drawn in `drawBridges`, not
+ *  `drawGround`), or 0 for a ground layer */
+function isBridgeLayer(key: string): 0 | 1 | 2 {
+  const m = /^(?:bc|br|f|m|edge|kerb|rl)([12])/.exec(key);
+  return m ? (+m[1] as 1 | 2) : 0;
 }
 
 /** World-space rect actually covered by the canvas under its current transform (so it
@@ -295,8 +299,8 @@ export class Renderer {
   private chunks: Chunk[] = [];
   private layers = new Map<string, Layer>();
   ads: RoofAd[] = [];
-  /** bridge deck polylines, for the cast shadow + railings drawn by `drawBridges` */
-  private bridges: { p: Float32Array; hw: number; bbox: BBox }[] = [];
+  /** bridge deck polylines and their levels, for the railings drawn by `drawBridges` */
+  private bridges: { p: Float32Array; hw: number; bbox: BBox; level: 1 | 2 }[] = [];
   private treeCount = 0;
   private sunKeyLast = NaN;
   /** merged ground-shadow path of the last frame, reused while the visible chunk set
@@ -390,14 +394,15 @@ export class Renderer {
 
     // roads: casing, asphalt/cobble fill + grain overlay
     for (const r of w.data.roads) {
-      const bridge = r.b ? 1 : 0;
+      // 0 on the ground, else the deck's level: upper decks draw over the lower ones
+      const bridge = r.b ? deckLevel(r) : 0;
       const wq = Math.round(r.w * 2) / 2;
       const base = 100 + bridge * 100;
       const c = this.chunkAt(bboxOf(r.p, r.w), map);
       if (bridge) {
-        addPoly(this.path(c, `bc:${wq}`, { kind: 'stroke', color: '#2b2b2e', width: wq + 3 }, base + 1), r.p, false);
-        addPoly(this.path(c, `br:${wq}`, { kind: 'stroke', color: '#8f8b84', width: wq + 1.6 }, base + 2), r.p, false);
-        this.bridges.push({ p: Float32Array.from(r.p), hw: r.w / 2, bbox: bboxOf(r.p, r.w / 2 + 1) });
+        addPoly(this.path(c, `bc${bridge}:${wq}`, { kind: 'stroke', color: '#2b2b2e', width: wq + 3 }, base + 1), r.p, false);
+        addPoly(this.path(c, `br${bridge}:${wq}`, { kind: 'stroke', color: '#8f8b84', width: wq + 1.6 }, base + 2), r.p, false);
+        this.bridges.push({ p: Float32Array.from(r.p), hw: r.w / 2, bbox: bboxOf(r.p, r.w / 2 + 1), level: bridge });
       } else if (ROAD_CASING[r.c]) {
         addPoly(this.path(c, `c:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_CASING[r.c], width: wq + 1.6 }, base + 10 - r.c * 0.1), r.p, false);
       }
@@ -498,9 +503,9 @@ export class Renderer {
       const b = rl.b ? 1 : 0;
       const c = this.chunkAt(bboxOf(rl.p, 3), map);
       if (b) {
-        addPoly(this.path(c, 'bc:rail', { kind: 'stroke', color: '#2b2b2e', width: 5.4 }, 201), rl.p, false);
-        addPoly(this.path(c, 'br:rail', { kind: 'stroke', color: '#7d776d', width: 4.6 }, 202), rl.p, false);
-        this.bridges.push({ p: Float32Array.from(rl.p), hw: 2.3, bbox: bboxOf(rl.p, 3.5) });
+        addPoly(this.path(c, 'bc1:rail', { kind: 'stroke', color: '#2b2b2e', width: 5.4 }, 201), rl.p, false);
+        addPoly(this.path(c, 'br1:rail', { kind: 'stroke', color: '#7d776d', width: 4.6 }, 202), rl.p, false);
+        this.bridges.push({ p: Float32Array.from(rl.p), hw: 2.3, bbox: bboxOf(rl.p, 3.5), level: 1 });
       } else addPoly(this.path(c, 'rl0:bed', { kind: 'stroke', color: '#8a8276', width: 3 }, 255), rl.p, false);
       addPoly(this.path(c, `rl${b}:sleepers`, { kind: 'stroke', color: '#5b4a3b', width: 2.3, dash: [0.24, 0.36], cap: 'butt' }, 256 + b * 100), rl.p, false);
       addPoly(this.path(c, `rl${b}:railL`, { kind: 'stroke', color: '#2a2a2d', width: 0.12 }, 257 + b * 100), offsetPolyline(rl.p, 0.72), false);
@@ -572,6 +577,12 @@ export class Renderer {
       const c = this.chunkAt(bboxOf(bar.p, 1), map);
       const list = (c.barriers ??= []);
       addPoly((list[bar.k] ??= new Path2D()), bar.p, false);
+    }
+    // bollards, blocks, planters and monuments (`drawPosts`, `drawPostTops`)
+    const posts = w.data.posts ?? [];
+    for (let i = 0; i < posts.length; i += 4) {
+      const x = posts[i], y = posts[i + 1];
+      (this.chunkAt({ x0: x, y0: y, x1: x, y1: y }, map).posts ??= []).push(x, y, posts[i + 2], posts[i + 3]);
     }
 
     this.buildBuildings(map);
@@ -1005,6 +1016,7 @@ export class Renderer {
     // trees are registered by their trunk point: canopies reach ~5m past it, and the
     // shadow is shifted by up to 6 * |sun| (~17m at low sun) on top of that
     this.drawTrees(ctx, v, vis.filter((c) => c.trees && onRect(sr, c.bbox.x0, c.bbox.y0, c.bbox.x1, c.bbox.y1, 24)));
+    this.drawPostTops(ctx, v);
 
     // lamp posts (cheap, always drawn - dark by day, glow comes from emitLights at night)
     ctx.fillStyle = '#2c2c2e';
@@ -1528,21 +1540,25 @@ export class Renderer {
   /** Bridge decks: a soft cast shadow onto whatever is below, the deck surface itself
    *  (casing/asphalt/lane markings/edge highlight, normally drawn in `drawGround`), then railings.
    *  Called between the level-0 and level-1 entity passes so traffic below stays under the deck. */
-  drawBridges(ctx: CanvasRenderingContext2D, v: View) {
+  /** The bridge decks of one level (1, then 2 over it once whatever is on level 1 is drawn): cast
+   *  shadow, deck surface and railings. */
+  drawBridges(ctx: CanvasRenderingContext2D, v: View, level: 1 | 2 = 1) {
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
-    const keys = this.sortedBridgeLayers;
+    const keys = this.sortedBridgeLayers.filter(([k]) => isBridgeLayer(k) === level);
     if (!keys.length) return;
 
-    // cast shadow: the casing/deck outline offset by the sun direction, dark and translucent
+    // cast shadow: the casing/deck outline offset by the sun direction, dark and translucent (an
+    // upper deck stands higher, so its shadow falls further)
     const daylight = this.atmos.daylight;
     if (daylight > 0.02) {
-      const sdx = this.atmos.sun.dx * 3.2, sdy = this.atmos.sun.dy * 3.2;
+      const h = level === 2 ? 6.5 : 3.2;
+      const sdx = this.atmos.sun.dx * h, sdy = this.atmos.sun.dy * h;
       ctx.save();
       ctx.translate(sdx, sdy);
       ctx.globalAlpha = Math.min(0.4, 0.32 * daylight);
       ctx.fillStyle = ctx.strokeStyle = '#0a0c14';
       for (const [key, layer] of keys) {
-        if (!key.startsWith('bc:')) continue;
+        if (!key.startsWith('bc')) continue;
         ctx.lineWidth = (layer.op as { width: number }).width + 1;
         for (const c of vis) {
           const p = c.layers.get(key);
@@ -1571,17 +1587,17 @@ export class Renderer {
       }
     }
     ctx.setLineDash([]);
-    this.drawRailings(ctx, v);
+    this.drawRailings(ctx, v, level);
   }
 
-  /** Thin light railings with posts along both edges of every visible bridge deck. */
-  private drawRailings(ctx: CanvasRenderingContext2D, v: View) {
+  /** Thin light railings with posts along both edges of every visible bridge deck of a level. */
+  private drawRailings(ctx: CanvasRenderingContext2D, v: View, level: 1 | 2) {
     if (v.scale < 2.5) return;
     ctx.save();
     ctx.lineWidth = 0.1;
     ctx.strokeStyle = 'rgba(225,225,220,0.8)';
     for (const br of this.bridges) {
-      if (!bboxHit(br.bbox, v)) continue;
+      if (br.level !== level || !bboxHit(br.bbox, v)) continue;
       for (const side of [1, -1]) {
         const off = offsetPolyline(br.p, br.hw * side + 0.25);
         ctx.beginPath();
@@ -1686,6 +1702,108 @@ export class Renderer {
           ctx.setLineDash([0.8, 0.8]);
           for (const p of paths) ctx.stroke(p);
           ctx.setLineDash([]);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Street furniture and the bases of monuments, at street level: every post's shadow, bollards
+   *  (dark posts with a light cap), concrete blocks, planters with their greenery, and the stone
+   *  plinths statues and columns stand on (`drawPostTops` raises them above the street). */
+  drawPosts(ctx: CanvasRenderingContext2D, v: View) {
+    if (v.scale < 1.5) return;
+    const pad = { x0: v.x0 - 20, y0: v.y0 - 20, x1: v.x1 + 20, y1: v.y1 + 20 };
+    const day = this.atmos.daylight, sun = this.atmos.sun;
+    ctx.save();
+    for (const c of this.chunks) {
+      const P = c.posts;
+      if (!P || !bboxHit(c.bbox, pad)) continue;
+      for (let i = 0; i < P.length; i += 4) {
+        const x = P[i], y = P[i + 1], r = P[i + 2], k = P[i + 3];
+        if (x < v.x0 - 16 || x > v.x1 + 16 || y < v.y0 - 16 || y > v.y1 + 16) continue;
+        const B = POSTS[k] ?? POSTS[0];
+        if (day > 0.05) {
+          // shadow: the post swept away from the sun up to its height
+          const h = Math.min(B.h, 8);
+          ctx.strokeStyle = `rgba(20,25,45,${0.22 * day})`;
+          ctx.lineWidth = r * 2;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + sun.dx * h, y + sun.dy * h);
+          ctx.stroke();
+        }
+        if (k === 0) {
+          ctx.fillStyle = B.color;
+          ctx.beginPath();
+          ctx.arc(x, y, r + 0.03, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(235,235,230,0.85)';
+          ctx.beginPath();
+          ctx.arc(x - r * 0.25, y - r * 0.25, r * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (k === 1 || k === 2) {
+          ctx.fillStyle = shade(B.color, 0.7);
+          ctx.fillRect(x - r - 0.05, y - r - 0.05, r * 2 + 0.1, r * 2 + 0.1);
+          ctx.fillStyle = B.color;
+          ctx.fillRect(x - r, y - r, r * 2, r * 2);
+          if (k === 2) {
+            ctx.fillStyle = '#5b8c3e';
+            ctx.beginPath();
+            ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // a stone plinth (square for statues and memorials, round for columns)
+          ctx.fillStyle = shade('#d7d0c2', 0.75);
+          ctx.beginPath();
+          if (k === 4) ctx.arc(x, y, r + 0.1, 0, Math.PI * 2);
+          else ctx.rect(x - r - 0.1, y - r - 0.1, r * 2 + 0.2, r * 2 + 0.2);
+          ctx.fill();
+          ctx.fillStyle = '#d7d0c2';
+          ctx.beginPath();
+          if (k === 4) ctx.arc(x, y, r * 0.85, 0, Math.PI * 2);
+          else ctx.rect(x - r, y - r, r * 2, r * 2);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Statues, columns and memorial stones, raised above the street like the buildings: the shaft
+   *  or figure leans away from the camera up to its height. Drawn with the trees. */
+  private drawPostTops(ctx: CanvasRenderingContext2D, v: View) {
+    if (v.scale < 1.5) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const c of this.chunks) {
+      const P = c.posts;
+      if (!P || !bboxHit(c.bbox, v)) continue;
+      for (let i = 0; i < P.length; i += 4) {
+        const k = P[i + 3];
+        if (k < 3) continue;
+        const x = P[i], y = P[i + 1], r = P[i + 2];
+        if (x < v.x0 - 10 || x > v.x1 + 10 || y < v.y0 - 10 || y > v.y1 + 10) continue;
+        const B = POSTS[k] ?? POSTS[3];
+        const [ox, oy] = this.roofOffset(x, y, B.h, v);
+        const w = k === 4 ? r * 0.55 : k === 5 ? r * 1.4 : r * 0.9;
+        ctx.strokeStyle = shade(B.color, 0.75);
+        ctx.lineWidth = w + 0.1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + ox, y + oy);
+        ctx.stroke();
+        ctx.strokeStyle = B.color;
+        ctx.lineWidth = w;
+        ctx.stroke();
+        // the figure on top (a statue's head and shoulders, the column's crowning statue)
+        if (k !== 5) {
+          ctx.fillStyle = k === 4 ? '#c9a94a' : shade(B.color, 1.25);
+          ctx.beginPath();
+          ctx.arc(x + ox, y + oy, k === 4 ? r * 0.45 : r * 0.5, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     }

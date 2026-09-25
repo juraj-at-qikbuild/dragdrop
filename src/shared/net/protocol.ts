@@ -10,8 +10,10 @@ import type { PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
- *  v4: levels include -1 (in a tunnel). */
-export const PROTOCOL_VERSION = 4;
+ *  v4: levels include -1 (in a tunnel).
+ *  v5: levels include 2 (an upper bridge deck), and the city's colliders changed (fountains,
+ *  monuments and bollards; lanes fitted to the streets), which client and server must agree on. */
+export const PROTOCOL_VERSION = 5;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;

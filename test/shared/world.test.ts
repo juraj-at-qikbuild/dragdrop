@@ -8,7 +8,8 @@ import type { Prop } from '../../src/shared/entities/Props';
 import { Sim } from '../../src/shared/sim/Sim';
 import { SECONDS_PER_HOUR } from '../../src/shared/sim/Clock';
 import { Rng } from '../../src/shared/util/Rng';
-import type { Level } from '../../src/shared/world/World';
+import { OFF_MAP, type Level } from '../../src/shared/world/World';
+import { linkPoints } from '../../src/shared/world/Graph';
 import { loadWorld } from './helpers';
 
 /** Drive a sedan along waypoints (a simple follow-the-points driver), like traffic does. */
@@ -63,11 +64,87 @@ describe('World', () => {
     const ufo = w.buildings.find((b) => b.kind === 5 && b.minH > 0);
     expect(ufo?.minH).toBe(85);
     expect(ufo?.solid).toBe(false);
-    // northbound carriageway, through the pylon at 95 km/h
-    const r = drive([-578.5, 560, -579, 470, -580, 440, -581, 390], 20, 27);
-    expect(r.reached).toBe(true);
-    expect(r.maxImpact).toBe(0);
-    expect(r.levels).toEqual([1]);
+    // both carriageways, through the pylon at 95 km/h, on the road deck (level 2: the footways
+    // hang below it at level 1)
+    for (const pts of [[-578.5, 560, -579, 470, -580, 440, -581, 390], [-600, 200, -592, 445, -591, 470, -589, 534]]) {
+      const r = drive(pts, 20, 27);
+      expect(r.reached).toBe(true);
+      expect(r.maxImpact).toBe(0);
+      expect(r.levels).toEqual([2]);
+    }
+  });
+
+  it('Most SNP: its footway is a separate deck below the road, and people stay on it', () => {
+    const w = loadWorld();
+    // on the east footway beside the northbound carriageway, over the river
+    const p = new Ped('civ', -582.4, 300, 1);
+    p.level = w.spawnLevel(p.x, p.y, p.r);
+    expect(p.level).toBe(1);
+    // pushing sideways towards the road deck (and the other way, towards the river) for a while:
+    // the railings hold them on the footway, dry
+    for (const dir of [-1, 1]) {
+      for (let t = 0; t < 3; t += 1 / 60) {
+        p.move(1 / 60, w, dir * 4.6, 0.3);
+        w.updateLevel(p, dir * 4.6, 0.3, p.r);
+      }
+      expect(p.level).toBe(1);
+      expect(w.inWater(p.x, p.y, p.level)).toBe(false);
+    }
+  });
+
+  it('fountains are basins you can see and can’t drive or walk through: the Roland fountain', () => {
+    const w = loadWorld();
+    const [fx, fy, rad] = [-322.4, -261.6, 3.8];
+    // it's drawn as water (it used to be a hole in the square's paving)
+    expect(w.data.areas.water.some((rings) => Math.hypot(rings[0][0] - fx, rings[0][1] - fy) < rad + 1)).toBe(true);
+    const r = drive([fx - 25, fy, fx + 25, fy], 6, 10);
+    expect(r.reached).toBe(false);
+    expect(r.maxImpact).toBeGreaterThan(5);
+    const p = new Ped('civ', fx, fy - 12, 1);
+    for (let t = 0; t < 5; t += 1 / 60) p.move(1 / 60, w, 0, 4.6);
+    expect(Math.hypot(p.x - fx, p.y - fy)).toBeGreaterThan(rad - 0.5);
+    // and the game starts next to it, not in it
+    const sim = new Sim(w, { rng: new Rng(1) });
+    const me = sim.addPlayer({ nick: 'A', profile: { money: 0, done: [], found: [], cumils: [] }, kinematic: false });
+    expect(w.collideCircle(me.ped.x, me.ped.y, 0.45, 0, false)).toBeNull();
+  });
+
+  it('bollards close a street to cars, not to people: Uršulínska at Primaciálne námestie', () => {
+    const r = drive([-229.7, -393.1, -224.7, -385.3, -207.5, -364.9, -200, -356], 8, 8);
+    expect(r.reached).toBe(false);
+    expect(r.maxImpact).toBeGreaterThan(3);
+    expect(walk([-224.7, -385.3, -207.5, -364.9, -200, -356]).reached).toBe(true);
+    // traffic can't route through (the car graph is cut there), police routes avoid it
+    const w = loadWorld();
+    const n = w.car.nearest(-207.5, -364.9, 3);
+    expect(n).toBe(-1);
+    expect(w.ped.edges.filter((e) => e.noCars).length).toBeGreaterThan(100);
+  });
+
+  it('lanes keep clear of the buildings: two-way traffic on narrow Lýcejná drives through without scraping', () => {
+    const w = loadWorld();
+    const edge = w.car.edges.find((e) => e.name >= 0 && w.names[e.name] === 'Lýcejná' && e.len > 50)!;
+    expect(edge.laneF!).toBeLessThan(edge.width / 4);
+    for (const fwd of [true, false]) {
+      const pts = linkPoints({ edge, fwd, to: fwd ? edge.b : edge.a }, fwd ? edge.laneF : edge.laneR);
+      const r = drive(pts, 30, 8);
+      expect(r.reached).toBe(true);
+      expect(r.maxImpact).toBe(0);
+    }
+  });
+
+  it('through traffic keeps out of cul-de-sacs and off the edge of the map', () => {
+    const w = loadWorld();
+    const depth = w.car.depth!;
+    const at = (x: number, y: number) => depth[w.car.nearest(x, y, 30)];
+    expect(at(-1443, -325)).toBeGreaterThan(0); // the end of Slepá ("dead-end street")
+    expect(at(-625, -192)).toBe(0); // Staromestská
+    expect(at(-616, 3)).toBe(0); // Most SNP
+    const B = w.bounds;
+    for (let i = 0; i < depth.length; i++) {
+      const out = w.car.nx(i) < B.x0 || w.car.nx(i) > B.x1 || w.car.ny(i) < B.y0 || w.car.ny(i) > B.y1;
+      if (out) expect(depth[i]).toBe(OFF_MAP);
+    }
   });
 
   it('streets through buildings are open: Michalská brána, Leopoldova brána, Žižkova', () => {
@@ -145,27 +222,44 @@ describe('World', () => {
     }
   });
 
-  it('no wall, fence or tree trunk blocks a street, path or crossing', () => {
+  it('no wall, fence, tree trunk, bollard or fountain stands in a lane or on a walking line', () => {
     const w = loadWorld();
     let blocked = 0;
-    for (const [graph, radius] of [[w.car, 0.9], [w.ped, 0.4]] as const)
-      for (const e of graph.edges) {
-        const p = e.p;
-        for (let i = 0; i < p.length - 2; i += 2) {
-          const L = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
-          for (let d = 1; d < L; d += 2) {
-            const x = p[i] + ((p[i + 2] - p[i]) * d) / L, y = p[i + 1] + ((p[i + 3] - p[i + 1]) * d) / L;
-            if (w.onBridge(x, y) || w.tunnelDepth(x, y) >= 0) continue;
-            w.forWalls(x, y, radius, (ax, ay, bx, by, ht, flags) => {
-              if (!(flags & 2)) return; // buildings aren't what this checks
-              const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-              let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
-              t = Math.max(0, Math.min(1, t));
-              if (Math.hypot(x - ax - dx * t, y - ay - dy * t) < radius + ht - 0.15) blocked++;
-            });
-          }
+    /** the line `off` metres right of polyline p (as the AI follows it), sampled every 2 m, `skip`
+     *  m short of either end (at junctions people and cars turn the corner before its end) */
+    const check = (p: Float32Array, off: number, radius: number, skip: number) => {
+      const pts = linkPoints({ edge: { p } as never, fwd: true, to: 0 }, off);
+      let total = 0;
+      for (let i = 0; i < pts.length - 2; i += 2) total += Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
+      let s = 0;
+      for (let i = 0; i < pts.length - 2; i += 2) {
+        const L = Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
+        for (let d = 1; d < L; d += 2) {
+          const x = pts[i] + ((pts[i + 2] - pts[i]) * d) / L, y = pts[i + 1] + ((pts[i + 3] - pts[i + 1]) * d) / L;
+          if (s + d < skip || s + d > total - skip || w.onBridge(x, y) || w.tunnelDepth(x, y) >= 0) continue;
+          w.forWalls(x, y, radius, (ax, ay, bx, by, ht, flags) => {
+            // low obstacles: walls, fences, hedges, trunks, posts, rims (buildings aren't what this checks)
+            if (!(flags & 2) || flags & 4) return;
+            const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+            let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            // (people brush past a slim bollard: a few centimetres don't count)
+            if (Math.hypot(x - ax - dx * t, y - ay - dy * t) < radius + ht - 0.15 - (flags & 8 ? 0.1 : 0)) blocked++;
+          });
         }
+        s += L;
       }
+    };
+    // every lane traffic drives (both ways), every walking line people use (both sides)
+    for (const e of w.car.edges) {
+      if (e.oneway !== -1 && !e.blockedF) check(e.p, e.laneF ?? 0, 0.9, 3);
+      if (e.oneway !== 1 && !e.blockedR) check(e.p, -(e.laneR ?? 0), 0.9, 3);
+    }
+    for (const e of w.ped.edges) {
+      if (e.noWalk) continue;
+      check(e.p, e.walkR ?? 0, 0.34, 2);
+      check(e.p, -(e.walkL ?? 0), 0.34, 2);
+    }
     expect(blocked).toBe(0);
   });
 

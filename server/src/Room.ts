@@ -33,8 +33,9 @@ const AFK_MS = 60_000;
 /** skip sending to a client whose socket buffer is this full (slow link) */
 const BACKPRESSURE_BYTES = 256 * 1024;
 
-/** a level from a client's JSON: -1 in a tunnel, 1 on a bridge deck, anything else the ground */
-const asLevel = (l: unknown): Level => (l === 1 || l === -1 ? l : 0);
+/** a level from a client's JSON: -1 in a tunnel, 1 on a bridge deck, 2 on an upper deck, anything
+ *  else the ground */
+const asLevel = (l: unknown): Level => (l === 1 || l === 2 || l === -1 ? l : 0);
 
 export interface Conn {
   link: ClientLink;

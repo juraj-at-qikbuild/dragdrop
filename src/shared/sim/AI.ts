@@ -7,6 +7,7 @@ import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
 import { angleDiff, bboxOf, clamp, dist, pointInRings } from '../util/math';
 import type { StopLine } from '../world/TrafficLights';
+import { OFF_MAP } from '../world/World';
 import { SECONDS_PER_HOUR } from './Clock';
 import { CountGrid, playerScale, targetDensity } from './density';
 import type { Sim } from './Sim';
@@ -33,6 +34,10 @@ export interface Driver {
   retarget: number;
   /** traffic lights ahead on the links queued in `pts`, in order */
   stops: StopLine[];
+  /** times it has had to back up since it last got anywhere, and where that was */
+  wedged: number;
+  px: number;
+  py: number;
 }
 
 const TRAFFIC_MIX: [VehicleKind, number][] = [
@@ -40,8 +45,15 @@ const TRAFFIC_MIX: [VehicleKind, number][] = [
 ];
 const PARKED_MIX: [VehicleKind, number][] = [['hatch', 35], ['sedan', 35], ['van', 8], ['sport', 6], ['classic', 6], ['taxi', 5]];
 
-const laneOffset = (l: Link) => (l.edge.oneway ? 0 : Math.min(l.edge.width / 4, 1.9));
+/** how far right of the centre line traffic drives on this link (fitted to the street by World) */
+const laneOffset = (l: Link) => (l.fwd ? l.edge.laneF : l.edge.laneR) ?? (l.edge.oneway ? 0 : Math.min(l.edge.width / 4, 1.9));
+/** a link traffic may take: its lane doesn't run into a building, and it doesn't lead off the map */
+const drivable = (l: Link) => !(l.fwd ? l.edge.blockedF : l.edge.blockedR);
 const EMPTY_PEDS: Ped[] = [];
+/** scratch point for `AI.along` */
+const AHEAD = { x: 0, y: 0, a: 0, got: 0 };
+/** distances ahead (m) at which traffic checks how far its lane has turned, to slow for bends */
+const CURVE_SAMPLES = [4, 8, 13, 20, 28, 38, 50];
 const COPS_WANTED = [0, 2, 3, 5, 7, 9];
 
 // count-grid categories
@@ -72,8 +84,11 @@ export class AI {
   lastTargets = { traffic: 0, parked: 0, peds: 0, trams: 0 };
 
   constructor(private sim: Sim) {
-    // Police chase over every street and footway (cars fit through the Old Town), preferring real roads.
-    this.policeGraph = new Graph(sim.world.data.graph.ped, false, (e) => e.len * (e.cls <= 5 ? 1 : e.cls <= 7 ? 1.3 : e.cls === 8 ? 1.8 : 3));
+    // Police chase over every street and footway (cars fit through the Old Town), preferring real
+    // roads, but never through a row of bollards or blocks.
+    this.policeGraph = new Graph(sim.world.data.graph.ped, false, (e) =>
+      e.noCars ? Infinity : e.len * (e.cls <= 5 ? 1 : e.cls <= 7 ? 1.3 : e.cls === 8 ? 1.8 : 3),
+    );
   }
 
   /** Entities far from every camera think less often; returns the dt to simulate with, or
@@ -128,6 +143,10 @@ export class AI {
         // traffic nobody is watching closely gets coarser physics (server only: offline there's one camera)
         v.coarse = this.sim.coarsePhysics && (this.camDist.get(v) ?? 0) > 120;
         if (eff !== null) this.drive(v, d, eff, false);
+        // wedged (after a crash, in a corner too tight for it) and backing up over and over without
+        // getting anywhere: towed away once nobody's looking
+        if (dist(v.x, v.y, d.px, d.py) > 8) (d.px = v.x), (d.py = v.y), (d.wedged = 0);
+        else if (d.wedged >= 3 && !this.onScreen(v.x, v.y, 10)) this.retire.add(v);
       } else if (d.mode === 'police') this.drivePolice(v, d, dt);
     }
     for (const p of sim.peds) {
@@ -166,7 +185,10 @@ export class AI {
         this.drivers.delete(v);
         return false;
       }
-      const keep = near(v.x, v.y, (r, d) => d < r.far + 60 || (d < r.far + 200 && sim.visibleToAny(v.x, v.y, 20)));
+      // traffic that reaches the edge of the map drives on out of the city (when nobody sees it go)
+      const B = sim.world.bounds;
+      const leaving = this.drivers.get(v)?.mode === 'traffic' && (v.x < B.x0 + 14 || v.x > B.x1 - 14 || v.y < B.y0 + 14 || v.y > B.y1 - 14) && !sim.visibleToAny(v.x, v.y, 8);
+      const keep = !leaving && near(v.x, v.y, (r, d) => d < r.far + 60 || (d < r.far + 200 && sim.visibleToAny(v.x, v.y, 20)));
       if (!keep) {
         if (v.driver && !v.driver.playerId) gone.add(v.driver);
         this.drivers.delete(v);
@@ -260,6 +282,7 @@ export class AI {
     const d: Driver = {
       mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0,
       searchTarget: null, searchTimer: 0, target, retarget: 2, stops: mode === 'traffic' ? [...sim.world.lights.forLink(link)] : [],
+      wedged: 0, px: x, py: y,
     };
     this.drivers.set(v, d);
     const sp = Math.min(link.edge.speed * 0.6, 9);
@@ -274,11 +297,18 @@ export class AI {
     const nodes = w.car.nodesAround(x, y, rMin, rMax);
     if (!nodes.length) return false;
     const n = sim.rng.pick(nodes);
+    // traffic appears on the through network (a car or two still comes out of the side streets)
+    const depth = w.car.depth;
+    if (depth && (depth[n] >= OFF_MAP || (depth[n] > 0 && sim.rng.chance(0.8)))) return false;
     if (this.onScreen(w.car.nx(n), w.car.ny(n), 8)) return false;
-    const links = w.car.out[n];
+    const links = w.car.out[n].filter((l) => drivable(l) && (!depth || depth[l.to] < OFF_MAP));
+    if (!links.length) return false;
     const link = sim.rng.pick(links);
     let kind = sim.rng.weighted(TRAFFIC_MIX);
     if (kind === 'bus' && link.edge.cls > 4) kind = 'sedan';
+    // not with its nose in a wall (a lane that starts in a tight corner)
+    const pts = linkPoints(link, laneOffset(link));
+    if (!this.clearOfWalls(kind, pts[0], pts[1], Math.atan2(pts[3] - pts[1], pts[2] - pts[0]))) return false;
     return !!this.spawnOnLink(kind, link, 'traffic');
   }
 
@@ -365,7 +395,7 @@ export class AI {
       const cx = px + fx * (spec.length / 2) * a - fy * (spec.width / 2) * b, cy = py + fy * (spec.length / 2) * a + fx * (spec.width / 2) * b;
       if (!pointInRings(cx, cy, lot.rings)) return false;
     }
-    if (this.onScreen(px, py, 5) || !this.freeSpot(px, py, 3) || w.insideBuilding(px, py) || w.inWater(px, py)) return false;
+    if (this.onScreen(px, py, 5) || !this.freeSpot(px, py, 3) || w.insideBuilding(px, py) || w.inWater(px, py) || !this.clearOfWalls(kind, px, py, angle)) return false;
     const car = new Vehicle(kind, px, py, angle, sim.rng.pick(spec.colors));
     car.parked = true;
     sim.addVehicle(car);
@@ -387,9 +417,23 @@ export class AI {
     const x0 = pts[0] + (pts[2] - pts[0]) * t, y0 = pts[1] + (pts[3] - pts[1]) * t;
     if (this.onScreen(x0, y0, 5) || !this.freeSpot(x0, y0, 5) || w.insideBuilding(x0, y0)) return false;
     const kind = sim.rng.weighted(PARKED_MIX);
-    const v = new Vehicle(kind, x0, y0, Math.atan2(pts[3] - pts[1], pts[2] - pts[0]), sim.rng.pick(SPECS[kind].colors));
+    const angle = Math.atan2(pts[3] - pts[1], pts[2] - pts[0]);
+    if (!this.clearOfWalls(kind, x0, y0, angle)) return false;
+    const v = new Vehicle(kind, x0, y0, angle, sim.rng.pick(SPECS[kind].colors));
     v.parked = true;
     sim.addVehicle(v);
+    return true;
+  }
+
+  /** Would a car of this kind standing at (x, y) facing `angle` be clear of every wall, fence,
+   *  trunk and post? (Kerbside spots on narrow streets and lots drawn over a wall aren't.) */
+  private clearOfWalls(kind: VehicleKind, x: number, y: number, angle: number) {
+    const s = SPECS[kind], r = s.width / 2, n = Math.max(2, Math.ceil(s.length / s.width));
+    const fx = Math.cos(angle), fy = Math.sin(angle);
+    for (let i = 0; i < n; i++) {
+      const o = -s.length / 2 + r + ((s.length - 2 * r) * i) / (n - 1);
+      if (this.sim.world.collideCircle(x + fx * o, y + fy * o, r, 0)) return false;
+    }
     return true;
   }
 
@@ -424,7 +468,8 @@ export class AI {
     if (!nodes.length) return 0;
     const n = rng.pick(nodes);
     const px = w.ped.nx(n), py = w.ped.ny(n);
-    if (this.onScreen(px, py, 3)) return 0;
+    // on a walkable way, not at the bottom of steps into the river or past the edge of the map
+    if (this.onScreen(px, py, 3) || w.ped.out[n].every((l) => l.edge.noWalk) || w.inWater(px, py, 0)) return 0;
     const p = new Ped('civ', px, py, rng.seed());
     this.startWalk(p, n);
     sim.addPed(p);
@@ -464,15 +509,70 @@ export class AI {
   }
 
   // ------------------------------------------------------------- driving
-  private chooseNext(d: Driver, graph: Graph): Link | null {
+  private chooseNext(v: Vehicle, d: Driver, graph: Graph): Link | null {
     if (!d.link) return null;
     const node = d.link.to;
     if (d.route.length && (d.route[0].fwd ? d.route[0].edge.a : d.route[0].edge.b) === node) return d.route.shift()!;
-    const opts = graph.out[node].filter((l) => l.edge !== d.link!.edge);
-    if (!opts.length) return graph.out[node][0] ?? null;
+    let opts = graph.out[node].filter((l) => l.edge !== d.link!.edge && drivable(l));
+    if (!opts.length) return graph.out[node].find((l) => l.edge === d.link!.edge) ?? graph.out[node][0] ?? null;
+    // through traffic stays out of cul-de-sacs, courtyards, car parks and roads off the map (and
+    // drives back out of one it started in), unless there's nowhere else to go
+    const depth = graph.depth;
+    if (depth) {
+      const through = opts.filter((l) => depth[l.to] <= depth[node]);
+      if (through.length) opts = through;
+      else {
+        // only deeper roads ahead: turn round where we came from, if that's allowed and doesn't
+        // lead deeper in (off the map is never an option)
+        const from = d.link.fwd ? d.link.edge.a : d.link.edge.b;
+        const back = graph.out[node].find((l) => l.edge === d.link!.edge);
+        if (back && (depth[from] <= depth[node] || opts.every((l) => depth[l.to] >= OFF_MAP))) return back;
+      }
+    }
+    // buses and vans keep to streets they fit down
+    if (v.spec.length > 5) {
+      const fits = opts.filter((l) => l.edge.cls <= 5 && l.edge.width >= (v.spec.length > 8 ? 6 : 5));
+      if (fits.length) opts = fits;
+    }
     // prefer similar or bigger roads, avoid tiny service roads
     const weightedOpts: [Link, number][] = opts.map((l) => [l, l.edge.cls <= 5 ? 3 : l.edge.cls === 6 ? 1 : 0.4]);
     return this.sim.rng.weighted(weightedOpts);
+  }
+
+  /** The point `s` metres further along the driver's queued lane than the car is level with
+   *  (measured from its projection onto the segment it's on), the lane's heading there, and how
+   *  far along it actually got before the queued lane ran out. Fills and returns `out`. */
+  private along(v: Vehicle, d: Driver, s: number, out: { x: number; y: number; a: number; got: number }) {
+    const pts = d.pts, n = pts.length / 2;
+    let k = Math.min(d.idx, n - 1);
+    let x = pts[k * 2], y = pts[k * 2 + 1], a = v.angle;
+    if (k > 0) {
+      const px = pts[k * 2 - 2], py = pts[k * 2 - 1], sx = x - px, sy = y - py, L2 = sx * sx + sy * sy;
+      if (L2 > 1e-9) {
+        const t = clamp(((v.x - px) * sx + (v.y - py) * sy) / L2, 0, 1);
+        (x = px + sx * t), (y = py + sy * t), (a = Math.atan2(sy, sx));
+      }
+    }
+    let rem = s;
+    for (; k < n && rem > 0; k++) {
+      const qx = pts[k * 2], qy = pts[k * 2 + 1];
+      const seg = Math.hypot(qx - x, qy - y);
+      if (seg < 1e-6) continue;
+      a = Math.atan2(qy - y, qx - x);
+      if (seg >= rem) {
+        x += ((qx - x) * rem) / seg;
+        y += ((qy - y) * rem) / seg;
+        rem = 0;
+        break;
+      }
+      rem -= seg;
+      (x = qx), (y = qy);
+    }
+    out.x = x;
+    out.y = y;
+    out.a = a;
+    out.got = s - rem;
+    return out;
   }
 
   private appendLink(d: Driver, link: Link) {
@@ -490,23 +590,42 @@ export class AI {
   private drive(v: Vehicle, d: Driver, dt: number, chase: boolean) {
     const sim = this.sim;
     const graph = d.mode === 'police' ? this.policeGraph : sim.world.car;
-    // advance target point
-    const look = 3 + Math.abs(v.fwdSpeed) * 0.35;
-    while (d.idx * 2 < d.pts.length && dist(v.x, v.y, d.pts[d.idx * 2], d.pts[d.idx * 2 + 1]) < look) d.idx++;
-    if (d.idx * 2 >= d.pts.length - 2) {
-      const next = this.chooseNext(d, graph);
-      if (next) this.appendLink(d, next);
-      if (d.idx * 2 >= d.pts.length) d.idx = d.pts.length / 2 - 1;
+    // progress along the lane: step past every vertex the car has drawn level with
+    while (d.idx * 2 < d.pts.length) {
+      const qx = d.pts[d.idx * 2], qy = d.pts[d.idx * 2 + 1];
+      const near = dist(v.x, v.y, qx, qy) < 1.5;
+      if (d.idx > 0 && !near) {
+        const sx = qx - d.pts[d.idx * 2 - 2], sy = qy - d.pts[d.idx * 2 - 1];
+        if ((v.x - qx) * sx + (v.y - qy) * sy < 0) break;
+      } else if (!near) break;
+      d.idx++;
     }
-    const tx = d.pts[d.idx * 2], ty = d.pts[d.idx * 2 + 1];
-    const want = Math.atan2(ty - v.y, tx - v.x);
-    let diff = angleDiff(v.angle, want);
-    // corner speed: look further ahead
-    const j = Math.min(d.idx + 2, d.pts.length / 2 - 1);
-    const ahead = Math.atan2(d.pts[j * 2 + 1] - ty, d.pts[j * 2] - tx);
-    const corner = Math.abs(angleDiff(v.angle, ahead));
+    // keep enough road queued to steer along it and to see the next bend coming
+    const fwd = Math.max(0, v.fwdSpeed);
+    const horizon = 14 + fwd * 2.2;
+    for (let i = 0; i < 6 && this.along(v, d, horizon, AHEAD).got < horizon; i++) {
+      const next = this.chooseNext(v, d, graph);
+      if (!next) break;
+      this.appendLink(d, next);
+    }
+    // steer for a point a little further along the lane (not the next vertex, which on a long
+    // straight can be far off and made traffic cut every corner into the buildings)
+    const look = 2.5 + Math.abs(v.fwdSpeed) * 0.3;
+    this.along(v, d, look, AHEAD);
+    let diff = angleDiff(v.angle, Math.atan2(AHEAD.y - v.y, AHEAD.x - v.x));
     let desired = chase ? Math.max(10, (d.link?.edge.speed ?? 10) * 1.6) : (d.link?.edge.speed ?? 10) * 0.75;
-    if (corner > 0.5) desired = Math.min(desired, chase ? 12 : 6);
+    // bends ahead: no faster than the tyres hold round them (traffic comfortably, police at the
+    // limit), estimating each bend's radius from how far the lane turns over the distance to it
+    this.along(v, d, 0, AHEAD);
+    const a0 = AHEAD.a;
+    const aLat = (chase ? 8.5 : 4.5) * (1 - 0.3 * sim.clock.wet);
+    for (const s of CURVE_SAMPLES) {
+      if (s > horizon) break;
+      const got = this.along(v, d, s, AHEAD).got;
+      const turn = Math.abs(angleDiff(a0, AHEAD.a));
+      if (turn > 0.12) desired = Math.min(desired, Math.sqrt(aLat * Math.max(6, got / turn)));
+      if (got < s) break;
+    }
     if (Math.abs(diff) > 0.9) desired = Math.min(desired, 4);
     if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5);
 
@@ -594,6 +713,7 @@ export class AI {
     if (d.stuck > 1.6) {
       d.stuck = 0;
       d.reverse = 1.5;
+      d.wedged++;
     }
   }
 
@@ -803,15 +923,19 @@ export class AI {
     const graph = this.sim.world.ped;
     const out = graph.out[node];
     if (!out.length) return;
-    this.setPedLink(p, this.sim.rng.pick(out));
+    const ok = out.filter((l) => !l.edge.noWalk);
+    this.setPedLink(p, this.sim.rng.pick(ok.length ? ok : out));
   }
 
   private setPedLink(p: Ped, l: Link) {
     const e = l.edge;
-    const off = e.cls <= 7 ? e.width / 2 + 1.4 : Math.min(0.6, e.width / 3);
+    // on the pavement (or the path) on their side, as far out as World found room for
+    const right = p.side * (l.fwd ? 1 : -1) > 0;
+    const off = (right ? e.walkR : e.walkL) ?? (e.cls <= 7 ? e.width / 2 + 1.4 : Math.min(0.6, e.width / 3));
     p.link = l;
     p.pts = linkPoints(l, off * p.side);
     p.idx = 0;
+    p.bestD = Infinity;
   }
 
   private updatePed(p: Ped, dt: number) {
@@ -847,7 +971,15 @@ export class AI {
         const tx = fo.leader.x + fo.ox, ty = fo.leader.y + fo.oy;
         const d = dist(p.x, p.y, tx, ty) || 1e-3;
         const sp = Math.min(fo.leader.speed * 1.15, d * 3);
-        p.move(dt, sim.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp);
+        // their spot beside the leader is inside a wall (they touch it and keep falling behind): go
+        // their own way
+        if (p.move(dt, sim.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp) && d > 1.5) {
+          if ((p.timer += dt) > 1.5) {
+            this.followers.delete(p);
+            p.timer = 0;
+            p.link = null;
+          }
+        } else p.timer = Math.max(0, p.timer - dt);
         return;
       }
     }
@@ -869,7 +1001,21 @@ export class AI {
       p.timer -= dt;
       const dx = p.x - p.fleeFrom.x, dy = p.y - p.fleeFrom.y;
       const l = Math.hypot(dx, dy) || 1;
-      p.move(dt, sim.world, (dx / l) * 4.6, (dy / l) * 4.6);
+      const x0 = p.x, y0 = p.y;
+      let blocked = p.move(dt, sim.world, (dx / l) * 4.6, (dy / l) * 4.6) && dist(x0, y0, p.x, p.y) < 4.6 * dt * 0.4;
+      // ...and nobody flees into the Danube: the river bank stops them like a wall
+      if (!blocked && sim.world.inWater(p.x, p.y, p.level) && !sim.world.inWater(x0, y0, p.level)) {
+        (p.x = x0), (p.y = y0);
+        blocked = true;
+      }
+      if (blocked) {
+        // ran into a wall: turn a right angle (the way they're already sliding, else their side)
+        // by moving where they flee from, instead of pressing against it
+        const turn = (p.x - x0) * -dy + (p.y - y0) * dx >= 0 ? 1 : -1;
+        const tside = Math.hypot(p.x - x0, p.y - y0) > 1e-3 ? turn : p.side;
+        p.fleeFrom.x = p.x - (-dy / l) * tside * l;
+        p.fleeFrom.y = p.y - (dx / l) * tside * l;
+      }
       // panic cascade: scare nearby civilians too, with a cooldown so it doesn't loop forever
       if (p.kind === 'civ' && p.cooldown <= 0) {
         p.cooldown = 1.2;
@@ -904,9 +1050,12 @@ export class AI {
     const d = dist(p.x, p.y, tx, ty);
     if (d < 0.8) {
       p.idx++;
+      p.bestD = Infinity;
       if (p.idx * 2 >= p.pts.length) {
-        const opts = sim.world.ped.out[p.link.to].filter((l) => l.edge !== p.link!.edge);
-        const next = opts.length ? rng.pick(opts) : sim.world.ped.out[p.link.to][0];
+        // on along any walkable way but the one they came by, else back the way they came
+        const out = sim.world.ped.out[p.link.to];
+        const opts = out.filter((l) => l.edge !== p.link!.edge && !l.edge.noWalk);
+        const next = opts.length ? rng.pick(opts) : out.find((l) => l.edge === p.link!.edge) ?? out[0];
         // briefly wait before stepping onto a road crossing
         if (next.edge.cls <= 6 && rng.chance(0.3)) {
           p.state = 'idle';
@@ -917,15 +1066,23 @@ export class AI {
       }
       return;
     }
-    // avoid walking into cars (they stop), simple wait
-    const stuck = p.move(dt, sim.world, ((tx - p.x) / d) * p.speed, ((ty - p.y) / d) * p.speed);
-    if (stuck) {
-      p.timer += dt;
-      if (p.timer > 3) {
-        p.timer = 0;
-        p.idx++;
-        if (p.idx * 2 >= p.pts.length) p.link = null;
+    // walk on. When they stop getting any closer to where they're walking (a wall the map's path
+    // runs into: a door it ends at, a corner it clips, the edge of the map), they turn round instead
+    // of pressing against it
+    const hit = p.move(dt, sim.world, ((tx - p.x) / d) * p.speed, ((ty - p.y) / d) * p.speed);
+    if (d < p.bestD - 0.2) (p.bestD = d), (p.timer = 0);
+    else if ((p.timer += dt) > (hit ? 1.5 : 5)) {
+      const l = p.link;
+      const back = sim.world.ped.out[l.to].find((o) => o.edge === l.edge) ?? { edge: l.edge, fwd: !l.fwd, to: l.fwd ? l.edge.a : l.edge.b };
+      p.side = -p.side;
+      this.setPedLink(p, back);
+      // from where they are, not from the far end of the way back
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < p.pts.length; i += 2) {
+        const dd = dist(p.x, p.y, p.pts[i], p.pts[i + 1]);
+        if (dd < bd) (bd = dd), (best = i / 2);
       }
+      p.idx = Math.min(best + 1, p.pts.length / 2 - 1);
     }
   }
 

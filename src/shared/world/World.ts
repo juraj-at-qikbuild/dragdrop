@@ -1,10 +1,15 @@
 import type { BuildingJSON, MapJSON, RoadJSON } from '../types';
-import { Graph } from './Graph';
+import { Graph, linkPoints, type Edge } from './Graph';
 import { TrafficLights } from './TrafficLights';
 import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
 
-/** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on a deck. */
-export type Level = -1 | 0 | 1;
+/** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on
+ *  a bridge deck, 2 on an upper deck that crosses over others (Most SNP's road deck above its
+ *  footways, the motorway flyover over its ramps: OSM layer 2 and up). */
+export type Level = -1 | 0 | 1 | 2;
+
+/** the deck level (1 or 2) of a bridge road */
+export const deckLevel = (r: RoadJSON): 1 | 2 => ((r.y ?? 0) >= 2 ? 2 : 1);
 
 export interface Building {
   /** outer rings wound with positive signed area, courtyard holes negative, so for every edge
@@ -48,21 +53,53 @@ export const BARRIERS: { ht: number; h: number; sight: boolean; color: string; n
   { name: 'concrete barrier', ht: 0.3, h: 0.9, sight: false, color: '#cdc9c0' },
   { name: 'noise barrier', ht: 0.15, h: 3.5, sight: true, color: '#7f8c90' },
   { name: 'flood wall', ht: 0.25, h: 1.0, sight: false, color: '#b3aea5' },
+  { name: 'fountain rim', ht: 0.3, h: 0.55, sight: false, color: '#d6cfbf' },
+];
+
+/** Per post kind (the map's `posts[].kind`): solid street furniture and monuments, each a disc of
+ *  its own radius. Drawn height (m), whether it blocks sight and bullets, and its colour. */
+export const POSTS: { name: string; h: number; sight: boolean; color: string }[] = [
+  { name: 'bollard', h: 0.9, sight: false, color: '#3b3f45' },
+  { name: 'block', h: 0.8, sight: false, color: '#bdb8ae' },
+  { name: 'planter', h: 0.8, sight: false, color: '#8d6e55' },
+  { name: 'statue', h: 3.2, sight: true, color: '#5f6a5c' },
+  { name: 'column', h: 14, sight: true, color: '#d9d1c0' },
+  { name: 'memorial stone', h: 1.4, sight: true, color: '#9a968e' },
 ];
 
 const CELL = 16;
 /** building lookup grid cell size */
 const BCELL = 32;
-/** floats per `roadSegs` entry: ax, ay, bx, by, halfWidth, nameIdx, bridge, openA, openB */
+/** floats per `roadSegs` entry: ax, ay, bx, by, halfWidth, nameIdx, deck (0 not a bridge, else
+ *  its level), openA, openB */
 const SEG = 9;
-/** floats per deck-end / tunnel-portal record: x, y, inward ux, uy, halfWidth */
-const END = 5;
+/** floats per deck-end / tunnel-portal record: x, y, inward ux, uy, halfWidth, level it leads to */
+const END = 6;
 /** floats per wall: ax, ay, bx, by, half-thickness, flags (see W_SIGHT, W_LOW) */
 const WALL = 6;
 /** wall flag: blocks sight lines and bullets (buildings, masonry walls, hedges; not fences) */
 const W_SIGHT = 1;
 /** wall flag: low ground-level obstacle (barriers, tree trunks) that is no obstacle on a bridge deck */
 const W_LOW = 2;
+/** wall flag: only blocks sight lines and bullets, nothing collides with it (the cross-hairs that
+ *  let round monuments stop shots, which rays can't hit as points) */
+const W_NOHIT = 4;
+/** wall flag: a post (bollard, block, planter, statue, column), a disc of radius `ht` */
+export const W_POST = 8;
+/** a car's collision half-width plus a little room, for fitting lanes to the street */
+const LANE_R = 1.0;
+/** a pedestrian's radius plus a little room, for fitting walking lines */
+const WALK_R = 0.45;
+/** cell size of the water raster (m) */
+const WCELL = 8;
+/** sampling step along lanes and walking lines when fitting them (m; the map builder bakes the
+ *  fits, so this is paid once, not on every page load) */
+const FIT_STEP = 0.75;
+/** dead-end depth of the car-graph nodes past the edge of the playable area: never entered */
+export const OFF_MAP = 1 << 20;
+/** bump whenever the lane and walking-line fitting changes: maps baked with an older version
+ *  (MapJSON.fit) are fitted again at startup */
+export const FIT_VERSION = 1;
 /** floats per tunnel tube segment: ax, ay, bx, by, halfWidth, openA, openB */
 const TUBE = 7;
 /** an entity only goes up onto a deck (or down into a tube) it fits in with at least this much room either side */
@@ -84,6 +121,8 @@ interface DeckFit {
   /** that deck segment's direction */
   ux: number;
   uy: number;
+  /** that deck's level */
+  level: 1 | 2;
 }
 
 /** where a circle is relative to the nearest tunnel tube it fits in (reused, see `tubeFit`) */
@@ -130,11 +169,15 @@ export class World {
   private surfSegs: Float32Array;
   private surfGrid = new Map<number, number[]>();
   private water: { rings: Float32Array[]; bbox: BBox }[] = [];
+  /** the water on a WCELL grid over the map: 0 dry, 1 all under water, 2 a shore runs through it
+   *  (look closer), so most `inWater` calls are one lookup instead of a test against the river */
+  private waterCells = new Uint8Array(0);
+  private waterCols = 0;
   /** piers and pontoons: walkable decks over the water */
   private piers: { rings: Float32Array[]; bbox: BBox }[] = [];
   /** deck ends (where a ramp or street meets a bridge deck), END floats each (see END) */
   private bridgeEnds: Float32Array = new Float32Array(0);
-  private fit: DeckFit = { on: false, depth: 0, nx: 0, ny: 0, ux: 1, uy: 0 };
+  private fit: DeckFit = { on: false, depth: 0, nx: 0, ny: 0, ux: 1, uy: 0, level: 1 };
   /** passage corridors through buildings: centre lines and half-widths, with a segment grid */
   private passages: { p: Float32Array; hw: number }[] = [];
   private passageGrid = new Map<number, number[]>();
@@ -221,7 +264,7 @@ export class World {
       if (r.n === undefined && !r.b) continue;
       const first = segs.length;
       for (let i = 0; i < r.p.length - 2; i += 2)
-        segs.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2, r.n ?? -1, r.b ? 1 : 0, 0, 0);
+        segs.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2, r.n ?? -1, r.b ? deckLevel(r) : 0, 0, 0);
       if (r.b && segs.length > first) bridgeSegs.push([r, first, segs.length - SEG]);
     }
     this.roadSegs = Float32Array.from(segs);
@@ -231,21 +274,24 @@ export class World {
     // deck ends: first/last vertex of every bridge polyline where the deck meets a ramp or street.
     // OSM splits long bridges into several ways, so an end only counts if the road continues off
     // the bridge there: an ordinary road shares that vertex, or a probe a few metres further out
-    // is no longer on any deck. Rails stay open at deck ends so entities can leave the bridge.
+    // is no longer on any deck. Rails stay open at deck ends so entities can leave the bridge. An
+    // end where a deck carries on at the other level (a ramp rising onto a flyover) is open too,
+    // but only for traffic already up on the decks.
     const groundVerts = new Set<string>();
     for (const r of data.roads) if (!r.b) for (let i = 0; i < r.p.length; i += 2) groundVerts.add(`${r.p[i]}|${r.p[i + 1]}`);
     const ends: number[] = [];
-    const deckEnd = (p: number[], fromEnd: boolean, hw: number) => {
+    const deckEnd = (p: number[], fromEnd: boolean, hw: number, level: 1 | 2) => {
       const n = p.length;
       const x = fromEnd ? p[n - 2] : p[0], y = fromEnd ? p[n - 1] : p[1];
       const [ux, uy] = inward(p, fromEnd);
-      const open = groundVerts.has(`${x}|${y}`) || !this.onBridge(x - ux * 6, y - uy * 6);
-      if (open) ends.push(x, y, ux, uy, hw);
-      return open ? 1 : 0;
+      const px = x - ux * 6, py = y - uy * 6;
+      const toGround = groundVerts.has(`${x}|${y}`) || !this.onBridge(px, py);
+      if (toGround) ends.push(x, y, ux, uy, hw, level);
+      return toGround || !this.onBridge(px, py, level) ? 1 : 0;
     };
     for (const [r, first, last] of bridgeSegs) {
-      this.roadSegs[first + 7] = deckEnd(r.p, false, r.w / 2);
-      this.roadSegs[last + 8] = deckEnd(r.p, true, r.w / 2);
+      this.roadSegs[first + 7] = deckEnd(r.p, false, r.w / 2, deckLevel(r));
+      this.roadSegs[last + 8] = deckEnd(r.p, true, r.w / 2, deckLevel(r));
     }
     this.bridgeEnds = Float32Array.from(ends);
 
@@ -258,7 +304,7 @@ export class World {
       for (const fromEnd of [false, true]) {
         if (!t.o[fromEnd ? 1 : 0]) continue;
         const [ux, uy] = inward(t.p, fromEnd);
-        portals.push(fromEnd ? t.p[n - 2] : t.p[0], fromEnd ? t.p[n - 1] : t.p[1], ux, uy, hw);
+        portals.push(fromEnd ? t.p[n - 2] : t.p[0], fromEnd ? t.p[n - 1] : t.p[1], ux, uy, hw, -1);
       }
     }
     this.tubeSegs = Float32Array.from(tubes);
@@ -287,6 +333,18 @@ export class World {
       const k = BARRIERS[bar.k] ?? BARRIERS[0];
       for (let i = 0; i < bar.p.length - 2; i += 2) wall(bar.p[i], bar.p[i + 1], bar.p[i + 2], bar.p[i + 3], k.ht, W_LOW | (k.sight ? W_SIGHT : 0));
     }
+    // bollards, blocks, planters, statues and columns: solid discs; the big ones also stop shots
+    // (a ray can't hit a point, so they get a sight-only cross)
+    const posts = data.posts ?? [];
+    for (let i = 0; i < posts.length; i += 4) {
+      const x = posts[i], y = posts[i + 1], r = posts[i + 2], k = POSTS[posts[i + 3]] ?? POSTS[0];
+      wall(x, y, x, y, r, W_LOW | W_POST);
+      if (k.sight && r >= 0.3) {
+        const d = r * 0.8;
+        wall(x - d, y - d, x + d, y + d, 0, W_SIGHT | W_LOW | W_NOHIT);
+        wall(x - d, y + d, x + d, y - d, 0, W_SIGHT | W_LOW | W_NOHIT);
+      }
+    }
     this.trees = this.placeTrees();
     for (let i = 0; i < this.trees.length; i += 4) {
       const x = this.trees[i], y = this.trees[i + 1];
@@ -302,6 +360,7 @@ export class World {
       if (ringArea(rings[0]) < 4000) continue; // fountains are decoration only
       this.water.push({ rings, bbox: bboxOf(rings[0]) });
     }
+    this.rasterWater();
     for (const w of data.areas.pier ?? []) {
       const rings = w.map((r) => Float32Array.from(r));
       this.piers.push({ rings, bbox: bboxOf(rings[0]) });
@@ -310,8 +369,256 @@ export class World {
     this.car = new Graph(data.graph.car, true);
     this.ped = new Graph(data.graph.ped, false);
     this.tram = new Graph(data.graph.tram, false);
+    if (data.fit === FIT_VERSION) this.bakedFits();
+    else {
+      this.fitLanes();
+      this.fitWalks();
+    }
+    this.car.depth = this.deadEnds();
     this.lights = new TrafficLights(this);
     this.tramStops = Float32Array.from(data.tramStops ?? []);
+  }
+
+  /** Deepest overlap (m) of a circle with anything solid at `level`, 0 when it's clear: walls,
+   *  fences, trunks and posts (only what stands on a deck, for level 1), tube walls underground. */
+  private overlap(x: number, y: number, r: number, level: Level): number {
+    if (level === -1) {
+      const f = this.tubeFit(x, y, r);
+      return f && !f.on && !f.out ? f.depth : 0;
+    }
+    let worst = 0;
+    this.forWalls(x, y, r, (ax, ay, bx, by, ht, flags) => {
+      if (flags & W_NOHIT || (level >= 1 && flags & W_LOW)) return;
+      const rr = r + ht;
+      if ((ax < bx ? ax : bx) - rr > x || (ax > bx ? ax : bx) + rr < x || (ay < by ? ay : by) - rr > y || (ay > by ? ay : by) + rr < y) return;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const pen = r + ht - Math.hypot(x - ax - dx * t, y - ay - dy * t);
+      if (pen > worst) worst = pen;
+    });
+    return worst;
+  }
+
+  /** How badly a line `off` metres right of polyline `p` (a -> b) is obstructed for a body of
+   *  radius `r`: the deepest overlap along it, sampled every FIT_STEP m, `skip` m short of either
+   *  end (junction corners, which turning traffic cuts anyway). `car` picks the level like traffic
+   *  (on a deck it drives along, in a tunnel); otherwise like people, for whom water is solid too. */
+  private lineBlock(p0: Float32Array, off: number, r: number, skip: number, car: boolean): number {
+    // exactly the line the AI follows (Graph.linkPoints: each vertex offset along the average of
+    // its neighbouring segments' normals)
+    const p = linkPoints({ edge: { p: p0 } as Edge, fwd: true, to: 0 }, off);
+    let total = 0;
+    for (let i = 0; i < p.length - 2; i += 2) total += Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
+    let worst = 0, s = 0;
+    for (let i = 0; i < p.length - 2; i += 2) {
+      const ax = p[i], ay = p[i + 1], dx = p[i + 2] - ax, dy = p[i + 3] - ay;
+      const L = Math.hypot(dx, dy);
+      if (L < 1e-6) continue;
+      const a = Math.atan2(dy, dx);
+      for (let d = s < skip ? skip - s : FIT_STEP / 2; d < L; d += FIT_STEP) {
+        if (s + d > total - skip) break;
+        const x = ax + (dx * d) / L, y = ay + (dy * d) / L;
+        let level: Level;
+        if (car) {
+          const td = this.tunnelDepth(x, y);
+          if (td >= 0 && td < 8) continue; // at a portal the level is ambiguous
+          level = this.spawnLevel(x, y, r, a);
+        } else {
+          if (this.tunnelDepth(x, y) >= 0) continue;
+          const f = this.onBridge(x, y) ? this.deckFit(x, y, r) : null;
+          level = f && f.on ? f.level : 0;
+          if (this.inWater(x, y, level)) {
+            worst = Math.max(worst, r);
+            continue;
+          }
+        }
+        worst = Math.max(worst, this.overlap(x, y, r, level));
+      }
+      s += L;
+    }
+    return worst;
+  }
+
+  /** how badly the offset `bestOffset` last returned is still obstructed (0 when clear) */
+  private lastBlock = 0;
+
+  /** The first offset in `cands` (most wanted first) whose line is clear, else the least blocked. */
+  private bestOffset(p: Float32Array, cands: number[], r: number, skip: number, car: boolean): number {
+    let best = cands[0], bestBlock = Infinity;
+    for (const off of cands) {
+      const b = this.lineBlock(p, off, r, skip, car);
+      if (b <= 0.05) {
+        this.lastBlock = 0;
+        return off;
+      }
+      if (b < bestBlock - 0.05) (bestBlock = b), (best = off);
+    }
+    this.lastBlock = bestBlock;
+    return best;
+  }
+
+  /** the lane a car-graph edge would have on a wide open street, and the walking line of a
+   *  pedestrian-graph edge (the first of `fitWalks`' candidates) */
+  private static laneWant = (e: { oneway: number; width: number }) => (e.oneway ? 0 : Math.min(e.width / 4, 1.9));
+  private static walkWant = (e: { cls: number; width: number }) => (e.cls <= 7 ? e.width / 2 + 1.4 : Math.min(0.6, e.width / 3));
+
+  /** Take the lanes and walking lines the map builder baked in (only the ones that differ from
+   *  the defaults are stored). */
+  private bakedFits() {
+    const cj = this.data.graph.car.edges, pj = this.data.graph.ped.edges;
+    for (const e of this.car.edges) {
+      const j = cj[e.id], want = World.laneWant(e);
+      e.laneF = j.lf ?? (e.oneway === -1 ? -want : want);
+      e.laneR = j.lr ?? (e.oneway === 1 ? -want : want);
+      if (j.bf) e.blockedF = true;
+      if (j.br) e.blockedR = true;
+    }
+    for (const e of this.ped.edges) {
+      const j = pj[e.id], want = World.walkWant(e);
+      e.walkR = j.wr ?? want;
+      e.walkL = j.wl ?? want;
+      if (j.nw) e.noWalk = true;
+    }
+  }
+
+  /** Write this world's fitted lanes and walking lines into its map's graphs, where they differ
+   *  from the defaults (for the map builder, which bakes them in with `fit: FIT_VERSION`). */
+  bakeFits(map: MapJSON) {
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    for (const e of this.car.edges) {
+      const j = map.graph.car.edges[e.id], want = World.laneWant(e);
+      if (e.laneF !== undefined && Math.abs(e.laneF - (e.oneway === -1 ? -want : want)) > 1e-3) j.lf = r2(e.laneF);
+      if (e.laneR !== undefined && Math.abs(e.laneR - (e.oneway === 1 ? -want : want)) > 1e-3) j.lr = r2(e.laneR);
+      if (e.blockedF) j.bf = 1;
+      if (e.blockedR) j.br = 1;
+    }
+    for (const e of this.ped.edges) {
+      const j = map.graph.ped.edges[e.id], want = World.walkWant(e);
+      if (e.walkR !== undefined && Math.abs(e.walkR - want) > 1e-3) j.wr = r2(e.walkR);
+      if (e.walkL !== undefined && Math.abs(e.walkL - want) > 1e-3) j.wl = r2(e.walkL);
+      if (e.noWalk) j.nw = 1;
+    }
+    map.fit = FIT_VERSION;
+  }
+
+  /** Traffic keeps right, but only as far as the street allows: on a narrow two-way street or
+   *  where the mapped road runs close to a facade, the lane moves towards the middle instead of
+   *  scraping along the wall. One-way streets shift a little to either side if their middle is
+   *  blocked. */
+  private fitLanes() {
+    // a lane still this deep in a wall at its best runs into a building: nobody drives it
+    const BLOCKED = 0.3;
+    for (const e of this.car.edges) {
+      if (e.oneway) {
+        const off = this.bestOffset(e.p, [0, 0.5, -0.5, 1, -1], LANE_R, 3, true);
+        e.laneF = e.laneR = e.oneway === 1 ? off : -off;
+        e.blockedF = e.blockedR = this.lastBlock > BLOCKED || undefined;
+        continue;
+      }
+      const want = Math.min(e.width / 4, 1.9);
+      const cands = [want, want * 0.66, want * 0.33, 0];
+      e.laneF = this.bestOffset(e.p, cands, LANE_R, 3, true);
+      e.blockedF = this.lastBlock > BLOCKED || undefined;
+      e.laneR = -this.bestOffset(e.p, cands.map((c) => -c), LANE_R, 3, true);
+      e.blockedR = this.lastBlock > BLOCKED || undefined;
+    }
+  }
+
+  /** People walk on the pavement beside a street and just off the middle of a path, but where
+   *  the pavement would run into a building, a fence or the river (the Old Town's narrow lanes
+   *  have none), they walk along the edge of the carriageway, or down the middle. */
+  private fitWalks() {
+    const B = this.bounds, g = this.ped;
+    const offMap = (i: number) => g.nx(i) < B.x0 + 2 || g.nx(i) > B.x1 - 2 || g.ny(i) < B.y0 + 2 || g.ny(i) > B.y1 - 2;
+    for (const e of g.edges) {
+      const hw = e.width / 2;
+      const cands = e.cls <= 7 ? [hw + 1.4, hw + 1, hw + 0.6, hw + 0.25, Math.max(0.6, hw - 0.4), Math.max(0.5, hw - 1.2), 0] : [Math.min(0.6, e.width / 3), 0.3, 0];
+      e.walkR = this.bestOffset(e.p, cands, WALK_R, 2, false);
+      const blockR = this.lastBlock;
+      e.walkL = -this.bestOffset(e.p, cands.map((c) => -c), WALK_R, 2, false);
+      const blockL = this.lastBlock;
+      if (offMap(e.a) || offMap(e.b) || Math.min(blockR, blockL) > 0.3) e.noWalk = true;
+      // one side has no room at all (a wall, a basin the path clips): everyone walks the other side
+      else if (blockR > 0.3) e.walkR = -e.walkL;
+      else if (blockL > 0.3) e.walkL = -e.walkR;
+    }
+  }
+
+  /** Dead-end depth of every car-graph node: 0 on the city's through network (its largest
+   *  2-edge-connected part), 1 + the number of cut edges ("bridges") crossed to reach it from there
+   *  otherwise: cul-de-sacs, courtyards, parking lots, and roads that only lead off the map. Nodes
+   *  past the edge of the playable area are OFF_MAP. Through traffic never goes deeper. */
+  private deadEnds(): Int32Array {
+    const g = this.car, n = g.nodes.length / 2, B = this.bounds;
+    const depth = new Int32Array(n);
+    const off = new Uint8Array(n);
+    for (let i = 0; i < n; i++) if (g.nx(i) < B.x0 + 3 || g.nx(i) > B.x1 - 3 || g.ny(i) < B.y0 + 3 || g.ny(i) > B.y1 - 3) (off[i] = 1), (depth[i] = OFF_MAP);
+    // undirected multigraph without the off-map nodes: [neighbour, edge id] pairs
+    const adj: number[][] = Array.from({ length: n }, () => []);
+    for (const e of g.edges) if (e.a !== e.b && !off[e.a] && !off[e.b]) adj[e.a].push(e.b, e.id), adj[e.b].push(e.a, e.id);
+    // bridges (Tarjan, iterative)
+    const disc = new Int32Array(n).fill(-1), low = new Int32Array(n), isBridge = new Uint8Array(g.edges.length);
+    let time = 0;
+    const stackV: number[] = [], stackE: number[] = [], stackI: number[] = [];
+    for (let s = 0; s < n; s++) {
+      if (off[s] || disc[s] >= 0) continue;
+      disc[s] = low[s] = time++;
+      stackV.push(s), stackE.push(-1), stackI.push(0);
+      while (stackV.length) {
+        const top = stackV.length - 1, v = stackV[top];
+        if (stackI[top] < adj[v].length) {
+          const w = adj[v][stackI[top]], eid = adj[v][stackI[top] + 1];
+          stackI[top] += 2;
+          if (eid === stackE[top]) continue;
+          if (disc[w] < 0) {
+            disc[w] = low[w] = time++;
+            stackV.push(w), stackE.push(eid), stackI.push(0);
+          } else low[v] = Math.min(low[v], disc[w]);
+        } else {
+          const pe = stackE[top];
+          stackV.pop(), stackE.pop(), stackI.pop();
+          if (stackV.length) {
+            const p = stackV[stackV.length - 1];
+            low[p] = Math.min(low[p], low[v]);
+            if (low[v] > disc[p]) isBridge[pe] = 1;
+          }
+        }
+      }
+    }
+    // 2-edge-connected components, the largest one (by street length) is the through network
+    const comp = Int32Array.from({ length: n }, (_, i) => i);
+    const find = (i: number): number => (comp[i] === i ? i : (comp[i] = find(comp[i])));
+    for (const e of g.edges) if (!isBridge[e.id] && e.a !== e.b && !off[e.a] && !off[e.b]) comp[find(e.a)] = find(e.b);
+    const size = new Map<number, number>();
+    for (const e of g.edges) if (!isBridge[e.id] && !off[e.a] && !off[e.b]) size.set(find(e.a), (size.get(find(e.a)) ?? 0) + e.len);
+    let main = -1, mainSize = -1;
+    for (const [c, s] of size) if (s > mainSize) (mainSize = s), (main = c);
+    // breadth-first out from the through network, across the bridges
+    const members = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+      if (off[i]) continue;
+      depth[i] = find(i) === main ? 0 : -1;
+      let m = members.get(find(i));
+      if (!m) members.set(find(i), (m = []));
+      m.push(i);
+    }
+    let frontier: number[] = [];
+    for (let i = 0; i < n; i++) if (depth[i] === 0) frontier.push(i);
+    for (let d = 1; frontier.length; d++) {
+      const next: number[] = [];
+      for (const v of frontier)
+        for (let k = 0; k < adj[v].length; k += 2) {
+          const w = adj[v][k];
+          if (depth[w] !== -1) continue;
+          // the whole component behind the bridge gets the same depth
+          for (const j of members.get(find(w))!) (depth[j] = d), next.push(j);
+        }
+      frontier = next;
+    }
+    // networks not connected to the city at all: wander freely
+    for (let i = 0; i < n; i++) if (depth[i] === -1) depth[i] = 1;
+    return depth;
   }
 
   private addToGrid(grid: Map<number, number[]>, idx: number, arr: Float32Array, pad: number) {
@@ -519,11 +826,13 @@ export class World {
         hit = true;
       }
     } else {
-      const deck = level === 1;
+      const deck = level === 1 || level === 2;
       for (let iter = 0; iter < 3; iter++) {
         let moved = false;
         this.forWalls(px, py, r, (ax, ay, bx, by, ht, flags) => {
-          if (deck && flags & W_LOW) return;
+          if (flags & W_NOHIT || (deck && flags & W_LOW)) return;
+          const rr = r + ht;
+          if ((ax < bx ? ax : bx) - rr > px || (ax > bx ? ax : bx) + rr < px || (ay < by ? ay : by) - rr > py || (ay > by ? ay : by) + rr < py) return;
           const dx = bx - ax, dy = by - ay;
           const l2 = dx * dx + dy * dy;
           let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
@@ -531,7 +840,6 @@ export class World {
           const cx = ax + dx * t, cy = ay + dy * t;
           const ex = px - cx, ey = py - cy;
           const d2 = ex * ex + ey * ey;
-          const rr = r + ht;
           if (d2 < rr * rr) {
             const d = Math.sqrt(d2) || 1e-4;
             const push = rr - d;
@@ -543,7 +851,7 @@ export class World {
         if (!moved) break;
       }
       if (deck && rails) {
-        const rp = this.railPush(px, py, r);
+        const rp = this.railPush(px, py, r, level!);
         if (rp) {
           px += rp.nx * rp.depth;
           py += rp.ny * rp.depth;
@@ -594,14 +902,14 @@ export class World {
    *  narrow for it, e.g. footbridges for a bus, are ignored). It is `on` a deck while within any
    *  deck segment's railings or past one of its open ends. Null when no such deck is nearby.
    *  Returns a shared scratch object: read it before the next call. */
-  private deckFit(x: number, y: number, r: number): DeckFit | null {
+  private deckFit(x: number, y: number, r: number, level = 0): DeckFit | null {
     const c = this.roadGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
     if (!c) return null;
     const s = this.roadSegs, f = this.fit;
     let any = false;
     f.depth = Infinity;
     for (const i of c) {
-      if (!s[i + 6]) continue;
+      if (!s[i + 6] || (level && s[i + 6] !== level)) continue;
       const limit = s[i + 4] - r;
       if (limit <= 0) continue;
       const ax = s[i], ay = s[i + 1], bx = s[i + 2], by = s[i + 3];
@@ -615,7 +923,7 @@ export class World {
       if (openHere) {
         f.on = true;
         f.depth = 0;
-        (f.ux = dx / len), (f.uy = dy / len);
+        (f.ux = dx / len), (f.uy = dy / len), (f.level = s[i + 6] as 1 | 2);
         return f;
       }
       const t = tr < 0 ? 0 : tr > 1 ? 1 : tr;
@@ -624,10 +932,10 @@ export class World {
       if (d <= limit) {
         f.on = true;
         f.depth = 0;
-        (f.ux = dx / len), (f.uy = dy / len);
+        (f.ux = dx / len), (f.uy = dy / len), (f.level = s[i + 6] as 1 | 2);
         return f;
       }
-      if (d - limit < f.depth) (f.depth = d - limit), (f.nx = -ex / d), (f.ny = -ey / d), (f.ux = dx / len), (f.uy = dy / len);
+      if (d - limit < f.depth) (f.depth = d - limit), (f.nx = -ex / d), (f.ny = -ey / d), (f.ux = dx / len), (f.uy = dy / len), (f.level = s[i + 6] as 1 | 2);
     }
     if (!any) return null;
     f.on = false;
@@ -638,8 +946,8 @@ export class World {
    *  outside every deck it fits on (twin carriageways and multi-segment decks don't fight each
    *  other), never at an open deck end, and never by more than a small correction: anything
    *  further out isn't really on that deck, and `updateLevel` drops it back to ground level. */
-  private railPush(x: number, y: number, r: number): { nx: number; ny: number; depth: number } | null {
-    const f = this.deckFit(x, y, r);
+  private railPush(x: number, y: number, r: number, level: number): { nx: number; ny: number; depth: number } | null {
+    const f = this.deckFit(x, y, r, level);
     if (!f || f.on || f.depth > r + 1) return null;
     return { nx: f.nx, ny: f.ny, depth: f.depth };
   }
@@ -705,9 +1013,12 @@ export class World {
       e.level = 0;
       return;
     }
-    if (e.level === 1) {
-      const f = this.deckFit(e.x, e.y, r);
-      if (!f || (!f.on && f.depth > r + 1)) e.level = 0;
+    if (e.level >= 1) {
+      const f = this.deckFit(e.x, e.y, r, e.level);
+      if (f && (f.on || f.depth <= r + 1)) return;
+      // off the end of its deck: onto a deck of the other level it carries on along (a ramp
+      // rising onto a flyover), else down on the ground
+      e.level = sp >= 0.3 ? this.deckAlong(e.x, e.y, vx / sp, vy / sp, r, e.level === 1 ? 2 : 1) : 0;
       return;
     }
     if (sp < 0.3) return;
@@ -720,10 +1031,13 @@ export class World {
       const along = dx * ux + dy * uy;
       if (along < -(hw + 2) || along > 12 || Math.abs(dx * uy - dy * ux) > hw) continue;
       if (vx * ux + vy * uy < 0.5 * sp) continue;
-      e.level = 1;
+      e.level = ends[i + 5] as 1 | 2;
       return;
     }
-    if (rescue && this.inWater(e.x, e.y, 0) && this.onDeckAlong(e.x, e.y, vx / sp, vy / sp, r)) e.level = 1;
+    if (rescue && this.inWater(e.x, e.y, 0)) {
+      const lv = this.deckAlong(e.x, e.y, vx / sp, vy / sp, r);
+      if (lv) e.level = lv;
+    }
   }
 
   /** Just inside a tunnel portal, heading into the tunnel along it, and fitting in the tube. */
@@ -742,16 +1056,21 @@ export class World {
     return false;
   }
 
-  /** True when the circle is on a deck it fits on and heading along that deck (within ~37°). */
-  private onDeckAlong(x: number, y: number, hx: number, hy: number, r: number) {
-    const f = this.deckFit(x, y, r + DECK_FIT);
-    return !!f && f.on && Math.abs(hx * f.ux + hy * f.uy) > 0.8;
+  /** The level of a deck the circle is on, fits on and is heading along (within ~37°), upper
+   *  decks first, or 0. `only` restricts it to one level. */
+  private deckAlong(x: number, y: number, hx: number, hy: number, r: number, only = 0): 0 | 1 | 2 {
+    for (const lv of [2, 1] as const) {
+      if (only && lv !== only) continue;
+      const f = this.deckFit(x, y, r + DECK_FIT, lv);
+      if (f && f.on && Math.abs(hx * f.ux + hy * f.uy) > 0.8) return lv;
+    }
+    return 0;
   }
 
   /** Level for something that has just appeared at (x, y) facing `angle` (spawned traffic,
-   *  parked cars, trams, pedestrians): 1 if it is on a deck it fits on, heading along it (or, with
-   *  no heading, only when over water so pedestrians under a deck stay underneath); -1 if it is
-   *  well inside a tunnel heading along it. */
+   *  parked cars, trams, pedestrians): the deck's level if it is on a deck it fits on, heading
+   *  along it (or, with no heading, only when over water so pedestrians under a deck stay
+   *  underneath); -1 if it is well inside a tunnel heading along it. */
   spawnLevel(x: number, y: number, r: number, angle?: number): Level {
     if (angle !== undefined && this.tunnelDepth(x, y) > 6) {
       const f = this.tubeFit(x, y, r);
@@ -760,9 +1079,9 @@ export class World {
     if (!this.onBridge(x, y)) return 0;
     if (angle === undefined) {
       const f = this.deckFit(x, y, r + DECK_FIT);
-      return f && f.on && this.inWater(x, y, 0) ? 1 : 0;
+      return f && f.on && this.inWater(x, y, 0) ? f.level : 0;
     }
-    return this.onDeckAlong(x, y, Math.cos(angle), Math.sin(angle), r) ? 1 : 0;
+    return this.deckAlong(x, y, Math.cos(angle), Math.sin(angle), r);
   }
 
   /** How far into a tunnel (x, y) is, in metres from the nearest portal (Infinity deep inside),
@@ -826,6 +1145,10 @@ export class World {
    *  pontoons are dry; tunnels (-1) never are wet. */
   inWater(x: number, y: number, level?: Level) {
     if (level === -1) return false;
+    const gx = Math.floor((x - this.bounds.x0) / WCELL), gy = Math.floor((y - this.bounds.y0) / WCELL);
+    const cell = gx >= 0 && gx < this.waterCols && gy >= 0 ? this.waterCells[gy * this.waterCols + gx] : 2;
+    if (cell === 0) return false;
+    if (cell === 1) return !this.onPier(x, y) && (level === 0 || !this.onBridge(x, y));
     for (const w of this.water) {
       if (x < w.bbox.x0 || x > w.bbox.x1 || y < w.bbox.y0 || y > w.bbox.y1) continue;
       if (!pointInRings(x, y, w.rings)) continue;
@@ -833,6 +1156,34 @@ export class World {
       if (level === 0 || !this.onBridge(x, y)) return true;
     }
     return false;
+  }
+
+  /** Fill `waterCells`: cells a shore line passes through are "look closer" (2); every other cell
+   *  is all wet or all dry, whichever its centre is. */
+  private rasterWater() {
+    const B = this.bounds;
+    const cols = Math.ceil((B.x1 - B.x0) / WCELL) + 1, rows = Math.ceil((B.y1 - B.y0) / WCELL) + 1;
+    const cells = new Uint8Array(cols * rows).fill(255);
+    const mark = (x: number, y: number) => {
+      const gx = Math.floor((x - B.x0) / WCELL), gy = Math.floor((y - B.y0) / WCELL);
+      for (let ix = gx - 1; ix <= gx + 1; ix++)
+        for (let iy = gy - 1; iy <= gy + 1; iy++) if (ix >= 0 && iy >= 0 && ix < cols && iy < rows) cells[iy * cols + ix] = 2;
+    };
+    for (const w of this.water)
+      for (const r of w.rings)
+        for (let i = 0; i < r.length - 2; i += 2) {
+          const L = Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
+          for (let d = 0; d <= L; d += WCELL / 2) mark(r[i] + ((r[i + 2] - r[i]) * d) / L, r[i + 1] + ((r[i + 3] - r[i + 1]) * d) / L);
+        }
+    for (let gy = 0; gy < rows; gy++)
+      for (let gx = 0; gx < cols; gx++) {
+        const k = gy * cols + gx;
+        if (cells[k] === 2) continue;
+        const x = B.x0 + (gx + 0.5) * WCELL, y = B.y0 + (gy + 0.5) * WCELL;
+        cells[k] = this.water.some((w) => x >= w.bbox.x0 && x <= w.bbox.x1 && y >= w.bbox.y0 && y <= w.bbox.y1 && pointInRings(x, y, w.rings)) ? 1 : 0;
+      }
+    this.waterCells = cells;
+    this.waterCols = cols;
   }
 
   /** On a pier or pontoon (a walkable deck over the water). */
@@ -844,14 +1195,15 @@ export class World {
     return false;
   }
 
-  onBridge(x: number, y: number) {
+  /** Within the footprint of a bridge deck (of the given level; any by default). */
+  onBridge(x: number, y: number, level = 0) {
     const k = this.key(Math.floor(x / CELL), Math.floor(y / CELL));
     if (!this.bridgeCells.has(k)) return false;
     const c = this.roadGrid.get(k);
     if (!c) return false;
     const s = this.roadSegs;
     for (const i of c) {
-      if (!s[i + 6]) continue;
+      if (!s[i + 6] || (level && s[i + 6] !== level)) continue;
       const hw = s[i + 4] + 1.5;
       if (segDist2(x, y, s[i], s[i + 1], s[i + 2], s[i + 3]) < hw * hw) return true;
     }
@@ -905,6 +1257,19 @@ export class World {
   walkableNear(x: number, y: number) {
     const n = this.ped.nearest(x, y, 300);
     if (n >= 0) return { x: this.ped.nx(n), y: this.ped.ny(n) };
+    return { x, y };
+  }
+
+  /** The nearest spot to (x, y) where a body of radius `r` stands clear of every wall, fountain,
+   *  post and trunk, on dry ground (searching outwards in rings), for putting people down. */
+  clearSpot(x: number, y: number, r = 0.5): { x: number; y: number } {
+    const ok = (px: number, py: number) => !this.collideCircle(px, py, r, 0, false) && !this.inWater(px, py, 0) && !this.insideBuilding(px, py);
+    if (ok(x, y)) return { x, y };
+    for (let d = 0.75; d <= 30; d += 0.75)
+      for (let k = 0, n = Math.ceil((d * 2 * Math.PI) / 0.75); k < n; k++) {
+        const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * d, py = y + Math.sin(a) * d;
+        if (ok(px, py)) return { x: px, y: py };
+      }
     return { x, y };
   }
 

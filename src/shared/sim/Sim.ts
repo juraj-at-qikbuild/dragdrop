@@ -185,7 +185,8 @@ export class Sim {
       // spread arrivals a little so players don't stand inside each other
       const a = this.rng.next() * Math.PI * 2, r = this.players.size ? 2 + this.rng.next() * 6 : 3 * Math.SQRT2;
       const p = this.players.size ? this.world.walkableNear(s.x + Math.cos(a) * r, s.y + Math.sin(a) * r) : { x: s.x + 3, y: s.y + 3 };
-      (x = p.x), (y = p.y);
+      // not in the fountain, nor against a statue
+      ({ x, y } = this.world.clearSpot(p.x, p.y));
     }
     const ped = new Ped('player', x, y, this.rng.seed());
     ped.playerId = id;
@@ -648,7 +649,8 @@ export class Sim {
     const list = this.world.pois(kind);
     let best = list[0];
     for (const q of list) if (dist(q.x, q.y, f.x, f.y) < dist(best.x, best.y, f.x, f.y)) best = q;
-    const pos = best ? this.world.walkableNear(best.x, best.y) : this.world.walkableNear(0, 0);
+    const near = best ? this.world.walkableNear(best.x, best.y) : this.world.walkableNear(0, 0);
+    const pos = this.world.clearSpot(near.x, near.y);
     const ped = p.ped;
     if (ped.vehicle) this.exitVehicle(p, true);
     ped.x = pos.x;
