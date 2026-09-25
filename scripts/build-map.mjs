@@ -244,21 +244,25 @@ function areaKind(t) {
 function buildingInfo(t) {
   let levels = parseFloat(t['building:levels']);
   const h = parseFloat(t.height);
-  if (!(levels > 0)) levels = h > 0 ? h / 3.2 : ['garage', 'garages', 'shed', 'kiosk', 'roof', 'hut'].includes(t.building) ? 1 : 3;
+  const small = ['garage', 'garages', 'shed', 'kiosk', 'roof', 'hut'].includes(t.building);
+  // no height at all: default to 3 storeys and flag it, so the game can vary untagged heights
+  const untagged = !(levels > 0) && !(h > 0) && !small;
+  if (!(levels > 0)) levels = h > 0 ? h / 3.2 : small ? 1 : 3;
   let kind = 0; // 0 normal, 1 church, 2 castle/landmark, 3 industrial, 4 roof/shelter
   if (['church', 'cathedral', 'chapel'].includes(t.building) || t.amenity === 'place_of_worship') kind = 1;
   if (t.historic === 'castle' || t.building === 'castle' || t.historic === 'city_gate') kind = 2;
   if (['industrial', 'warehouse', 'retail', 'commercial'].includes(t.building)) kind = 3;
   if (['roof', 'canopy', 'carport'].includes(t.building)) kind = 4;
-  return { levels: Math.min(40, Math.max(1, levels)), kind };
+  return { levels: Math.min(40, Math.max(1, levels)), kind, untagged };
 }
 
 function addBuilding(rings, t, id) {
   if (t.building === 'no' || t['building:part'] || t.location === 'underground' || t.layer < 0) return;
   const rs = rings.map((r) => simplify(r, 0.25)).filter((r) => r.length >= 4);
   if (!rs.length || !inView(rs[0])) return;
-  const { levels, kind } = buildingInfo(t);
+  const { levels, kind, untagged } = buildingInfo(t);
   const b = { r: rs.map(flat), l: Math.round(levels * 10) / 10, k: kind, s: id % 997 };
+  if (untagged) b.u = 1;
   if (t.name) b.n = nameId(t.name);
   buildings.push(b);
 }
@@ -520,6 +524,7 @@ const map = {
   pois,
   landmarks,
   graph: { car, ped, tram },
+  flagsUntagged: 1,
 };
 await mkdir(new URL('.', OUT), { recursive: true });
 const json = JSON.stringify(map);

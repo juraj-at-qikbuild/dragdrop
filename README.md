@@ -36,7 +36,7 @@ On touch devices a virtual joystick and buttons appear automatically.
 
 ## What's in the game
 
-- **The real city.** 4,600+ buildings with fake-3D extrusion from real `building:levels`, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace. The UFO sits on top of the Most SNP pylon.
+- **The real city.** 4,600+ buildings drawn in fake-3D perspective with heights from real `building:levels` (buildings OSM has no height for get a plausible 2–5 storeys), sun-shaded hipped and gabled roofs, and shared walls hidden between terraced houses, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace. The UFO sits on top of the Most SNP pylon.
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
 - **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, zebra crossings, trees in parks and along avenues, cars with steering wheels, visible damage and brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
 - **Traffic AI** on the real road graph, which respects one-way streets and drives on the right. **Red-and-white trams** run on the actual tram tracks, and **pedestrians** walk the sidewalks and footpaths.
@@ -84,6 +84,7 @@ src/
   world/World.ts       map data, collision grid, water/bridge/street queries
   world/Graph.ts       road network + A*
   world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings, shadows, trees, lamps
+  world/BuildingGeometry.ts  exposed wall pieces (party walls hidden) and roof slopes, built at load
   world/Textures.ts    procedural surface textures (asphalt, cobbles, grass, roof tiles…)
   world/Atmosphere.ts  time of day, sun, ambient colour, rain
   world/Lighting.ts    light map (lamps, headlights, explosions) multiplied over the world
