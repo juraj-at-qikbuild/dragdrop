@@ -2,7 +2,7 @@
 // drag, friction-limited brakes), tuned a little livelier than life. Shared by the browser and the
 // game server; drawing lives in src/render/drawVehicle.ts and cosmetic effects (tyre smoke, sparks,
 // splashes) in src/game/EntityFx.ts.
-import type { Level, World } from '../world/World';
+import type { Level, Surface, World } from '../world/World';
 import { clamp } from '../util/math';
 import type { Ped } from './Ped';
 
@@ -125,7 +125,7 @@ export class Vehicle {
   /** nitro charge 0..1 */
   nitro = 1;
   boosting = false;
-  private surf: 'asphalt' | 'cobble' | 'offroad' | 'bridge' = 'asphalt';
+  private surf: Surface = 'asphalt';
   private surfT = 0;
 
   /** shared per-frame environment, set by Game before stepping vehicles */
@@ -183,7 +183,7 @@ export class Vehicle {
       this.surf = world.surfaceAt(this.x, this.y, this.level);
       this.surfT = 0.1;
     }
-    let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : 1;
+    let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : this.surf === 'steps' ? 0.6 : 1;
     muSurf *= 1 - 0.28 * Vehicle.env.wet;
     const tyreMul = this.tyresBurst ? 0.45 : 1;
 
@@ -222,7 +222,8 @@ export class Vehicle {
     else if (tIn < 0) ax = vF > -revMax ? s.accel * 0.5 * muLong * tIn : 0;
     else ax = -Math.sign(vF) * Math.min(Math.abs(vF) / dt, ENGINE_BRAKE);
     // air drag and rolling resistance (never enough to reverse the car), and the rough off the road
-    const resist = drag(Math.abs(vF)) + OFFROAD_DRAG * (this.surf === 'offroad' ? Math.min(1, Math.abs(vF) / 4) : 0);
+    const rough = this.surf === 'offroad' ? OFFROAD_DRAG : this.surf === 'steps' ? STEPS_DRAG : 0;
+    const resist = drag(Math.abs(vF)) + rough * Math.min(1, Math.abs(vF) / 4);
     ax -= Math.sign(vF) * Math.min(Math.abs(vF) / dt, resist);
     vF += ax * dt;
     if (c.handbrake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 5 * muLong * dt);
@@ -365,6 +366,8 @@ const TIRE_FORCE = 5.6;
 const ENGINE_BRAKE = 0.9;
 /** extra drag rolling over grass and gravel, m/s² */
 const OFFROAD_DRAG = 1.4;
+/** ...and bumping down a flight of steps */
+const STEPS_DRAG = 5;
 
 /** Slip-angle -> normalized lateral force: rises to a peak near SLIP_PEAK, then softens a little as the
  *  tyre slides (real tyre behaviour; kept gentle, so a car at the limit slides progressively instead of

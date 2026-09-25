@@ -84,6 +84,8 @@ export class Game {
   facades = true;
   /** on-foot WASD, user choice from the menus: 'screen' = W is up the screen, 'cursor' = W walks towards the mouse */
   footControls: 'screen' | 'cursor' = 'screen';
+  /** the player's zoom (mouse wheel), a factor on the automatic camera zoom */
+  zoomPref = 1;
   private frameAvg = 16;
   private goodTimer = 0;
   private slowTimer = 0;
@@ -313,6 +315,7 @@ export class Game {
   update(dt: number) {
     const inp = this.input;
     const host = this.host;
+    inp.pollPad();
     if (inp.hit('Escape', 'KeyP')) {
       this.paused = !this.paused;
       this.onPause?.(this.paused);
@@ -392,13 +395,21 @@ export class Game {
       p.y = v.y;
       const ax = inp.axis();
       let throttle = -ax.y, steer = ax.x;
+      if (inp.pad.active) {
+        // gamepad: analog triggers (right accelerates, left brakes and reverses), or the left
+        // stick's up/down when the triggers are left alone
+        const trig = inp.pad.rt - inp.pad.lt;
+        if (Math.abs(trig) > 0.05) throttle = trig;
+      }
       if (inp.stick.active) {
-        // touch: steer toward stick direction
+        // touch: steer toward the stick's direction, easing off the throttle through a turn
+        // (the tyres only hold so much) and braking into a sharp one at speed
         const want = Math.atan2(inp.stick.y, inp.stick.x);
         const mag = Math.hypot(inp.stick.x, inp.stick.y);
         const diff = Math.atan2(Math.sin(want - v.angle), Math.cos(want - v.angle));
-        throttle = mag > 0.3 ? (Math.abs(diff) > 2.2 ? -1 : 1) : 0;
-        steer = clamp(diff * 2, -1, 1) * (throttle < 0 ? -1 : 1);
+        const turn = Math.abs(diff);
+        throttle = mag < 0.3 ? 0 : turn > 2.2 ? -1 : turn > 0.7 && v.fwdSpeed > 12 ? -0.6 : 1 - clamp((turn - 0.25) * 1.2, 0, 0.8);
+        steer = clamp(diff * 2, -1, 1) * (throttle < 0 && turn > 2.2 ? -1 : 1);
       }
       v.setControls(throttle, steer, inp.down('Space'), inp.down('ShiftLeft', 'ShiftRight'));
       if (inp.hit('KeyH')) {
@@ -411,9 +422,10 @@ export class Game {
         this.showRadio();
       }
       this.audio.engine(v.speed, Math.abs(throttle), true);
-      // drive-by: shoot sideways with the mouse
-      if ((inp.mouseDown || inp.down('ControlLeft')) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
-        const a = this.aimAngle(v.x, v.y);
+      // drive-by: shoot sideways with the mouse, or with the gamepad's right stick pushed hard
+      const padAim = this.padAim(0.7);
+      if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
+        const a = padAim ?? this.aimAngle(v.x, v.y);
         p.cooldown = WEAPONS[p.weapon].cd;
         this.ammo[p.weapon]--;
         this.fireFrom(v.x + Math.cos(a) * (v.spec.width / 2 + 0.6), v.y + Math.sin(a) * (v.spec.width / 2 + 0.6), a);
@@ -425,7 +437,7 @@ export class Game {
     // on foot
     const ax = inp.axis();
     // 'cursor' mode: W/S walk towards/away from the mouse, A/D strafe around it (touch stick stays screen-relative)
-    const cursorMode = this.footControls === 'cursor' && !inp.stick.active;
+    const cursorMode = this.footControls === 'cursor' && !inp.stick.active && !inp.pad.active;
     let heading = p.angle;
     if (cursorMode) {
       const c = this.cursorWorld();
@@ -441,10 +453,13 @@ export class Game {
     const vx = len ? (ax.x / len) * run * Math.min(1, len) : 0;
     const vy = len ? (ax.y / len) * run * Math.min(1, len) : 0;
     p.move(dt, this.world, vx, vy);
-    if (cursorMode) p.angle = heading;
-    else if (this.time - this.lastMouseMove < 3 || inp.mouseDown) p.angle = this.aimAngle(p.x, p.y);
+    // facing: the gamepad's right stick (twin-stick), the cursor, or where they walk
+    const padAim = this.padAim(0.35);
+    if (padAim !== null) p.angle = padAim;
+    else if (cursorMode) p.angle = heading;
+    else if (!inp.pad.active && (this.time - this.lastMouseMove < 3 || inp.mouseDown)) p.angle = this.aimAngle(p.x, p.y);
     if (p.cooldown > 0) p.cooldown -= dt;
-    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touchButtons.has('fire');
+    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touchButtons.has('fire') || (inp.pad.active && inp.pad.rt > 0.5);
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon === 'fist') this.host.punch(traceMelee(this.host.peds, p, p.angle)?.id ?? 0);
@@ -487,6 +502,13 @@ export class Game {
     return Math.atan2(c.y - y, c.x - x);
   }
 
+  /** where the gamepad's right stick points (the camera is north-up, so screen = world), when it's
+   *  pushed further than `min`; else null */
+  private padAim(min: number): number | null {
+    const P = this.input.pad;
+    return P.active && Math.hypot(P.rx, P.ry) > min ? Math.atan2(P.ry, P.rx) : null;
+  }
+
   /** police siren and helicopter rotor loudness from the nearest unit */
   private updateAudio() {
     const f = this.focus();
@@ -509,7 +531,10 @@ export class Game {
     const k = Math.min(1, dt * 5);
     this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
     this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
-    const base = Math.min(this.viewW, this.viewH) / CAM_FOOT_M;
+    // the mouse wheel zooms in and out around the automatic zoom
+    const wheel = this.input.takeWheel();
+    if (wheel) this.zoomPref = clamp(this.zoomPref * 1.12 ** wheel, 0.55, 1.8);
+    const base = (Math.min(this.viewW, this.viewH) / CAM_FOOT_M) * this.zoomPref;
     const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : base) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);

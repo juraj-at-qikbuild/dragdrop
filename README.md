@@ -21,12 +21,15 @@ npm run preview    # serve the production build
 | Mouse + left click | aim + shoot (drive-by when in a car) |
 | F / Enter / E | enter or exit a vehicle (carjacking included) |
 | Space | handbrake (car) · shoot (on foot) |
-| Shift | run |
+| Shift | run (nitro in a car) |
 | Q, 1–4 | switch weapon |
 | R | next radio station |
 | H | horn |
 | M / Tab | city map |
+| Mouse wheel | zoom in / out |
 | Esc / P | pause |
+
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map.
 
 On foot, WASD is screen-relative by default (W walks up the screen). Set **Chôdza: za kurzorom myši** in the pause menu or the menu's controls panel to walk relative to the mouse instead: W walks towards the cursor, S backs away from it, and A/D strafe around it.
 

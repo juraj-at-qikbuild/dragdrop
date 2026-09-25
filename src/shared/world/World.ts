@@ -8,6 +8,9 @@ import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox 
  *  footways, the motorway flyover over its ramps: OSM layer 2 and up). */
 export type Level = -1 | 0 | 1 | 2;
 
+/** what a car drives on (see `World.surfaceAt`) */
+export type Surface = 'asphalt' | 'cobble' | 'offroad' | 'bridge' | 'steps';
+
 /** the deck level (1 or 2) of a bridge road */
 export const deckLevel = (r: RoadJSON): 1 | 2 => ((r.y ?? 0) >= 2 ? 2 : 1);
 
@@ -1224,8 +1227,9 @@ export class World {
     return best >= 0 && bestD < 15 ? this.names[best] : null;
   }
 
-  /** Surface under a point, for tyre grip/drag: bridge deck, cobble (class >= 8), asphalt, or off-road. */
-  surfaceAt(x: number, y: number, level?: Level): 'asphalt' | 'cobble' | 'offroad' | 'bridge' {
+  /** Surface under a point, for tyre grip/drag: bridge deck, steps (class 10: a car crawls down them),
+   *  cobble (class >= 8), asphalt, or off-road. */
+  surfaceAt(x: number, y: number, level?: Level): Surface {
     if (level === -1) return 'asphalt';
     if (this.onBridge(x, y)) return 'bridge';
     const c = this.surfGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
@@ -1237,7 +1241,7 @@ export class World {
       if (d < bestD) (bestD = d), (bestCls = s[i + 5]);
     }
     if (bestD > 2) return 'offroad';
-    return bestCls >= 8 ? 'cobble' : 'asphalt';
+    return bestCls === 10 && bestD < 0.3 ? 'steps' : bestCls >= 8 ? 'cobble' : 'asphalt';
   }
 
   district(x: number, y: number): string {

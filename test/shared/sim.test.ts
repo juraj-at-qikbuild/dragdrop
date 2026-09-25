@@ -3,6 +3,7 @@ import { Sim } from '../../src/shared/sim/Sim';
 import { Rng } from '../../src/shared/util/Rng';
 import { SERVER_CAPS, playerScale } from '../../src/shared/sim/density';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
+import { Ped } from '../../src/shared/entities/Ped';
 import { VehiclePhysics } from '../../src/shared/sim/Physics';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { loadWorld } from './helpers';
@@ -135,6 +136,27 @@ describe('Sim', () => {
       sim.step(0.05);
     }
     expect(sim.peds.length).toBeGreaterThan(50);
+  });
+
+  it('people jump out of the way of a car bearing down on them', () => {
+    const sim = new Sim(loadWorld(), { rng: new Rng(5) });
+    // Most SNP's northbound carriageway: a player's car at 50 km/h, someone standing in its path
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: -578.7, y: 560 });
+    const car = sim.addVehicle(new Vehicle('sedan', -578.7, 560, -Math.PI / 2 - 0.035, '#fff'));
+    expect(sim.enterVehicle(p, car)).toBe(true);
+    car.vy = -14;
+    const walker = sim.addPed(new Ped('civ', -580.3, 505, 3));
+    for (const e of [car, walker, p.ped]) (e.level = 2), (e.levelInit = true);
+    let dodged = false;
+    for (let t = 0; t < 5; t += 1 / 30) {
+      car.setControls(0.6, 0);
+      look(p);
+      sim.step(1 / 30);
+      if (walker.state === 'flee') dodged = true;
+    }
+    expect(car.y).toBeLessThan(470); // the car went past them
+    expect(dodged).toBe(true);
+    expect(walker.dead).toBe(false);
   });
 });
 

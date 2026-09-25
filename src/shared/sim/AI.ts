@@ -997,6 +997,7 @@ export class AI {
     }
     if (p.cooldown > 0) p.cooldown -= dt;
     if (p.kind === 'cop' && (p.state === 'chase' || sim.anyWanted)) return this.copOnFoot(p, dt);
+    if (p.kind === 'civ' && p.state === 'walk' && this.dodge(p)) return;
     if (p.state === 'flee') {
       p.timer -= dt;
       const dx = p.x - p.fleeFrom.x, dy = p.y - p.fleeFrom.y;
@@ -1084,6 +1085,40 @@ export class AI {
       }
       p.idx = Math.min(best + 1, p.pts.length / 2 - 1);
     }
+  }
+
+  /** A car bearing down on them (the player's, a police car on a call, anything fast; ordinary
+   *  traffic brakes for people instead): they jump off its line, unless it's too late to react.
+   *  Returns true when they do. */
+  private dodge(p: Ped): boolean {
+    let best = Infinity, cx = 0, cy = 0, px = 0, py = 0;
+    this.sim.forVehiclesNear(p.x, p.y, 20, (v) => {
+      if (v.level !== p.level || v.wrecked || v.parked) return;
+      const sp = v.speed;
+      if (sp < 5 || !(v.isPlayer || v.siren || sp > 9)) return;
+      const ux = v.vx / sp, uy = v.vy / sp;
+      const dx = p.x - v.x, dy = p.y - v.y;
+      const along = dx * ux + dy * uy - v.spec.length / 2;
+      if (along < -0.5 || along > sp * 1.3) return;
+      const lat = dx * -uy + dy * ux;
+      if (Math.abs(lat) > v.spec.width / 2 + 0.8) return;
+      const ttc = Math.max(0, along) / sp;
+      if (ttc >= best) return;
+      best = ttc;
+      // the nearest point of the car's line, and the way off it (their own side when right on it)
+      const side = Math.abs(lat) > 0.2 ? Math.sign(lat) : p.side;
+      (cx = p.x - -uy * lat), (cy = p.y - ux * lat);
+      (px = -uy * side), (py = ux * side);
+    });
+    if (best === Infinity || best < 0.2) return false;
+    p.state = 'flee';
+    p.timer = 0.8 + this.sim.rng.next() * 0.5;
+    // flee from a point just on the other side of the line, so they run straight off it
+    p.fleeFrom.x = cx - px;
+    p.fleeFrom.y = cy - py;
+    // a near miss isn't a panic: no screaming crowd
+    p.cooldown = Math.max(p.cooldown, 2.5);
+    return true;
   }
 
   /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by */
