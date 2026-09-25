@@ -42,14 +42,19 @@ On touch devices a virtual joystick and buttons appear automatically.
 - **The real city.** 4,600+ buildings drawn in fake-3D perspective, sun-shaded hipped and gabled roofs, and shared walls hidden between terraced houses, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Building heights come from OSM (`height`, `building:levels`, the tallest `building:part`) and, where OSM has none, from the floor counts in Bratislava's technical map. Only about 13% of buildings still get a guessed 2–5 storeys. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace.
 - **A city you can't drive through.** The map is solid where the real city is and open where it is open:
   - the UFO restaurant sits 85 m up on the Most SNP pylon, and traffic drives under it. Raised structures are never obstacles;
+  - bridges have levels: the Most SNP road deck runs above its footway and cycle deck, and the motorway flyovers in Petržalka above the roads beneath them. Each deck's railings hold in only what is on that deck;
   - streets and paths go through buildings where they really do: Michalská brána, Leopoldova brána, courtyard passages, Žižkova under Námestie F. X. Messerschmidta;
   - the Suché mýto road tunnel under Hodžovo námestie and the tram tunnel under the castle hill are real tunnels with portals and an underground level. While you're inside, the city above turns see-through;
   - city and castle walls, garden walls, fences, hedges and concrete barriers stop people, cars and bullets, with gaps wherever a street, path or gate crosses them. Tree trunks off the road are solid too;
+  - fountain basins (the Roland fountain on Hlavné námestie, Ganymede's fountain in front of the National Theatre…) are rims you can't drive or walk through;
+  - the real bollards, concrete blocks and planters close pedestrian streets to cars but let people through, and statues, columns and memorial stones stand in the squares, solid enough to hide behind;
+  - flights of steps are slow, slippery going for a car;
   - piers and pontoons on the Danube are walkable;
   - mall corridors, garage ramps and rooftop paths are left out, so nobody walks or drives through Nivy, Aupark or Eurovea.
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
 - **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
-- **Traffic AI** on the real road graph, which respects one-way streets, drives on the right, keeps to the real speed limits and stops at the 179 real traffic lights (police in pursuit don't). **Red-and-white trams** run on the actual tram tracks and stop at the real tram stops, **pedestrians** walk the sidewalks and footpaths, and parked cars fill the mapped parking lots and bays.
+- **Traffic AI** on the real road graph, which respects one-way streets, drives on the right, keeps to the real speed limits and stops at the 179 real traffic lights (police in pursuit don't). Cars keep to lanes fitted between the kerbs and walls, turn round in cul-de-sacs instead of driving into them, buses and vans stay out of streets they don't fit, and a car that gets wedged is towed away out of sight. **Red-and-white trams** run on the actual tram tracks and stop at the real tram stops, **pedestrians** walk the sidewalks and footpaths on lines clear of walls, fences and fountains, stay out of the Danube and jump out of the way of a car coming at them, and parked cars fill the mapped parking lots and bays.
+- **Driving physics.** Cars grip on their tyres (slip angles, weight transfer, about 1 g of cornering at the limit, less for vans and buses), brake from 100 km/h in 32–44 m with ABS (a bus needs about 56 m), have stability control (the rear-engined Porše much less of it), reach their real top speeds against air drag and reverse at up to about 30 km/h. Cobbles, rain, grass and steps all cost grip. The handbrake still swings the tail round.
 - **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
 - **Six missions tied to real places**, started from phone booths:
   - taxi fare from the castle to Eurovea;
@@ -81,7 +86,9 @@ This runs three scripts:
    - gives buildings their heights (OSM `height`/`building:levels`, `building:part`, then the city's floor counts) and keeps raised structures (`min_height`, `building:min_level`) off the ground;
    - sorts ways into surface, bridge, tunnel, building passage, indoor and underground ones: tunnels become tubes with portals, passages are cut through their buildings, and indoor corridors, garage ramps and rooftop paths are dropped;
    - turns walls, fences, hedges and barriers into obstacles, opened wherever a street, path or gate crosses them;
+   - adds fountain basins, and bollards, blocks, planters, statues, columns and memorials as solid posts; rows of bollards across a street close it to cars;
    - builds navigation graphs for cars (with speed limits), pedestrians and trams;
+   - fits each lane and walking line clear of the walls and posts beside it (running the game's own `World` code), finds the streets no car fits down, and bakes the results into the graphs so the game doesn't redo it on every page load;
    - collects trees, street lamps, zebra crossings, traffic lights, tram stops, railway tracks, piers and parking lots;
    - locates landmarks and POIs;
    - maps real brands to their parody names.
@@ -94,11 +101,13 @@ To play a different part of the city, change `scripts/bbox.mjs` and rebuild. The
 src/
   main.ts              boot, menu, game loop, touch controls
   shared/              the DOM-free simulation, run by the browser (offline) and the server (online)
-    world/World.ts     map data, collision grid (buildings, walls, fences, trees, tunnel tubes),
-                       levels (tunnel / ground / bridge deck), water, piers, line of sight
+    world/World.ts     map data, collision grid (buildings, walls, fences, fountains, posts, trees,
+                       tunnel tubes), levels (tunnel / ground / bridge deck / upper deck), water,
+                       piers, line of sight, lane and walking-line fitting
     world/Graph.ts     road, footpath and tram networks + A*
     world/TrafficLights.ts  stop lines and signal phases from the real traffic lights
-    entities/          Vehicle (arcade physics), Ped, Tram, Helicopter, props
+    entities/          Vehicle (tyre-model physics with ABS and stability control), Ped, Tram,
+                       Helicopter, props
     sim/               Sim: AI (traffic, pedestrians, trams, parking), police, combat rules, pickups, clock
     net/               wire protocol and binary codec
   game/Game.ts         game state, player, wanted level, drawing

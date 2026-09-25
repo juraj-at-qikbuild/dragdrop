@@ -90,8 +90,8 @@ describe('codec', () => {
     expect(s.gone).toEqual([5, 6]);
   });
 
-  it('carries every level, including -1 (in a tunnel), in STATE reports and entity records', () => {
-    for (const lvl of [-1, 0, 1] as const) {
+  it('carries every level, including -1 (in a tunnel) and 2 (an upper deck), in STATE reports and entity records', () => {
+    for (const lvl of [-1, 0, 1, 2] as const) {
       const w = new Writer(8);
       encodeState(w, { seq: 1, epoch: 0, lvl, x: 0, y: 0, a: 0, vx: 0, vy: 0, weapon: 'fist', camDx: 0, camDy: 0, hw: 30, hh: 18, veh: null });
       expect(decodeState(new Reader(w.finish())).lvl).toBe(lvl);
@@ -99,18 +99,18 @@ describe('codec', () => {
     const w = new Writer(16);
     encodeSnapshotHeader(w, 1, 0, 0, { health: 100, armor: 0, wanted: 0, state: 'play', stateTimer: 0, searching: false, shotCops: false, money: 0, ammo: [0, 0, 0], epoch: 0, zone: null });
     const at = w.n;
-    w.u16(3);
-    [-1, 0, 1].forEach((level, i) => {
+    w.u16(4);
+    [-1, 0, 1, 2].forEach((level, i) => {
       const t = new Tram(null, null);
       t.id = 30 + i;
       t.sections = [{ x: 1, y: 2, a: 0 }, { x: 3, y: 4, a: 0 }, { x: 5, y: 6, a: 0 }];
-      entityHead(w, t.id, Ent.Tram, false, level as -1 | 0 | 1);
+      entityHead(w, t.id, Ent.Tram, false, level as -1 | 0 | 1 | 2);
       tramDynamic(w, t);
     });
-    w.patchU16(at, 3);
+    w.patchU16(at, 4);
     w.u16(0);
     const s = decodeSnapshot(new Reader(w.finish()));
-    expect(s.ents.map((e) => e.level)).toEqual([-1, 0, 1]);
+    expect(s.ents.map((e) => e.level)).toEqual([-1, 0, 1, 2]);
   });
 
   it('rejects truncated messages', () => {
