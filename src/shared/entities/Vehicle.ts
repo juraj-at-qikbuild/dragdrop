@@ -1,6 +1,6 @@
 // Vehicle state and arcade tyre physics. Shared by the browser and the game server; drawing lives in
 // src/render/drawVehicle.ts and cosmetic effects (tyre smoke, sparks, splashes) in src/game/EntityFx.ts.
-import type { World } from '../world/World';
+import type { Level, World } from '../world/World';
 import { clamp } from '../util/math';
 import type { Ped } from './Ped';
 
@@ -78,8 +78,8 @@ export class Vehicle {
   wrecked = false;
   sinking = 0;
   driver: Ped | null = null;
-  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
-  level: 0 | 1 = 0;
+  /** -1 in a tunnel, 0 on the ground or under a bridge deck, 1 on the deck (see World.updateLevel) */
+  level: Level = 0;
   /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */
   levelInit = false;
   /** id of the player driving it (0 = nobody / an NPC) */
@@ -165,7 +165,7 @@ export class Vehicle {
     // surface, cached and re-queried a few times a second
     this.surfT -= dt;
     if (this.surfT <= 0) {
-      this.surf = world.surfaceAt(this.x, this.y);
+      this.surf = world.surfaceAt(this.x, this.y, this.level);
       this.surfT = 0.1;
     }
     let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : 1;

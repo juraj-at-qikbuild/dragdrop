@@ -8,25 +8,26 @@ import { Helicopter } from '../shared/entities/Helicopter';
 import type { Pickup } from '../shared/sim/Pickups';
 import { Ent, type EntityRec, type HeliRec, type PedRec, type PropRec, type TramRec, type VehicleRec } from '../shared/net/codec';
 import { Interp } from './Interp';
+import type { Level } from '../shared/world/World';
 
 interface VehMirror {
   obj: Vehicle;
   buf: Interp;
   rec: VehicleRec;
-  level: 0 | 1;
+  level: Level;
 }
 interface PedMirror {
   obj: Ped;
   buf: Interp;
   rec: PedRec;
-  level: 0 | 1;
+  level: Level;
   lx: number;
   ly: number;
 }
 interface TramMirror {
   obj: Tram;
   buf: Interp;
-  level: 0 | 1;
+  level: Level;
 }
 interface HeliMirror {
   obj: Helicopter;
@@ -138,7 +139,7 @@ export class Mirrors {
       if (m !== keep && m.delete(id)) this.dirty = true;
   }
 
-  private applyVehicle(st: number, id: number, level: 0 | 1, full: boolean, r: VehicleRec) {
+  private applyVehicle(st: number, id: number, level: Level, full: boolean, r: VehicleRec) {
     let m = this.veh.get(id);
     if (full && (!m || m.obj.kind !== r.kind)) {
       this.dropOtherType(id, this.veh);
@@ -161,7 +162,7 @@ export class Mirrors {
     m.buf.push(st, [r.x, r.y, r.a, r.vx, r.vy, r.av, r.steer]);
   }
 
-  private applyPed(st: number, id: number, level: 0 | 1, full: boolean, r: PedRec) {
+  private applyPed(st: number, id: number, level: Level, full: boolean, r: PedRec) {
     let m = this.ped.get(id);
     if (full && (!m || m.obj.seed !== r.seed || m.obj.kind !== r.kind)) {
       this.dropOtherType(id, this.ped);
@@ -193,7 +194,7 @@ export class Mirrors {
     m.buf.push(st, [r.x, r.y, r.a]);
   }
 
-  private applyTram(st: number, id: number, level: 0 | 1, r: TramRec) {
+  private applyTram(st: number, id: number, level: Level, r: TramRec) {
     let m = this.tram.get(id);
     if (!m) {
       this.dropOtherType(id, this.tram);
@@ -209,7 +210,7 @@ export class Mirrors {
     m.buf.push(st, [s[0].x, s[0].y, s[0].a, s[1].x, s[1].y, s[1].a, s[2].x, s[2].y, s[2].a, r.speed]);
   }
 
-  private applyProp(id: number, level: 0 | 1, full: boolean, r: PropRec) {
+  private applyProp(id: number, level: Level, full: boolean, r: PropRec) {
     let p = this.prop.get(id);
     if (full) {
       this.dropOtherType(id, this.prop);

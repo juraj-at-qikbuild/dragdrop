@@ -1,6 +1,7 @@
 // Weapons and damage rules: shot tracing, hits, kills and explosions. Visual effects are events (see
 // events.ts); the browser draws them with Fx. A player's shot is traced by their own client against what
 // it sees (`traceShot`) and applied here (`applyShot`), the server first validating the claim.
+import type { Level } from '../world/World';
 import type { Ped, WeaponId } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
 import type { World } from '../world/World';
@@ -41,7 +42,7 @@ export interface ShotReport {
   ox: number;
   oy: number;
   a: number;
-  lvl: 0 | 1;
+  lvl: Level;
   pellets: PelletReport[];
 }
 
@@ -50,7 +51,7 @@ export interface Shooter {
   id: number;
   x: number;
   y: number;
-  level: 0 | 1;
+  level: Level;
   vehicle: Vehicle | null;
 }
 
@@ -77,7 +78,7 @@ export function traceShot(
   for (let i = 0; i < w.pellets; i++) {
     const a = angle + (rand() * 2 - 1) * w.spread;
     const ex = sx + Math.cos(a) * w.range, ey = sy + Math.sin(a) * w.range;
-    let t = world.raycast(sx, sy, ex, ey);
+    let t = world.raycast(sx, sy, ex, ey, s.level);
     let kind = t < 1 ? HitKind.Wall : HitKind.None;
     let hit = 0;
     for (const p of peds) {
@@ -207,10 +208,12 @@ export class CombatRules {
     const sim = this.sim;
     sim.events.explode(x, y, source?.id ?? 0, source?.color ?? null);
     const player = pid ? sim.players.get(pid) ?? null : null;
+    const lvl = source?.level ?? 0;
     for (const p of sim.pedsNear(x, y, 30)) {
       if (p.dead || p.vehicle) continue;
       const d = dist(p.x, p.y, x, y);
-      if (d < 7) {
+      // the blast stays on its level (a deck or the tunnel roof shields the other side); everyone hears it
+      if (d < 7 && p.level === lvl) {
         if (p.playerId) {
           const victim = sim.players.get(p.playerId);
           if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid);
@@ -221,7 +224,6 @@ export class CombatRules {
         }
       } else if (d < 30 && p.kind === 'civ') this.scare(p, x, y);
     }
-    const lvl = source?.level ?? 0;
     for (const v of sim.vehiclesNear(x, y, 12)) {
       if (v === source || v.wrecked || v.level !== lvl) continue;
       const d = dist(v.x, v.y, x, y);

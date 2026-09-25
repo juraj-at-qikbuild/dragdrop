@@ -1,6 +1,6 @@
 // The client: camera, input, rendering, audio, HUD and effects around a SimHost, which is either the
 // simulation running in the page (offline) or the shared world on the server (online, see src/net/).
-import { World } from '../shared/world/World';
+import { World, type Level } from '../shared/world/World';
 import { Renderer, type View } from '../world/Renderer';
 import { Input } from './Input';
 import { Juice } from './Juice';
@@ -25,7 +25,7 @@ import { drawTram, emitTramLights } from '../render/drawTram';
 import { drawHeli, emitHeliLights } from '../render/drawHeli';
 import { drawProps } from '../render/drawProps';
 import { roundRect } from '../render/shapes';
-import { Clock } from '../shared/sim/Clock';
+import { Clock, SECONDS_PER_HOUR } from '../shared/sim/Clock';
 import { WEAPONS, traceMelee, traceShot } from '../shared/sim/Combat';
 import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
@@ -202,6 +202,18 @@ export class Game {
     const v = this.player.vehicle;
     return v ? { x: v.x, y: v.y } : { x: this.player.x, y: this.player.y };
   }
+
+  /** the player's level (their vehicle's while driving): -1 in a tunnel, 1 on a bridge deck */
+  focusLevel(): Level {
+    return this.player.vehicle ? this.player.vehicle.level : this.player.level;
+  }
+
+  /** Opacity of something in a tunnel seen from the surface: fades out over the first metres
+   *  past the portal, invisible deeper in; 1 anywhere outside the tunnels. */
+  tunnelFade = (x: number, y: number) => {
+    const d = this.world.tunnelDepth(x, y);
+    return d < 0 ? 1 : Math.max(0, 1 - d / 8);
+  };
 
   message(title: string, text: string, time = 3, color = '#ffd740') {
     this.messages.push({ title, text, time, color });
@@ -556,25 +568,42 @@ export class Game {
     const atmos = this.atmos;
     this.renderer.facades = this.facades;
     this.renderer.drawGround(ctx, v, v.scale > 3);
+    this.renderer.drawPortals(ctx, v);
     this.renderer.drawShadows(ctx, v);
+    this.renderer.drawBarriers(ctx, v);
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);
     this.drawPickups(ctx);
     this.fx.drawParticles(ctx, false);
 
-    // entities below any bridge deck, then the deck itself, then entities on top of it
+    // entities in the tunnels (only at their portals, fading into the dark, unless the player is
+    // underground too: see below), then below any bridge deck, then the deck, then on top of it
     const inView = (x: number, y: number, r: number) => x > v.x0 - r && x < v.x1 + r && y > v.y0 - r && y < v.y1 + r;
     const host = this.host;
     const me = this.player;
-    const drawEntities = (level: 0 | 1) => {
+    const underground = this.focusLevel() === -1;
+    const drawEntities = (level: Level) => {
       for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos);
       for (const p of host.peds) if (!p.dead && !p.vehicle && p !== me && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos);
-      for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos);
+      for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, underground ? undefined : this.tunnelFade);
       for (const veh of host.vehicles) if (veh.level === level && inView(veh.x, veh.y, 8)) drawVehicle(veh, ctx, this.time, atmos);
     };
+    if (!underground) {
+      for (const veh of host.vehicles) {
+        if (veh.level !== -1 || !inView(veh.x, veh.y, 8)) continue;
+        const a = this.tunnelFade(veh.x, veh.y);
+        if (a <= 0) continue;
+        ctx.globalAlpha = a;
+        drawVehicle(veh, ctx, this.time, atmos);
+        ctx.globalAlpha = 1;
+      }
+      for (const t of host.trams) if (t.level === -1 && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, this.tunnelFade);
+    }
+    const lightsTime = atmos.clock.time * SECONDS_PER_HOUR;
     drawEntities(0);
     drawProps(ctx, host.props, 0);
+    this.renderer.drawTrafficLights(ctx, v, lightsTime);
     this.renderer.drawBridges(ctx, v);
     drawEntities(1);
     drawProps(ctx, host.props, 1);
@@ -588,7 +617,8 @@ export class Game {
     const L = this.light;
     L.begin(v, this.viewW, this.viewH, atmos);
     this.renderer.emitLights(L, v);
-    for (const t of host.trams) emitTramLights(t, L, atmos);
+    this.renderer.emitTrafficLights(L, lightsTime, atmos.night);
+    for (const t of host.trams) if (t.level !== -1 || underground) emitTramLights(t, L, atmos);
     for (const veh of host.vehicles) if (inView(veh.x, veh.y, 30)) emitVehicleLights(veh, L, this.time, atmos);
     this.fx.emitLights(L);
     for (const h of host.helis) emitHeliLights(h, L, atmos);
@@ -596,9 +626,19 @@ export class Game {
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
     this.renderer.drawNightWindows(ctx, v);
 
+    // in a tunnel: the city above dims away and the tube, with everyone in it, shows through
+    if (underground) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(4,5,9,0.62)';
+      ctx.fillRect(v.x0 - 10, v.y0 - 10, v.x1 - v.x0 + 20, v.y1 - v.y0 + 20);
+      ctx.restore();
+      this.renderer.drawTunnelInterior(ctx, v);
+      drawEntities(-1);
+    }
+
     this.drawSigns(ctx, v);
     this.juice.drawTexts(ctx);
-    if (host.net && hud) drawNametags(ctx, host.net, host.peds, v, host.me.id);
+    if (host.net && hud) drawNametags(ctx, host.net, host.peds, v, host.me.id, underground);
     if (hud) this.drawPlayerMarker(ctx);
 
     // screen-space post: rain, wet sheen, vignette — also shown behind the menu (attract mode)
@@ -688,45 +728,80 @@ export class Game {
     }
   }
 
+  /** Most SNP's pylon and UFO from the map (tower structures, kind 5): the UFO disc (raised,
+   *  85-95 m up) and the pylon's two feet beside the deck. Falls back to the landmark point. */
+  private snpGeometry() {
+    if (this.snp !== undefined) return this.snp;
+    const l = this.world.landmarks.get('snp');
+    if (!l) return (this.snp = null);
+    let ufo = { x: l.x, y: l.y, r: 13, z0: 85, z1: 95 };
+    const legs: { x: number; y: number; w: number }[] = [];
+    for (const b of this.world.buildings) {
+      if (b.kind !== 5 || Math.hypot(b.cx - l.x, b.cy - l.y) > 60) continue;
+      const w = b.bbox.x1 - b.bbox.x0, h = b.bbox.y1 - b.bbox.y0;
+      if (b.minH > 0) ufo = { x: b.cx, y: b.cy, r: Math.max(w, h) / 2, z0: b.minH, z1: Math.max(b.minH + 4, b.levels * 3.2) };
+      else legs.push({ x: b.cx, y: b.cy, w: Math.min(w, h) });
+    }
+    if (legs.length < 2) legs.splice(0, legs.length, { x: ufo.x - 14, y: ufo.y, w: 5 }, { x: ufo.x + 14, y: ufo.y, w: 5 });
+    return (this.snp = { ufo, legs });
+  }
+  private snp: { ufo: { x: number; y: number; r: number; z0: number; z1: number }; legs: { x: number; y: number; w: number }[] } | null | undefined;
+
   private drawLandmarks(ctx: CanvasRenderingContext2D, v: View) {
-    // UFO on the pylon of Most SNP (85 m above the bridge deck)
-    const ufo = this.world.landmarks.get('snp');
-    if (ufo && ufo.x > v.x0 - 150 && ufo.x < v.x1 + 150 && ufo.y > v.y0 - 150 && ufo.y < v.y1 + 150) {
-      const [ox, oy] = this.renderer.roofOffset(ufo.x, ufo.y, 85, v);
-      ctx.strokeStyle = '#9aa0a6';
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = 'butt';
-      for (const s of [-1, 1]) {
+    // Most SNP: the A-frame pylon, whose legs stand beside the deck, carries the UFO restaurant
+    // 85 m above the river; cars pass underneath
+    const snp = this.snpGeometry();
+    if (snp && snp.ufo.x > v.x0 - 150 && snp.ufo.x < v.x1 + 150 && snp.ufo.y > v.y0 - 150 && snp.ufo.y < v.y1 + 150) {
+      const { ufo, legs } = snp;
+      const s = ufo.r / 16;
+      const [ox, oy] = this.renderer.roofOffset(ufo.x, ufo.y, ufo.z0, v);
+      // the disc's shadow, cast by the sun from 85 m up
+      const sun = this.atmos.sun, day = this.atmos.daylight;
+      if (day > 0.05) {
+        const h = (ufo.z0 + ufo.z1) / 2;
+        ctx.fillStyle = `rgba(20,25,45,${0.22 * day})`;
         ctx.beginPath();
-        ctx.moveTo(ufo.x + s * 9, ufo.y);
-        ctx.lineTo(ufo.x + ox + s * 2, ufo.y + oy);
+        ctx.arc(ufo.x + sun.dx * h, ufo.y + sun.dy * h, ufo.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // legs: steel box girders leaning in from their feet to meet under the disc
+      ctx.fillStyle = '#8f969c';
+      ctx.strokeStyle = 'rgba(40,44,48,0.6)';
+      ctx.lineWidth = 0.25;
+      for (const leg of legs) {
+        const tx = ufo.x + ox + (leg.x - ufo.x) * 0.1, ty = ufo.y + oy + (leg.y - ufo.y) * 0.1;
+        const dx = tx - leg.x, dy = ty - leg.y, d = Math.hypot(dx, dy) || 1;
+        const nx = -dy / d, ny = dx / d, wb = leg.w / 2, wt = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(leg.x + nx * wb, leg.y + ny * wb);
+        ctx.lineTo(tx + nx * wt, ty + ny * wt);
+        ctx.lineTo(tx - nx * wt, ty - ny * wt);
+        ctx.lineTo(leg.x - nx * wb, leg.y - ny * wb);
+        ctx.closePath();
+        ctx.fill();
         ctx.stroke();
       }
-      const g = ctx.createRadialGradient(ufo.x + ox - 4, ufo.y + oy - 4, 2, ufo.x + ox, ufo.y + oy, 17);
+      const g = ctx.createRadialGradient(ufo.x + ox - 4 * s, ufo.y + oy - 4 * s, 2 * s, ufo.x + ox, ufo.y + oy, 17 * s);
       g.addColorStop(0, '#f5f7f8');
       g.addColorStop(0.6, '#b0b6bb');
       g.addColorStop(1, '#6d7479');
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.beginPath();
-      ctx.ellipse(ufo.x + 4, ufo.y + 5, 16, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(ufo.x + ox, ufo.y + oy, 16, 0, Math.PI * 2);
+      ctx.arc(ufo.x + ox, ufo.y + oy, 16 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#37474f';
       ctx.beginPath();
-      ctx.arc(ufo.x + ox, ufo.y + oy, 11, 0, Math.PI * 2);
+      ctx.arc(ufo.x + ox, ufo.y + oy, 11 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#cfd8dc';
       ctx.beginPath();
-      ctx.arc(ufo.x + ox, ufo.y + oy, 8.5, 0, Math.PI * 2);
+      ctx.arc(ufo.x + ox, ufo.y + oy, 8.5 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = `rgba(0,229,255,${0.5 + 0.5 * Math.sin(this.time * 3)})`;
       for (let i = 0; i < 12; i++) {
         const a = (i / 12) * Math.PI * 2 + this.time * 0.2;
         ctx.beginPath();
-        ctx.arc(ufo.x + ox + Math.cos(a) * 13.5, ufo.y + oy + Math.sin(a) * 13.5, 0.7, 0, Math.PI * 2);
+        ctx.arc(ufo.x + ox + Math.cos(a) * 13.5 * s, ufo.y + oy + Math.sin(a) * 13.5 * s, 0.7, 0, Math.PI * 2);
         ctx.fill();
       }
     }

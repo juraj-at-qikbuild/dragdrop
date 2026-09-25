@@ -4,6 +4,7 @@ import type { Ped, WeaponId } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
 import type { Helicopter } from '../entities/Helicopter';
 import type { Prop } from '../entities/Props';
+import type { Level } from '../world/World';
 
 export type PlayerState = 'play' | 'wasted' | 'busted';
 
@@ -96,6 +97,11 @@ export class SimPlayer {
   focus(): { x: number; y: number } {
     const v = this.ped.vehicle;
     return v ? { x: v.x, y: v.y } : { x: this.ped.x, y: this.ped.y };
+  }
+
+  /** -1 in a tunnel, 0 on the ground, 1 on a bridge deck (the car's level while driving) */
+  focusLevel(): Level {
+    return this.ped.vehicle ? this.ped.vehicle.level : this.ped.level;
   }
 
   get stars() {

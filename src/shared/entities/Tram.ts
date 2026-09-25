@@ -2,7 +2,9 @@
 // src/render/drawTram.ts.
 import type { Graph, Link } from '../world/Graph';
 import { linkPoints } from '../world/Graph';
+import type { Level } from '../world/World';
 import type { Rng } from '../util/Rng';
+import { rng as seeded } from '../util/math';
 
 const SEG = 9.2; // length of one articulated section
 export const TRAM_SECTIONS = 3;
@@ -26,15 +28,23 @@ export class Tram {
   idx = 1;
   blocked = false;
   bell = 0;
-  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
-  level: 0 | 1 = 0;
+  /** -1 in the tunnel, 0 on the ground or under a bridge deck, 1 on the deck (see World.updateLevel) */
+  level: Level = 0;
   /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */
   levelInit = false;
   length = SECTIONS * (SEG + GAP);
   sections: { x: number; y: number; a: number }[] = [];
+  /** seconds left standing at a stop with the doors open */
+  dwell = 0;
+  /** index (in `stops`) of the stop just served, so it isn't served twice in a row */
+  private served = -1;
+  /** the next link, picked early so a stop just past the end of this one is seen in time */
+  private upcoming: Link | null = null;
+  private upcomingPts: number[] | null = null;
 
-  /** a mirror (client side) has no graph: its sections are set from snapshots */
-  constructor(private graph: Graph | null, link: Link | null, private rng?: Rng) {
+  /** a mirror (client side) has no graph: its sections are set from snapshots. `stops`: the tram
+   *  stops on the tracks (World.tramStops), where it halts to let people on */
+  constructor(private graph: Graph | null, link: Link | null, private rng?: Rng, private stops: Float32Array = new Float32Array(0)) {
     if (!graph || !link) return;
     this.link = link;
     this.pts = linkPoints(link);
@@ -79,7 +89,8 @@ export class Tram {
         dist -= d;
         this.idx++;
         if (this.idx * 2 >= this.pts.length) {
-          const next = this.nextLink();
+          const next = this.upcoming ?? this.nextLink();
+          this.upcoming = this.upcomingPts = null;
           if (!next) return;
           if (next.edge === this.link.edge) {
             // reverse at terminal: flip trail so the tram drives back
@@ -136,11 +147,64 @@ export class Tram {
   }
 
   update(dt: number) {
-    const target = this.blocked ? 0 : this.maxSpeed;
+    if (this.bell > 0) this.bell -= dt;
+    if (this.served >= 0 && Math.hypot(this.stops[this.served] - this.x, this.stops[this.served + 1] - this.y) > 30) this.served = -1;
+    if (this.dwell > 0) {
+      // at a stop: doors open
+      this.dwell -= dt;
+      this.speed = 0;
+      return;
+    }
+    let target = this.blocked ? 0 : this.maxSpeed;
+    // brake for the next stop on this track and halt at it
+    const stop = this.nextStop(50);
+    if (stop) {
+      if (stop.d < 0.8 && this.speed < 0.9) {
+        // 10-18 s, fixed per stop
+        this.dwell = 10 + seeded(stop.i * 2654435761)() * 8;
+        this.served = stop.i;
+        this.speed = 0;
+        return;
+      }
+      target = Math.min(target, Math.sqrt(2 * 1.3 * Math.max(0, stop.d - 0.5)) + 0.3);
+    }
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), (this.blocked ? 6 : 1.6) * dt);
     if (this.speed > 0) this.advance(this.speed * dt);
     this.updateSections();
-    if (this.bell > 0) this.bell -= dt;
+  }
+
+  /** The nearest tram stop ahead on this track (within `maxD` metres along it), or null. */
+  private nextStop(maxD: number): { i: number; d: number } | null {
+    const S = this.stops;
+    if (!S.length) return null;
+    let best: { i: number; d: number } | null = null;
+    let px = this.x, py = this.y, acc = 0;
+    const scan = (pts: number[], from: number) => {
+      for (let k = from; k < pts.length / 2 && acc < maxD; k++) {
+        const qx = pts[k * 2], qy = pts[k * 2 + 1];
+        const L = Math.hypot(qx - px, qy - py);
+        if (L > 1e-6)
+          for (let i = 0; i < S.length; i += 2) {
+            if (i === this.served) continue;
+            const t = ((S[i] - px) * (qx - px) + (S[i + 1] - py) * (qy - py)) / (L * L);
+            if (t < 0 || t > 1) continue;
+            const ex = px + (qx - px) * t - S[i], ey = py + (qy - py) * t - S[i + 1];
+            if (ex * ex + ey * ey > 1.6 * 1.6) continue;
+            const d = acc + t * L;
+            if (!best || d < best.d) best = { i, d };
+          }
+        if (best) return;
+        acc += L;
+        px = qx;
+        py = qy;
+      }
+    };
+    scan(this.pts, this.idx);
+    if (!best && acc < maxD) {
+      this.upcoming ??= this.nextLink();
+      if (this.upcoming) scan((this.upcomingPts ??= linkPoints(this.upcoming)), 1);
+    }
+    return best;
   }
 
   /** Is a point inside the tram body (with margin)? */

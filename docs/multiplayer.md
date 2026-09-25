@@ -154,6 +154,13 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - **Entering a car is a request.** The server grants it first come, first served. A car another player is driving can be jacked only when it is nearly stopped, and its driver is ejected.
 - **Wanted level, police targeting, the helicopter, roadblocks and spikes are per player**, under world-wide caps. PvP is a crime: `hitPlayer` and `killPlayer` raise the attacker's stars.
 
+### The map in the simulation
+- **Everything solid is baked into `bratislava.json`**: building footprints (raised ones such as the UFO on Most SNP are not solid), passages cut through them, walls, fences, hedges and barriers with their gaps, tree trunks, tunnel tubes and piers. `World` builds the same colliders from it on the server and in every browser, so a client's own figure and car hit exactly what the server's NPCs hit.
+- **Three levels:** -1 in a tunnel (Suché mýto, the castle tram tunnel), 0 on the ground or under a deck, 1 on a bridge deck. `World.updateLevel` moves entities between them at deck ends and tunnel portals. Collisions, shots, punches, explosions and police line of sight only connect things on the same level. `raycast` and `collideCircle` take the level, so tube walls only exist underground and street-level walls don't block the tunnel below.
+- **The level is on the wire.** `STATE` reports carry it in their flags (2 = on a deck, 4 = in a tunnel) and entity records in their head byte (bit 4 = deck, bit 5 = tunnel). Protocol v4 added -1, so older clients are refused. The server's hit history stores levels as signed bytes, and shot validation traces walls on the shooter's level.
+- **Traffic lights send nothing.** A light's state is a pure function of its junction's offset and the world clock (`clock.time × SECONDS_PER_HOUR`). Both cycles divide the 24-minute game day evenly, so the phase never jumps at midnight. The server's traffic obeys the lights, and clients draw them from their own clock, which the server keeps in sync.
+- **No `Math.random` in the new rules.** Parking-lot choices use the simulation's `Rng`, and a tram's dwell at a stop is seeded by the stop's index.
+
 ### Identity and persistence
 - The client keeps an anonymous UUID and a nickname in `localStorage` (`src/net/identity.ts`). The first Online click asks for the nickname; the pause menu can change it.
 - `server/src/db.ts` uses SQLite (WAL) on the Fly volume and stores only a SHA-256 of the token. It has three tables:
@@ -165,7 +172,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - **Missions are single-player only.** Online, the phone booths say so.
 
 ### Tests and tools
-- `npm test` runs the codec, simulation, room and persistence tests.
+- `npm test` runs the codec, simulation, room and persistence tests, plus `test/shared/world.test.ts`, which drives cars, walks figures and runs trams through the real map with the shared collision code (the UFO, passages, both tunnels, walls and fences, piers and traffic lights).
 - `npm run smoke` runs the offline game in headless Chromium.
 - `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart.
 - `npm run loadtest` and `npm --prefix server run bench` measure capacity.

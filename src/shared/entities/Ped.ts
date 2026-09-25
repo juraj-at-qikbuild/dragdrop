@@ -1,7 +1,7 @@
 // Person state (civilians, cops, players) and on-foot movement. Shared by the browser and the game
 // server; drawing lives in src/render/drawPed.ts. Appearance is derived from `seed`, so every client
 // draws the same NPC the same way.
-import type { World } from '../world/World';
+import type { Level, World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
 import { Rng } from '../util/Rng';
@@ -61,8 +61,8 @@ export class Ped {
   build = 1;
   walkPhase = 0;
   vehicle: Vehicle | null = null;
-  /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
-  level: 0 | 1 = 0;
+  /** -1 in a tunnel, 0 on the ground or under a bridge deck, 1 on the deck (see World.updateLevel) */
+  level: Level = 0;
   /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */
   levelInit = false;
   weapon: WeaponId = 'fist';
@@ -104,13 +104,14 @@ export class Ped {
     return this.state === 'dead';
   }
 
-  /** Move with velocity and resolve collisions against buildings. */
+  /** Move with velocity and resolve collisions against buildings, walls and fences (on a bridge
+   *  deck only what stands on it, in a tunnel only its walls). */
   move(dt: number, world: World, vx: number, vy: number) {
     this.vx = vx;
     this.vy = vy;
     this.x += vx * dt;
     this.y += vy * dt;
-    const hit = world.collideCircle(this.x, this.y, this.r);
+    const hit = world.collideCircle(this.x, this.y, this.r, this.level, false);
     if (hit) {
       this.x += hit.nx * hit.depth;
       this.y += hit.ny * hit.depth;

@@ -5,7 +5,9 @@ import { Vehicle, SPECS, type VehicleKind } from '../entities/Vehicle';
 import { Ped } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
-import { angleDiff, bboxOf, clamp, dist } from '../util/math';
+import { angleDiff, bboxOf, clamp, dist, pointInRings } from '../util/math';
+import type { StopLine } from '../world/TrafficLights';
+import { SECONDS_PER_HOUR } from './Clock';
 import { CountGrid, playerScale, targetDensity } from './density';
 import type { Sim } from './Sim';
 import type { SimPlayer } from './SimPlayer';
@@ -29,6 +31,8 @@ export interface Driver {
   /** police: the player being chased (0 = none), re-evaluated every couple of seconds */
   target: number;
   retarget: number;
+  /** traffic lights ahead on the links queued in `pts`, in order */
+  stops: StopLine[];
 }
 
 const TRAFFIC_MIX: [VehicleKind, number][] = [
@@ -255,7 +259,7 @@ export class AI {
     sim.addPed(driver);
     const d: Driver = {
       mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0,
-      searchTarget: null, searchTimer: 0, target, retarget: 2,
+      searchTarget: null, searchTimer: 0, target, retarget: 2, stops: mode === 'traffic' ? [...sim.world.lights.forLink(link)] : [],
     };
     this.drivers.set(v, d);
     const sp = Math.min(link.edge.speed * 0.6, 9);
@@ -303,8 +307,74 @@ export class AI {
     this.warmFor = null;
   }
 
+  /** the map's parking lots and on-street bays, in each one's own frame (u along its longest
+   *  edge, v across), built lazily */
+  private lots: { rings: number[][]; cx: number; cy: number; ux: number; uy: number; u0: number; u1: number; v0: number; v1: number }[] | null = null;
+  private getLots() {
+    if (this.lots) return this.lots;
+    const out: NonNullable<AI['lots']> = [];
+    for (const rings of this.sim.world.data.areas.parking) {
+      const r = rings[0];
+      let best = 0, ux = 1, uy = 0;
+      for (let i = 0; i < r.length - 2; i += 2) {
+        const dx = r[i + 2] - r[i], dy = r[i + 3] - r[i + 1], L = Math.hypot(dx, dy);
+        if (L > best) (best = L), (ux = dx / L), (uy = dy / L);
+      }
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (let i = 0; i < r.length; i += 2) {
+        const u = r[i] * ux + r[i + 1] * uy, v = -r[i] * uy + r[i + 1] * ux;
+        (u0 = Math.min(u0, u)), (u1 = Math.max(u1, u)), (v0 = Math.min(v0, v)), (v1 = Math.max(v1, v));
+      }
+      if (u1 - u0 < 5 || v1 - v0 < 2.2) continue;
+      const bb = bboxOf(r);
+      out.push({ rings, cx: (bb.x0 + bb.x1) / 2, cy: (bb.y0 + bb.y1) / 2, ux, uy, u0, u1, v0, v1 });
+    }
+    return (this.lots = out);
+  }
+
+  /** A parked car in a real parking lot or bay near (x, y): nose-in rows on lots, bumper to
+   *  bumper along narrow street-side bays. False if there's no free space this time. */
+  private parkInLot(x: number, y: number, rMin: number, rMax: number): boolean {
+    const sim = this.sim;
+    const w = sim.world;
+    const near = this.getLots().filter((l) => {
+      const d = dist(l.cx, l.cy, x, y);
+      return d > rMin && d < rMax;
+    });
+    if (!near.length) return false;
+    const lot = sim.rng.pick(near);
+    const kind = sim.rng.weighted(PARKED_MIX);
+    const across = lot.v1 - lot.v0;
+    const perpendicular = across >= 4.8;
+    let u: number, v: number;
+    if (perpendicular) {
+      // rows along the lot's edges (and every ~8 m inside big lots), a bay every 2.6 m
+      const rows = Math.max(1, Math.floor((across - 5.2) / 8.2) + 1);
+      v = lot.v0 + 2.6 + sim.rng.int(rows) * 8.2;
+      if (across >= 10 && sim.rng.chance(0.5)) v = lot.v1 - 2.6;
+      u = lot.u0 + 1.4 + sim.rng.int(Math.max(1, Math.floor((lot.u1 - lot.u0 - 2.8) / 2.6) + 1)) * 2.6;
+    } else {
+      v = (lot.v0 + lot.v1) / 2;
+      u = lot.u0 + 3.2 + sim.rng.int(Math.max(1, Math.floor((lot.u1 - lot.u0 - 6.4) / 6) + 1)) * 6;
+    }
+    const px = u * lot.ux - v * lot.uy, py = u * lot.uy + v * lot.ux;
+    const angle = (perpendicular ? Math.atan2(lot.ux, -lot.uy) : Math.atan2(lot.uy, lot.ux)) + (sim.rng.chance(0.5) ? Math.PI : 0);
+    // the whole car must fit in the bay
+    const spec = SPECS[kind], fx = Math.cos(angle), fy = Math.sin(angle);
+    for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const cx = px + fx * (spec.length / 2) * a - fy * (spec.width / 2) * b, cy = py + fy * (spec.length / 2) * a + fx * (spec.width / 2) * b;
+      if (!pointInRings(cx, cy, lot.rings)) return false;
+    }
+    if (this.onScreen(px, py, 5) || !this.freeSpot(px, py, 3) || w.insideBuilding(px, py) || w.inWater(px, py)) return false;
+    const car = new Vehicle(kind, px, py, angle, sim.rng.pick(spec.colors));
+    car.parked = true;
+    sim.addVehicle(car);
+    return true;
+  }
+
   private spawnParked(x: number, y: number, rMin: number, rMax: number) {
     const sim = this.sim;
+    if (sim.rng.chance(0.6) && this.parkInLot(x, y, rMin, rMax)) return true;
     const w = sim.world;
     const nodes = w.car.nodesAround(x, y, rMin, rMax);
     if (!nodes.length) return false;
@@ -388,7 +458,7 @@ export class AI {
     const link = sim.rng.pick(g.out[n]);
     if (link.edge.len < 30) return;
     for (const t of sim.trams) if (dist(t.x, t.y, g.nx(n), g.ny(n)) < 80) return;
-    const tram = new Tram(g, link, sim.rng);
+    const tram = new Tram(g, link, sim.rng, sim.world.tramStops);
     if (this.onScreen(tram.x, tram.y, 40)) return;
     sim.addTram(tram);
   }
@@ -414,6 +484,7 @@ export class AI {
     }
     d.pts.push(...pts.slice(2));
     d.link = link;
+    if (d.mode === 'traffic') d.stops.push(...this.sim.world.lights.forLink(link));
   }
 
   private drive(v: Vehicle, d: Driver, dt: number, chase: boolean) {
@@ -450,6 +521,21 @@ export class AI {
       } else if (this.sirenBehind(v)) {
         desired *= 0.35;
         diff += 0.25;
+      }
+    }
+
+    // traffic lights: stop at the line on red, and on amber when there's room to. The cycle runs
+    // on the world clock, which online clients sync to, so everyone sees the same colours.
+    if (!chase && d.stops.length) {
+      while (d.stops.length && (v.x - d.stops[0].x) * d.stops[0].ux + (v.y - d.stops[0].y) * d.stops[0].uy > 0.5) d.stops.shift();
+      const l = d.stops[0];
+      if (l) {
+        const gap = (l.x - v.x) * l.ux + (l.y - v.y) * l.uy - v.spec.length / 2;
+        if (gap < 45) {
+          const light = sim.world.lights.state(l, sim.clock.time * SECONDS_PER_HOUR);
+          const sp = Math.max(0, v.fwdSpeed);
+          if (light === 2 || (light === 1 && gap > (sp * sp) / 9 + 1)) desired = Math.min(desired, gap < 1.2 ? 0 : Math.sqrt(2 * 3.5 * (gap - 1.2)));
+        }
       }
     }
 
@@ -620,7 +706,8 @@ export class AI {
       this.retire.add(v);
       return;
     }
-    const los = dd < 55 && sim.world.raycast(v.x, v.y, real.x, real.y) >= 1;
+    // no seeing into or out of a tunnel
+    const los = dd < 55 && (v.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(v.x, v.y, real.x, real.y, v.level) >= 1;
     // no direct sight, and nobody else has either: hunt the last-known-position search zone
     // instead of homing straight in, so a driver who breaks line of sight can actually lose them
     const zone = t.searchZone;
@@ -870,7 +957,7 @@ export class AI {
     const pl = t.ped;
     const tx = pl.vehicle ? pl.vehicle.x : pl.x, ty = pl.vehicle ? pl.vehicle.y : pl.y;
     const d = dist(p.x, p.y, tx, ty);
-    const los = d < 30 && sim.world.raycast(p.x, p.y, tx, ty) >= 1;
+    const los = d < 30 && (p.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(p.x, p.y, tx, ty, p.level) >= 1;
     const armed = t.wanted >= 3 || t.shotCops;
     if (armed && los && d < 22) {
       // stop and shoot

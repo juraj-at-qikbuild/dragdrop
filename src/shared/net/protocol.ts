@@ -7,9 +7,11 @@
 import type { WeaponId } from '../entities/Ped';
 import type { PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
+import type { Level } from '../world/World';
 
-/** Bumped whenever the wire format changes; the server refuses mismatched clients. */
-export const PROTOCOL_VERSION = 3;
+/** Bumped whenever the wire format changes; the server refuses mismatched clients.
+ *  v4: levels include -1 (in a tunnel). */
+export const PROTOCOL_VERSION = 4;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;
@@ -34,7 +36,7 @@ export interface VehFull {
   fire: number;
   tyres: 0 | 1;
   nitro: number;
-  lvl: 0 | 1;
+  lvl: Level;
 }
 
 // ------------------------------------------------------------ client → server (JSON)
@@ -44,7 +46,7 @@ export interface HelloMsg {
   token: string;
   nick: string;
   /** reconnecting: where this client is, and the car it's driving (0 = on foot) */
-  resume?: { x: number; y: number; lvl: 0 | 1; car: number };
+  resume?: { x: number; y: number; lvl: Level; car: number };
 }
 
 /** a shot as traced by the shooter's client */
@@ -54,7 +56,7 @@ export interface FireMsg {
   ox: number;
   oy: number;
   a: number;
-  lvl: 0 | 1;
+  lvl: Level;
   /** the shooter's render time (server clock, ms) when it fired: hit claims are checked against then */
   rt: number;
   pellets: PelletReport[];
@@ -87,7 +89,7 @@ export interface WelcomeMsg {
   look: number;
   x: number;
   y: number;
-  lvl: 0 | 1;
+  lvl: Level;
   /** car still owned from before a reconnect, if any */
   car: number;
   epoch: number;
@@ -106,7 +108,7 @@ export interface ClockSync {
 
 /** A world event (see SimEvents), JSON-encoded; `st` of the enclosing message dates it. */
 export type WorldEvent =
-  | { k: 'shot'; by: number; pid: number; x: number; y: number; a: number; w: WeaponId; lvl: 0 | 1; ends: number[]; sparks: number }
+  | { k: 'shot'; by: number; pid: number; x: number; y: number; a: number; w: WeaponId; lvl: Level; ends: number[]; sparks: number }
   | { k: 'melee'; x: number; y: number; hit: 0 | 1 }
   | { k: 'pedHit'; id: number; x: number; y: number; s: number }
   | { k: 'spark'; x: number; y: number; kind: 0 | 1 | 2 }

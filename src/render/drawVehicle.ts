@@ -70,7 +70,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   ctx.rotate(v.angle);
   if (v.sinking) {
     const k = Math.max(0.15, 1 - v.sinking / 2.5);
-    ctx.globalAlpha = k;
+    ctx.globalAlpha *= k;
     ctx.scale(k * 0.3 + 0.7, k * 0.3 + 0.7);
   }
   // shadow: cast along the sun direction, rotated into the car's local frame;
@@ -140,7 +140,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     else if (side === 'rear') { cx = -L / 2 + 0.3; cy = 0; w = 0.7; h = W - 0.2; }
     else if (side === 'left') { cx = 0; cy = -W / 2 + 0.15; w = L - 0.4; h = 0.5; }
     else { cx = 0; cy = W / 2 - 0.15; w = L - 0.4; h = 0.5; }
-    ctx.globalAlpha = Math.min(0.8, d);
+    ctx.globalAlpha *= Math.min(0.8, d);
     ctx.fillStyle = shade(body, -0.4);
     roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 0.15);
     ctx.fill();

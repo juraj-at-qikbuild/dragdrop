@@ -19,11 +19,15 @@ export function emitTramLights(t: Tram, L: LightLayer, atmos?: Atmosphere) {
   for (const s of t.sections) L.point(s.x, s.y, 2.4, '#ffd98a', 0.28 * k);
 }
 
-export function drawTram(t: Tram, ctx: CanvasRenderingContext2D, atmos?: Atmosphere) {
+/** `alphaAt` fades sections by position (the part of the tram already in the tunnel). */
+export function drawTram(t: Tram, ctx: CanvasRenderingContext2D, atmos?: Atmosphere, alphaAt?: (x: number, y: number) => number) {
   const night = atmos?.night ?? 0;
   for (let i = t.sections.length - 1; i >= 0; i--) {
     const s = t.sections[i];
+    const alpha = alphaAt ? alphaAt(s.x, s.y) : 1;
+    if (alpha <= 0) continue;
     ctx.save();
+    ctx.globalAlpha *= alpha;
     ctx.translate(s.x, s.y);
     ctx.rotate(s.a);
     // shadow along the sun (tight contact shadow at night)

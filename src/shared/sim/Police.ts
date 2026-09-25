@@ -4,7 +4,7 @@ import { Vehicle } from '../entities/Vehicle';
 import { Ped } from '../entities/Ped';
 import { Prop, propHit } from '../entities/Props';
 import { Helicopter } from '../entities/Helicopter';
-import { linkPoints } from '../world/Graph';
+import { linkPoints, type Link } from '../world/Graph';
 import { dist } from '../util/math';
 import type { Sim } from './Sim';
 import type { Roadblock, SimPlayer } from './SimPlayer';
@@ -119,7 +119,14 @@ export class Police {
     const heading = Math.hypot(v.vx, v.vy) > 1 ? Math.atan2(v.vy, v.vx) : v.angle;
     const f = p.focus();
     const hx = Math.cos(heading), hy = Math.sin(heading);
-    const car = sim.world.car;
+    const world = sim.world, car = world.car;
+    // a wide enough street at ground level: props stand on level 0, so not on a bridge deck or in a tunnel
+    const usable = (l: Link) => {
+      if (l.edge.cls > 6 || l.edge.width <= 5 || l.edge.len <= 12) return false;
+      const pts = linkPoints(l);
+      const mx = (pts[0] + pts[2]) / 2, my = (pts[1] + pts[3]) / 2;
+      return !world.onBridge(mx, my) && world.tunnelDepth(mx, my) < 0;
+    };
     const nodes = car.nodesAround(f.x, f.y, rMin, rMax);
     let best = -1, bestScore = 0.45;
     for (const n of nodes) {
@@ -128,11 +135,11 @@ export class Police {
       const d = Math.hypot(dx, dy) || 1;
       const dot = (dx / d) * hx + (dy / d) * hy;
       if (dot <= bestScore || sim.visibleToAny(nx, ny, 15)) continue;
-      if (!car.out[n].some((l) => l.edge.cls <= 6 && l.edge.width > 5 && l.edge.len > 12)) continue;
+      if (!car.out[n].some(usable)) continue;
       (bestScore = dot), (best = n);
     }
     if (best < 0) return null;
-    return sim.rng.pick(car.out[best].filter((l) => l.edge.cls <= 6 && l.edge.width > 5 && l.edge.len > 12));
+    return sim.rng.pick(car.out[best].filter(usable));
   }
 
   private trySpawnRoadblock(p: SimPlayer, swatTier: boolean) {

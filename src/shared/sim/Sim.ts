@@ -9,7 +9,7 @@ import { Vehicle } from '../entities/Vehicle';
 import { Ped, setPlayerLook, type WeaponId } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Prop } from '../entities/Props';
-import type { World } from '../world/World';
+import type { Level, World } from '../world/World';
 import { SpatialHash } from '../util/SpatialHash';
 import { Rng } from '../util/Rng';
 import { clamp, dist } from '../util/math';
@@ -503,7 +503,8 @@ export class Sim {
       for (const s of [1, -1]) {
         const x = v.x + Math.sin(v.angle) * (v.spec.width / 2 + 0.7) * s;
         const y = v.y - Math.cos(v.angle) * (v.spec.width / 2 + 0.7) * s;
-        if (force || !this.world.collideCircle(x, y, 0.4)) {
+        // the spot beside the car, at its level (on a deck, or inside the tunnel tube)
+        if (force || !this.world.collideCircle(x, y, 0.4, v.level, false)) {
           ped.x = x;
           ped.y = y;
           break;
@@ -770,10 +771,13 @@ export class Sim {
       return;
     }
     const f = p.focus();
+    const fl = p.focusLevel();
+    // nobody on the surface can see into a tunnel, nor out of one
+    const sightOk = (level: Level) => (level === -1) === (fl === -1);
     let seen = false;
     for (const v of this.vehiclesNear(f.x, f.y, 70)) {
       if (v.kind !== 'police' || v.wrecked || v.isPlayer || !v.siren) continue;
-      if (dist(v.x, v.y, f.x, f.y) < 70 && this.world.raycast(v.x, v.y, f.x, f.y) >= 1) {
+      if (dist(v.x, v.y, f.x, f.y) < 70 && sightOk(v.level) && this.world.raycast(v.x, v.y, f.x, f.y, fl) >= 1) {
         seen = true;
         break;
       }
@@ -781,12 +785,12 @@ export class Sim {
     if (!seen)
       for (const c of this.pedsNear(f.x, f.y, 40)) {
         if (c.kind !== 'cop' || c.dead || c.vehicle) continue;
-        if (dist(c.x, c.y, f.x, f.y) < 40 && this.world.raycast(c.x, c.y, f.x, f.y) >= 1) {
+        if (dist(c.x, c.y, f.x, f.y) < 40 && sightOk(c.level) && this.world.raycast(c.x, c.y, f.x, f.y, fl) >= 1) {
           seen = true;
           break;
         }
       }
-    if (!seen) for (const h of this.police.helis()) if (h.sees(f.x, f.y)) seen = true;
+    if (!seen && fl !== -1) for (const h of this.police.helis()) if (h.sees(f.x, f.y)) seen = true;
     if (seen) {
       p.unseen = 0;
       p.lastSeenPos = { x: f.x, y: f.y };

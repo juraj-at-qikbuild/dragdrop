@@ -6,7 +6,7 @@ import {
   type ClientMsg, type FireMsg, type HelloMsg, type RosterRow, type ServerMsg, type VehFull,
 } from '../../src/shared/net/protocol';
 import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
-import type { World } from '../../src/shared/world/World';
+import type { Level, World } from '../../src/shared/world/World';
 import { Sim } from '../../src/shared/sim/Sim';
 import { SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
 import { WEAPONS, WEAPON_IDS, traceMelee, type PelletReport } from '../../src/shared/sim/Combat';
@@ -32,6 +32,9 @@ export const GRACE_MS = 30_000;
 const AFK_MS = 60_000;
 /** skip sending to a client whose socket buffer is this full (slow link) */
 const BACKPRESSURE_BYTES = 256 * 1024;
+
+/** a level from a client's JSON: -1 in a tunnel, 1 on a bridge deck, anything else the ground */
+const asLevel = (l: unknown): Level => (l === 1 || l === -1 ? l : 0);
 
 export interface Conn {
   link: ClientLink;
@@ -271,7 +274,7 @@ export class Room {
         if (v) (v.x = r!.x), (v.y = r!.y);
         p.ped.x = r!.x;
         p.ped.y = r!.y;
-        p.ped.level = r!.lvl === 1 ? 1 : 0;
+        p.ped.level = asLevel(r!.lvl);
       }
     } else {
       if (this.connectedCount() >= this.maxPlayers) {
@@ -282,10 +285,10 @@ export class Room {
       const stored = this.store?.loadProfile(msg.token);
       const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [] };
       const last = this.store?.loadSession(msg.token);
-      let x: number | undefined, y: number | undefined, lvl: 0 | 1 = 0;
+      let x: number | undefined, y: number | undefined, lvl: Level = 0;
       // where to put them: where their client says it is (reconnect after a restart), else where they
       // were when last saved, else the square
-      if (r && resumeOk) (x = r.x), (y = r.y), (lvl = r.lvl === 1 ? 1 : 0);
+      if (r && resumeOk) (x = r.x), (y = r.y), (lvl = asLevel(r.lvl));
       else if (last) (x = last.x), (y = last.y), (lvl = last.level);
       if (x !== undefined && y !== undefined) {
         const w = this.sim.world.walkableNear(x, y);
@@ -415,7 +418,7 @@ export class Room {
       if (!v.wrecked) v.fire = veh.fire;
       v.tyresBurst = veh.tyres ? 1 : 0;
       v.nitro = veh.nitro;
-      v.level = veh.lvl === 1 ? 1 : 0;
+      v.level = asLevel(veh.lvl);
     }
     const at = dist(x, y, v.x, v.y) < 6 ? { x, y } : undefined;
     this.sim.exitVehicle(p, false, at);
@@ -432,7 +435,7 @@ export class Room {
     if (!s.fireBucket.take(t, w.cd < 0.2 ? 0.5 : 1)) return;
     if (![m.ox, m.oy, m.a].every(Number.isFinite) || !Array.isArray(m.pellets) || m.pellets.length !== w.pellets) return;
     const f = p.focus();
-    if (dist(m.ox, m.oy, f.x, f.y) > 4 || (m.lvl !== 0 && m.lvl !== 1)) return;
+    if (dist(m.ox, m.oy, f.x, f.y) > 4 || m.lvl !== asLevel(m.lvl)) return;
     const pellets: PelletReport[] = [];
     const rt = rewindTime(m.rt, this.wall());
     for (const pl of m.pellets) {
@@ -445,7 +448,7 @@ export class Room {
         // check the claim against where that ped/car was when the shooter saw it
         const then = this.targetAt(hit, kind === 2, rt);
         const claim = { ox: m.ox, oy: m.oy, a: pl.a, hx: pl.hx, hy: pl.hy, range: w.range };
-        if (!plausibleHit(claim, then, m.lvl, this.sim.world.raycast(m.ox, m.oy, pl.hx, pl.hy))) {
+        if (!plausibleHit(claim, then, m.lvl, this.sim.world.raycast(m.ox, m.oy, pl.hx, pl.hy, m.lvl))) {
           this.counters.badHits++;
           kind = 0;
           hit = 0;

@@ -15,7 +15,8 @@
     "e2e": "node scripts/e2e-mp.mjs",
     "loadtest": "npm --prefix server run loadtest --",
     "fetch:osm": "node scripts/fetch-osm.mjs",
-    "build:map": "node scripts/fetch-osm.mjs && node scripts/build-map.mjs",
+    "build:map": "node scripts/fetch-osm.mjs && node scripts/fetch-heights.mjs && node scripts/build-map.mjs",
+    "fetch:heights": "node scripts/fetch-heights.mjs",
     "smoke": "node scripts/smoke-offline.mjs"
   },
   "dependencies": {

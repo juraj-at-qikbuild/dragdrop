@@ -10,16 +10,20 @@ interface Tagged {
   x: number;
   y: number;
   playerId: number;
+  /** -1 in a tunnel */
+  level: number;
   vehicle: { x: number; y: number; radius: number } | null;
 }
 
-export function drawNametags(ctx: CanvasRenderingContext2D, src: TagSource, peds: readonly Tagged[], v: View, meId: number) {
+/** `underground`: the viewer is in a tunnel. Players in a tunnel are tagged only for viewers who
+ *  are in one too (and players on the surface only for viewers on it), as only they can see them. */
+export function drawNametags(ctx: CanvasRenderingContext2D, src: TagSource, peds: readonly Tagged[], v: View, meId: number, underground = false) {
   const fs = 12 / v.scale;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `700 ${fs}px system-ui, sans-serif`;
   for (const p of peds) {
-    if (!p.playerId || p.playerId === meId) continue;
+    if (!p.playerId || p.playerId === meId || (p.level === -1) !== underground) continue;
     const car = p.vehicle;
     const x = car ? car.x : p.x;
     const y = (car ? car.y - car.radius * 0.8 : p.y - 0.9) - fs * 1.1;

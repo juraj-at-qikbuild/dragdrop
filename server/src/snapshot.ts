@@ -10,6 +10,7 @@ import type { Tram } from '../../src/shared/entities/Tram';
 import type { Prop } from '../../src/shared/entities/Props';
 import type { Helicopter } from '../../src/shared/entities/Helicopter';
 import type { Pickup } from '../../src/shared/sim/Pickups';
+import type { Level } from '../../src/shared/world/World';
 import { SpatialHash } from '../../src/shared/util/SpatialHash';
 import {
   Ent, Writer, encodeSnapshotHeader, entityHead, heliDynamic, heliStatic, pedDynamic, pedStatic, pickupStatic, propDynamic, propStatic,
@@ -32,7 +33,7 @@ interface Entry {
   type: Ent;
   x: number;
   y: number;
-  level: 0 | 1;
+  level: Level;
   obj: Obj;
   /** this tick's encoding, made the first time any client needs it */
   enc: Encoded | null;
@@ -82,7 +83,7 @@ export class SnapshotBuilder {
     const sim = this.sim;
     const pool = this.pool;
     let n = 0;
-    const add = (id: number, type: Ent, x: number, y: number, level: 0 | 1, obj: Obj) => {
+    const add = (id: number, type: Ent, x: number, y: number, level: Level, obj: Obj) => {
       const e = (pool[n++] ??= { id: 0, type: Ent.Vehicle, x: 0, y: 0, level: 0, obj, enc: null });
       e.id = id;
       e.type = type;

@@ -36,10 +36,17 @@ On touch devices a virtual joystick and buttons appear automatically.
 
 ## What's in the game
 
-- **The real city.** 4,600+ buildings drawn in fake-3D perspective with heights from real `building:levels` (buildings OSM has no height for get a plausible 2–5 storeys), sun-shaded hipped and gabled roofs, and shared walls hidden between terraced houses, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace. The UFO sits on top of the Most SNP pylon.
+- **The real city.** 4,600+ buildings drawn in fake-3D perspective, sun-shaded hipped and gabled roofs, and shared walls hidden between terraced houses, 8,000+ street segments, the Danube with its bridges (Most SNP, Starý most, Most Apollo), and street names shown as you drive. Building heights come from OSM (`height`, `building:levels`, the tallest `building:part`) and, where OSM has none, from the floor counts in Bratislava's technical map. Only about 13% of buildings still get a guessed 2–5 storeys. Landmark buildings get realistic colours: the white castle with its red roof, the Blue Church, the pink Primate's Palace.
+- **A city you can't drive through.** The map is solid where the real city is and open where it is open:
+  - the UFO restaurant sits 85 m up on the Most SNP pylon, and traffic drives under it. Raised structures are never obstacles;
+  - streets and paths go through buildings where they really do: Michalská brána, Leopoldova brána, courtyard passages, Žižkova under Námestie F. X. Messerschmidta;
+  - the Suché mýto road tunnel under Hodžovo námestie and the tram tunnel under the castle hill are real tunnels with portals and an underground level. While you're inside, the city above turns see-through;
+  - city and castle walls, garden walls, fences, hedges and concrete barriers stop people, cars and bullets, with gaps wherever a street, path or gate crosses them. Tree trunks off the road are solid too;
+  - piers and pontoons on the Danube are walkable;
+  - mall corridors, garage ramps and rooftop paths are left out, so nobody walks or drives through Nivy, Aupark or Eurovea.
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
-- **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, zebra crossings, trees in parks and along avenues, cars with steering wheels, visible damage and brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
-- **Traffic AI** on the real road graph, which respects one-way streets and drives on the right. **Red-and-white trams** run on the actual tram tracks, and **pedestrians** walk the sidewalks and footpaths.
+- **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
+- **Traffic AI** on the real road graph, which respects one-way streets, drives on the right, keeps to the real speed limits and stops at the 179 real traffic lights (police in pursuit don't). **Red-and-white trams** run on the actual tram tracks and stop at the real tram stops, **pedestrians** walk the sidewalks and footpaths, and parked cars fill the mapped parking lots and bays.
 - **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
 - **Six missions tied to real places**, started from phone booths:
   - taxi fare from the castle to Eurovea;
@@ -61,13 +68,18 @@ The baked map (`public/data/bratislava.json`, ~3 MB, ~0.8 MB gzipped) is committ
 npm run build:map
 ```
 
-This runs two scripts:
+This runs three scripts:
 
 1. `scripts/fetch-osm.mjs` downloads the bounding box in `scripts/bbox.mjs` from the OSM API in 0.005° tiles, cached in `.cache/osm/`.
-2. `scripts/build-map.mjs` turns the raw data into game data:
+2. `scripts/fetch-heights.mjs` (also `npm run fetch:heights`) downloads the floor counts of the buildings in the same box from Bratislava's technical map (the city's `tm/Stavby` geoportal service, CC BY 4.0), cached in `.cache/heights/floors.geojson`. If the download fails, the build still works and falls back to guessed heights.
+3. `scripts/build-map.mjs` turns the raw data into game data:
    - projects it to local metres;
    - simplifies roads, buildings, areas, water and trams;
-   - builds navigation graphs for cars, pedestrians and trams;
+   - gives buildings their heights (OSM `height`/`building:levels`, `building:part`, then the city's floor counts) and keeps raised structures (`min_height`, `building:min_level`) off the ground;
+   - sorts ways into surface, bridge, tunnel, building passage, indoor and underground ones: tunnels become tubes with portals, passages are cut through their buildings, and indoor corridors, garage ramps and rooftop paths are dropped;
+   - turns walls, fences, hedges and barriers into obstacles, opened wherever a street, path or gate crosses them;
+   - builds navigation graphs for cars (with speed limits), pedestrians and trams;
+   - collects trees, street lamps, zebra crossings, traffic lights, tram stops, railway tracks, piers and parking lots;
    - locates landmarks and POIs;
    - maps real brands to their parody names.
 
@@ -78,27 +90,35 @@ To play a different part of the city, change `scripts/bbox.mjs` and rebuild. The
 ```
 src/
   main.ts              boot, menu, game loop, touch controls
-  game/Game.ts         game state, player, collisions, wanted level, drawing
-  game/AI.ts           traffic, police pursuit (A*), pedestrians, trams, spawning
-  game/Combat.ts       weapons, explosions, particles, decals
-  world/World.ts       map data, collision grid, water/bridge/street queries
-  world/Graph.ts       road network + A*
-  world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings, shadows, trees, lamps
-  world/BuildingGeometry.ts  exposed wall pieces (party walls hidden) and roof slopes, built at load
+  shared/              the DOM-free simulation, run by the browser (offline) and the server (online)
+    world/World.ts     map data, collision grid (buildings, walls, fences, trees, tunnel tubes),
+                       levels (tunnel / ground / bridge deck), water, piers, line of sight
+    world/Graph.ts     road, footpath and tram networks + A*
+    world/TrafficLights.ts  stop lines and signal phases from the real traffic lights
+    entities/          Vehicle (arcade physics), Ped, Tram, Helicopter, props
+    sim/               Sim: AI (traffic, pedestrians, trams, parking), police, combat rules, pickups, clock
+    net/               wire protocol and binary codec
+  game/Game.ts         game state, player, wanted level, drawing
+  game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online
+  world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings, shadows, trees, lamps,
+                       walls and fences, tunnel portals, traffic lights
+  world/BuildingGeometry.ts  exposed wall pieces (party walls hidden, archways cut) and roof slopes
   world/Textures.ts    procedural surface textures (asphalt, cobbles, grass, roof tiles…)
   world/Atmosphere.ts  time of day, sun, ambient colour, rain
   world/Lighting.ts    light map (lamps, headlights, explosions) multiplied over the world
   world/Weather.ts     rain streaks, splashes, lightning
-  entities/            Vehicle (arcade physics), Ped, Tram
+  render/              vehicles, peds, trams, props, name tags, WebGL PostFX
   missions/Missions.ts mission definitions and runner
   ui/                  HUD, minimap and full map
   audio/Audio.ts       WebAudio sound effects and radio
   data/brands.ts       parody brands, radio stations, landmark texts
+server/src/            the multiplayer game server (see docs/multiplayer.md)
 ```
 
 ## Credits and licences
 
 - Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License (ODbL). The derived `public/data/bratislava.json` is also ODbL.
+- Floor counts for building heights: Digitálna technická mapa hlavného mesta SR Bratislavy (©) Hlavné mesto SR Bratislava, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The game uses heights derived from them.
 - All graphics are drawn procedurally in code. The coat-of-arms emblem (`public/assets/erb.svg`) is an original simplified drawing inspired by the Bratislava arms.
 - Brands and ads are parodies; any resemblance is satirical. This is a fan project and is not affiliated with Rockstar Games or any company whose products are spoofed.
 

@@ -5,6 +5,7 @@ import { Ent } from '../../src/shared/net/codec';
 import { HitKind } from '../../src/shared/sim/Combat';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, loadWorld, stateMsg } from './helpers';
 import type { Ped } from '../../src/shared/entities/Ped';
+import { Vehicle } from '../../src/shared/entities/Vehicle';
 
 function setup() {
   const clock = new FakeClock();
@@ -212,6 +213,39 @@ describe('Room', () => {
     room.onMessage(a.conn, JSON.stringify({ t: 'exit', x, y, veh: { x: car.x, y: car.y, a: car.angle, vx: 0, vy: 0, av: 0, hp: car.health, dmg: [0, 0, 0, 0], fire: -1, tyres: 0, nitro: 1, lvl: 0 } }));
     expect(car.owner).toBe(0);
     expect(car.kinematic).toBe(false);
+  });
+
+  it('plays in the Suché mýto tunnel: resumes there, shots at level -1 count, a car left there stays underground', () => {
+    const { room, tick, clock } = setup();
+    const [x, y, ang] = [-403.5, -740, -0.66];
+    const link = new FakeLink();
+    const conn = room.onJoin(link);
+    // a client that was in the tunnel when the server restarted
+    room.onMessage(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token: TOKEN_A, nick: 'Anna', resume: { x, y, lvl: -1, car: 0 } }));
+    const w = link.last('welcome');
+    expect(w.lvl).toBe(-1);
+    expect(Math.hypot(w.x - x, w.y - y)).toBeLessThan(0.5);
+    const p = room.sim.players.get(w.id)!;
+    room.onMessage(conn, stateMsg(x, y, { lvl: -1 }));
+    const car = room.sim.addVehicle(new Vehicle('sedan', x + Math.cos(ang) * 5, y + Math.sin(ang) * 5, ang, '#fff'));
+    car.parked = true;
+    car.level = -1;
+    car.levelInit = true;
+    tick(10);
+    room.onMessage(conn, JSON.stringify({ t: 'debug', give: 'pistol' }));
+    const hx = car.x - Math.cos(ang) * 2, hy = car.y - Math.sin(ang) * 2;
+    const hp = car.health;
+    room.onMessage(conn, JSON.stringify({ t: 'fire', w: 'pistol', ox: x + Math.cos(ang) * 0.5, oy: y + Math.sin(ang) * 0.5, a: ang, lvl: -1, rt: clock.t, pellets: [{ a: ang, kind: HitKind.Car, hit: car.id, hx, hy }] }));
+    tick(2);
+    expect(car.health).toBeLessThan(hp);
+    room.onMessage(conn, JSON.stringify({ t: 'enter', vid: car.id }));
+    tick();
+    expect(car.owner).toBe(w.id);
+    room.onMessage(conn, JSON.stringify({ t: 'exit', x: car.x, y: car.y, veh: { x: car.x, y: car.y, a: car.angle, vx: 0, vy: 0, av: 0, hp: car.health, dmg: [0, 0, 0, 0], fire: -1, tyres: 0, nitro: 1, lvl: -1 } }));
+    tick(4);
+    expect(car.owner).toBe(0);
+    expect(car.level).toBe(-1);
+    expect(p.ped.level).toBe(-1);
   });
 
   it('rate-limits state spam and closes abusive connections', () => {

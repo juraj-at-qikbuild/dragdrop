@@ -1,7 +1,8 @@
 // Canvas drawing for police props (client only).
+import type { Level } from '../shared/world/World';
 import type { Prop } from '../shared/entities/Props';
 
-export function drawProps(ctx: CanvasRenderingContext2D, props: readonly Prop[], level: 0 | 1) {
+export function drawProps(ctx: CanvasRenderingContext2D, props: readonly Prop[], level: Level) {
   for (const p of props) {
     if (p.level !== level) continue;
     ctx.save();

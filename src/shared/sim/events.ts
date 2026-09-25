@@ -1,6 +1,7 @@
 // Everything the simulation wants the outside world to *see or hear* goes through a SimEvents sink
 // instead of calling audio/particles/HUD directly. The browser maps events to effects (ClientEvents);
 // the server batches them into network messages for clients in range (NetEvents).
+import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
 
 /** Messages meant for one player only (HUD, sounds, their own car). */
@@ -44,7 +45,7 @@ export interface ShotFx {
   y: number;
   a: number;
   w: WeaponId;
-  lvl: 0 | 1;
+  lvl: Level;
   /** tracer end points, flat [x, y, ...] */
   ends: number[];
   /** bit i set: pellet i ended on a wall or car (spark there) */

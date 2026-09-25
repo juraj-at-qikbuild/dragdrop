@@ -1,6 +1,7 @@
 // About one second of recent positions per entity. Clients render the world ~100 ms (+ half their
 // ping) in the past and aim at what they see, so a hit they claim is checked against where the target
 // was at *their* render time, not where it is now (lag compensation, validation only).
+import type { Level } from '../../src/shared/world/World';
 
 const N = 24; // samples per entity (1.2 s at 20 Hz)
 
@@ -8,7 +9,8 @@ interface Ring {
   t: Float64Array;
   x: Float32Array;
   y: Float32Array;
-  lvl: Uint8Array;
+  /** -1 in a tunnel, 0 ground, 1 bridge deck (signed) */
+  lvl: Int8Array;
   alive: Uint8Array;
   head: number;
   n: number;
@@ -18,7 +20,7 @@ interface Ring {
 export interface Past {
   x: number;
   y: number;
-  lvl: 0 | 1;
+  lvl: Level;
   alive: boolean;
   /** speed around that time, m/s */
   speed: number;
@@ -28,10 +30,10 @@ export class History {
   private rings = new Map<number, Ring>();
   private tick = 0;
 
-  record(t: number, id: number, x: number, y: number, lvl: 0 | 1, alive: boolean) {
+  record(t: number, id: number, x: number, y: number, lvl: Level, alive: boolean) {
     let r = this.rings.get(id);
     if (!r) {
-      r = { t: new Float64Array(N), x: new Float32Array(N), y: new Float32Array(N), lvl: new Uint8Array(N), alive: new Uint8Array(N), head: 0, n: 0, seen: 0 };
+      r = { t: new Float64Array(N), x: new Float32Array(N), y: new Float32Array(N), lvl: new Int8Array(N), alive: new Uint8Array(N), head: 0, n: 0, seen: 0 };
       this.rings.set(id, r);
     }
     const i = r.head;
@@ -77,7 +79,7 @@ export class History {
     return {
       x: r.x[i0] + (r.x[i1] - r.x[i0]) * f,
       y: r.y[i0] + (r.y[i1] - r.y[i0]) * f,
-      lvl: (f < 0.5 ? r.lvl[i0] : r.lvl[i1]) as 0 | 1,
+      lvl: (f < 0.5 ? r.lvl[i0] : r.lvl[i1]) as Level,
       alive: !!(f < 0.5 ? r.alive[i0] : r.alive[i1]),
       speed,
     };

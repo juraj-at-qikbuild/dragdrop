@@ -23,9 +23,11 @@ export function hash01(a: number, b: number) {
 
 /** Floats per wall piece: the original edge's start (ax, ay), unit direction (ux, uy), outward
  *  normal (nx, ny) and length L; the piece's range u0..u1 (metres along that edge); the height
- *  (m) the visible wall starts at (0 = ground, else a lower neighbour's roof); facade variant
- *  (0-2); shopfront flag. Pieces of one edge share the edge's frame so facades stay aligned. */
-export const WP = 12;
+ *  (m) the visible wall starts at (0 = ground, else a lower neighbour's roof or the base of a
+ *  raised structure); facade variant (0-2); shopfront flag; the range (metres along the edge) of
+ *  a passage opening in its ground floor, or -1, -1. Pieces of one edge share the edge's frame
+ *  so facades stay aligned. */
+export const WP = 14;
 
 /** gap tolerance when looking for a neighbour against a wall (OSM outlines don't always touch) */
 const PROBES = [0.35, 0.9];
@@ -118,9 +120,20 @@ export function wallPieces(world: World, b: Building, ownH: number): number[] {
       if (L < 0.05) continue;
       const ux = ex / L, uy = ey / L, nx = uy, ny = -ux;
       const variant = (hash01((ax * 131 + ay * 977) | 0, 4) * 3) | 0;
-      for (const [t0, t1, base] of baseRuns(coverage(world, b, ax, ay, bx, by, nx, ny), ownH, L)) {
+      for (const [t0, t1, run] of baseRuns(coverage(world, b, ax, ay, bx, by, nx, ny), ownH, L)) {
+        const base = Math.max(run, b.minH);
         if (base >= ownH - 0.05) continue;
-        out.push(ax, ay, ux, uy, nx, ny, L, t0 * L, t1 * L, base, variant, 0);
+        // a gateway or passage through the building opens its ground floor here
+        let o0 = -1, o1 = -1;
+        if (base === 0)
+          for (const [u0, u1] of world.passageSpans(ax, ay, bx, by)) {
+            const s0 = Math.max(u0, t0), s1 = Math.min(u1, t1);
+            if (s1 - s0 > 0.02) {
+              (o0 = s0 * L), (o1 = s1 * L);
+              break;
+            }
+          }
+        out.push(ax, ay, ux, uy, nx, ny, L, t0 * L, t1 * L, base, variant, 0, o0, o1);
       }
     }
   }

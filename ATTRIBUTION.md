@@ -9,6 +9,13 @@ The game world is generated from OpenStreetMap:
 
 `public/data/bratislava.json` is a Derived Database of OpenStreetMap data and is also licensed under the ODbL. The attribution is shown in the game's main menu ("O hre") and on the full-screen map.
 
+Heights of the buildings OpenStreetMap has no height for are derived from the number of floors in Bratislava's digital technical map (the "Podlažnosť" layer of the `tm/Stavby` service on geoportal.bratislava.sk, fetched by `scripts/fetch-heights.mjs`):
+
+> Digitálna technická mapa hlavného mesta SR Bratislavy (©) Hlavné mesto SR Bratislava. Licensed under CC BY 4.0.
+> https://creativecommons.org/licenses/by/4.0/
+
+The game does not ship the city's data itself, only what is derived from it: each such building's number of storeys, the median floor count of the city's label points inside its footprint. This attribution is also shown in the main menu ("O hre").
+
 ## Artwork and audio
 
 - Vehicles, pedestrians, trams, buildings, rooftop ads, UI and the UFO on Most SNP are drawn procedurally in code.

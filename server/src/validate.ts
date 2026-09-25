@@ -1,5 +1,6 @@
 // Server-side sanity checks for client-reported movement. Movement stays client-authoritative
 // (see docs/multiplayer.md); these only reject impossible speeds, teleports and garbage.
+import type { Level } from '../../src/shared/world/World';
 
 /** metres per second a player can plausibly cover on foot (running is 7.2) */
 export const FOOT_MAX = 7.2 * 1.5;
@@ -80,7 +81,7 @@ export interface PelletClaim {
 export interface TargetThen {
   x: number;
   y: number;
-  lvl: 0 | 1;
+  lvl: Level;
   alive: boolean;
   speed: number;
   /** body radius: ped radius, or half the car's width plus half its length for cars */
@@ -92,7 +93,7 @@ export interface TargetThen {
  * near where the target was at the shooter's render time, with no wall in between.
  * `wallT` is world.raycast(ox, oy, hx, hy): the fraction of the way before the first wall (1 = clear).
  */
-export function plausibleHit(c: PelletClaim, target: TargetThen | null, lvl: 0 | 1, wallT: number): boolean {
+export function plausibleHit(c: PelletClaim, target: TargetThen | null, lvl: Level, wallT: number): boolean {
   if (!target || !target.alive || target.lvl !== lvl) return false;
   const dx = c.hx - c.ox, dy = c.hy - c.oy;
   const along = dx * Math.cos(c.a) + dy * Math.sin(c.a);

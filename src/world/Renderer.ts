@@ -1,5 +1,5 @@
-import type { World, Building } from '../shared/world/World';
-import { bboxOf, bboxHit, rng, pointInRings, ringArea, type BBox } from '../shared/util/math';
+import { BARRIERS, type World, type Building } from '../shared/world/World';
+import { bboxOf, bboxHit, rng, pointInRings, type BBox } from '../shared/util/math';
 import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
@@ -12,7 +12,7 @@ const CHUNK = 128;
 /** `tex` (a pattern baked over `color`) replaces `color` when zoomed in enough to see it */
 type DrawOp =
   | { kind: 'fill'; color: string; tex?: CanvasPattern }
-  | { kind: 'stroke'; color: string; width: number; dash?: number[]; tex?: CanvasPattern };
+  | { kind: 'stroke'; color: string; width: number; dash?: number[]; tex?: CanvasPattern; cap?: CanvasLineCap };
 
 interface Layer {
   op: DrawOp;
@@ -159,6 +159,8 @@ interface Chunk {
   manholePath?: Path2D;
   /** puddle shapes along roads; only filled at runtime when atmos.wet > 0.3 */
   puddlePath?: Path2D;
+  /** walls, fences and hedges by barrier kind (see World.BARRIERS) */
+  barriers?: (Path2D | undefined)[];
 }
 
 export interface View {
@@ -182,8 +184,9 @@ const AREA_COLORS: Record<string, string> = {
   green: '#86a860',
   wood: '#5e8948',
   water: '#3a6f93',
+  pier: '#8a7f70',
 };
-const AREA_ORDER = ['plaza', 'parking', 'rail', 'pitch', 'sand', 'green', 'wood', 'water'];
+const AREA_ORDER = ['plaza', 'parking', 'rail', 'pitch', 'sand', 'green', 'wood', 'water', 'pier'];
 const AREA_TEX: Partial<Record<string, TexKind>> = { plaza: 'cobble', green: 'grass', pitch: 'grass', wood: 'wood', sand: 'sand', parking: 'asphalt', water: 'water' };
 
 const ROAD_FILL = ['#3f4045', '#414247', '#45464b', '#47484d', '#4a4b50', '#4d4e52', '#555558', '#58595c', '#d6ccb4', '#c8bca1', '#a69a7f'];
@@ -193,6 +196,9 @@ const ROOFS = ['#b0583a', '#a04d33', '#b86b4b', '#8b8580', '#7b7772', '#6a6d72',
 const FLAT_ROOFS = ['#9fa2a5', '#b3b4b3', '#8e9196', '#a7a39b'];
 /** warm pastel Central-European facade palette, replacing the old single brown wall */
 const OLD_WALLS = ['#d9c9a8', '#e3d3b4', '#cdb89a', '#e6dcc8', '#c9b79c', '#d8c3a5', '#bfb2a0'];
+
+/** traffic light lamps: green, amber, red */
+const SIGNAL_LAMP = ['#39e36b', '#ffb300', '#ff3d2e'];
 
 /** wall brightness from away-from-sun to facing-sun (ambient keeps shaded walls readable) */
 const WALL_SHADE_LEVELS = [0.7, 0.8, 0.92, 1.04];
@@ -261,7 +267,7 @@ function offsetPolyline(p: ArrayLike<number>, off: number): number[] {
 
 /** true for a ground layer that belongs to a bridge deck (drawn in `drawBridges`, not `drawGround`) */
 function isBridgeLayer(key: string): boolean {
-  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1') || key.startsWith('kerb1');
+  return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1') || key.startsWith('kerb1') || key.startsWith('rl1');
 }
 
 /** World-space rect actually covered by the canvas under its current transform (so it
@@ -359,13 +365,24 @@ export class Renderer {
     // areas (+ a textured overlay for the ones that benefit from it)
     AREA_ORDER.forEach((kind, i) => {
       const tex = AREA_TEX[kind];
-      for (const rings of w.data.areas[kind as keyof typeof w.data.areas]) {
+      for (const rings of w.data.areas[kind as keyof typeof w.data.areas] ?? []) {
         const c = this.chunkAt(bboxOf(rings[0]), map);
         const col = AREA_COLORS[kind];
         const p = this.path(c, 'a:' + kind, { kind: 'fill', color: col, tex: tex && texture(tex, col) }, i);
         for (const r of rings) addPoly(p, r, true);
         if (kind === 'water') {
           const edge = this.path(c, 'a:water:edge', { kind: 'stroke', color: 'rgba(220,240,255,0.35)', width: 0.5 }, i + 0.6);
+          for (const r of rings) addPoly(edge, r, true);
+        }
+        if (kind === 'pier') {
+          // deck boards and the dark rim of a pontoon or pier
+          const planks = this.path(c, 'a:pier:planks', { kind: 'stroke', color: 'rgba(60,48,36,0.25)', width: 0.08 }, i + 0.3);
+          const bb = bboxOf(rings[0]);
+          for (let y = Math.floor(bb.y0) + 0.5; y < bb.y1; y += 0.9) {
+            planks.moveTo(bb.x0, y);
+            planks.lineTo(bb.x1, y);
+          }
+          const edge = this.path(c, 'a:pier:edge', { kind: 'stroke', color: '#4d4338', width: 0.35 }, i + 0.6);
           for (const r of rings) addPoly(edge, r, true);
         }
       }
@@ -428,8 +445,19 @@ export class Renderer {
       }
     }
 
-    // zebra crossings: where >=3 car roads of class <=5 meet
-    {
+    // zebra crossings: the real marked crossings where the map has them (else where >= 3 car
+    // roads meet): bars across the street, 0.5 m apart and 3 m deep, like the painted ones
+    if (w.data.crossings) {
+      const cr = w.data.crossings;
+      for (let i = 0; i < cr.length; i += 4) {
+        const x = cr[i], y = cr[i + 1], a = cr[i + 2], hw = Math.min(cr[i + 3] / 2, 9);
+        const nx = -Math.sin(a), ny = Math.cos(a);
+        const c = this.chunkAt({ x0: x - hw, y0: y - hw, x1: x + hw, y1: y + hw }, map);
+        const zebra = this.path(c, 'z:zebra', { kind: 'stroke', color: 'rgba(236,233,222,0.88)', width: 3, dash: [0.5, 0.5], cap: 'butt' }, 260);
+        zebra.moveTo(x - nx * hw * 0.9, y - ny * hw * 0.9);
+        zebra.lineTo(x + nx * hw * 0.9, y + ny * hw * 0.9);
+      }
+    } else {
       const deg = new Map<number, number>();
       for (const e of w.car.edges) {
         if (e.cls > 5) continue;
@@ -465,31 +493,68 @@ export class Renderer {
       addPoly(this.path(c, 't:wire', { kind: 'stroke', color: 'rgba(20,20,20,0.3)', width: 0.06 }, 262), t, false);
     }
 
-    // street lamps every ~28m along car roads (class <=6), one side of the road
+    // railway tracks: ballast, sleepers and two rails at 1.435 m gauge (bridges with the decks)
+    for (const rl of w.data.rails ?? []) {
+      const b = rl.b ? 1 : 0;
+      const c = this.chunkAt(bboxOf(rl.p, 3), map);
+      if (b) {
+        addPoly(this.path(c, 'bc:rail', { kind: 'stroke', color: '#2b2b2e', width: 5.4 }, 201), rl.p, false);
+        addPoly(this.path(c, 'br:rail', { kind: 'stroke', color: '#7d776d', width: 4.6 }, 202), rl.p, false);
+        this.bridges.push({ p: Float32Array.from(rl.p), hw: 2.3, bbox: bboxOf(rl.p, 3.5) });
+      } else addPoly(this.path(c, 'rl0:bed', { kind: 'stroke', color: '#8a8276', width: 3 }, 255), rl.p, false);
+      addPoly(this.path(c, `rl${b}:sleepers`, { kind: 'stroke', color: '#5b4a3b', width: 2.3, dash: [0.24, 0.36], cap: 'butt' }, 256 + b * 100), rl.p, false);
+      addPoly(this.path(c, `rl${b}:railL`, { kind: 'stroke', color: '#2a2a2d', width: 0.12 }, 257 + b * 100), offsetPolyline(rl.p, 0.72), false);
+      addPoly(this.path(c, `rl${b}:railR`, { kind: 'stroke', color: '#2a2a2d', width: 0.12 }, 257 + b * 100), offsetPolyline(rl.p, -0.72), false);
+    }
+
+    // street lamps: the real ones, then every ~28 m along car roads (class <= 6), one side of the
+    // road, wherever the map has none within ~22 m
+    const LG = 32;
+    const lampGrid = new Map<number, number[]>();
+    const addLamp = (lx: number, ly: number) => {
+      const c = this.chunkAt({ x0: lx, y0: ly, x1: lx, y1: ly }, map);
+      (c.lamps ??= []).push(lx, ly);
+      const lp = (c.lampPath ??= new Path2D());
+      lp.moveTo(lx + 0.45, ly);
+      lp.arc(lx, ly, 0.45, 0, Math.PI * 2);
+      lp.moveTo(lx + 0.12, ly);
+      lp.arc(lx, ly, 0.12, 0, Math.PI * 2);
+    };
+    const realLamps = w.data.lamps;
+    if (realLamps)
+      for (let i = 0; i < realLamps.length; i += 2) {
+        const lx = realLamps[i], ly = realLamps[i + 1];
+        addLamp(lx, ly);
+        const k = Math.floor(lx / LG) * 4096 + Math.floor(ly / LG);
+        let g = lampGrid.get(k);
+        if (!g) lampGrid.set(k, (g = []));
+        g.push(lx, ly);
+      }
+    const lampNear = (x: number, y: number, r: number) => {
+      for (let gx = Math.floor((x - r) / LG); gx <= Math.floor((x + r) / LG); gx++)
+        for (let gy = Math.floor((y - r) / LG); gy <= Math.floor((y + r) / LG); gy++) {
+          const g = lampGrid.get(gx * 4096 + gy);
+          if (g) for (let i = 0; i < g.length; i += 2) if ((g[i] - x) ** 2 + (g[i + 1] - y) ** 2 < r * r) return true;
+        }
+      return false;
+    };
     for (const r of w.data.roads) {
       if (r.c > 6) continue;
       walkPolyline(r.p, 28, hash01(r.p[0] | 0, r.p[1] | 0) * 20, (x, y, nx, ny) => {
         const off = r.w / 2 + 0.8;
         const lx = x + nx * off, ly = y + ny * off;
-        const c = this.chunkAt({ x0: lx, y0: ly, x1: lx, y1: ly }, map);
-        (c.lamps ??= []).push(lx, ly);
-        const lp = (c.lampPath ??= new Path2D());
-        lp.moveTo(lx + 0.45, ly);
-        lp.arc(lx, ly, 0.45, 0, Math.PI * 2);
-        lp.moveTo(lx + 0.12, ly);
-        lp.arc(lx, ly, 0.12, 0, Math.PI * 2);
+        if (realLamps && lampNear(lx, ly, 22)) return;
+        addLamp(lx, ly);
       });
     }
 
-    // trees: scattered through wood/green polygons, plus rows along major roads
-    const addTree = (x: number, y: number, seed: number) => {
-      if (this.treeCount >= 6000) return;
-      if (w.insideBuilding(x, y)) return;
+    // trees (World.trees: the real ones, then woods and parks filled in)
+    const tr = w.trees;
+    for (let i = 0; i < tr.length; i += 4) {
+      const x = tr[i], y = tr[i + 1], rad = tr[i + 2];
       const c = this.chunkAt({ x0: x, y0: y, x1: x, y1: y }, map);
       const t = (c.trees ??= { shadow: new Path2D(), canopy: [new Path2D(), new Path2D(), new Path2D(), new Path2D()], highlight: new Path2D() });
-      const r = rng(seed);
-      const rad = 2 + r() * 2.5;
-      const tone = (r() * 4) | 0;
+      const tone = (rng(tr[i + 3])() * 4) | 0;
       t.shadow.moveTo(x + rad * 0.9, y + rad * 0.4);
       t.shadow.arc(x + rad * 0.15, y + rad * 0.3, rad * 0.85, 0, Math.PI * 2);
       const cp = t.canopy[tone];
@@ -500,33 +565,13 @@ export class Renderer {
       t.highlight.moveTo(x + rad * 0.4, y - rad * 0.35);
       t.highlight.arc(x, y - rad * 0.35, rad * 0.38, 0, Math.PI * 2);
       this.treeCount++;
-    };
-    const scatterArea = (kind: 'wood' | 'green', perM2: number, maxPer: number) => {
-      for (const rings of w.data.areas[kind]) {
-        const bb = bboxOf(rings[0]);
-        const area = ringArea(rings[0]);
-        const n = Math.min(maxPer, Math.round(area / perM2));
-        const r = rng(((bb.x0 * 131) ^ (bb.y0 * 977) ^ (n * 17)) | 0);
-        let placed = 0, tries = 0;
-        while (placed < n && tries < n * 6 && this.treeCount < 6000) {
-          tries++;
-          const x = bb.x0 + r() * (bb.x1 - bb.x0);
-          const y = bb.y0 + r() * (bb.y1 - bb.y0);
-          if (!pointInRings(x, y, rings)) continue;
-          addTree(x, y, (x * 7349 + y * 613 + tries * 97) | 0);
-          placed++;
-        }
-      }
-    };
-    scatterArea('wood', 85, 500);
-    scatterArea('green', 260, 220);
-    for (const r of w.data.roads) {
-      if (r.c > 4 || r.b || this.treeCount >= 6000) continue;
-      const side = hash01(r.p[0] | 0, r.p[1] | 0) < 0.5 ? 1 : -1;
-      walkPolyline(r.p, 15, hash01(r.p[1] | 0, r.p[0] | 0) * 15, (x, y, nx, ny) => {
-        const off = r.w / 2 + 1.5;
-        addTree(x + nx * off * side, y + ny * off * side, (x * 331 + y * 971) | 0);
-      });
+    }
+
+    // walls, fences and hedges (drawn with their shadows in `drawBarriers`)
+    for (const bar of w.data.barriers ?? []) {
+      const c = this.chunkAt(bboxOf(bar.p, 1), map);
+      const list = (c.barriers ??= []);
+      addPoly((list[bar.k] ??= new Path2D()), bar.p, false);
     }
 
     this.buildBuildings(map);
@@ -547,6 +592,8 @@ export class Renderer {
     const pieceOf = new Map<Building, { pieces: number[]; entry: { set: WallSet; pieces: number[] } }>();
     const oldTownAt = w.landmark('main');
     for (const b of w.buildings) {
+      // the Most SNP pylon and its UFO are drawn by the game as one structure (Game.drawLandmarks)
+      if (b.kind === 5) continue;
       const c = this.chunkAt(b.bboxAll, map);
       c.nBuildings++;
       const r = rng(b.seed * 7919);
@@ -590,7 +637,8 @@ export class Renderer {
       }
       bboxOf(b.rings[0], 0, t.bbox);
       for (let i = 1; i < b.rings.length; i++) bboxOf(b.rings[i], 0, t.bbox);
-      t.rings.push(...b.rings);
+      // ground shadow from the footprint up (a raised structure's own small shadow is left out)
+      if (!b.minH) t.rings.push(...b.rings);
 
       // walls: only the exposed parts (party walls hidden, or starting at a lower neighbour's roof)
       const pieces = wallPieces(w, b, h);
@@ -753,7 +801,7 @@ export class Renderer {
 
     // rooftop advertising on the biggest flat roofs (like GTA 2)
     const candidates = w.buildings
-      .filter((b) => b.kind !== 1 && b.kind !== 2 && b.kind !== 4 && b.area > 900 && b.rings.length === 1)
+      .filter((b) => b.kind !== 1 && b.kind !== 2 && b.kind !== 4 && b.kind !== 5 && b.area > 900 && b.rings.length === 1)
       .sort((a, b) => b.area - a.area)
       .slice(0, 60);
     const rnd = rng(42);
@@ -811,15 +859,25 @@ export class Renderer {
         ctx.strokeStyle = col;
         ctx.lineWidth = op.width;
         ctx.setLineDash(op.dash ?? []);
+        ctx.lineCap = op.cap ?? 'round';
       }
       for (const c of vis) {
         const p = c.layers.get(key);
         if (!p) continue;
-        if (op.kind === 'fill') ctx.fill(p, 'evenodd');
+        // pier planks run across the whole bbox: keep them on the deck
+        if (key === 'a:pier:planks') {
+          const deck = c.layers.get('a:pier');
+          if (!deck) continue;
+          ctx.save();
+          ctx.clip(deck, 'evenodd');
+          ctx.stroke(p);
+          ctx.restore();
+        } else if (op.kind === 'fill') ctx.fill(p, 'evenodd');
         else ctx.stroke(p);
       }
     }
     ctx.setLineDash([]);
+    ctx.lineCap = 'round';
 
     // wet roads: cheap translucent overlay reusing the same fill geometry
     const wet = this.atmos.wet;
@@ -1131,6 +1189,12 @@ export class Renderer {
         ctx.fillStyle = pc[i + 11] ? shopTex[variant] : door[variant];
         this.facadeQuad(ctx, pc, i, P, levels, 0, Math.min(1, levels));
         ctx.fill();
+        // a gateway or passage through the building: a dark opening in the ground floor
+        if (pc[i + 12] >= 0) {
+          ctx.fillStyle = 'rgba(16,14,12,0.9)';
+          this.facadeQuad(ctx, pc, i, P, levels, 0, Math.min(0.82, levels), pc[i + 12], pc[i + 13]);
+          ctx.fill();
+        }
       }
       // Lambert shading on top so the baked tile still reads sun direction (skip the extra
       // fill where it would barely register)
@@ -1155,9 +1219,10 @@ export class Renderer {
     return pc[i + 9] / STOREY;
   }
 
-  /** Path of piece `i`'s wall between storeys lv0 and lv1, in the facadePiece space. */
-  private facadeQuad(ctx: CanvasRenderingContext2D, pc: Float32Array, i: number, P: Proj, levels: number, lv0: number, lv1: number) {
-    const u0 = pc[i + 7], u1 = pc[i + 8], half = pc[i + 6] / 2;
+  /** Path of piece `i`'s wall between storeys lv0 and lv1 (and, if given, between u0 and u1
+   *  metres along its edge), in the facadePiece space. */
+  private facadeQuad(ctx: CanvasRenderingContext2D, pc: Float32Array, i: number, P: Proj, levels: number, lv0: number, lv1: number, u0 = pc[i + 7], u1 = pc[i + 8]) {
+    const half = pc[i + 6] / 2;
     const f0 = (P.k * lv0) / levels, f1 = (P.k * lv1) / levels;
     ctx.beginPath();
     ctx.moveTo(u0 + (u0 - half) * f0, lv0);
@@ -1558,6 +1623,213 @@ export class Renderer {
         if (!bboxHit(a.b.bbox, v)) continue;
         L.point(a.b.cx, a.b.cy, Math.max(a.len, a.w) * 0.85, a.ad.accent, 0.55 * night);
       }
+    }
+  }
+
+  /** Walls, fortifications, fences and hedges: a sun shadow for their height, then the body
+   *  (a lighter top on masonry, posts on fences). Drawn over the ground, under everything else. */
+  drawBarriers(ctx: CanvasRenderingContext2D, v: View) {
+    const vis = this.chunks.filter((c) => c.barriers && bboxHit(c.bbox, { x0: v.x0 - 8, y0: v.y0 - 8, x1: v.x1 + 8, y1: v.y1 + 8 }));
+    if (!vis.length) return;
+    const day = this.atmos.daylight, sun = this.atmos.sun;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (let k = 0; k < BARRIERS.length; k++) {
+      const B = BARRIERS[k];
+      const paths: Path2D[] = [];
+      for (const c of vis) {
+        const p = c.barriers![k];
+        if (p) paths.push(p);
+      }
+      if (!paths.length) continue;
+      const w = Math.max(0.12, B.ht * 2);
+      ctx.lineCap = k === 4 ? 'round' : 'butt';
+      if (day > 0.05 && v.scale > 2) {
+        // the shadow band: the line swept away from the sun up to its height
+        const h = Math.min(B.h, 5);
+        ctx.strokeStyle = `rgba(20,25,45,${(k === 3 ? 0.1 : 0.2) * day})`;
+        ctx.lineWidth = w;
+        for (const f of [0.35, 0.7, 1]) {
+          ctx.translate(sun.dx * h * f, sun.dy * h * f);
+          for (const p of paths) ctx.stroke(p);
+          ctx.translate(-sun.dx * h * f, -sun.dy * h * f);
+        }
+      }
+      if (k === 3) {
+        // fence: wire plus posts every 2.5 m
+        ctx.strokeStyle = B.color;
+        ctx.lineWidth = 0.07;
+        for (const p of paths) ctx.stroke(p);
+        if (v.scale > 4) {
+          ctx.lineWidth = 0.2;
+          ctx.setLineDash([0.2, 2.3]);
+          for (const p of paths) ctx.stroke(p);
+          ctx.setLineDash([]);
+        }
+        continue;
+      }
+      // masonry and hedges: a darker outline, the body, then a light top edge
+      ctx.strokeStyle = k === 4 ? '#35572a' : shade(B.color, 0.62);
+      ctx.lineWidth = w + 0.12;
+      for (const p of paths) ctx.stroke(p);
+      ctx.strokeStyle = B.color;
+      ctx.lineWidth = w;
+      for (const p of paths) ctx.stroke(p);
+      if (v.scale > 3 && k !== 4) {
+        ctx.strokeStyle = 'rgba(255,250,235,0.35)';
+        ctx.lineWidth = Math.max(0.05, w * 0.3);
+        for (const p of paths) ctx.stroke(p);
+        if (k === 1) {
+          // battlements along the top of the city and castle walls
+          ctx.strokeStyle = shade(B.color, 0.8);
+          ctx.lineWidth = w * 0.5;
+          ctx.setLineDash([0.8, 0.8]);
+          for (const p of paths) ctx.stroke(p);
+          ctx.setLineDash([]);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Tunnel portals: where a road or the tram line dives underground, a dark mouth sloping away
+   *  into the tunnel between two concrete retaining walls. */
+  drawPortals(ctx: CanvasRenderingContext2D, v: View) {
+    const DEPTH = 9;
+    for (const t of this.world.tunnels) {
+      if (!bboxHit(t.bbox, { x0: v.x0 - 20, y0: v.y0 - 20, x1: v.x1 + 20, y1: v.y1 + 20 })) continue;
+      const p = t.p, n = p.length;
+      for (const fromEnd of [false, true]) {
+        if (!t.open[fromEnd ? 1 : 0]) continue;
+        const x = fromEnd ? p[n - 2] : p[0], y = fromEnd ? p[n - 1] : p[1];
+        const ix = fromEnd ? p[n - 4] : p[2], iy = fromEnd ? p[n - 3] : p[3];
+        const d = Math.hypot(ix - x, iy - y) || 1;
+        const ux = (ix - x) / d, uy = (iy - y) / d, nx = -uy, ny = ux;
+        const hw = t.hw + 0.3, L = Math.min(DEPTH, d);
+        const g = ctx.createLinearGradient(x, y, x + ux * L, y + uy * L);
+        g.addColorStop(0, 'rgba(24,24,28,0.35)');
+        g.addColorStop(0.35, 'rgba(12,12,15,0.8)');
+        g.addColorStop(1, 'rgba(5,5,7,0.97)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(x + nx * hw, y + ny * hw);
+        ctx.lineTo(x + nx * hw + ux * L, y + ny * hw + uy * L);
+        ctx.lineTo(x - nx * hw + ux * L, y - ny * hw + uy * L);
+        ctx.lineTo(x - nx * hw, y - ny * hw);
+        ctx.closePath();
+        ctx.fill();
+        // retaining walls along the ramp and the portal's concrete lintel
+        ctx.strokeStyle = '#9b968c';
+        ctx.lineWidth = 0.5;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        for (const s of [1, -1]) {
+          ctx.moveTo(x + nx * hw * s - ux * 6, y + ny * hw * s - uy * 6);
+          ctx.lineTo(x + nx * hw * s + ux * L, y + ny * hw * s + uy * L);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = '#b4afa4';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x + nx * (hw + 0.4) + ux * 1.2, y + ny * (hw + 0.4) + uy * 1.2);
+        ctx.lineTo(x - nx * (hw + 0.4) + ux * 1.2, y - ny * (hw + 0.4) + uy * 1.2);
+        ctx.stroke();
+        ctx.lineCap = 'round';
+      }
+    }
+  }
+
+  /** The inside of the tunnels, for the see-through view while the player is underground:
+   *  tube walls, the roadway or track, and a row of lamps. */
+  drawTunnelInterior(ctx: CanvasRenderingContext2D, v: View) {
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'butt';
+    for (const t of this.world.tunnels) {
+      if (!bboxHit(t.bbox, v)) continue;
+      const path = new Path2D();
+      path.moveTo(t.p[0], t.p[1]);
+      for (let i = 2; i < t.p.length; i += 2) path.lineTo(t.p[i], t.p[i + 1]);
+      ctx.strokeStyle = '#1c1d21';
+      ctx.lineWidth = t.hw * 2 + 1.2;
+      ctx.stroke(path);
+      ctx.strokeStyle = t.tram ? '#4a4741' : '#3b3c41';
+      ctx.lineWidth = t.hw * 2;
+      ctx.stroke(path);
+      if (t.tram) {
+        ctx.strokeStyle = '#27272a';
+        ctx.lineWidth = 0.14;
+        for (const s of [0.72, -0.72]) {
+          const o = offsetPolyline(t.p, s);
+          ctx.beginPath();
+          for (let i = 0; i < o.length; i += 2) (i ? ctx.lineTo : ctx.moveTo).call(ctx, o[i], o[i + 1]);
+          ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 0.15;
+        ctx.setLineDash([3, 5]);
+        ctx.stroke(path);
+        ctx.setLineDash([]);
+      }
+      // sodium lamps on the tube wall
+      ctx.fillStyle = '#ffcc70';
+      walkPolyline(t.p, 12, 4, (x, y, nx, ny) => {
+        ctx.beginPath();
+        ctx.arc(x + nx * (t.hw + 0.2), y + ny * (t.hw + 0.2), 0.25, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    ctx.restore();
+  }
+
+  /** Traffic lights (World.lights) at world clock time `t` (seconds of the game day): painted stop lines and a signal
+   *  head at the right-hand kerb of each approach, lit in that approach's colour. */
+  drawTrafficLights(ctx: CanvasRenderingContext2D, v: View, t: number) {
+    const lights = this.world.lights;
+    if (v.scale < 3 || !lights.lines.length) return;
+    ctx.save();
+    ctx.lineCap = 'butt';
+    for (const l of lights.lines) {
+      if (l.x < v.x0 - 12 || l.x > v.x1 + 12 || l.y < v.y0 - 12 || l.y > v.y1 + 12) continue;
+      const rx = -l.uy, ry = l.ux;
+      if (l.hw >= 2.5) {
+        ctx.strokeStyle = 'rgba(240,238,230,0.85)';
+        ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(l.x + rx * 0.3, l.y + ry * 0.3);
+        ctx.lineTo(l.x + rx * (l.hw - 0.3), l.y + ry * (l.hw - 0.3));
+        ctx.stroke();
+      }
+      ctx.save();
+      ctx.translate(l.x + rx * (l.hw + 0.6), l.y + ry * (l.hw + 0.6));
+      ctx.rotate(Math.atan2(l.uy, l.ux));
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(-0.15, -0.35, 0.7, 1.2);
+      ctx.fillStyle = '#1e2124';
+      ctx.fillRect(-0.3, -0.5, 0.6, 1.2);
+      const st = lights.state(l, t);
+      for (let k = 0; k < 3; k++) {
+        ctx.fillStyle = k === st ? SIGNAL_LAMP[k] : 'rgba(80,80,80,0.9)';
+        ctx.beginPath();
+        ctx.arc(0, 0.35 - k * 0.35, 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /** Night glow of the lit traffic-light lamps. */
+  emitTrafficLights(L: LightLayer, t: number, night: number) {
+    if (night < 0.05) return;
+    const lights = this.world.lights;
+    for (const l of lights.lines) {
+      const hx = l.x - l.uy * (l.hw + 0.6), hy = l.y + l.ux * (l.hw + 0.6);
+      if (!L.visible(hx, hy, 4)) continue;
+      const c = SIGNAL_LAMP[lights.state(l, t)];
+      L.glow(hx, hy, 0.7, c, 0.9 * night);
+      L.point(hx, hy, 3, c, 0.35 * night);
     }
   }
 

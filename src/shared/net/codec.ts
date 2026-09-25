@@ -8,6 +8,7 @@ import type { Tram } from '../entities/Tram';
 import type { Prop, PropKind } from '../entities/Props';
 import type { Helicopter } from '../entities/Helicopter';
 import { PICKUP_KINDS, type Pickup, type PickupKind } from '../sim/Pickups';
+import type { Level } from '../world/World';
 
 export const MSG_SNAPSHOT = 1;
 export const MSG_STATE = 2;
@@ -199,7 +200,7 @@ export interface VehReport {
 export interface StateReport {
   seq: number;
   epoch: number;
-  lvl: 0 | 1;
+  lvl: Level;
   /** the figure's pose, or the car's while driving */
   x: number;
   y: number;
@@ -219,7 +220,8 @@ export function encodeState(w: Writer, s: StateReport) {
   w.u8(MSG_STATE);
   w.u16(s.seq & 0xffff);
   w.u8(s.epoch & 0xff);
-  w.u8((s.veh ? 1 : 0) | (s.lvl ? 2 : 0));
+  // flags: driving, on a bridge deck, in a tunnel
+  w.u8((s.veh ? 1 : 0) | (s.lvl === 1 ? 2 : 0) | (s.lvl === -1 ? 4 : 0));
   w.pos(s.x);
   w.pos(s.y);
   w.ang16(s.a);
@@ -249,7 +251,7 @@ export function decodeState(r: Reader): StateReport {
   if (r.u8() !== MSG_STATE) throw new RangeError('not a state message');
   const seq = r.u16(), epoch = r.u8(), flags = r.u8();
   const s: StateReport = {
-    seq, epoch, lvl: flags & 2 ? 1 : 0,
+    seq, epoch, lvl: flags & 4 ? -1 : flags & 2 ? 1 : 0,
     x: r.pos(), y: r.pos(), a: r.ang16(), vx: r.vel(), vy: r.vel(),
     weapon: WEAPON_LIST[r.u8()] ?? 'fist',
     camDx: r.i8(), camDy: r.i8(), hw: r.u16() / 10, hh: r.u16() / 10,
@@ -304,10 +306,10 @@ export function encodeSnapshotHeader(w: Writer, tick: number, serverMs: number, 
   }
 }
 
-// entity records: u16 id, u8 head (type:3 | static:1<<3 | level:1<<4), [static], dynamic
-export function entityHead(w: Writer, id: number, type: Ent, withStatic: boolean, level: 0 | 1) {
+// entity records: u16 id, u8 head (type:3 | static:1<<3 | on a deck:1<<4 | in a tunnel:1<<5), [static], dynamic
+export function entityHead(w: Writer, id: number, type: Ent, withStatic: boolean, level: Level) {
   w.u16(id);
-  w.u8(type | (withStatic ? 8 : 0) | (level ? 16 : 0));
+  w.u8(type | (withStatic ? 8 : 0) | (level === 1 ? 16 : 0) | (level === -1 ? 32 : 0));
 }
 
 /** static part of a vehicle: changes only when `rev` bumps */
@@ -480,12 +482,12 @@ export interface HeliRec {
 }
 
 export type EntityRec =
-  | { id: number; type: Ent.Vehicle; level: 0 | 1; full: boolean; v: VehicleRec }
-  | { id: number; type: Ent.Ped; level: 0 | 1; full: boolean; v: PedRec }
-  | { id: number; type: Ent.Tram; level: 0 | 1; full: boolean; v: TramRec }
-  | { id: number; type: Ent.Pickup; level: 0 | 1; full: boolean; v: PickupRec | null }
-  | { id: number; type: Ent.Prop; level: 0 | 1; full: boolean; v: PropRec }
-  | { id: number; type: Ent.Heli; level: 0 | 1; full: boolean; v: HeliRec };
+  | { id: number; type: Ent.Vehicle; level: Level; full: boolean; v: VehicleRec }
+  | { id: number; type: Ent.Ped; level: Level; full: boolean; v: PedRec }
+  | { id: number; type: Ent.Tram; level: Level; full: boolean; v: TramRec }
+  | { id: number; type: Ent.Pickup; level: Level; full: boolean; v: PickupRec | null }
+  | { id: number; type: Ent.Prop; level: Level; full: boolean; v: PropRec }
+  | { id: number; type: Ent.Heli; level: Level; full: boolean; v: HeliRec };
 
 export interface Snapshot {
   tick: number;
@@ -515,7 +517,7 @@ export function decodeSnapshot(r: Reader): Snapshot {
 
 function decodeEntity(r: Reader): EntityRec {
   const id = r.u16(), head = r.u8();
-  const type = (head & 7) as Ent, full = !!(head & 8), level = (head & 16 ? 1 : 0) as 0 | 1;
+  const type = (head & 7) as Ent, full = !!(head & 8), level: Level = head & 32 ? -1 : head & 16 ? 1 : 0;
   switch (type) {
     case Ent.Vehicle: {
       const v = {} as VehicleRec;

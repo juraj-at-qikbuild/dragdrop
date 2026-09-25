@@ -1,5 +1,7 @@
 // Static road props for police escalation: barriers/cones (visual, roadblock dressing)
 // and spike strips (functional: burst tyres of anything that drives over them).
+import type { Level } from '../world/World';
+
 export type PropKind = 'barrier' | 'cone' | 'spike';
 
 export class Prop {
@@ -11,7 +13,7 @@ export class Prop {
   x: number;
   y: number;
   angle: number; // direction of the road the prop sits across
-  level: 0 | 1;
+  level: Level;
   /** half-length across the road (the strip/barrier's own long axis) */
   len: number;
   /** half-thickness along the road direction, used for spike collision */
@@ -22,7 +24,7 @@ export class Prop {
   active = true;
   hits = 0;
 
-  constructor(kind: PropKind, x: number, y: number, angle: number, level: 0 | 1 = 0, len = 3, life = 60) {
+  constructor(kind: PropKind, x: number, y: number, angle: number, level: Level = 0, len = 3, life = 60) {
     this.kind = kind;
     this.x = x;
     this.y = y;
