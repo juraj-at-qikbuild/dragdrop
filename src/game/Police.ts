@@ -4,7 +4,7 @@ import { Ped } from '../entities/Ped';
 import { Prop, propHit } from '../entities/Props';
 import { Helicopter } from '../entities/Helicopter';
 import { linkPoints } from '../world/Graph';
-import { dist, pick, rand } from '../util/math';
+import { dist, pick, rand } from '../shared/util/math';
 
 interface Roadblock {
   cars: Vehicle[];
@@ -198,7 +198,7 @@ export class Police {
     for (const p of this.props) {
       if (p.kind !== 'spike' || !p.active) continue;
       for (const v of g.vehicles) {
-        if (v.wrecked || v.level !== p.level || v.tyresBurst) continue;
+        if (v.wrecked || v.kinematic || v.level !== p.level || v.tyresBurst) continue;
         if (Math.abs(v.x - p.x) > p.len + 2 || Math.abs(v.y - p.y) > p.len + 2) continue;
         if (!propHit(p, v.x, v.y, v.spec.width / 2)) continue;
         v.tyresBurst = 1;

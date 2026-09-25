@@ -2,7 +2,7 @@ import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
 import type { Graph, Link } from '../world/Graph';
 import { linkPoints } from '../world/Graph';
-import { pick } from '../util/math';
+import { pick } from '../shared/util/math';
 import { roundRect } from './Vehicle';
 
 const SEG = 9.2; // length of one articulated section

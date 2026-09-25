@@ -1,4 +1,4 @@
-import { clamp, lerp, rand } from '../util/math';
+import { clamp, lerp, rand } from '../shared/util/math';
 
 /** RGB triple, 0..255 */
 export type RGB = [number, number, number];

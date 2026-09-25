@@ -246,3 +246,55 @@ button.primary:hover {
   padding: 0;
   background: rgba(0, 0, 0, 0.35);
 }
+button.online {
+  background: linear-gradient(180deg, #5e35b1, #4527a0);
+  border-color: #b388ff;
+}
+button.online:hover {
+  background: linear-gradient(180deg, #6f45c4, #512da8);
+}
+button small {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 12px;
+  opacity: 0.8;
+}
+#nick {
+  z-index: 12;
+  background: rgba(0, 0, 0, 0.55);
+}
+.nick-row {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+.nick-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 20px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.nick-row input:focus {
+  outline: none;
+  border-color: rgba(255, 214, 0, 0.6);
+}
+.nick-row button {
+  padding: 8px 12px;
+}
+.error {
+  color: #ff8a80;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.hint.small {
+  font-size: 12px;
+}

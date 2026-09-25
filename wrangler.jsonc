@@ -1,0 +1,8 @@
+// Cloudflare Workers static assets: serves the Vite build in dist/. There is no Worker script;
+// the realtime server runs separately on Fly.io (see fly.toml and docs/deploy.md).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blava-city",
+  "compatibility_date": "2025-09-25",
+  "assets": { "directory": "./dist" }
+}

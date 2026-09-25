@@ -1,6 +1,6 @@
 import type { Game } from '../game/Game';
 import { Vehicle } from '../entities/Vehicle';
-import { dist, formatMoney } from '../util/math';
+import { dist, formatMoney } from '../shared/util/math';
 
 type Stage =
   | { t: 'goto'; x: number; y: number; r: number; text: string; car?: boolean; stop?: boolean; onFoot?: boolean; missionCar?: boolean }
@@ -172,6 +172,8 @@ export class MissionManager {
   vehicles: Vehicle[] = [];
   booths: { def: MissionDef; x: number; y: number }[] = [];
   cooldown = 0;
+  /** false in the shared online world: missions are single-player only */
+  enabled = true;
 
   constructor(private g: Game) {
     for (const def of MISSIONS) {
@@ -248,6 +250,17 @@ export class MissionManager {
   update(dt: number) {
     const g = this.g;
     if (this.cooldown > 0) this.cooldown -= dt;
+    if (!this.enabled) {
+      if (this.active) this.cleanup();
+      if (g.player.vehicle || g.state !== 'play' || this.cooldown > 0) return;
+      for (const b of this.available())
+        if (dist(b.x, b.y, g.player.x, g.player.y) < 2.2) {
+          g.message('', 'Misie sú len v hre pre jedného hráča.', 2.5, '#ffd740');
+          this.cooldown = 5;
+          return;
+        }
+      return;
+    }
     if (!this.active) {
       if (g.player.vehicle || g.state !== 'play' || this.cooldown > 0) return;
       for (const b of this.available()) if (dist(b.x, b.y, g.player.x, g.player.y) < 2.2) return this.start(b.def);

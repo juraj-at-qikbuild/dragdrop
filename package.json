@@ -6,8 +6,14 @@
   "description": "Top-down open-world crime game on the real streets of Bratislava (OpenStreetMap data).",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc -p tsconfig.shared.json && vite build",
     "preview": "vite preview",
+    "deploy": "wrangler deploy",
+    "dev:server": "npm --prefix server run dev",
+    "build:server": "npm --prefix server run build",
+    "test": "vitest run",
+    "e2e": "node scripts/e2e-mp.mjs",
+    "loadtest": "npm --prefix server run loadtest --",
     "fetch:osm": "node scripts/fetch-osm.mjs",
     "build:map": "node scripts/fetch-osm.mjs && node scripts/build-map.mjs"
   },
@@ -15,7 +21,11 @@
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.4",
+    "playwright-core": "1.56.1",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^5.0.2",
+    "wrangler": "^4.140.0"
   }
 }

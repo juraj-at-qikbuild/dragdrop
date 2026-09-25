@@ -1,0 +1,47 @@
+# Blava City game server on Fly.io. One Machine only: the whole world lives in its memory.
+# See docs/deploy.md. Rename `app` to your Fly app name before `fly launch --copy-config`.
+app = "blava-city"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = "15s"
+
+[build]
+  dockerfile = "server/Dockerfile"
+
+[env]
+  PORT = "8080"
+  MAP_PATH = "/app/data/bratislava.json"
+  DB_PATH = "/data/blava.db"
+  NODE_OPTIONS = "--max-old-space-size=400"
+  # ALLOWED_ORIGINS is set as a secret: fly secrets set ALLOWED_ORIGINS=...
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 500
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[mounts]]
+  source = "data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[deploy]
+  # a single Machine with a volume can't run two copies side by side
+  strategy = "immediate"

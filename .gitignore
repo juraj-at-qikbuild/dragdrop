@@ -1,3 +1,10 @@
 node_modules/
 dist/
 .cache/
+.wrangler/
+server/node_modules/
+server/dist/
+*.db
+*.db-*
+.env
+*.local

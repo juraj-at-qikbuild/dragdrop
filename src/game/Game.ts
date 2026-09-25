@@ -10,17 +10,19 @@ import { Audio } from '../audio/Audio';
 import { Ped, type WeaponId } from '../entities/Ped';
 import { Vehicle, resolveContact } from '../entities/Vehicle';
 import type { Tram } from '../entities/Tram';
-import { SpatialHash } from '../util/SpatialHash';
+import { SpatialHash } from '../shared/util/SpatialHash';
 import { MissionManager } from '../missions/Missions';
 import { Hud } from '../ui/Hud';
 import { MapView } from '../ui/MapView';
 import { LANDMARK_INFO, RADIO, BRAND_COLORS } from '../data/brands';
-import { clamp, dist, formatMoney, lerp, rand, rng } from '../util/math';
+import { clamp, dist, formatMoney, lerp, rand, rng } from '../shared/util/math';
 import type { MapJSON } from '../types';
 import { Atmosphere } from '../world/Atmosphere';
 import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
+import type { OnlineSession } from '../net/OnlineSession';
+import { drawNametags } from '../render/nametags';
 
 export interface SaveData {
   money: number;
@@ -141,8 +143,14 @@ export class Game {
   private radioLineTimer = 4;
   running = false;
   onPause?: (paused: boolean) => void;
+  /** set while playing in the shared online world (see src/net/) */
+  online: OnlineSession | null = null;
 
-  constructor(public canvas: HTMLCanvasElement, data: MapJSON) {
+  /** true when this page plays the shared online world: the offline save is neither loaded nor written */
+  readonly onlineMode: boolean;
+
+  constructor(public canvas: HTMLCanvasElement, data: MapJSON, opts: { online?: boolean } = {}) {
+    this.onlineMode = !!opts.online;
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     const hudEl = document.getElementById('hud') as HTMLCanvasElement | null;
     const fxEl = document.getElementById('fx') as HTMLCanvasElement | null;
@@ -179,6 +187,7 @@ export class Game {
 
   // ------------------------------------------------------------ persistence
   private load() {
+    if (this.onlineMode) return;
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) this.save = { ...this.save, ...JSON.parse(raw) };
@@ -187,6 +196,7 @@ export class Game {
     }
   }
   persist() {
+    if (this.onlineMode) return;
     this.save.clock = this.atmos.time;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
@@ -393,6 +403,7 @@ export class Game {
     this.message(busted ? 'Policajná stanica' : 'Nemocnica', `${best?.n ?? ''}  −${formatMoney(fee)}`, 4, '#ffffff');
     this.state = 'play';
     this.persist();
+    this.online?.onRespawn();
     this.cam.x = pos.x;
     this.cam.y = pos.y;
     this.ai.prewarm();
@@ -407,7 +418,7 @@ export class Game {
     const p = this.player;
     let best: Vehicle | null = null, bd = 4.2;
     for (const v of this.vehicles) {
-      if (v.wrecked || v.sinking || v.level !== p.level) continue;
+      if (v.wrecked || v.sinking || v.level !== p.level || v.kinematic) continue;
       const d = dist(v.x, v.y, p.x, p.y) - v.spec.width / 2;
       if (d < bd) (bd = d), (best = v);
     }
@@ -471,7 +482,9 @@ export class Game {
       this.onPause?.(this.paused);
     }
     if (inp.hit('KeyM', 'Tab')) this.showMap = !this.showMap;
-    if (this.paused || this.showMap) {
+    // the shared world can't be paused: online, the menus just take the controls away
+    const frozen = this.paused || this.showMap;
+    if (frozen && !this.online) {
       this.audio.engine(0, 0, false);
       this.audio.siren(0);
       inp.endFrame();
@@ -481,13 +494,16 @@ export class Game {
     this.time += dtReal;
     this.atmos.update(dtReal);
     this.weather.update(dtReal, this.atmos, this.view(), this.quality, this.audio);
-    // hit-stop / slow-mo: scale the simulation step, leave atmos/weather/UI on real time
-    dt = dtReal * this.juice.timeScale(dtReal);
+    // hit-stop / slow-mo: scale the simulation step, leave atmos/weather/UI on real time.
+    // Online the world runs on everyone's clock, so no time tricks.
+    dt = this.online ? dtReal : dtReal * this.juice.timeScale(dtReal);
 
     if (this.state !== 'play') {
       this.stateTimer -= dt;
       if (this.stateTimer <= 0) this.respawn();
-    } else this.updatePlayer(dt);
+    } else if (frozen) this.idlePlayer(dt);
+    else this.updatePlayer(dt);
+    this.online?.update(dtReal);
 
     this.ai.update(dt);
     this.police.update(dt);
@@ -496,6 +512,7 @@ export class Game {
     this.combat.update(dt);
     this.updatePickups(dt);
     this.updateWanted(dt);
+    this.missions.enabled = !this.online;
     this.missions.update(dt);
     this.updateCamera(dtReal);
     this.updateInfo(dt);
@@ -560,7 +577,7 @@ export class Game {
         const saved = { x: p.x, y: p.y };
         p.x = v.x + Math.cos(a) * (v.spec.width / 2 + 0.6);
         p.y = v.y + Math.sin(a) * (v.spec.width / 2 + 0.6);
-        this.combat.fire(p, a, p.weapon);
+        this.playerFire(p, a);
         p.x = saved.x;
         p.y = saved.y;
         this.police.danger(v.x, v.y, 16);
@@ -595,7 +612,7 @@ export class Game {
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon !== 'fist') this.ammo[p.weapon]--;
-      this.combat.fire(p, p.angle, p.weapon);
+      this.playerFire(p, p.angle);
       if (p.weapon !== 'fist') this.police.danger(p.x, p.y, 16);
     }
     // drowning
@@ -603,6 +620,28 @@ export class Game {
       this.drown += dt;
       if (this.drown > 1.5) this.wasted();
     } else this.drown = 0;
+  }
+
+  /** online with a menu open: the player stands still / brakes, but the world keeps going */
+  private idlePlayer(dt: number) {
+    const p = this.player;
+    const v = p.vehicle;
+    if (v) {
+      v.setControls(0, 0, true);
+      p.x = v.x;
+      p.y = v.y;
+      this.audio.engine(0, 0, false);
+    } else p.move(dt, this.world, 0, 0);
+  }
+
+  /** fire the player's weapon; online, nearby players see the muzzle flash and tracers */
+  private playerFire(p: Ped, angle: number) {
+    const before = this.combat.tracers.length;
+    this.combat.fire(p, angle, p.weapon);
+    if (!this.online || p.weapon === 'fist') return;
+    const ends: number[] = [];
+    for (const t of this.combat.tracers.slice(before)) ends.push(t.x2, t.y2);
+    this.online.shot(p.weapon, p.x + Math.cos(angle) * 0.5, p.y + Math.sin(angle) * 0.5, angle, p.level, ends);
   }
 
   /** world position under the mouse cursor */
@@ -629,7 +668,7 @@ export class Game {
     }
     while (this.vehAccum >= STEP) {
       for (const v of this.vehicles) {
-        if (v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0) continue;
+        if (v.kinematic || (v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0)) continue;
         // per substep: the water check inside update() must see the deck level for this position
         this.world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
         const impact = v.update(STEP, this.world);
@@ -651,7 +690,7 @@ export class Game {
       if (v.sinking > 0 && v.sinking < 2.5 && Math.random() < dt * 6) this.combat.splash(v.x + rand(-1, 1), v.y + rand(-1, 1));
       if (v.fire > 0 && !v.wrecked) {
         this.combat.flame(v.x + Math.cos(v.angle) * v.spec.length * 0.3, v.y + Math.sin(v.angle) * v.spec.length * 0.3);
-        if (v.driver && v.driver !== this.player && !v.driver.dead) {
+        if (v.driver && v.driver !== this.player && !v.driver.dead && !v.kinematic) {
           // AI bails out of burning cars
           const d = v.driver;
           d.vehicle = null;
@@ -662,6 +701,8 @@ export class Game {
           this.ai.drivers.delete(v);
         }
       }
+      // another player's car: its owner simulates wrecks and sinking
+      if (v.kinematic) continue;
       if (v.fire > -1 && v.fire <= 0 && !v.wrecked) {
         v.wrecked = true;
         v.fire = -1;
@@ -678,7 +719,7 @@ export class Game {
         if (v.driver && v.driver !== this.player) this.peds = this.peds.filter((p) => p !== v.driver);
       }
     }
-    this.vehicles = this.vehicles.filter((v) => v.sinking <= 3 || v.isPlayer);
+    this.vehicles = this.vehicles.filter((v) => v.sinking <= 3 || v.isPlayer || v.kinematic);
     this.pedCollisions(dt);
   }
 
@@ -691,6 +732,7 @@ export class Game {
       else w.updateLevel(t, Math.cos(t.angle) * t.speed, Math.sin(t.angle) * t.speed, TRAM_RADIUS, false);
     }
     for (const p of this.peds) {
+      if (p.kinematic) continue;
       if (p.vehicle) (p.level = p.vehicle.level), (p.levelInit = true);
       else if (!p.levelInit) (p.level = w.spawnLevel(p.x, p.y, p.r)), (p.levelInit = true);
       else w.updateLevel(p, p.vx, p.vy, p.r);
@@ -719,6 +761,10 @@ export class Game {
           }
         }
         if (!best) return;
+        if (a.kinematic || b.kinematic) {
+          if (!(a.kinematic && b.kinematic)) this.kinematicContact(a, b, best);
+          return;
+        }
         const ma = a.parked && !a.isPlayer ? a.spec.mass * 1.5 : a.spec.mass;
         const mb = b.parked && !b.isPlayer ? b.spec.mass * 1.5 : b.spec.mass;
         const tot = ma + mb;
@@ -750,7 +796,7 @@ export class Game {
     // trams: infinite-mass contact through the same impulse solver
     for (const t of this.trams)
       for (const v of vs) {
-        if (v.level !== t.level || Math.abs(v.x - t.x) > 40 || Math.abs(v.y - t.y) > 40) continue;
+        if (v.kinematic || v.level !== t.level || Math.abs(v.x - t.x) > 40 || Math.abs(v.y - t.y) > 40) continue;
         const s = t.hits(v.x, v.y, v.spec.width / 2);
         if (!s) continue;
         const nx = -Math.sin(s.a), ny = Math.cos(s.a);
@@ -768,11 +814,34 @@ export class Game {
       }
   }
 
+  /** A local car against another player's (network-posed) car: the remote car acts like a moving
+   *  wall of infinite mass. Only the local side is pushed and damaged; its owner handles the other. */
+  private kinematicContact(a: Vehicle, b: Vehicle, c: { nx: number; ny: number; depth: number; cx: number; cy: number }) {
+    const dyn = a.kinematic ? b : a, kin = a.kinematic ? a : b;
+    const s = dyn === a ? 1 : -1;
+    const nx = c.nx * s, ny = c.ny * s;
+    dyn.x -= nx * c.depth;
+    dyn.y -= ny * c.depth;
+    const sev = resolveContact(dyn, c.cx, c.cy, null, c.cx, c.cy, nx, ny, 0.25, 0.4, { vx: kin.vx, vy: kin.vy, av: 0 });
+    if (sev <= 0) return;
+    if (dyn.parked && !dyn.isPlayer && dyn.speed > 0.5) dyn.parked = false;
+    if (sev > 4) this.combat.metalSpark(c.cx, c.cy);
+    if (sev > 6) this.combat.glass(c.cx, c.cy);
+    if (sev > 5) {
+      const share = kin.spec.mass / (kin.spec.mass + dyn.spec.mass);
+      dyn.damage((sev - 4) * 2 * share * 1.6);
+      if (dyn.isPlayer) {
+        this.audio.crash(sev);
+        this.juice.crashImpact(dyn, sev * 2, -nx, -ny);
+      }
+    }
+  }
+
   private pedCollisions(dt: number) {
     this.vehHash.clear();
     for (const v of this.vehicles) this.vehHash.insert(v, v.x, v.y, v.radius);
     for (const p of this.peds) {
-      if (p.vehicle || p.dead) continue;
+      if (p.vehicle || p.dead || p.kinematic) continue;
       let hit = false;
       this.vehHash.query(p.x, p.y, 3, (v) => {
         if (hit || v.level !== p.level) return;
@@ -1055,6 +1124,7 @@ export class Game {
 
     this.drawSigns(ctx, v);
     this.juice.drawTexts(ctx);
+    if (this.online && hud) drawNametags(ctx, this.online, this.peds, v);
     if (hud) this.drawPlayerMarker(ctx);
 
     // screen-space post: rain, wet sheen, vignette — also shown behind the menu (attract mode)

@@ -104,6 +104,24 @@ src/
 
 See [ATTRIBUTION.md](ATTRIBUTION.md).
 
+## Multiplayer
+
+**Online** in the main menu joins one shared, persistent city: every player sees the same traffic,
+pedestrians, trams and police. Anything that happens to an NPC happens for everyone. Players can drive
+into each other, shoot each other (it's a crime: the police come after you), and each has their own wanted
+level and pursuit. Online progress (money, Čumils, landmarks) is kept on the server, separately from the
+single-player save. Missions are single-player only.
+
+The button only shows when the client was built with `VITE_SERVER_URL`. See `docs/multiplayer.md` for the
+design and `docs/deploy.md` for running the server.
+
+```bash
+npm --prefix server install
+npm run dev:server                                   # game server on :8080
+VITE_SERVER_URL=ws://localhost:8080 npm run dev      # client
+npm test && npm run e2e                              # unit + end-to-end tests
+```
+
 ## Hosting
 
 `npm run build` produces a self-contained static site in `dist/` that any web server can host. It must be served over HTTP; opening `index.html` straight from disk won't load the map data.
@@ -112,4 +130,6 @@ See [ATTRIBUTION.md](ATTRIBUTION.md).
 npm run build && npx serve dist
 ```
 
-**GitHub Pages:** `.github/workflows/pages.yml` builds and deploys on every push to `main`. It can also be started by hand from the Actions tab. If Pages isn't enabled yet, go to *Settings → Pages* and set the source to **GitHub Actions**.
+The production frontend is served by **Cloudflare Workers static assets** (`wrangler.jsonc`,
+`npm run deploy`). The multiplayer server runs on **Fly.io** (`fly.toml`, `server/`). Step-by-step setup
+is in [docs/deploy.md](docs/deploy.md).

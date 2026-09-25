@@ -103,6 +103,26 @@ export class MapView {
       ctx.arc(x, y, size * 0.7, 0, Math.PI * 2);
       ctx.fill();
     }
+    // other players online (from the 1 Hz roster), wanted ones in red
+    const net = g.online;
+    if (net)
+      for (const [id, nick, x0, y0, wanted] of net.roster) {
+        if (id === net.id) continue;
+        const [x, y] = toScreen(x0, y0);
+        ctx.fillStyle = wanted > 0 ? '#ff5252' : '#b388ff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, size * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (full) {
+          ctx.font = '700 11px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          outlined(ctx, nick, x, y - size - 2, '#e1bee7', 3);
+        }
+      }
     // player arrow
     const f = g.focus();
     const a = g.player.vehicle ? g.player.vehicle.angle : g.player.angle;

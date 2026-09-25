@@ -1,7 +1,7 @@
 import type { View } from './Renderer';
 import type { Atmosphere } from './Atmosphere';
 import type { Audio } from '../audio/Audio';
-import { rand } from '../util/math';
+import { rand } from '../shared/util/math';
 
 const RAIN_CAP = 350;
 const NEAR_SHARE = 0.55; // fraction of drops in the near (fast) layer

@@ -2,7 +2,7 @@ import type { Atmosphere } from '../world/Atmosphere';
 import type { World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
-import { pick } from '../util/math';
+import { pick } from '../shared/util/math';
 import { shade } from './Vehicle';
 import { SpriteCache } from '../render/SpriteCache';
 
@@ -77,6 +77,10 @@ export class Ped {
   money = Math.round(5 + Math.random() * 40);
   bustTimer = 0;
   shotAt = 0;
+  /** online: the player this figure belongs to (0 = NPC) */
+  playerId = 0;
+  /** posed from the network (another player): never moved, hurt or despawned locally */
+  kinematic = false;
 
   constructor(kind: PedKind, x: number, y: number) {
     this.kind = kind;

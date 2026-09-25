@@ -1,0 +1,10 @@
+node_modules
+server/node_modules
+dist
+server/dist
+.git
+.cache
+.wrangler
+public/assets
+*.db
+*.db-*

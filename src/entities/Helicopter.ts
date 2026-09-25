@@ -1,7 +1,7 @@
 import type { Game } from '../game/Game';
 import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
-import { clamp, dist, lerp } from '../util/math';
+import { clamp, dist, lerp } from '../shared/util/math';
 
 /** Police helicopter: follows the player with lag at altitude, searchlight at night,
  *  fires bursts at 5 stars. Drawn top-down with its shadow cast on the ground. */

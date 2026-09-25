@@ -2,7 +2,7 @@
 // style/chaos combo (near misses, drifts, takedowns) that feeds nitro & cash.
 import type { Game } from './Game';
 import type { Vehicle } from '../entities/Vehicle';
-import { clamp, dist, lerp } from '../util/math';
+import { clamp, dist, lerp } from '../shared/util/math';
 
 interface FloatText {
   x: number; y: number; vy: number; life: number; max: number;

@@ -7,7 +7,7 @@
 // Patterns are mapped into world metres with `setTransform`, so callers use
 // them directly as fillStyle/strokeStyle while drawing in metres.
 
-import { rng } from '../util/math';
+import { rng } from '../shared/util/math';
 
 type Painter = (c: CanvasRenderingContext2D, px: number, r: () => number) => void;
 

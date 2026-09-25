@@ -5,7 +5,7 @@
 // own (bay-metres, storey) axes via ctx.transform, so a tile always lands as
 // one bay per level regardless of the building's own scale/rotation.
 
-import { rng } from '../util/math';
+import { rng } from '../shared/util/math';
 
 export type FacadeStyle = 'oldtown' | 'panel' | 'office' | 'industrial';
 

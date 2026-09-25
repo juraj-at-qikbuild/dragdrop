@@ -28,6 +28,7 @@
         <div class="buttons">
           <button id="btn-continue" class="primary hidden">Pokračovať</button>
           <button id="btn-new" class="primary">Nová hra</button>
+          <button id="btn-online" class="online hidden">Online <small>· spoločné mesto</small></button>
           <button id="btn-controls">Ovládanie</button>
           <button id="btn-credits">O hre</button>
         </div>
@@ -64,10 +65,28 @@
           <button id="btn-resume" class="primary">Pokračovať</button>
           <button id="btn-mute">Zvuk: zapnutý</button>
           <button id="btn-quality">Grafika: Auto</button>
+          <button id="btn-nick" class="hidden">Prezývka</button>
           <button class="opt-foot">Chôdza: podľa obrazovky</button>
           <button id="btn-quit">Hlavné menu</button>
         </div>
       </div>
+    </div>
+
+    <div id="nick" class="screen hidden">
+      <form id="nick-form" class="menu-card small" autocomplete="off">
+        <h2>Hra online</h2>
+        <p class="hint">Všetci hráči sú v jednom spoločnom meste. Ako ťa majú volať?</p>
+        <div class="nick-row">
+          <input id="nick-input" maxlength="16" minlength="2" spellcheck="false" aria-label="Prezývka" />
+          <button type="button" id="nick-roll" title="Náhodná prezývka">🎲</button>
+        </div>
+        <p id="nick-error" class="error hidden">2–16 znakov: písmená, čísla, medzera, . _ -</p>
+        <div class="buttons">
+          <button type="submit" id="nick-ok" class="primary">Hrať online</button>
+          <button type="button" id="nick-cancel">Späť</button>
+        </div>
+        <p class="hint small">Postup online (peniaze, Čumili, pamiatky) sa ukladá na server, oddelene od hry pre jedného hráča. Misie sú len v hre pre jedného hráča.</p>
+      </form>
     </div>
 
     <div id="touch" class="hidden">

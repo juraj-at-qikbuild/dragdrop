@@ -3,7 +3,7 @@
 // roof), and roof slopes (hipped/gabled bands) for pitched roofs. Pure functions over World data.
 
 import type { Building, World } from './World';
-import { pointInRings, segIntersect } from '../util/math';
+import { pointInRings, segIntersect } from '../shared/util/math';
 
 /** metres per storey */
 export const STOREY = 3.2;

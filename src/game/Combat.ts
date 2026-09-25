@@ -2,7 +2,7 @@ import type { LightLayer } from '../world/Lighting';
 import type { Game } from './Game';
 import type { Ped, WeaponId } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
-import { dist, rand, pick } from '../util/math';
+import { dist, rand, pick } from '../shared/util/math';
 
 export const WEAPONS: Record<WeaponId, { name: string; dmg: number; cd: number; spread: number; range: number; pellets: number }> = {
   fist: { name: 'Päste', dmg: 34, cd: 0.45, spread: 0, range: 1.4, pellets: 1 },
@@ -155,7 +155,7 @@ export class Combat {
     if (weapon === 'fist') {
       // melee: nearest ped in front
       for (const p of g.peds) {
-        if (p === shooter || p.dead || p.vehicle || p.level !== shooter.level) continue;
+        if (p === shooter || p.dead || p.vehicle || p.kinematic || p.level !== shooter.level) continue;
         const d = dist(p.x, p.y, shooter.x, shooter.y);
         if (d > w.range + p.r) continue;
         const a = Math.atan2(p.y - shooter.y, p.x - shooter.x);
@@ -192,7 +192,9 @@ export class Combat {
       }
       const hx = sx + (ex - sx) * t, hy = sy + (ey - sy) * t;
       this.tracers.push({ x: sx, y: sy, x2: hx, y2: hy, life: 0.06 });
-      if (hitPed) this.hurtPed(hitPed, w.dmg, shooter);
+      if (hitPed?.kinematic) this.blood(hitPed.x, hitPed.y, 0.4); // another player: their own client takes the damage
+      else if (hitPed) this.hurtPed(hitPed, w.dmg, shooter);
+      else if (hitCar?.kinematic) this.spark(hx, hy);
       else if (hitCar) {
         hitCar.damage(w.dmg * 0.35);
         this.spark(hx, hy);
@@ -265,7 +267,7 @@ export class Combat {
     this.lightEvents.push({ x, y, r: 26, color: '#ff8a2f', intensity: 1.6, glow: 30, life: 0.45 });
     if (source) this.burning.set(source, 20);
     for (const p of g.peds) {
-      if (p.dead || p.vehicle) continue;
+      if (p.dead || p.vehicle || p.kinematic) continue;
       const d = dist(p.x, p.y, x, y);
       if (d < 7) {
         if (p === g.player) g.hurtPlayer(90 * (1 - d / 7), x, y);
@@ -277,7 +279,7 @@ export class Combat {
     }
     const lvl = source?.level ?? 0;
     for (const v of g.vehicles) {
-      if (v === source || v.wrecked || v.level !== lvl) continue;
+      if (v === source || v.wrecked || v.kinematic || v.level !== lvl) continue;
       const d = dist(v.x, v.y, x, y);
       if (d < 9) {
         v.damage(90 * (1 - d / 9));

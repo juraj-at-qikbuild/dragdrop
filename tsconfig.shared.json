@@ -1,0 +1,11 @@
+{
+  // Guard: code under src/shared runs in Node on the game server, so it must not touch the DOM,
+  // Canvas, WebAudio or Vite-only globals. Compiled without the DOM lib; any such use fails the build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": ["src/shared"]
+}

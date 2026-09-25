@@ -3,7 +3,7 @@ import { Vehicle, type VehicleKind } from '../entities/Vehicle';
 import { Ped } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
-import { angleDiff, bboxOf, clamp, dist, pick, rand } from '../util/math';
+import { angleDiff, bboxOf, clamp, dist, pick, rand } from '../shared/util/math';
 
 export interface Driver {
   mode: 'traffic' | 'police' | 'parked' | 'idle';
@@ -118,6 +118,7 @@ export class AI {
       } else if (d.mode === 'police') this.drivePolice(v, d, dt);
     }
     for (const p of this.game.peds) {
+      if (p.kinematic) continue;
       if (p === this.game.player || p.vehicle || p.dead || p.state === 'chase' || p.state === 'flee') {
         this.updatePed(p, dt);
         continue;
@@ -141,7 +142,7 @@ export class AI {
 
     // despawn
     g.vehicles = g.vehicles.filter((v) => {
-      if (v.isPlayer || v.mission) return true;
+      if (v.isPlayer || v.mission || v.kinematic) return true;
       if (this.retire.has(v)) {
         this.retire.delete(v);
         if (v.driver) g.peds = g.peds.filter((p) => p !== v.driver);
@@ -156,7 +157,7 @@ export class AI {
       }
       return keep;
     });
-    g.peds = g.peds.filter((p) => p === g.player || p.vehicle || dist(p.x, p.y, x, y) < 200 || (p.dead && dist(p.x, p.y, x, y) < 260));
+    g.peds = g.peds.filter((p) => p === g.player || p.kinematic || p.vehicle || dist(p.x, p.y, x, y) < 200 || (p.dead && dist(p.x, p.y, x, y) < 260));
     g.trams = g.trams.filter((t) => dist(t.x, t.y, x, y) < far + 150);
 
     const traffic = g.vehicles.filter((v) => this.drivers.get(v)?.mode === 'traffic').length;

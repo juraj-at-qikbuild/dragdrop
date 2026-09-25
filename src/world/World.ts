@@ -1,6 +1,6 @@
 import type { BuildingJSON, MapJSON, RoadJSON } from '../types';
 import { Graph } from './Graph';
-import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
+import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../shared/util/math';
 
 export interface Building {
   /** outer rings wound with positive signed area, courtyard holes negative, so for every edge

@@ -1,6 +1,10 @@
 import './style.css';
 import { Game } from './game/Game';
 import type { MapJSON } from './types';
+import { OnlineSession } from './net/OnlineSession';
+import { loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
+import { randomNick } from './net/nicknames';
+import { cleanNick } from './shared/net/protocol';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -8,6 +12,37 @@ const QUALITY_LABEL: Record<Game['qualityPref'], string> = { auto: 'Auto', high:
 const QUALITY_CYCLE: Game['qualityPref'][] = ['auto', 'high', 'medium', 'low'];
 const FOOT_KEY = 'blava-city-foot-controls';
 const FOOT_LABEL: Record<Game['footControls'], string> = { screen: 'podľa obrazovky', cursor: 'za kurzorom myši' };
+/** game server; unset = single-player only (no Online button) */
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
+
+/** Nickname prompt. Resolves with a valid nickname, or null when cancelled. */
+function askNick(initial: string, okLabel: string): Promise<string | null> {
+  const box = $('nick'), input = $('nick-input') as HTMLInputElement, err = $('nick-error');
+  ($('nick-ok') as HTMLButtonElement).textContent = okLabel;
+  input.value = initial;
+  err.classList.add('hidden');
+  box.classList.remove('hidden');
+  setTimeout(() => input.select(), 0);
+  return new Promise((resolve) => {
+    const done = (v: string | null) => {
+      box.classList.add('hidden');
+      ($('nick-form') as HTMLFormElement).onsubmit = null;
+      $('nick-cancel').onclick = null;
+      resolve(v);
+    };
+    $('nick-roll').onclick = () => {
+      input.value = randomNick();
+      input.focus();
+    };
+    ($('nick-form') as HTMLFormElement).onsubmit = (e) => {
+      e.preventDefault();
+      const n = cleanNick(input.value);
+      if (!n) return err.classList.remove('hidden');
+      done(n);
+    };
+    $('nick-cancel').onclick = () => done(null);
+  });
+}
 
 async function boot() {
   const canvas = $('game') as HTMLCanvasElement;
@@ -19,7 +54,11 @@ async function boot() {
     $('loading-text').textContent = 'Nepodarilo sa načítať mapu Bratislavy. Skús obnoviť stránku.';
     throw e;
   }
-  const game = new Game(canvas, data);
+  // Online play boots through a reload with #online, so the page starts from a clean world and
+  // the offline save is never touched (the online profile is separate).
+  const onlineBoot = location.hash === '#online' && !!SERVER_URL && !!loadIdentity();
+  if (location.hash === '#online') history.replaceState(null, '', location.pathname + location.search);
+  const game = new Game(canvas, data, { online: onlineBoot });
   (window as unknown as { game: Game }).game = game;
   try {
     const saved = localStorage.getItem(QUALITY_KEY) as Game['qualityPref'] | null;
@@ -122,8 +161,60 @@ async function boot() {
   };
   $('btn-quit').onclick = () => {
     game.paused = false;
+    if (game.online) {
+      // leave the shared world and come back to a fresh offline menu
+      game.online.close();
+      location.reload();
+      return;
+    }
     game.persist();
     showMenu();
+  };
+  // --------------------------------------------------------------- online
+  const btnOnline = $('btn-online');
+  if (SERVER_URL) btnOnline.classList.remove('hidden');
+  btnOnline.onclick = async () => {
+    game.audio.init();
+    let id = loadIdentity();
+    if (!id) {
+      const nick = await askNick(randomNick(), 'Hrať online');
+      if (!nick) return;
+      id = { token: newToken(), nick };
+      saveIdentity(id);
+    }
+    location.hash = 'online';
+    location.reload();
+  };
+  const btnNick = $('btn-nick');
+  btnNick.onclick = async () => {
+    const s = game.online;
+    if (!s) return;
+    const nick = await askNick(s.nick, 'Uložiť');
+    if (!nick) return;
+    s.setNick(nick);
+    const id = loadIdentity();
+    if (id) saveIdentity({ ...id, nick });
+  };
+  const startOnline = async (id: Identity) => {
+    $('loading').classList.remove('hidden');
+    $('loading-text').textContent = 'Pripájam sa na server…';
+    const session = new OnlineSession(game, SERVER_URL, id);
+    try {
+      await session.start();
+    } catch (e) {
+      const why = (e as Error).message;
+      $('loading-text').textContent =
+        why === 'version' ? 'Nová verzia hry – obnov stránku.' : why === 'full' ? 'Server je plný. Skús to neskôr.' : 'Server je nedostupný. Skús to neskôr.';
+      const back = document.createElement('button');
+      back.textContent = 'Späť do menu';
+      back.onclick = () => location.reload();
+      $('loading').appendChild(back);
+      return;
+    }
+    game.online = session;
+    btnNick.classList.remove('hidden');
+    $('loading').classList.add('hidden');
+    startGame(false);
   };
   game.onPause = (p) => $('pause').classList.toggle('hidden', !p);
 
@@ -189,16 +280,23 @@ async function boot() {
   };
   requestAnimationFrame(frame);
 
-  $('loading').classList.add('hidden');
-  if (location.hash === '#new') {
-    history.replaceState(null, '', location.pathname + location.search);
-    startGame(false);
-  } else showMenu();
   addEventListener('beforeunload', () => game.persist());
   // browsers only allow audio after a user gesture
   const unlock = () => mode === 'play' && game.audio.init();
   addEventListener('keydown', unlock);
   addEventListener('pointerdown', unlock);
+
+  if (onlineBoot) {
+    showMenu();
+    $('menu').classList.add('hidden');
+    void startOnline(loadIdentity()!);
+    return;
+  }
+  $('loading').classList.add('hidden');
+  if (location.hash === '#new') {
+    history.replaceState(null, '', location.pathname + location.search);
+    startGame(false);
+  } else showMenu();
 }
 
 boot();

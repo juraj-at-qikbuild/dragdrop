@@ -1,7 +1,7 @@
 import type { Game } from '../game/Game';
 import { WEAPONS } from '../game/Combat';
 import type { WeaponId } from '../entities/Ped';
-import { formatMoney } from '../util/math';
+import { formatMoney } from '../shared/util/math';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -171,9 +171,41 @@ export class Hud {
       ctx.font = `700 ${small ? 44 : 84}px ${HEAD}`;
       outlined(ctx, g.state === 'busted' ? 'ZATKNUTÝ' : 'ZOŠROTOVANÝ', W / 2, H / 2, g.state === 'busted' ? '#448aff' : '#ff1744', 6);
     }
+    if (g.online) this.drawNet(ctx, W - pad, pad + topH + (small ? 6 : 8), small);
     if (g.paused) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  /** online status badge under the top-right panel: "● ONLINE · 12 hráčov · 38 ms" */
+  private drawNet(ctx: CanvasRenderingContext2D, right: number, y: number, small: boolean) {
+    const s = this.g.online!.status;
+    let text: string, color: string;
+    if (s.state === 'online') {
+      const n = s.players;
+      const hr = n === 1 ? 'hráč' : n >= 2 && n <= 4 ? 'hráči' : 'hráčov';
+      text = `● ONLINE · ${n} ${hr} · ${Math.round(s.rtt)} ms`;
+      color = '#69f0ae';
+    } else if (s.state === 'failed' || s.state === 'closed') {
+      text = '● OFFLINE';
+      color = '#ff5252';
+    } else {
+      text = `● Pripájam sa…${s.retryIn > 0.5 ? ' ' + Math.ceil(s.retryIn) + ' s' : ''}`;
+      color = '#ffd740';
+    }
+    ctx.font = `700 ${small ? 11 : 13}px ${BODY}`;
+    const w = ctx.measureText(text).width + 16;
+    const h = small ? 18 : 22;
+    panel(ctx, right - w, y, w, h, h / 2);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(text, right - 8, y + h / 2 + 1);
+    if (s.state === 'reconnecting') {
+      ctx.textAlign = 'center';
+      ctx.font = `700 ${small ? 14 : 18}px ${BODY}`;
+      outlined(ctx, 'Spojenie prerušené – pripájam sa…', this.g.viewW / 2, this.g.viewH * 0.18, '#ffd740');
     }
   }
 

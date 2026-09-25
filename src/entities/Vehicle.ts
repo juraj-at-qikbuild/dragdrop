@@ -1,7 +1,7 @@
 import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
 import type { World } from '../world/World';
-import { clamp, pick } from '../util/math';
+import { clamp, pick } from '../shared/util/math';
 import type { Ped } from './Ped';
 import { Combat } from '../game/Combat';
 
@@ -85,6 +85,10 @@ export class Vehicle {
   levelInit = false;
   /** player-controlled? set by Game */
   isPlayer = false;
+  /** online: id of the player driving/owning it (0 = nobody) */
+  owner = 0;
+  /** posed from the network (another player's car): never integrated or pushed locally */
+  kinematic = false;
   siren = false;
   parked = false;
   mission = false;
