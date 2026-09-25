@@ -1,5 +1,7 @@
-// Vehicle state and arcade tyre physics. Shared by the browser and the game server; drawing lives in
-// src/render/drawVehicle.ts and cosmetic effects (tyre smoke, sparks, splashes) in src/game/EntityFx.ts.
+// Vehicle state and tyre physics (a bicycle model: axle slip angles, weight transfer, yaw inertia,
+// drag, friction-limited brakes), tuned a little livelier than life. Shared by the browser and the
+// game server; drawing lives in src/render/drawVehicle.ts and cosmetic effects (tyre smoke, sparks,
+// splashes) in src/game/EntityFx.ts.
 import type { Level, World } from '../world/World';
 import { clamp } from '../util/math';
 import type { Ped } from './Ped';
@@ -11,8 +13,13 @@ export interface CarSpec {
   name: string;
   length: number;
   width: number;
-  maxSpeed: number; // m/s
+  /** top speed on the level (m/s) */
+  maxSpeed: number;
+  /** pull away from standstill, m/s² */
   accel: number;
+  /** full braking on dry asphalt, m/s² (less on cobbles, in the wet and off the road) */
+  brake: number;
+  /** tyre grip, 7 = an ordinary car (about 1.1 g round a bend on dry asphalt) */
   grip: number;
   mass: number;
   health: number;
@@ -23,33 +30,41 @@ export interface CarSpec {
   rearGrip: number;
   /** yaw moment of inertia, kg·m² — filled in below from mass/length/width */
   inertia: number;
+  /** speed at which the engine's pull (falling off with speed) would reach zero — filled in below
+   *  so that it meets the drag exactly at `maxSpeed` */
+  vCap: number;
 }
 
 // All vehicles are parody models, loosely styled on cars you see on Bratislava streets.
 export const SPECS: Record<VehicleKind, CarSpec> = {
-  hatch: { kind: 'hatch', name: 'Škodovka Felícia', length: 3.9, width: 1.66, maxSpeed: 38, accel: 8, grip: 7, mass: 1000, health: 100,
-    drive: 'fwd', frontGrip: 1, rearGrip: 1.05, inertia: 0,
+  hatch: { kind: 'hatch', name: 'Škodovka Felícia', length: 3.9, width: 1.66, maxSpeed: 38, accel: 8, brake: 9.5, grip: 7, mass: 1000, health: 100,
+    drive: 'fwd', frontGrip: 1, rearGrip: 1.05, inertia: 0, vCap: 0,
     colors: ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#6d4c41', '#455a64', '#8e24aa'] },
-  sedan: { kind: 'sedan', name: 'Octávka Kombi', length: 4.65, width: 1.8, maxSpeed: 46, accel: 9.5, grip: 7.5, mass: 1350, health: 110,
-    drive: 'fwd', frontGrip: 1, rearGrip: 1.02, inertia: 0,
+  sedan: { kind: 'sedan', name: 'Octávka Kombi', length: 4.65, width: 1.8, maxSpeed: 46, accel: 9.5, brake: 10, grip: 7.5, mass: 1350, health: 110,
+    drive: 'fwd', frontGrip: 1, rearGrip: 1.02, inertia: 0, vCap: 0,
     colors: ['#263238', '#b0bec5', '#37474f', '#fafafa', '#1a237e', '#4e342e', '#7b1fa2'] },
-  taxi: { kind: 'taxi', name: 'Hopík Taxi', length: 4.65, width: 1.8, maxSpeed: 44, accel: 9, grip: 7.5, mass: 1350, health: 110,
-    drive: 'fwd', frontGrip: 1, rearGrip: 1.02, inertia: 0, colors: ['#fdd835'] },
-  police: { kind: 'police', name: 'Policajná Octávka', length: 4.7, width: 1.82, maxSpeed: 50, accel: 11, grip: 8, mass: 1450, health: 160,
-    drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, colors: ['#f5f5f5'] },
-  van: { kind: 'van', name: 'Dodávka Kofolka', length: 5.4, width: 2.05, maxSpeed: 34, accel: 6.5, grip: 6, mass: 2200, health: 150,
-    drive: 'rwd', frontGrip: 0.85, rearGrip: 1, inertia: 0, colors: ['#c8102e', '#fafafa', '#1e88e5'] },
-  bus: { kind: 'bus', name: 'Mestský autobus', length: 12, width: 2.55, maxSpeed: 26, accel: 4, grip: 5, mass: 11000, health: 300,
-    drive: 'rwd', frontGrip: 0.8, rearGrip: 0.95, inertia: 0, colors: ['#d71920'] },
-  sport: { kind: 'sport', name: 'Porše 911 Blava', length: 4.5, width: 1.85, maxSpeed: 62, accel: 15, grip: 9, mass: 1400, health: 90,
-    drive: 'rwd', frontGrip: 1, rearGrip: 0.85, inertia: 0,
+  taxi: { kind: 'taxi', name: 'Hopík Taxi', length: 4.65, width: 1.8, maxSpeed: 44, accel: 9, brake: 10, grip: 7.5, mass: 1350, health: 110,
+    drive: 'fwd', frontGrip: 1, rearGrip: 1.02, inertia: 0, vCap: 0, colors: ['#fdd835'] },
+  police: { kind: 'police', name: 'Policajná Octávka', length: 4.7, width: 1.82, maxSpeed: 50, accel: 11, brake: 10.5, grip: 8, mass: 1450, health: 160,
+    drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#f5f5f5'] },
+  van: { kind: 'van', name: 'Dodávka Kofolka', length: 5.4, width: 2.05, maxSpeed: 34, accel: 6.5, brake: 8.5, grip: 6, mass: 2200, health: 150,
+    drive: 'rwd', frontGrip: 0.85, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#c8102e', '#fafafa', '#1e88e5'] },
+  bus: { kind: 'bus', name: 'Mestský autobus', length: 12, width: 2.55, maxSpeed: 26, accel: 4, brake: 6.5, grip: 5, mass: 11000, health: 300,
+    drive: 'rwd', frontGrip: 0.8, rearGrip: 0.95, inertia: 0, vCap: 0, colors: ['#d71920'] },
+  sport: { kind: 'sport', name: 'Porše 911 Blava', length: 4.5, width: 1.85, maxSpeed: 62, accel: 15, brake: 11.5, grip: 9, mass: 1400, health: 90,
+    drive: 'rwd', frontGrip: 1, rearGrip: 0.85, inertia: 0, vCap: 0,
     colors: ['#ff6f00', '#212121', '#d50000', '#00bfa5'] },
-  classic: { kind: 'classic', name: 'Tatrovka 603', length: 5.1, width: 1.9, maxSpeed: 40, accel: 7, grip: 6, mass: 1500, health: 140,
-    drive: 'rwd', frontGrip: 1, rearGrip: 0.95, inertia: 0, colors: ['#111111', '#2b2b2b', '#5d1a1a'] },
+  classic: { kind: 'classic', name: 'Tatrovka 603', length: 5.1, width: 1.9, maxSpeed: 40, accel: 7, brake: 8.5, grip: 6, mass: 1500, health: 140,
+    drive: 'rwd', frontGrip: 1, rearGrip: 0.95, inertia: 0, vCap: 0, colors: ['#111111', '#2b2b2b', '#5d1a1a'] },
 };
+/** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
+const ROLL = 0.15, AERO = 0.00065;
+const drag = (v: number) => ROLL + AERO * v * v;
 for (const k of Object.keys(SPECS) as VehicleKind[]) {
   const s = SPECS[k];
   s.inertia = (s.mass * (s.length * s.length + s.width * s.width)) / 12;
+  // accel * (1 - v / vCap) = drag(v) at v = maxSpeed
+  s.vCap = s.maxSpeed / (1 - drag(s.maxSpeed) / s.accel);
 }
 
 export interface Controls {
@@ -169,7 +184,6 @@ export class Vehicle {
       this.surfT = 0.1;
     }
     let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : 1;
-    const offroadDrag = this.surf === 'offroad' ? 1.4 : 0;
     muSurf *= 1 - 0.28 * Vehicle.env.wet;
     const tyreMul = this.tyresBurst ? 0.45 : 1;
 
@@ -185,35 +199,44 @@ export class Vehicle {
     const boostTop = this.boosting ? 1.25 : 1;
     const dmgTop = 1 - 0.2 * this.dmg.front;
     const dmgSteer = 1 - 0.35 * this.dmg.front;
+    const vCap = s.vCap * boostTop * dmgTop;
     const maxSpeed = s.maxSpeed * boostTop * dmgTop;
+    /** reverse gear tops out around 30 km/h */
+    const revMax = Math.min(8.5, s.maxSpeed * 0.25);
 
     const fx = Math.cos(this.angle), fy = Math.sin(this.angle);
     const rx = -fy, ry = fx;
     let vF = this.vx * fx + this.vy * fy;
     let vR = this.vx * rx + this.vy * ry;
 
-    // engine / brakes -> longitudinal accel this step (also drives weight transfer below)
-    // braking (and, to a lesser extent, driving) is friction-limited: wet/loose surfaces stretch it out
+    // engine / brakes -> longitudinal accel this step (also drives weight transfer below). Braking
+    // is friction-limited (wet or loose surfaces stretch it out), and so is putting power down.
     const muLong = clamp(muSurf, 0.35, 1);
-    let ax = 0;
-    if (c.throttle > 0) {
-      ax = vF < -0.5 ? s.accel * 1.6 * muLong : s.accel * c.throttle * boostAccel * Math.sqrt(muLong) * (1 - Math.max(0, vF) / maxSpeed);
-    } else if (c.throttle < 0) {
-      ax = vF > 0.5 ? -s.accel * 1.8 * muLong : -s.accel * 0.6 * muLong;
-    } else {
-      ax = (-Math.sign(vF) * Math.min(Math.abs(vF), 2.2 * dt)) / dt;
-    }
-    ax -= Math.sign(vF || 1) * offroadDrag * Math.min(1, Math.abs(vF) / 4);
+    const tIn = c.throttle;
+    // ABS: braking while steering, the brakes back off a little so the front wheels still steer
+    const abs = 1 - 0.3 * Math.min(1, Math.abs(this.steer));
+    let ax = 0, braking = 0;
+    if (tIn > 0 && vF < -0.5) (ax = s.brake * muLong * tIn * abs), (braking = tIn * abs); // reversing: brake first
+    else if (tIn > 0) ax = s.accel * tIn * boostAccel * Math.sqrt(muLong) * Math.max(0, 1 - Math.max(0, vF) / vCap);
+    else if (tIn < 0 && vF > 0.5) (ax = s.brake * muLong * tIn * abs), (braking = -tIn * abs);
+    else if (tIn < 0) ax = vF > -revMax ? s.accel * 0.5 * muLong * tIn : 0;
+    else ax = -Math.sign(vF) * Math.min(Math.abs(vF) / dt, ENGINE_BRAKE);
+    // air drag and rolling resistance (never enough to reverse the car), and the rough off the road
+    const resist = drag(Math.abs(vF)) + OFFROAD_DRAG * (this.surf === 'offroad' ? Math.min(1, Math.abs(vF) / 4) : 0);
+    ax -= Math.sign(vF) * Math.min(Math.abs(vF) / dt, resist);
     vF += ax * dt;
-    vF *= 1 - 0.08 * dt;
     if (c.handbrake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 5 * muLong * dt);
-    vF = clamp(vF, -maxSpeed * 0.35, maxSpeed * 1.15);
+    vF = clamp(vF, -revMax - 0.5, maxSpeed * 1.15);
 
-    // steering
-    this.steer += (c.steer - this.steer) * Math.min(1, dt * 10);
+    // steering: the wheels turn as far as a driver would at this speed, about as far as the front
+    // tyres grip (a keyboard's full lock then carves the tightest line the car holds, instead of
+    // plowing straight on), tighter in a parking manoeuvre
+    this.steer += (c.steer - this.steer) * Math.min(1, dt * 8);
     const wheelbase = s.length * 0.6;
     const a = wheelbase * 0.5, b = wheelbase * 0.5; // axle distances from CG
-    const maxSteer = (0.55 * dmgSteer) / (1 + Math.abs(vF) / 22);
+    const vAbs = Math.abs(vF);
+    const latMax = 2 * TIRE_FORCE * 0.9 * (s.grip / 7) * muSurf;
+    const maxSteer = Math.min(0.6, (1.15 * wheelbase * latMax) / Math.max(1, vAbs * vAbs) + 0.04) * dmgSteer;
     const steerAngle = this.steer * maxSteer;
 
     // weight transfer: braking loads the front, throttle loads the rear
@@ -227,35 +250,49 @@ export class Vehicle {
     // way, so the steer term flips sign: wheel right swings the tail right, like a real car. It fades out
     // at a standstill so a parked car can't pivot on the spot.
     const dir = clamp(vF / 1.5, -1, 1);
-    const vFa = Math.max(Math.abs(vF), 1.5);
+    const vFa = Math.max(vAbs, 1.5);
     const slipF = Math.atan2(vR + a * this.av, vFa) - steerAngle * dir;
     const slipR = Math.atan2(vR - b * this.av, vFa);
 
     const muF = (s.grip / 7) * muSurf * s.frontGrip * tyreMul;
-    const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * (c.handbrake ? 0.35 : 1);
+    // the handbrake locks the rear wheels: a locked tyre slides with little sideways grip
+    const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * (c.handbrake ? 0.2 : 1);
     // Fy is a genuine force (N): tireCurve * mu * load-fraction * peak-accel-per-tyre * mass,
     // so dividing by mass below gives back the peak accel, and dividing by inertia gives a sane yaw accel.
     let FyF = -tireCurve(slipF) * muF * (loadF / staticF) * TIRE_FORCE * s.mass;
     let FyR = -tireCurve(slipR) * muR * (loadR / staticR) * TIRE_FORCE * s.mass;
-    // friction ellipse: driven wheels give up some cornering force to longitudinal traction
+    // friction ellipse: tyres that brake or drive hard give up some of their cornering grip (the
+    // brakes are biased to the front, so braking mostly costs the front tyres theirs)
     const driveF = s.drive === 'fwd' ? 1 : s.drive === 'awd' ? 0.5 : 0;
     const driveR = s.drive === 'rwd' ? 1 : s.drive === 'awd' ? 0.5 : 0;
-    const demand = clamp(Math.abs(ax) / s.accel, 0, 1);
-    FyF *= Math.sqrt(Math.max(0.15, 1 - 0.6 * (demand * driveF) ** 2));
-    FyR *= Math.sqrt(Math.max(0.15, 1 - 0.6 * (demand * driveR) ** 2));
+    const demand = braking ? 0 : clamp(Math.abs(ax) / s.accel, 0, 1);
+    FyF *= Math.sqrt(Math.max(0.15, 1 - 0.6 * (demand * driveF) ** 2 - 0.5 * braking * braking));
+    FyR *= Math.sqrt(Math.max(0.15, 1 - 0.6 * (demand * driveR) ** 2 - 0.15 * braking * braking));
 
     vR += ((FyF + FyR) / s.mass) * dt;
     let avAccel = (a * FyF - b * FyR) / s.inertia;
-    avAccel -= this.av * 0.6; // passive yaw damping
+    avAccel -= this.av * 0.3; // passive yaw damping
     if (Math.abs(vR) > 2.5 && this.steer * dir !== 0 && Math.sign(this.steer * dir) === -Math.sign(this.av)) avAccel -= this.av * 1.2; // counter-steer assist
+    // stability control: once the body rotates faster than the tyres are turning the car's path
+    // (the tail stepping out under braking, or lifting off mid-bend), it's reined back, so an
+    // ordinary car doesn't spin. Off with the handbrake, and gentler in the sports car, so drifts and
+    // handbrake turns still work.
+    if (!c.handbrake && vAbs > 3) {
+      const pathRate = (FyF + FyR) / s.mass / vAbs;
+      const excess = this.av - pathRate;
+      const slip = Math.abs(Math.atan2(vR, vAbs));
+      if (slip > 0.06 && Math.sign(excess) === Math.sign(this.av)) avAccel -= excess * (s.kind === 'sport' ? 6 : 14) * Math.min(1, (slip - 0.06) / 0.06);
+    }
     this.av += avAccel * dt;
     this.angle += this.av * dt;
 
-    this.skid = Math.abs(vR) > 2.5 || (c.handbrake && Math.abs(vF) > 6) ? clamp(Math.abs(vR) / 7 + 0.3, 0, 1) : 0;
+    this.skid = Math.abs(vR) > 2.5 || (c.handbrake && Math.abs(vF) > 6) || (braking > 0.8 && vAbs > 8 && muLong < 0.8) ? clamp(Math.abs(vR) / 7 + 0.3, 0, 1) : 0;
 
-    const nfx = Math.cos(this.angle), nfy = Math.sin(this.angle);
-    this.vx = nfx * vF - nfy * vR;
-    this.vy = nfy * vF + nfx * vR;
+    // back to the world: the forces above acted in the frame the car was in at the start of the
+    // step, so the velocity only turns as far as the tyres turned it (rotating it with the body for
+    // free let cars round a corner at 90 km/h in 10 m)
+    this.vx = fx * vF - fy * vR;
+    this.vy = fy * vF + fx * vR;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
@@ -322,14 +359,21 @@ export class Vehicle {
 }
 
 const SLIP_PEAK = 0.15; // rad, ~8.6°, where a tyre's lateral force peaks
-const TIRE_FORCE = 11; // m/s² of lateral accel a fully-loaded, fully-gripped tyre can give
+/** m/s² of lateral accel one fully loaded axle with grip 7 gives: both together hold ~1.1 g */
+const TIRE_FORCE = 5.6;
+/** lifting off the throttle: engine braking in gear, m/s² */
+const ENGINE_BRAKE = 0.9;
+/** extra drag rolling over grass and gravel, m/s² */
+const OFFROAD_DRAG = 1.4;
 
-/** Slip-angle -> normalized lateral force: rises to a peak near SLIP_PEAK, then softens slightly (real tyre behaviour, arcade-tuned). */
+/** Slip-angle -> normalized lateral force: rises to a peak near SLIP_PEAK, then softens a little as the
+ *  tyre slides (real tyre behaviour; kept gentle, so a car at the limit slides progressively instead of
+ *  snapping round). */
 function tireCurve(slip: number): number {
   const x = clamp(slip / SLIP_PEAK, -4, 4);
   const base = Math.tanh(x * 1.3);
-  const falloff = 1 - 0.15 * clamp(Math.abs(x) - 1, 0, 4);
-  return base * Math.max(0.5, falloff);
+  const falloff = 1 - 0.08 * clamp(Math.abs(x) - 1, 0, 4);
+  return base * Math.max(0.75, falloff);
 }
 
 /**
