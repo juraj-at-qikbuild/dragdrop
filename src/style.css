@@ -191,6 +191,10 @@ button.primary:hover {
 .panel a {
   color: #80d8ff;
 }
+.panel button {
+  width: 100%;
+  margin-top: 10px;
+}
 .hint {
   margin: 8px 0 0;
   color: #b0bec5;

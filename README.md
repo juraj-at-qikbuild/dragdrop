@@ -28,6 +28,10 @@ npm run preview    # serve the production build
 | M / Tab | city map |
 | Esc / P | pause |
 
+On foot, WASD is screen-relative by default (W walks up the screen). Set **Chôdza: za kurzorom myši** in the pause menu or the menu's controls panel to walk relative to the mouse instead: W walks towards the cursor, S backs away from it, and A/D strafe around it.
+
+In a car, steering in reverse works like a real car: steer right and the tail swings right.
+
 On touch devices a virtual joystick and buttons appear automatically.
 
 ## What's in the game

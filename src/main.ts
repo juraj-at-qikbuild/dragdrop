@@ -6,6 +6,8 @@ const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
 const QUALITY_LABEL: Record<Game['qualityPref'], string> = { auto: 'Auto', high: 'Vysoká', medium: 'Stredná', low: 'Nízka' };
 const QUALITY_CYCLE: Game['qualityPref'][] = ['auto', 'high', 'medium', 'low'];
+const FOOT_KEY = 'blava-city-foot-controls';
+const FOOT_LABEL: Record<Game['footControls'], string> = { screen: 'podľa obrazovky', cursor: 'za kurzorom myši' };
 
 async function boot() {
   const canvas = $('game') as HTMLCanvasElement;
@@ -39,6 +41,27 @@ async function boot() {
       }
     };
   }
+  // on-foot controls toggle, in both the main menu's controls panel and the pause menu
+  try {
+    const saved = localStorage.getItem(FOOT_KEY);
+    if (saved === 'screen' || saved === 'cursor') game.footControls = saved;
+  } catch {
+    /* ignore */
+  }
+  const footButtons = document.querySelectorAll<HTMLButtonElement>('.opt-foot');
+  const showFoot = () => footButtons.forEach((b) => (b.textContent = `Chôdza: ${FOOT_LABEL[game.footControls]}`));
+  showFoot();
+  footButtons.forEach((b) => {
+    b.onclick = () => {
+      game.footControls = game.footControls === 'screen' ? 'cursor' : 'screen';
+      showFoot();
+      try {
+        localStorage.setItem(FOOT_KEY, game.footControls);
+      } catch {
+        /* ignore */
+      }
+    };
+  });
   // canvas text (HUD/minimap) waits on the Google Fonts load before it looks right;
   // a re-draw isn't needed since the loop redraws every frame regardless.
   document.fonts?.ready?.catch(() => {});

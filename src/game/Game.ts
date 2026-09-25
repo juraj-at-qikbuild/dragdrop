@@ -77,6 +77,8 @@ export class Game {
   qualityPref: 'auto' | 'high' | 'medium' | 'low' = 'auto';
   /** textured building facades; Auto drops them only if frames stay slow with post-processing already off */
   facades = true;
+  /** on-foot WASD, user choice from the menus: 'screen' = W is up the screen, 'cursor' = W walks towards the mouse */
+  footControls: 'screen' | 'cursor' = 'screen';
   private frameAvg = 16;
   private goodTimer = 0;
   private slowTimer = 0;
@@ -561,13 +563,25 @@ export class Game {
 
     // on foot
     const ax = inp.axis();
+    // 'cursor' mode: W/S walk towards/away from the mouse, A/D strafe around it (touch stick stays screen-relative)
+    const cursorMode = this.footControls === 'cursor' && !inp.stick.active;
+    let heading = p.angle;
+    if (cursorMode) {
+      const c = this.cursorWorld();
+      // keep the last heading while the cursor sits on the player, where its angle would jitter
+      if (Math.hypot(c.x - p.x, c.y - p.y) > 0.8) heading = Math.atan2(c.y - p.y, c.x - p.x);
+      const fx = Math.cos(heading), fy = Math.sin(heading);
+      const fwd = -ax.y, side = ax.x;
+      ax.x = fx * fwd - fy * side;
+      ax.y = fy * fwd + fx * side;
+    }
     const len = Math.hypot(ax.x, ax.y);
     const run = inp.down('ShiftLeft', 'ShiftRight') ? 7.2 : 4.6;
     const vx = len ? (ax.x / len) * run * Math.min(1, len) : 0;
     const vy = len ? (ax.y / len) * run * Math.min(1, len) : 0;
     p.move(dt, this.world, vx, vy);
-    const aiming = this.time - this.lastMouseMove < 3 || inp.mouseDown;
-    if (aiming) p.angle = this.aimAngle(p.x, p.y);
+    if (cursorMode) p.angle = heading;
+    else if (this.time - this.lastMouseMove < 3 || inp.mouseDown) p.angle = this.aimAngle(p.x, p.y);
     if (p.cooldown > 0) p.cooldown -= dt;
     const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touchButtons.has('fire');
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
@@ -583,10 +597,17 @@ export class Game {
     } else this.drown = 0;
   }
 
+  /** world position under the mouse cursor */
+  cursorWorld() {
+    return {
+      x: this.cam.x + (this.input.mouseX - this.viewW / 2) / this.cam.scale,
+      y: this.cam.y + (this.input.mouseY - this.viewH / 2) / this.cam.scale,
+    };
+  }
+
   aimAngle(x: number, y: number) {
-    const wx = this.cam.x + (this.input.mouseX - this.viewW / 2) / this.cam.scale;
-    const wy = this.cam.y + (this.input.mouseY - this.viewH / 2) / this.cam.scale;
-    return Math.atan2(wy - y, wx - x);
+    const c = this.cursorWorld();
+    return Math.atan2(c.y - y, c.x - x);
   }
 
   private updateVehicles(dt: number) {
@@ -714,7 +735,7 @@ export class Game {
         const n2x = nx * side, n2y = ny * side;
         v.x += n2x * 0.15;
         v.y += n2y * 0.15;
-        const sev = resolveContact(v, v.x, v.y, null, v.x, v.y, n2x, n2y, 0.15, 0.5, {
+        const sev = resolveContact(v, v.x, v.y, null, v.x, v.y, -n2x, -n2y, 0.15, 0.5, {
           vx: Math.cos(s.a) * t.speed, vy: Math.sin(s.a) * t.speed, av: 0,
         });
         if (sev > 2) {

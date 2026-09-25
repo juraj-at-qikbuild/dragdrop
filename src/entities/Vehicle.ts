@@ -200,10 +200,14 @@ export class Vehicle {
     const loadF = Math.max(0.2 * staticF, staticF - transfer);
     const loadR = Math.max(0.2 * staticR, staticR + transfer);
 
-    // axle slip angles (signed, forward speed keeps its sign so reversing steers naturally)
-    const vFx = Math.sign(vF || 1) * Math.max(Math.abs(vF), 1.5);
-    const slipF = Math.atan2(vR + a * this.av, vFx) - steerAngle;
-    const slipR = Math.atan2(vR - b * this.av, vFx);
+    // axle slip angles, measured against |vF| so they stay small when rolling backwards (atan2 with a
+    // negative x lands near ±PI and saturates the tyres). In reverse the steered wheels lead the other
+    // way, so the steer term flips sign: wheel right swings the tail right, like a real car. It fades out
+    // at a standstill so a parked car can't pivot on the spot.
+    const dir = clamp(vF / 1.5, -1, 1);
+    const vFa = Math.max(Math.abs(vF), 1.5);
+    const slipF = Math.atan2(vR + a * this.av, vFa) - steerAngle * dir;
+    const slipR = Math.atan2(vR - b * this.av, vFa);
 
     const muF = (s.grip / 7) * muSurf * s.frontGrip * tyreMul;
     const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * (c.handbrake ? 0.35 : 1);
@@ -221,7 +225,7 @@ export class Vehicle {
     vR += ((FyF + FyR) / s.mass) * dt;
     let avAccel = (a * FyF - b * FyR) / s.inertia;
     avAccel -= this.av * 0.6; // passive yaw damping
-    if (Math.abs(vR) > 2.5 && this.steer !== 0 && Math.sign(this.steer) === -Math.sign(this.av)) avAccel -= this.av * 1.2; // counter-steer assist
+    if (Math.abs(vR) > 2.5 && this.steer * dir !== 0 && Math.sign(this.steer * dir) === -Math.sign(this.av)) avAccel -= this.av * 1.2; // counter-steer assist
     this.av += avAccel * dt;
     this.angle += this.av * dt;
 
@@ -247,10 +251,14 @@ export class Vehicle {
       if (!hit) continue;
       this.x += hit.nx * hit.depth;
       this.y += hit.ny * hit.depth;
-      const sev = resolveContact(this, cx, cy, null, cx, cy, hit.nx, hit.ny, 0.3, 0.45);
+      // hit.n points out of the wall; resolveContact wants the normal from the car towards what it hit,
+      // applied at the circle's rim where it touches. Extra yaw inertia keeps an angled hit a deflection
+      // along the wall rather than a spin-out.
+      const px = cx - hit.nx * (r - hit.depth), py = cy - hit.ny * (r - hit.depth);
+      const sev = resolveContact(this, px, py, null, px, py, -hit.nx, -hit.ny, 0.25, 0.45, undefined, 2.5);
       impact = Math.max(impact, sev);
     }
-    if (impact > 5) this.damage((impact - 4) * 2.2);
+    if (impact > 7) this.damage((impact - 7) * 1.6);
 
     // water
     if (!this.sinking && world.inWater(this.x, this.y, this.level)) {
@@ -656,7 +664,9 @@ function tireCurve(slip: number): number {
  * Resolves a contact-point impulse between vehicle `a` and either vehicle `b`, or an immovable surface
  * (b = null): a wall (bVel omitted) or a tram (bVel = its velocity at the contact, infinite mass so it
  * doesn't move). Restitution + Coulomb friction + angular terms from r×n keep it bounded (no energy gain)
- * and let side-swipes spin cars. Applies located damage on every party hit. Returns the impact severity.
+ * and let side-swipes spin cars. `n` points from `a` towards `b` (into the wall/tram), i.e. opposite to the
+ * direction `a` gets pushed out. `yawInertiaMul` > 1 makes `a` harder to spin (arcade-tuned wall hits).
+ * Applies located damage on every party hit. Returns the impact severity.
  */
 export function resolveContact(
   a: Vehicle, cax: number, cay: number,
@@ -664,8 +674,9 @@ export function resolveContact(
   nx: number, ny: number,
   restitution: number, friction: number,
   bVel?: { vx: number; vy: number; av: number },
+  yawInertiaMul = 1,
 ): number {
-  const invMa = 1 / a.spec.mass, invIa = 1 / a.spec.inertia;
+  const invMa = 1 / a.spec.mass, invIa = 1 / (a.spec.inertia * yawInertiaMul);
   const invMb = b ? 1 / b.spec.mass : 0, invIb = b ? 1 / b.spec.inertia : 0;
   const rax = cax - a.x, ray = cay - a.y;
   const rbx = b ? cbx - b.x : 0, rby = b ? cby - b.y : 0;
