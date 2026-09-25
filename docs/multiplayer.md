@@ -6,7 +6,7 @@ Handover brief for implementing a shared-world multiplayer mode in Blava City.
 
 - **One persistent shared world.** All players are in the same world: no rooms, lobbies or matchmaking.
 - **Target scale:** up to about 100 concurrent players, most of them in Central Europe.
-- **Frontend unchanged:** it stays a static Vite site on GitHub Pages (`.github/workflows/pages.yml`).
+- **Frontend:** stays a static Vite site, but moves from GitHub Pages (`.github/workflows/pages.yml`) to **Cloudflare Workers static assets**. The game server runs on **Fly.io**.
 
 ## Current state of the codebase (relevant facts)
 
@@ -21,13 +21,14 @@ Handover brief for implementing a shared-world multiplayer mode in Blava City.
 
 | Layer | Choice |
 |---|---|
-| Hosting | **Fly.io**, one Machine, region `fra` (Frankfurt), `shared-cpu-1x`, 512 MB RAM to start |
+| Frontend hosting | **Cloudflare Workers static assets** (not Pages, which Cloudflare is folding into Workers), deployed through Workers Builds |
+| Game server hosting | **Fly.io**, one Machine, region `fra` (Frankfurt), `shared-cpu-1x`, 512 MB RAM to start |
 | Runtime | **Node.js 22**, TypeScript bundled with `esbuild`, or run with `tsx` in dev |
 | Transport | **WebSockets** via the `ws` package (optionally swap in `uWebSockets.js` later if CPU-bound) |
 | Protocol | JSON messages to start. Switch hot-path snapshots to binary (`DataView`/typed arrays) once it works |
 | Persistence | **SQLite** (`better-sqlite3`) on a **Fly volume** mounted at `/data` |
 | Shared code | Pure-TS simulation modules imported by both client and server (no DOM, Canvas or audio) |
-| Client config | `VITE_SERVER_URL` (e.g. `wss://blava-city.fly.dev`) set at build time in the Pages workflow; single-player still works when it's unset |
+| Client config | `VITE_SERVER_URL` (e.g. `wss://blava-city.fly.dev`) set as a Workers Builds build variable; single-player still works when it's unset |
 
 ### Repo layout (proposed)
 
@@ -40,6 +41,8 @@ server/
   package.json, tsconfig.json
   Dockerfile
 fly.toml
+wrangler.jsonc        # Cloudflare static-assets config (frontend)
+public/_headers       # cache headers, copied into dist/ by Vite
 src/net/              # client: connection, reconnect, interpolation buffer, remote-player rendering
 src/shared/           # protocol types + (phase 2) the DOM-free simulation
 ```
@@ -54,7 +57,36 @@ src/shared/           # protocol types + (phase 2) the DOM-free simulation
   - `[[mounts]] source = "data"`, `destination = "/data"`
 - Run **exactly one Machine** (`fly scale count 1`). All the state lives in its memory, so it must never be horizontally scaled.
 - Deploys restart the process and drop every socket. The client must auto-reconnect with backoff and restore state, and the server must persist important state (see phase 3).
-- Check the `Origin` header on WebSocket upgrade: allow the GitHub Pages origin and `localhost:5173`.
+- Check the `Origin` header on WebSocket upgrade: allow the production frontend origin (for example `https://blava.example`), the `*.workers.dev` preview URLs and `localhost:5173`. Read the list from an `ALLOWED_ORIGINS` env var (`fly secrets set`).
+
+### Cloudflare configuration essentials (frontend)
+
+- Add `wrangler.jsonc` at the repo root. It serves the static build only; there is no Worker script:
+  ```jsonc
+  {
+    "name": "blava-city",
+    "compatibility_date": "<today>",
+    "assets": { "directory": "./dist" }
+  }
+  ```
+  `vite.config.ts` already sets `base: './'`, so it doesn't need to change. The game is one `index.html`, so no SPA fallback is needed.
+- Add `wrangler` as a devDependency and a `"deploy": "wrangler deploy"` script to `package.json`.
+- In the Cloudflare dashboard, connect the GitHub repo through **Workers Builds**:
+  - Build command: `npm run build`
+  - Deploy command: `npm run deploy`
+  - Production branch: `main`. Other branches get preview URLs on `*.workers.dev`.
+  - Build variable: `VITE_SERVER_URL=wss://<server domain>`. Build variables are baked into the bundle at build time and aren't available at runtime, which is what we want here.
+- Add `public/_headers`:
+  ```
+  /assets/*
+    Cache-Control: public, max-age=31536000, immutable
+  /data/*
+    Cache-Control: public, max-age=3600
+  ```
+  Files under `assets/` have content hashes in their names, so they can be cached for a year. `data/bratislava.json` has a fixed name, so its cache time stays short.
+- Once the Cloudflare deploy works, delete `.github/workflows/pages.yml` and turn off GitHub Pages.
+- **Domain:** put the domain's DNS on Cloudflare. Attach the apex (for example `blava.example`) to the Worker as a Custom Domain. Point `ws.blava.example` at Fly with a CNAME to `<app>.fly.dev` set to **DNS only** (grey cloud), then run `fly certs add ws.blava.example`. Fly then handles TLS for the WebSocket, and Cloudflare's proxy stays out of the realtime path.
+- Why Cloudflare rather than Vercel: static bandwidth is free, commercial use is allowed on the free plan, and every visit downloads the roughly 0.8 MB (gzipped) map. Vercel Hobby is non-commercial only and capped at 100 GB a month. Neither platform can run the Node WebSocket server.
 
 ## Networking model
 
@@ -71,7 +103,7 @@ src/shared/           # protocol types + (phase 2) the DOM-free simulation
 - Add the `server/` relay: it tracks players, broadcasts positions with interest management and handles join and leave.
 - Client: add `src/net/`, render remote players (on foot and in cars) and add name tags.
 - Every client still runs its own NPC simulation, so players see different traffic. That's acceptable for this phase.
-- Deploy to Fly. The Pages build points at it through `VITE_SERVER_URL`.
+- Deploy the server to Fly and the frontend to Cloudflare. The Cloudflare build points at the server through `VITE_SERVER_URL`.
 - **Done when:** two browsers on different machines see each other drive around smoothly, and a `fly deploy` reconnects both automatically.
 
 ### Phase 2: server-authoritative NPCs
