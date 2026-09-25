@@ -2,7 +2,7 @@
 // exposed (party walls shared with a neighbour are hidden, or only show above a lower neighbour's
 // roof), and roof slopes (hipped/gabled bands) for pitched roofs. Pure functions over World data.
 
-import type { Building, World } from './World';
+import type { Building, World } from '../shared/world/World';
 import { pointInRings, segIntersect } from '../shared/util/math';
 
 /** metres per storey */

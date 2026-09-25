@@ -5,10 +5,13 @@ import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { config, originMatcher } from './config';
 import { Room } from './Room';
+import { World } from '../../src/shared/world/World';
+import type { MapJSON } from '../../src/shared/types';
 
-const map = JSON.parse(readFileSync(config.mapPath, 'utf8')) as { bounds: [number, number, number, number] };
-const [bx0, by0, bx1, by1] = map.bounds;
-const room = new Room({ bounds: { x0: bx0 - 50, y0: by0 - 50, x1: bx1 + 50, y1: by1 + 50 }, maxPlayers: config.maxPlayers });
+const t0 = performance.now();
+const world = new World(JSON.parse(readFileSync(config.mapPath, 'utf8')) as MapJSON);
+console.log(`map loaded in ${(performance.now() - t0).toFixed(0)} ms`);
+const room = new Room({ world, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e });
 const originOk = originMatcher(config.allowedOrigins);
 
 const server = http.createServer((req, res) => {

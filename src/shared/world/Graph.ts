@@ -1,5 +1,5 @@
 import type { GraphJSON } from '../types';
-import { polylineLength } from '../shared/util/math';
+import { polylineLength } from '../util/math';
 
 export interface Edge {
   id: number;

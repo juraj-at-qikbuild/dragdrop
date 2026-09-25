@@ -1,10 +1,15 @@
 // Wire protocol between the browser client (src/net/) and the game server (server/).
 // Shared by both sides; must stay DOM-free (checked by tsconfig.shared.json).
 //
-// Transport: one WebSocket per client. Control messages and events are JSON text frames.
+// Transport: one WebSocket per client.
+//  - Hot path in binary (see codec.ts): the client's STATE at 20 Hz, the server's SNAPSHOT every tick.
+//  - Everything else is JSON text frames: handshake, requests (enter/exit/fire…), events, roster, clock.
+import type { WeaponId } from '../entities/Ped';
+import type { PrivateEvent } from '../sim/events';
+import type { PelletReport } from '../sim/Combat';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;
@@ -13,163 +18,121 @@ export const INTERP_DELAY_MS = 100;
 /** client state upload rate */
 export const STATE_HZ = 20;
 
-export type WeaponId = 'fist' | 'pistol' | 'uzi' | 'shotgun';
+export type { WeaponId };
 
-/** A vehicle as its driver reports it (the driver's client simulates it). */
-export interface VehState {
-  /** VehicleKind */
-  k: string;
-  /** body colour */
-  c: string;
+/** Full state of the car a player drives, sent when they leave it (the server takes over simulating it). */
+export interface VehFull {
   x: number;
   y: number;
   a: number;
   vx: number;
   vy: number;
   av: number;
-  /** wheel steer -1..1 */
-  st: number;
-  /** throttle -1..1 (brake lights) */
-  th: number;
-  /** bit flags: see VEH_FLAG */
-  f: number;
-  /** health, 0..spec.health */
   hp: number;
-  /** located damage [front, rear, left, right], 0..1 */
+  /** [front, rear, left, right], 0..1 */
   dmg: [number, number, number, number];
-  /** skid intensity 0..1 */
-  sk: number;
-  /** seconds sinking (0 = afloat) */
-  sink: number;
-  /** seconds until a burning car explodes, -1 when not burning */
   fire: number;
-}
-
-export const VEH_FLAG = {
-  siren: 1,
-  handbrake: 2,
-  boosting: 4,
-  wrecked: 8,
-  tyres: 16,
-  horn: 32,
-} as const;
-
-/** Client → server: the local player's own state, sent at STATE_HZ. */
-export interface StateMsg {
-  t: 'state';
-  seq: number;
-  /** teleport counter: bumped by the client on respawn so the server accepts the jump */
-  ep: number;
-  x: number;
-  y: number;
-  a: number;
-  vx: number;
-  vy: number;
+  tyres: 0 | 1;
+  nitro: number;
   lvl: 0 | 1;
-  w: WeaponId;
-  hp: number;
-  /** wanted level, 0..5 (client-side in protocol v1) */
-  wanted: number;
-  dead: 0 | 1;
-  /** camera half-extents in metres, for interest management */
-  hw: number;
-  hh: number;
-  veh: VehState | null;
 }
 
+// ------------------------------------------------------------ client → server (JSON)
 export interface HelloMsg {
   t: 'hello';
   v: number;
   token: string;
   nick: string;
+  /** reconnecting: where this client is, and the car it's driving (0 = on foot) */
+  resume?: { x: number; y: number; lvl: 0 | 1; car: number };
 }
 
-/** Cosmetic shot report (v1): relayed to nearby players so they see the muzzle flash and tracers. */
-export interface ShotMsg {
-  t: 'shot';
+/** a shot as traced by the shooter's client */
+export interface FireMsg {
+  t: 'fire';
   w: WeaponId;
-  x: number;
-  y: number;
+  ox: number;
+  oy: number;
   a: number;
   lvl: 0 | 1;
-  /** tracer end points, flat [x, y, ...] */
-  ends: number[];
+  /** the shooter's render time (server clock, ms) when it fired: hit claims are checked against then */
+  rt: number;
+  pellets: PelletReport[];
 }
 
 export type ClientMsg =
   | HelloMsg
-  | StateMsg
-  | ShotMsg
+  | FireMsg
+  | { t: 'punch'; target: number; rt: number }
+  | { t: 'enter'; vid: number }
+  | { t: 'exit'; x: number; y: number; veh: VehFull }
+  | { t: 'horn' }
+  /** "a car/tram just hit me": the victim's client reports it (it sees exactly what hit it) */
+  | { t: 'hit'; src: number; speed: number; tram: 0 | 1; rt: number }
   | { t: 'nick'; nick: string }
   | { t: 'ping'; ct: number }
-  | { t: 'leave' };
+  | { t: 'leave' }
+  /** tests only (server started with E2E=1) */
+  | { t: 'debug'; give?: WeaponId; money?: number; wanted?: number; hp?: number };
 
-/** One other player as seen by a client. */
-export interface PlayerSnap {
-  id: number;
-  nick: string;
-  /** look index: shirt colour of the player figure */
-  look: number;
-  x: number;
-  y: number;
-  a: number;
-  vx: number;
-  vy: number;
-  lvl: 0 | 1;
-  w: WeaponId;
-  wanted: number;
-  dead: 0 | 1;
-  veh: VehState | null;
-}
-
+// ------------------------------------------------------------ server → client (JSON)
 export interface WelcomeMsg {
   t: 'welcome';
   v: number;
+  /** player id */
   id: number;
+  /** this player's figure (its id; the server never sends it back as an entity) */
+  ped: number;
   nick: string;
   look: number;
+  x: number;
+  y: number;
+  lvl: 0 | 1;
+  /** car still owned from before a reconnect, if any */
+  car: number;
+  epoch: number;
   tickHz: number;
   /** server clock, ms */
   st: number;
+  clock: ClockSync;
 }
 
-export interface SnapMsg {
-  t: 'snap';
-  /** server clock, ms */
-  st: number;
-  ps: PlayerSnap[];
-  /** ids of players that left this client's interest area (or the game) */
-  gone: number[];
+export interface ClockSync {
+  time: number;
+  rain: number;
+  wet: number;
+  target: number;
 }
 
-export interface ShotEvent {
-  k: 'shot';
-  pid: number;
-  w: WeaponId;
-  x: number;
-  y: number;
-  a: number;
-  lvl: 0 | 1;
-  ends: number[];
-}
+/** A world event (see SimEvents), JSON-encoded; `st` of the enclosing message dates it. */
+export type WorldEvent =
+  | { k: 'shot'; by: number; pid: number; x: number; y: number; a: number; w: WeaponId; lvl: 0 | 1; ends: number[]; sparks: number }
+  | { k: 'melee'; x: number; y: number; hit: 0 | 1 }
+  | { k: 'pedHit'; id: number; x: number; y: number; s: number }
+  | { k: 'spark'; x: number; y: number; kind: 0 | 1 | 2 }
+  | { k: 'explode'; x: number; y: number; vid: number; c: string | null }
+  | { k: 'crash'; vid: number; x: number; y: number; sev: number; nx: number; ny: number; kick: number }
+  | { k: 'killed'; id: number; x: number; y: number; by: number; cause: 'shot' | 'melee' | 'road' | 'tram' | 'blast' }
+  | { k: 'scream'; x: number; y: number }
+  | { k: 'bell'; x: number; y: number }
+  | { k: 'horn'; vid: number; x: number; y: number };
 
-export type WorldEvent = ShotEvent;
-
-/** roster row: [id, nick, x, y, wanted, inCar] */
-export type RosterRow = [number, string, number, number, number, 0 | 1];
+/** roster row: [id, nick, x, y, wanted, inCar, pedId] */
+export type RosterRow = [number, string, number, number, number, 0 | 1, number];
 
 export type ServerMsg =
   | WelcomeMsg
-  | SnapMsg
-  | { t: 'ev'; st: number; e: WorldEvent[] }
+  | { t: 'ev'; st: number; e: WorldEvent[]; p: PrivateEvent[] }
   | { t: 'roster'; ps: RosterRow[] }
+  | { t: 'clock'; c: ClockSync }
+  | { t: 'profile'; money: number; found: string[]; cumils: number[] }
   | { t: 'pong'; ct: number; st: number }
+  /** the server rejected an impossible move: go back to this position */
   | { t: 'correct'; x: number; y: number }
   | { t: 'error'; code: 'version' | 'bad-hello' | 'full' }
   | { t: 'bye'; reason: 'restart' | 'replaced' | 'kicked' };
 
 // ------------------------------------------------------------------ helpers
-
 export const NICK_MIN = 2;
 export const NICK_MAX = 16;
 
@@ -185,5 +148,4 @@ export function cleanNick(raw: unknown): string | null {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const isToken = (s: unknown): s is string => typeof s === 'string' && UUID_RE.test(s);
 
-/** Shirt colours for player figures, indexed by `look`. */
-export const PLAYER_SHIRTS = ['#4a3220', '#1565c0', '#2e7d32', '#6a1b9a', '#c62828', '#00838f', '#ef6c00', '#37474f', '#ad1457', '#9e9d24'];
+export { PLAYER_SHIRTS } from '../entities/Ped';

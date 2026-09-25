@@ -10,17 +10,16 @@ interface Tagged {
   x: number;
   y: number;
   playerId: number;
-  kinematic: boolean;
   vehicle: { x: number; y: number; radius: number } | null;
 }
 
-export function drawNametags(ctx: CanvasRenderingContext2D, src: TagSource, peds: readonly Tagged[], v: View) {
+export function drawNametags(ctx: CanvasRenderingContext2D, src: TagSource, peds: readonly Tagged[], v: View, meId: number) {
   const fs = 12 / v.scale;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `700 ${fs}px system-ui, sans-serif`;
   for (const p of peds) {
-    if (!p.playerId || !p.kinematic) continue;
+    if (!p.playerId || p.playerId === meId) continue;
     const car = p.vehicle;
     const x = car ? car.x : p.x;
     const y = (car ? car.y - car.radius * 0.8 : p.y - 0.9) - fs * 1.1;

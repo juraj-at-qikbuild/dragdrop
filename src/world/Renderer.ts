@@ -1,4 +1,4 @@
-import type { World, Building } from './World';
+import type { World, Building } from '../shared/world/World';
 import { bboxOf, bboxHit, rng, pointInRings, ringArea, type BBox } from '../shared/util/math';
 import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';

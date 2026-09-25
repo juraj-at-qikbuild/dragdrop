@@ -1,6 +1,6 @@
 import type { Game } from '../game/Game';
-import { WEAPONS } from '../game/Combat';
-import type { WeaponId } from '../entities/Ped';
+import { WEAPONS } from '../shared/sim/Combat';
+import type { WeaponId } from '../shared/entities/Ped';
 import { formatMoney } from '../shared/util/math';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
@@ -332,7 +332,7 @@ export class Hud {
     ctx.font = `700 ${fs}px ${BODY}`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    const text = atmos.clock();
+    const text = atmos.clockText();
     const tw = ctx.measureText(text).width;
     shadowed(ctx, text, right, y, '#e8eef2');
     const r = fs * 0.4;

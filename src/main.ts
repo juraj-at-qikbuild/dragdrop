@@ -1,7 +1,7 @@
 import './style.css';
 import { Game } from './game/Game';
-import type { MapJSON } from './types';
-import { OnlineSession } from './net/OnlineSession';
+import type { MapJSON } from './shared/types';
+import { NetSimHost } from './net/NetSimHost';
 import { loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
 import { randomNick } from './net/nicknames';
 import { cleanNick } from './shared/net/protocol';
@@ -136,8 +136,9 @@ async function boot() {
     $('menu').classList.add('hidden');
     game.cam.x = game.player.x;
     game.cam.y = game.player.y;
-    game.ai.prewarm();
-    if (!game.save.done.length && !game.save.found.length)
+    game.prewarm();
+    if (game.online) game.message('Vitaj v spoločnom meste', 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.', 6);
+    else if (!game.save.done.length && !game.save.found.length)
       game.message('Vitaj v Bratislave', 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).', 7);
   };
 
@@ -163,7 +164,7 @@ async function boot() {
     game.paused = false;
     if (game.online) {
       // leave the shared world and come back to a fresh offline menu
-      game.online.close();
+      game.host.dispose();
       location.reload();
       return;
     }
@@ -198,7 +199,7 @@ async function boot() {
   const startOnline = async (id: Identity) => {
     $('loading').classList.remove('hidden');
     $('loading-text').textContent = 'Pripájam sa na server…';
-    const session = new OnlineSession(game, SERVER_URL, id);
+    const session = new NetSimHost(game, SERVER_URL, id);
     try {
       await session.start();
     } catch (e) {
@@ -211,7 +212,7 @@ async function boot() {
       $('loading').appendChild(back);
       return;
     }
-    game.online = session;
+    game.setHost(session);
     btnNick.classList.remove('hidden');
     $('loading').classList.add('hidden');
     startGame(false);

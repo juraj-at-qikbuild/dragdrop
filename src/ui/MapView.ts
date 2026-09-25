@@ -107,7 +107,7 @@ export class MapView {
     const net = g.online;
     if (net)
       for (const [id, nick, x0, y0, wanted] of net.roster) {
-        if (id === net.id) continue;
+        if (id === g.host.me.id) continue;
         const [x, y] = toScreen(x0, y0);
         ctx.fillStyle = wanted > 0 ? '#ff5252' : '#b388ff';
         ctx.strokeStyle = '#000';

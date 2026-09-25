@@ -1,5 +1,5 @@
 import type { Game } from '../game/Game';
-import { Vehicle } from '../entities/Vehicle';
+import { Vehicle } from '../shared/entities/Vehicle';
 import { dist, formatMoney } from '../shared/util/math';
 
 type Stage =
@@ -190,7 +190,7 @@ export class MissionManager {
   addVehicle(v: Vehicle) {
     v.mission = true;
     this.vehicles.push(v);
-    this.g.vehicles.push(v);
+    this.g.addMissionVehicle(v);
   }
 
   get current(): Stage | null {
@@ -237,6 +237,11 @@ export class MissionManager {
     this.g.audio.jingle(true);
     this.cleanup();
     if (def.id === 'finale') this.g.message('KONIEC', 'Si pánom Bratislavy! Mesto je tvoje – jazdi ďalej.', 8, '#ffd740');
+  }
+
+  /** drop any running mission without a message (switching worlds) */
+  cleanupAll() {
+    if (this.active) this.cleanup();
   }
 
   private cleanup() {
@@ -317,8 +322,8 @@ export class MissionManager {
   }
 
   /** reset when player dies / is busted */
-  onPlayerDown() {
-    if (this.active) this.fail(this.g.state === 'busted' ? 'Zatkli ťa.' : 'Zomrel si.');
+  onPlayerDown(state: 'wasted' | 'busted' = this.g.state === 'busted' ? 'busted' : 'wasted') {
+    if (this.active) this.fail(state === 'busted' ? 'Zatkli ťa.' : 'Zomrel si.');
   }
 
   drawWorld(ctx: CanvasRenderingContext2D, time: number) {

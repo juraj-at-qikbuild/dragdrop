@@ -1,5 +1,5 @@
 import type { RadioStation } from '../data/brands';
-import type { WeaponId } from '../entities/Ped';
+import type { WeaponId } from '../shared/entities/Ped';
 
 /** Fully procedural WebAudio sound: engine, siren, weapons and chiptune radio. */
 export class Audio {

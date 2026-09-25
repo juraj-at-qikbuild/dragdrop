@@ -1,5 +1,17 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ClientLink } from '../src/Room';
 import type { ServerMsg } from '../../src/shared/net/protocol';
+import { World } from '../../src/shared/world/World';
+import type { MapJSON } from '../../src/shared/types';
+import { Reader, Writer, decodeSnapshot, encodeState, type Snapshot, type StateReport } from '../../src/shared/net/codec';
+
+let world: World | null = null;
+/** the real Bratislava map, loaded once per test file */
+export function loadWorld(): World {
+  if (!world) world = new World(JSON.parse(readFileSync(path.resolve(__dirname, '../../public/data/bratislava.json'), 'utf8')) as MapJSON);
+  return world;
+}
 
 /** In-memory ClientLink that records everything the server sends. */
 export class FakeLink implements ClientLink {
@@ -23,6 +35,13 @@ export class FakeLink implements ClientLink {
     const all = this.json(t);
     return all[all.length - 1];
   }
+  snapshots(): Snapshot[] {
+    return this.sent.filter((d): d is Uint8Array => typeof d !== 'string').map((b) => decodeSnapshot(new Reader(b)));
+  }
+  lastSnapshot() {
+    const s = this.snapshots();
+    return s[s.length - 1];
+  }
   clear() {
     this.sent = [];
   }
@@ -38,4 +57,13 @@ export class FakeClock {
   advance(ms: number) {
     this.t += ms;
   }
+}
+
+let seq = 0;
+/** a binary STATE message for a player on foot (or driving, with `veh`) */
+export function stateMsg(x: number, y: number, extra: Partial<StateReport> = {}): Uint8Array {
+  const r: StateReport = { seq: ++seq & 0xffff, epoch: 0, lvl: 0, x, y, a: 0, vx: 0, vy: 0, weapon: 'fist', camDx: 0, camDy: 0, hw: 30, hh: 18, veh: null, ...extra };
+  const w = new Writer();
+  encodeState(w, r);
+  return w.finish();
 }

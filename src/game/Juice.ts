@@ -1,7 +1,7 @@
 // Game feel: camera shake/punch, hit-stop & slow-mo, floating world text, and the
 // style/chaos combo (near misses, drifts, takedowns) that feeds nitro & cash.
 import type { Game } from './Game';
-import type { Vehicle } from '../entities/Vehicle';
+import type { Vehicle } from '../shared/entities/Vehicle';
 import { clamp, dist, lerp } from '../shared/util/math';
 
 interface FloatText {
@@ -212,10 +212,10 @@ export class Juice {
   }
 
   // ------------------------------------------------------------ event hooks
-  /** a hard vehicle impact: shake, hit-stop, and (near the player) a postFx pulse. */
-  crashImpact(v: Vehicle, impact: number, nx: number, ny: number) {
+  /** a hard vehicle impact: shake, hit-stop, and (near the player) a postFx pulse. `mine`: the player's own car */
+  crashImpact(v: Vehicle, impact: number, nx: number, ny: number, mine = v === this.game.player.vehicle) {
     const g = this.game;
-    if (!v.isPlayer && dist(v.x, v.y, g.player.x, g.player.y) > 45) return;
+    if (!mine && dist(v.x, v.y, g.player.x, g.player.y) > 45) return;
     this.addTrauma(Math.min(1, impact / 30));
     this.kick(nx, ny, Math.min(14, impact * 0.4));
     if (impact > 12) {

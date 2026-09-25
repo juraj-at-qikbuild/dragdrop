@@ -1,10 +1,21 @@
-// The single shared world. Transport-agnostic: index.ts wraps each WebSocket in a ClientLink
-// and forwards join/message/leave; Room never touches `ws` directly (docs/multiplayer.md).
+// The single shared world. Owns the simulation and every connected client. Transport-agnostic:
+// index.ts wraps each WebSocket in a ClientLink and forwards join/message/leave; Room never touches
+// `ws` directly (docs/multiplayer.md), so tests drive it with in-memory links.
 import {
-  PROTOCOL_VERSION, TICK_HZ, cleanNick, isToken, PLAYER_SHIRTS,
-  type ClientMsg, type PlayerSnap, type RosterRow, type ServerMsg, type StateMsg, type WorldEvent,
+  PROTOCOL_VERSION, TICK_HZ, cleanNick, isToken,
+  type ClientMsg, type FireMsg, type HelloMsg, type RosterRow, type ServerMsg, type VehFull,
 } from '../../src/shared/net/protocol';
-import { SpatialHash } from '../../src/shared/util/SpatialHash';
+import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
+import type { World } from '../../src/shared/world/World';
+import { Sim } from '../../src/shared/sim/Sim';
+import { SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
+import { WEAPONS, WEAPON_IDS, traceMelee, type PelletReport } from '../../src/shared/sim/Combat';
+import { SERVER_CAPS, type Caps } from '../../src/shared/sim/density';
+import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
+import { Rng } from '../../src/shared/util/Rng';
+import { dist } from '../../src/shared/util/math';
+import { NetEvents } from './NetEvents';
+import { ClientView, SnapshotBuilder } from './snapshot';
 import { Bucket, checkMove, type Bounds } from './validate';
 
 export interface ClientLink {
@@ -13,93 +24,127 @@ export interface ClientLink {
   readonly bufferedAmount: number;
 }
 
-/** entities within this radius of a client's focus are sent to it */
-export const INTEREST_R = 300;
-/** ...and stay sent until they are this much further away (hysteresis) */
-const INTEREST_HYST = 30;
-/** a disconnected player's body stays in the world this long, so a reconnect resumes seamlessly */
+/** a disconnected player's figure (and car) stays in the world this long, so a reconnect resumes */
 export const GRACE_MS = 30_000;
-/** a connected player that sends no state for this long stops counting as present */
+/** a connected player that sends no state for this long stops counting as an observer */
 const AFK_MS = 60_000;
 /** skip sending to a client whose socket buffer is this full (slow link) */
 const BACKPRESSURE_BYTES = 256 * 1024;
 
-interface Conn {
+export interface Conn {
   link: ClientLink;
-  player: Player | null;
+  session: Session | null;
   stateBucket: Bucket;
   otherBucket: Bucket;
   strikes: number;
-  openedAt: number;
 }
 
-export class Player {
-  state: StateMsg | null = null;
-  lastStateAt = 0;
-  /** accepted teleport epoch */
-  ep = -1;
+/** one identity (token) in the world: survives reconnects within the grace period */
+export class Session {
   conn: Conn | null = null;
   disconnectedAt = 0;
-  /** ids of other players this client currently knows about */
-  known = new Set<number>();
+  view = new ClientView();
+  lastPose: { x: number; y: number } | null = null;
+  lastPoseAt = 0;
+  lastReportAt = 0;
+  wasInCar = false;
+  ack = 0;
+  fireBucket: Bucket;
+  hitAt = new Map<number, number>();
   constructor(
-    public id: number,
     public token: string,
-    public nick: string,
-    public look: number,
-  ) {}
-  get connected() {
-    return this.conn !== null;
+    public player: SimPlayer,
+    now: number,
+  ) {
+    this.fireBucket = new Bucket(12, 3, now);
   }
 }
 
+export interface ProfileStore {
+  load(token: string): { nick: string; profile: Profile } | null;
+  save(token: string, nick: string, p: SimPlayer): void;
+}
+
 export interface RoomOptions {
-  bounds: Bounds;
+  world: World;
   now?: () => number;
   maxPlayers?: number;
+  caps?: Caps;
+  seed?: number;
+  tickBudgetMs?: number;
+  store?: ProfileStore;
+  /** accept test-only `debug` messages */
+  debug?: boolean;
 }
 
 export class Room {
-  players = new Map<number, Player>();
-  private byToken = new Map<string, Player>();
+  sim: Sim;
+  events = new NetEvents();
+  sessions = new Map<string, Session>();
   private conns = new Set<Conn>();
-  private nextId = 1;
-  private grid = new SpatialHash<Player>(100);
-  private events: { x: number; y: number; e: WorldEvent }[] = [];
-  private rosterTimer = 0;
+  private snaps: SnapshotBuilder;
   private now: () => number;
   private bounds: Bounds;
   private maxPlayers: number;
-  /** counters for /stats */
-  counters = { bytesOut: 0, msgsIn: 0, rejected: 0, teleports: 0 };
+  private tickNo = 0;
+  private rosterTimer = 0;
+  private clockTimer = 0;
+  private budget: number;
+  private tickAvg = 0;
+  private store: ProfileStore | null;
+  private debug: boolean;
+  private nextLook = 0;
+  counters = { bytesOut: 0, msgsIn: 0, rejected: 0, teleports: 0, shots: 0, badHits: 0 };
   tickMs = 0;
 
   constructor(opts: RoomOptions) {
     this.now = opts.now ?? (() => performance.now());
-    this.bounds = opts.bounds;
+    const b = opts.world.bounds;
+    this.bounds = { x0: b.x0 - 50, y0: b.y0 - 50, x1: b.x1 + 50, y1: b.y1 + 50 };
     this.maxPlayers = opts.maxPlayers ?? 150;
+    this.budget = opts.tickBudgetMs ?? 12;
+    this.store = opts.store ?? null;
+    this.debug = !!opts.debug;
+    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true });
+    this.snaps = new SnapshotBuilder(this.sim);
+    this.sim.onProfileChange = (p) => this.saveProfile(p);
   }
 
   // ------------------------------------------------------------- transport
   onJoin(link: ClientLink): Conn {
     const t = this.now();
-    const c: Conn = { link, player: null, stateBucket: new Bucket(40, 60, t), otherBucket: new Bucket(20, 40, t), strikes: 0, openedAt: t };
+    const c: Conn = { link, session: null, stateBucket: new Bucket(40, 60, t), otherBucket: new Bucket(30, 60, t), strikes: 0 };
     this.conns.add(c);
     return c;
   }
 
   onLeave(c: Conn) {
     this.conns.delete(c);
-    const p = c.player;
-    if (!p || p.conn !== c) return;
-    p.conn = null;
-    p.disconnectedAt = this.now();
-    if (p.state) (p.state.vx = 0), (p.state.vy = 0);
+    const s = c.session;
+    if (!s || s.conn !== c) return;
+    s.conn = null;
+    s.disconnectedAt = this.now();
+    s.player.connected = false;
+    // freeze the figure/car where they are
+    const v = s.player.ped.vehicle;
+    if (v) (v.vx = 0), (v.vy = 0), (v.av = 0);
+    this.saveProfile(s.player);
   }
 
   onMessage(c: Conn, data: string | ArrayBuffer | Uint8Array) {
     this.counters.msgsIn++;
-    if (typeof data !== 'string') return this.strike(c); // no binary messages in protocol v1
+    const t = this.now();
+    if (typeof data !== 'string') {
+      const s = c.session;
+      if (!s || !c.stateBucket.take(t)) return this.strike(c);
+      let r: StateReport;
+      try {
+        r = decodeState(new Reader(data instanceof Uint8Array ? data : new Uint8Array(data)));
+      } catch {
+        return this.strike(c);
+      }
+      return this.applyReport(s, r, t);
+    }
     let msg: ClientMsg;
     try {
       msg = JSON.parse(data);
@@ -107,29 +152,42 @@ export class Room {
       return this.strike(c);
     }
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return this.strike(c);
-    const t = this.now();
-    const bucket = msg.t === 'state' ? c.stateBucket : c.otherBucket;
-    if (!bucket.take(t)) return this.strike(c);
+    if (!c.otherBucket.take(t)) return this.strike(c);
     if (msg.t === 'hello') return this.hello(c, msg);
-    const p = c.player;
-    if (!p) return this.strike(c);
+    const s = c.session;
+    if (!s) return this.strike(c);
+    const p = s.player;
     switch (msg.t) {
-      case 'state':
-        return this.onState(p, msg, t);
-      case 'shot':
-        return this.onShot(p, msg);
+      case 'enter': {
+        const v = typeof msg.vid === 'number' ? this.sim.vehicleById(msg.vid) : null;
+        if (!this.sim.enterVehicle(p, v, 1.5)) this.sim.events.toPlayer(p.id, { k: 'enter', vehicle: msg.vid | 0, ok: false });
+        return;
+      }
+      case 'exit':
+        return this.onExit(s, msg.x, msg.y, msg.veh);
+      case 'fire':
+        return this.onFire(s, msg);
+      case 'punch':
+        return this.onPunch(s, msg.target);
+      case 'horn':
+        return this.onHorn(p);
+      case 'hit':
+        return this.onHit(s, msg.src, msg.speed, msg.tram === 1);
       case 'nick': {
         const n = cleanNick(msg.nick);
-        if (n) p.nick = n;
+        if (n) (p.nick = n), this.saveProfile(p);
         return;
       }
       case 'ping':
         if (typeof msg.ct === 'number') this.send(c, { t: 'pong', ct: msg.ct, st: Date.now() });
         return;
       case 'leave':
-        this.remove(p);
-        c.player = null;
+        this.drop(s);
+        c.session = null;
         c.link.close(1000, 'leave');
+        return;
+      case 'debug':
+        if (this.debug) this.onDebug(p, msg);
         return;
       default:
         return this.strike(c);
@@ -138,11 +196,12 @@ export class Room {
 
   /** misbehaving connection: drop after repeated offences */
   private strike(c: Conn) {
+    this.counters.rejected++;
     if (++c.strikes > 50) c.link.close(1008, 'policy');
   }
 
-  private hello(c: Conn, msg: Extract<ClientMsg, { t: 'hello' }>) {
-    if (c.player) return;
+  private hello(c: Conn, msg: HelloMsg) {
+    if (c.session) return;
     if (msg.v !== PROTOCOL_VERSION) {
       this.send(c, { t: 'error', code: 'version' });
       c.link.close(4000, 'version');
@@ -154,125 +213,308 @@ export class Room {
       c.link.close(4001, 'bad-hello');
       return;
     }
-    let p = this.byToken.get(msg.token);
-    if (p) {
-      // reconnect within the grace period, or the same identity opened a second tab: take over
-      if (p.conn) {
-        this.send(p.conn, { t: 'bye', reason: 'replaced' });
-        const old = p.conn;
-        old.player = null;
+    let s = this.sessions.get(msg.token);
+    const r = msg.resume;
+    const resumeOk = !!r && Number.isFinite(r.x) && Number.isFinite(r.y) && checkMove(null, r, 0, false, this.bounds) === 'ok';
+    if (s) {
+      // reconnect within the grace period, or the same identity in a second tab: take over
+      if (s.conn) {
+        this.send(s.conn, { t: 'bye', reason: 'replaced' });
+        const old = s.conn;
+        old.session = null;
         old.link.close(4002, 'replaced');
       }
-      p.nick = nick;
+      s.player.nick = nick;
+      const p = s.player;
+      const car = p.ped.vehicle;
+      // the client kept playing while disconnected: take its position (movement is client-side anyway)
+      if (car && (!r || r.car !== car.id)) this.sim.exitVehicle(p, true);
+      if (resumeOk && p.state === 'play') {
+        const v = p.ped.vehicle;
+        if (v) (v.x = r!.x), (v.y = r!.y);
+        p.ped.x = r!.x;
+        p.ped.y = r!.y;
+        p.ped.level = r!.lvl === 1 ? 1 : 0;
+      }
     } else {
       if (this.connectedCount() >= this.maxPlayers) {
         this.send(c, { t: 'error', code: 'full' });
         c.link.close(4003, 'full');
         return;
       }
-      const id = this.nextId++;
-      p = new Player(id, msg.token, nick, id % PLAYER_SHIRTS.length);
-      this.players.set(id, p);
-      this.byToken.set(msg.token, p);
+      const stored = this.store?.load(msg.token);
+      const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [] };
+      let x: number | undefined, y: number | undefined;
+      if (r && resumeOk) {
+        const w = this.sim.world.walkableNear(r.x, r.y);
+        if (dist(w.x, w.y, r.x, r.y) < 20) (x = r.x), (y = r.y);
+      }
+      const look = this.nextLook++ % PLAYER_SHIRTS.length;
+      const p = this.sim.addPlayer({ nick, look, profile, kinematic: true, x, y });
+      if (r?.lvl === 1) p.ped.level = 1;
+      p.ped.levelInit = true;
+      s = new Session(msg.token, p, this.now());
+      this.sessions.set(msg.token, s);
+      this.sim.prewarm(p);
     }
-    p.conn = c;
-    p.known.clear();
-    p.lastStateAt = this.now();
-    c.player = p;
-    this.send(c, { t: 'welcome', v: PROTOCOL_VERSION, id: p.id, nick: p.nick, look: p.look, tickHz: TICK_HZ, st: Date.now() });
+    s.conn = c;
+    s.view.reset();
+    s.lastReportAt = this.now();
+    s.lastPose = null;
+    s.player.connected = true;
+    s.player.afk = false;
+    c.session = s;
+    const p = s.player;
+    this.send(c, {
+      t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
+      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: Date.now(), clock: this.clockSync(),
+    });
+    this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils });
   }
 
-  private onState(p: Player, s: StateMsg, t: number) {
-    if (!validState(s)) return this.reject(p);
-    const inCar = !!s.veh;
-    const teleportOk = s.ep !== p.ep;
-    const verdict = p.state && !teleportOk ? checkMove(p.state, s, t - p.lastStateAt, inCar || !!p.state.veh, this.bounds) : checkMove(null, s, 0, inCar, this.bounds);
-    if (verdict === 'reject') return this.reject(p);
+  // ---------------------------------------------------------- player reports
+  private applyReport(s: Session, r: StateReport, t: number) {
+    const p = s.player;
+    s.lastReportAt = t;
+    p.afk = false;
+    s.ack = r.seq;
+    // the camera is always taken, even while dead, so the city keeps living around them
+    const o = p.observer;
+    o.hw = Math.min(150, Math.max(5, r.hw));
+    o.hh = Math.min(150, Math.max(5, r.hh));
+    if (r.epoch !== p.epoch || p.state !== 'play') return;
+    const inCar = !!r.veh;
+    const verdict = checkMove(s.lastPose, r, t - s.lastPoseAt, inCar || s.wasInCar, this.bounds);
+    if (verdict === 'reject') return this.strike(s.conn!);
     if (verdict === 'teleport') {
       this.counters.teleports++;
-      if (p.conn && p.state) this.send(p.conn, { t: 'correct', x: p.state.x, y: p.state.y });
+      if (s.conn && s.lastPose) this.send(s.conn, { t: 'correct', x: s.lastPose.x, y: s.lastPose.y });
       return;
     }
-    p.ep = s.ep;
-    p.state = s;
-    p.lastStateAt = t;
+    s.lastPose = { x: r.x, y: r.y };
+    s.lastPoseAt = t;
+    s.wasInCar = inCar;
+    const ped = p.ped;
+    ped.level = r.lvl;
+    ped.levelInit = true;
+    const v = ped.vehicle;
+    if (r.veh && v && v.id === r.veh.vid) {
+      const rv = r.veh;
+      v.x = r.x;
+      v.y = r.y;
+      v.angle = r.a;
+      v.vx = r.vx;
+      v.vy = r.vy;
+      v.av = rv.av;
+      v.steer = rv.steer;
+      v.setControls(rv.throttle, rv.steer, rv.handbrake, rv.boost);
+      v.siren = rv.siren && v.kind === 'police';
+      v.horn = rv.horn ? 0.3 : 0;
+      v.boosting = rv.boosting;
+      v.tyresBurst = rv.tyres ? 1 : 0;
+      v.health = Math.min(rv.health, v.spec.health);
+      v.dmg.front = rv.dmg[0];
+      v.dmg.rear = rv.dmg[1];
+      v.dmg.left = rv.dmg[2];
+      v.dmg.right = rv.dmg[3];
+      v.sinking = rv.sinking;
+      v.nitro = rv.nitro;
+      v.skid = rv.skid;
+      v.level = r.lvl;
+      v.levelInit = true;
+      // the client ran the fire countdown; the server blows it up (damage, kill credit) once
+      if (!v.wrecked) v.fire = rv.wrecked ? 0 : rv.fire;
+      if (rv.sinking > 2.5) this.sim.wasted(p);
+      ped.x = v.x;
+      ped.y = v.y;
+    } else if (!r.veh && !v) {
+      ped.x = r.x;
+      ped.y = r.y;
+      ped.angle = r.a;
+      ped.vx = r.vx;
+      ped.vy = r.vy;
+    }
+    ped.weapon = r.weapon === 'fist' || p.ammo[r.weapon] > 0 ? r.weapon : 'fist';
+    const f = p.focus();
+    o.fx = f.x;
+    o.fy = f.y;
+    o.cx = f.x + r.camDx;
+    o.cy = f.y + r.camDy;
   }
 
-  private reject(p: Player) {
-    this.counters.rejected++;
-    if (p.conn) this.strike(p.conn);
+  private onExit(s: Session, x: number, y: number, veh: VehFull) {
+    const p = s.player;
+    const v = p.ped.vehicle;
+    if (!v || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (veh && [veh.x, veh.y, veh.a, veh.vx, veh.vy, veh.av, veh.hp, veh.fire, veh.nitro].every(Number.isFinite) && dist(veh.x, veh.y, v.x, v.y) < 15) {
+      v.x = veh.x;
+      v.y = veh.y;
+      v.angle = veh.a;
+      v.vx = veh.vx;
+      v.vy = veh.vy;
+      v.av = veh.av;
+      v.health = Math.min(veh.hp, v.spec.health);
+      if (Array.isArray(veh.dmg) && veh.dmg.length === 4) [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right] = veh.dmg.map((d) => Math.max(0, Math.min(1, +d || 0)));
+      if (!v.wrecked) v.fire = veh.fire;
+      v.tyresBurst = veh.tyres ? 1 : 0;
+      v.nitro = veh.nitro;
+      v.level = veh.lvl === 1 ? 1 : 0;
+    }
+    const at = dist(x, y, v.x, v.y) < 6 ? { x, y } : undefined;
+    this.sim.exitVehicle(p, false, at);
+    s.lastPose = { x: p.ped.x, y: p.ped.y };
+    s.wasInCar = true; // allow the car's last speed on the next report
   }
 
-  private onShot(p: Player, m: Extract<ClientMsg, { t: 'shot' }>) {
-    if (!p.state || !Array.isArray(m.ends) || m.ends.length > 12 || !m.ends.every(Number.isFinite)) return;
-    if (!Number.isFinite(m.x) || !Number.isFinite(m.y) || !Number.isFinite(m.a)) return;
-    if (Math.hypot(m.x - p.state.x, m.y - p.state.y) > 6) return;
-    this.events.push({ x: m.x, y: m.y, e: { k: 'shot', pid: p.id, w: m.w, x: m.x, y: m.y, a: m.a, lvl: m.lvl === 1 ? 1 : 0, ends: m.ends } });
+  /** a player's gun shot (hits as traced by their client) */
+  private onFire(s: Session, m: FireMsg) {
+    const p = s.player;
+    const t = this.now();
+    const w = WEAPONS[m.w];
+    if (!w || m.w === 'fist' || p.state !== 'play' || !(p.ammo[m.w] > 0)) return;
+    if (!s.fireBucket.take(t, w.cd < 0.2 ? 0.5 : 1)) return;
+    if (![m.ox, m.oy, m.a].every(Number.isFinite) || !Array.isArray(m.pellets) || m.pellets.length !== w.pellets) return;
+    const f = p.focus();
+    if (dist(m.ox, m.oy, f.x, f.y) > 4 || (m.lvl !== 0 && m.lvl !== 1)) return;
+    const pellets: PelletReport[] = [];
+    for (const pl of m.pellets) {
+      if (!pl || ![pl.a, pl.hx, pl.hy].every(Number.isFinite)) return;
+      if (Math.abs(Math.atan2(Math.sin(pl.a - m.a), Math.cos(pl.a - m.a))) > w.spread + 0.02) return;
+      if (dist(pl.hx, pl.hy, m.ox, m.oy) > w.range + 1) return;
+      pellets.push({ a: pl.a, kind: pl.kind, hit: pl.hit | 0, hx: pl.hx, hy: pl.hy });
+    }
+    p.ammo[m.w]--;
+    this.counters.shots++;
+    this.sim.applyShot(p, { w: m.w, ox: m.ox, oy: m.oy, a: m.a, lvl: m.lvl, pellets });
   }
 
-  /** the next tick's known-vs-visible diff sends the removal to everyone who could see `p` */
-  private remove(p: Player) {
-    this.players.delete(p.id);
-    this.byToken.delete(p.token);
+  private onPunch(s: Session, target: number) {
+    const p = s.player;
+    const t = this.now();
+    if (p.state !== 'play' || p.ped.vehicle || !s.fireBucket.take(t)) return;
+    const tp = target ? this.sim.pedById(target) : null;
+    if (tp && (dist(tp.x, tp.y, p.ped.x, p.ped.y) > 3 || tp.level !== p.ped.level)) return this.sim.applyMelee(p, 0);
+    // no claim: let the server look for someone in front of them
+    const hit = tp ?? traceMelee(this.sim.pedsNear(p.ped.x, p.ped.y, 3), p.ped, p.ped.angle);
+    this.sim.applyMelee(p, hit?.id ?? 0);
+  }
+
+  private onHorn(p: SimPlayer) {
+    const v = p.ped.vehicle;
+    if (!v) return;
+    this.events.horn(v.id, v.x, v.y);
+    for (const q of this.sim.pedsNear(v.x, v.y, 12)) if (q.kind === 'civ' && !q.vehicle && dist(q.x, q.y, v.x, v.y) < 12) this.sim.combat.scare(q, v.x, v.y);
+  }
+
+  /** the victim's client says a car or tram ran them over */
+  private onHit(s: Session, src: number, speed: number, tram: boolean) {
+    const p = s.player;
+    if (p.state !== 'play' || p.ped.vehicle || !Number.isFinite(speed)) return;
+    const now = this.now();
+    if (now - (s.hitAt.get(src) ?? -1e9) < 500) return;
+    s.hitAt.set(src, now);
+    const sp = Math.min(Math.max(speed, 0), 60);
+    let sx: number, sy: number, by = 0;
+    if (tram) {
+      const t = this.sim.trams.find((q) => q.id === src);
+      if (!t || dist(t.x, t.y, p.ped.x, p.ped.y) > 25) return;
+      (sx = t.x), (sy = t.y);
+    } else {
+      const v = this.sim.vehicleById(src);
+      if (!v || dist(v.x, v.y, p.ped.x, p.ped.y) > 10) return;
+      (sx = v.x), (sy = v.y), (by = v.owner);
+    }
+    this.sim.hurtPlayer(p, tram ? sp * 5 : sp * 3, sx, sy, by);
+  }
+
+  private onDebug(p: SimPlayer, m: Extract<ClientMsg, { t: 'debug' }>) {
+    if (m.give && WEAPON_IDS.includes(m.give)) (p.ammo[m.give] = 999), (p.ped.weapon = m.give);
+    if (typeof m.money === 'number') p.profile.money = m.money;
+    if (typeof m.wanted === 'number') this.sim.setWanted(p, m.wanted);
+    if (typeof m.hp === 'number') p.ped.health = m.hp;
+  }
+
+  /** remove a player for good (quit, or grace expired) */
+  private drop(s: Session) {
+    this.saveProfile(s.player);
+    this.sim.removePlayer(s.player);
+    this.sessions.delete(s.token);
+  }
+
+  private saveProfile(p: SimPlayer) {
+    const s = [...this.sessions.values()].find((q) => q.player === p);
+    if (s && this.store) this.store.save(s.token, p.nick, p);
   }
 
   connectedCount() {
     let n = 0;
-    for (const p of this.players.values()) if (p.conn) n++;
+    for (const s of this.sessions.values()) if (s.conn) n++;
     return n;
+  }
+
+  private clockSync() {
+    const c = this.sim.clock;
+    return { time: +c.time.toFixed(4), rain: +c.rain.toFixed(3), wet: +c.wet.toFixed(3), target: c.rainTarget };
   }
 
   // ------------------------------------------------------------------ tick
   tick(dtMs: number) {
     const t0 = performance.now();
     const t = this.now();
-    for (const p of [...this.players.values()]) {
-      if (!p.conn && t - p.disconnectedAt > GRACE_MS) this.remove(p);
+    this.tickNo++;
+    for (const s of [...this.sessions.values()]) {
+      if (!s.conn && t - s.disconnectedAt > GRACE_MS) this.drop(s);
+      else if (s.conn) s.player.afk = t - s.lastReportAt > AFK_MS;
     }
-    this.grid.clear();
-    for (const p of this.players.values()) if (p.state && (p.conn ? t - p.lastStateAt < AFK_MS : true)) this.grid.insert(p, p.state.x, p.state.y);
-
+    this.sim.step(dtMs / 1000);
+    this.snaps.prepare(this.tickNo);
     const st = Date.now();
-    for (const p of this.players.values()) {
-      const c = p.conn;
-      if (!c || !p.state) continue;
+    for (const s of this.sessions.values()) {
+      const c = s.conn;
+      if (!c) continue;
       if (c.link.bufferedAmount > BACKPRESSURE_BYTES) continue;
-      const ps: PlayerSnap[] = [];
-      const seen = new Set<number>();
-      const { x, y } = p.state;
-      this.grid.query(x, y, INTEREST_R + INTEREST_HYST, (q) => {
-        if (q === p || !q.state) return;
-        const d = Math.hypot(q.state.x - x, q.state.y - y);
-        if (d > INTEREST_R && !(p.known.has(q.id) && d < INTEREST_R + INTEREST_HYST)) return;
-        seen.add(q.id);
-        ps.push(snapOf(q));
-      });
-      const gone: number[] = [];
-      for (const id of p.known) if (!seen.has(id)) gone.push(id);
-      p.known = seen;
-      this.send(c, { t: 'snap', st, ps, gone });
-      // world events near this client
-      if (this.events.length) {
-        const e = this.events.filter((ev) => Math.hypot(ev.x - x, ev.y - y) < INTEREST_R && !(ev.e.k === 'shot' && ev.e.pid === p.id)).map((ev) => ev.e);
-        if (e.length) this.send(c, { t: 'ev', st, e });
-      }
+      const p = s.player;
+      this.sendRaw(c, this.snaps.build(p, s.view, st, s.ack));
+      const f = p.focus();
+      const e = [];
+      for (const ev of this.events.world) if (ev.skip !== p.id && Math.abs(ev.x - f.x) < 320 && Math.abs(ev.y - f.y) < 320) e.push(ev.e);
+      const priv = this.events.takePrivate(p.id);
+      if (e.length || priv.length) this.send(c, { t: 'ev', st, e, p: priv });
     }
-    this.events.length = 0;
+    this.events.clear();
 
     this.rosterTimer -= dtMs;
     if (this.rosterTimer <= 0) {
       this.rosterTimer = 1000;
       const rows: RosterRow[] = [];
-      for (const p of this.players.values())
-        if (p.state) rows.push([p.id, p.nick, Math.round(p.state.x), Math.round(p.state.y), p.state.wanted | 0, p.state.veh ? 1 : 0]);
-      const msg = JSON.stringify({ t: 'roster', ps: rows } satisfies ServerMsg);
-      for (const c of this.conns) if (c.player) this.sendRaw(c, msg);
+      for (const s of this.sessions.values()) {
+        const p = s.player;
+        const f = p.focus();
+        rows.push([p.id, p.nick, Math.round(f.x), Math.round(f.y), p.stars, p.ped.vehicle ? 1 : 0, p.ped.id]);
+      }
+      this.broadcast({ t: 'roster', ps: rows });
+    }
+    this.clockTimer -= dtMs;
+    if (this.clockTimer <= 0) {
+      this.clockTimer = 5000;
+      this.broadcast({ t: 'clock', c: this.clockSync() });
     }
     this.tickMs = performance.now() - t0;
+    this.govern(dtMs);
   }
 
-  /** graceful shutdown (deploy): tell every client to reconnect shortly */
+  /** thin the city out when ticks run long (a throttled shared vCPU), fill it back when there's room */
+  private govern(dtMs: number) {
+    this.tickAvg += (this.tickMs - this.tickAvg) * 0.05;
+    const s = dtMs / 1000;
+    const sim = this.sim;
+    if (this.tickAvg > this.budget) sim.governor = Math.max(0.3, sim.governor - 0.02 * s);
+    else if (this.tickAvg < this.budget * 0.6) sim.governor = Math.min(1, sim.governor + 0.005 * s);
+  }
+
+  /** graceful shutdown (deploy): save everyone, tell every client to reconnect shortly */
   shutdown() {
+    for (const s of this.sessions.values()) this.saveProfile(s.player);
     for (const c of this.conns) {
       this.send(c, { t: 'bye', reason: 'restart' });
       c.link.close(1012, 'restart');
@@ -280,38 +522,29 @@ export class Room {
   }
 
   stats() {
-    return { players: this.players.size, connected: this.connectedCount(), tickMs: +this.tickMs.toFixed(2), ...this.counters };
+    const sim = this.sim;
+    return {
+      players: this.sessions.size, connected: this.connectedCount(), tickMs: +this.tickMs.toFixed(2), tickAvg: +this.tickAvg.toFixed(2),
+      governor: +sim.governor.toFixed(2), vehicles: sim.vehicles.length, peds: sim.peds.length, trams: sim.trams.length, ids: sim.ids.size,
+      snapshotBytes: this.snaps.bytes, ...this.counters,
+    };
+  }
+
+  private broadcast(msg: ServerMsg) {
+    const s = JSON.stringify(msg);
+    for (const c of this.conns) if (c.session) this.sendRaw(c, s);
   }
 
   private send(c: Conn, msg: ServerMsg) {
     this.sendRaw(c, JSON.stringify(msg));
   }
 
-  private sendRaw(c: Conn, s: string) {
-    this.counters.bytesOut += s.length;
+  private sendRaw(c: Conn, d: string | Uint8Array) {
+    this.counters.bytesOut += typeof d === 'string' ? d.length : d.byteLength;
     try {
-      c.link.send(s);
+      c.link.send(d);
     } catch {
       /* socket closing */
     }
   }
-}
-
-function snapOf(q: Player): PlayerSnap {
-  const s = q.state!;
-  return { id: q.id, nick: q.nick, look: q.look, x: s.x, y: s.y, a: s.a, vx: s.vx, vy: s.vy, lvl: s.lvl, w: s.w, wanted: s.wanted, dead: s.dead, veh: s.veh };
-}
-
-const WEAPONS = new Set(['fist', 'pistol', 'uzi', 'shotgun']);
-function validState(s: StateMsg): boolean {
-  if (![s.x, s.y, s.a, s.vx, s.vy, s.hw, s.hh, s.wanted, s.hp, s.seq, s.ep].every((v) => typeof v === 'number' && Number.isFinite(v))) return false;
-  if (!WEAPONS.has(s.w) || (s.lvl !== 0 && s.lvl !== 1)) return false;
-  if (s.wanted < 0 || s.wanted > 5) return false;
-  const v = s.veh;
-  if (v) {
-    if (typeof v.k !== 'string' || typeof v.c !== 'string' || !/^#[0-9a-f]{6}$/i.test(v.c)) return false;
-    if (![v.x, v.y, v.a, v.vx, v.vy, v.av, v.st, v.th, v.f, v.hp, v.sk, v.sink, v.fire].every((n) => typeof n === 'number' && Number.isFinite(n))) return false;
-    if (!Array.isArray(v.dmg) || v.dmg.length !== 4 || !v.dmg.every((n) => typeof n === 'number' && Number.isFinite(n))) return false;
-  }
-  return true;
 }

@@ -1,4 +1,6 @@
-import { clamp, lerp, rand } from '../shared/util/math';
+import { clamp, lerp } from '../shared/util/math';
+import { Clock } from '../shared/sim/Clock';
+import { Rng } from '../shared/util/Rng';
 
 /** RGB triple, 0..255 */
 export type RGB = [number, number, number];
@@ -30,8 +32,6 @@ const AMBIENT_NIGHT_SUM = Math.min(...AMBIENT_KEYS.map(([, c]) => c[0] + c[1] + 
 
 const SUNRISE = 5.8;
 const SUNSET = 20.2;
-/** real seconds per in-game hour */
-const SECONDS_PER_HOUR = 60;
 
 /**
  * Time of day, sun and weather. One instance lives on `Game.atmos`; every
@@ -45,8 +45,27 @@ const SECONDS_PER_HOUR = 60;
  * e.g. http://localhost:5173/?t=22&rain=0.8&freeze for a frozen rainy night shot.
  */
 export class Atmosphere {
+  /** the simulated clock + weather this derives from (shared with the Sim offline, synced online) */
+  clock: Clock;
   /** hours, 0..24 */
-  time = 9;
+  get time() {
+    return this.clock.time;
+  }
+  /** 0..1 current rain intensity (smoothed) */
+  get rain() {
+    return this.clock.rain;
+  }
+  /** 0..1 how wet the ground is (lags behind rain) */
+  get wet() {
+    return this.clock.wet;
+  }
+  /** freezes the clock and weather (debug / screenshots) */
+  get frozen() {
+    return this.clock.frozen;
+  }
+  set frozen(v: boolean) {
+    this.clock.frozen = v;
+  }
   /** 0 at night, 1 in full daylight */
   daylight = 1;
   /** 1 - daylight, convenience */
@@ -59,17 +78,10 @@ export class Atmosphere {
   ambient: RGB = [255, 255, 255];
   /** true when the ambient differs enough from white to need the lighting pass */
   tinted = false;
-  /** 0..1 current rain intensity (smoothed) */
-  rain = 0;
-  /** 0..1 how wet the ground is (lags behind rain) */
-  wet = 0;
-  private rainTarget = 0;
-  private weatherTimer = rand(90, 240);
-  /** freezes the clock and weather (debug / screenshots) */
-  frozen = false;
 
-  constructor(time?: number) {
-    if (typeof time === 'number' && isFinite(time)) this.time = ((time % 24) + 24) % 24;
+  constructor(time?: number, clock?: Clock) {
+    this.clock = clock ?? new Clock(new Rng(), time);
+    if (clock && typeof time === 'number' && isFinite(time)) clock.setTime(time);
     try {
       const q = new URLSearchParams(location.search);
       if (q.has('t')) this.setTime(parseFloat(q.get('t')!));
@@ -82,28 +94,18 @@ export class Atmosphere {
   }
 
   setTime(h: number) {
-    if (!isFinite(h)) return;
-    this.time = ((h % 24) + 24) % 24;
+    this.clock.setTime(h);
     this.recompute();
   }
 
   setRain(v: number) {
-    this.rainTarget = this.rain = this.wet = clamp(isFinite(v) ? v : 1, 0, 1);
-    this.weatherTimer = rand(180, 360);
+    this.clock.setRain(v);
+    this.recompute();
   }
 
+  /** advance the clock (offline, or online between server syncs) and refresh the derived visuals */
   update(dt: number) {
-    if (!this.frozen) {
-      this.time = (this.time + dt / SECONDS_PER_HOUR) % 24;
-      this.weatherTimer -= dt;
-      if (this.weatherTimer <= 0) {
-        // roughly one shower in four weather periods
-        this.rainTarget = this.rainTarget > 0 ? 0 : Math.random() < 0.28 ? rand(0.45, 1) : 0;
-        this.weatherTimer = this.rainTarget > 0 ? rand(90, 200) : rand(150, 360);
-      }
-      this.rain += clamp(this.rainTarget - this.rain, -dt * 0.08, dt * 0.08);
-      this.wet += clamp(this.rain - this.wet, -dt * 0.015, dt * 0.05);
-    }
+    this.clock.update(dt);
     this.recompute();
   }
 
@@ -142,7 +144,7 @@ export class Atmosphere {
     return `rgb(${a[0] | 0},${a[1] | 0},${a[2] | 0})`;
   }
 
-  clock() {
+  clockText() {
     const h = Math.floor(this.time), m = Math.floor((this.time - h) * 60);
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }

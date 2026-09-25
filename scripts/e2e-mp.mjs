@@ -31,12 +31,21 @@ function check(ok, what) {
 }
 
 function run(cmd, args, env = {}, name = cmd) {
-  const p = spawn(cmd, args, { cwd: ROOT, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // own process group, so killing it also kills what npx spawns underneath
+  const p = spawn(cmd, args, { cwd: ROOT, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   p.stdout.on('data', (d) => process.env.E2E_VERBOSE && process.stdout.write(`[${name}] ${d}`));
   p.stderr.on('data', (d) => process.stderr.write(`[${name}] ${d}`));
   procs.add(p);
   p.on('exit', () => procs.delete(p));
   return p;
+}
+
+function killTree(p, sig) {
+  try {
+    process.kill(-p.pid, sig);
+  } catch {
+    p.kill(sig);
+  }
 }
 
 async function waitHttp(url, ms = 20000) {
@@ -69,6 +78,7 @@ function startServer() {
     cwd: path.join(ROOT, 'server'),
     env: { ...process.env, PORT: String(SERVER_PORT), ALLOWED_ORIGINS: ORIGIN, DB_PATH: DB, E2E: '1', MAP_PATH: path.join(ROOT, 'public/data/bratislava.json') },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
   });
   p.stdout.on('data', (d) => process.env.E2E_VERBOSE && process.stdout.write(`[server] ${d}`));
   p.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
@@ -102,8 +112,24 @@ async function openPlayer(browser, token, nick, errors) {
   return page;
 }
 
+/** online, and seeing at least n other players' figures */
 const online = (page, n) =>
-  waitFor(page, (n) => window.game?.online?.status.state === 'online' && window.game.online.remotes.size >= n, n, 20000, `online with ${n} remote(s)`);
+  waitFor(
+    page,
+    (n) => {
+      const h = window.game?.host;
+      return h?.mode === 'net' && h.status.state === 'online' && h.peds.filter((p) => p.playerId && p.playerId !== h.me.id).length >= n;
+    },
+    n,
+    20000,
+    `online with ${n} other player(s)`,
+  );
+/** the mirror of another player's figure, as {x, y, dead} */
+const mirrorOf = (page, pid) =>
+  page.evaluate((pid) => {
+    const p = window.game.host.peds.find((q) => q.playerId === pid);
+    return p ? { x: p.vehicle ? p.vehicle.x : p.x, y: p.vehicle ? p.vehicle.y : p.y, dead: p.dead } : null;
+  }, pid);
 
 async function main() {
   if (!process.env.E2E_SKIP_BUILD) {
@@ -125,17 +151,14 @@ async function main() {
   check(await online(B, 1), 'B is online and sees one other player');
 
   // A walks right for a second; B's mirror of A must follow
-  const aId = await A.evaluate(() => window.game.online.id);
-  const before = await B.evaluate((id) => ({ ...window.game.online.remotes.get(id).ped }), aId).then((p) => ({ x: p.x, y: p.y }));
+  const aId = await A.evaluate(() => window.game.host.me.id);
+  const before = await mirrorOf(B, aId);
   await A.bringToFront();
   await A.keyboard.down('KeyD');
   await sleep(1200);
   await A.keyboard.up('KeyD');
   await sleep(600);
-  const after = await B.evaluate((id) => {
-    const p = window.game.online.remotes.get(id).ped;
-    return { x: p.x, y: p.y };
-  }, aId);
+  const after = await mirrorOf(B, aId);
   const moved = Math.hypot(after.x - before.x, after.y - before.y);
   check(moved > 3, `B sees A move (${moved.toFixed(1)} m)`);
 
@@ -153,7 +176,7 @@ async function main() {
 
   // server restart (fly deploy): both clients reconnect by themselves
   log('restarting server…');
-  server.kill('SIGTERM');
+  killTree(server, 'SIGTERM');
   await new Promise((r) => server.once('exit', r));
   await sleep(500);
   server = startServer();
@@ -180,7 +203,7 @@ main()
     console.error(e);
   })
   .finally(() => {
-    for (const p of procs) p.kill('SIGKILL');
+    for (const p of procs) killTree(p, 'SIGKILL');
     rmSync(tmp, { recursive: true, force: true });
     log(failures ? `${failures} FAILED` : 'ALL PASSED');
     process.exit(failures ? 1 : 0);
