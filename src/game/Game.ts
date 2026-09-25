@@ -32,6 +32,14 @@ export interface SaveData {
 }
 
 const SAVE_KEY = 'blava-city-save-v1';
+/** half the tram body's width, for bridge-deck fit checks */
+const TRAM_RADIUS = 1.2;
+/** camera zoom: metres across the short side of the screen on foot */
+const CAM_FOOT_M = 38;
+/** in a vehicle, zoomed out by this factor at a standstill... */
+const CAM_CAR_ZOOM = 0.84;
+/** ...and further with speed: the view doubles at this speed (m/s) */
+const CAM_SPEED_ZOOM = 28;
 
 interface Pickup {
   x: number;
@@ -397,7 +405,7 @@ export class Game {
     const p = this.player;
     let best: Vehicle | null = null, bd = 4.2;
     for (const v of this.vehicles) {
-      if (v.wrecked || v.sinking) continue;
+      if (v.wrecked || v.sinking || v.level !== p.level) continue;
       const d = dist(v.x, v.y, p.x, p.y) - v.spec.width / 2;
       if (d < bd) (bd = d), (best = v);
     }
@@ -593,9 +601,16 @@ export class Game {
     Vehicle.env.wet = this.atmos.wet;
     const STEP = 1 / 120;
     this.vehAccum = Math.min(this.vehAccum + dt, STEP * 8);
+    for (const v of this.vehicles) {
+      if (v.levelInit) continue;
+      v.level = this.world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
+      v.levelInit = true;
+    }
     while (this.vehAccum >= STEP) {
       for (const v of this.vehicles) {
         if (v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0) continue;
+        // per substep: the water check inside update() must see the deck level for this position
+        this.world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
         const impact = v.update(STEP, this.world);
         if (impact > 6 && (v.isPlayer || dist(v.x, v.y, this.player.x, this.player.y) < 40)) this.audio.crash(impact);
         if (impact > 7) this.juice.crashImpact(v, impact, -Math.cos(v.angle), -Math.sin(v.angle));
@@ -646,11 +661,19 @@ export class Game {
     this.pedCollisions(dt);
   }
 
-  /** bridge-deck level (0 ground/underneath, 1 on top) for every ped, vehicle and tram */
+  /** bridge-deck level (0 ground/underneath, 1 on top) for trams and peds; vehicles are updated
+   *  per physics substep in `updateVehicles`, and anyone inside a vehicle shares its level */
   private updateLevels() {
-    for (const p of this.peds) this.world.updateLevel(p);
-    for (const v of this.vehicles) this.world.updateLevel(v);
-    for (const t of this.trams) this.world.updateLevel(t);
+    const w = this.world;
+    for (const t of this.trams) {
+      if (!t.levelInit) (t.level = w.spawnLevel(t.x, t.y, TRAM_RADIUS, t.angle)), (t.levelInit = true);
+      else w.updateLevel(t, Math.cos(t.angle) * t.speed, Math.sin(t.angle) * t.speed, TRAM_RADIUS, false);
+    }
+    for (const p of this.peds) {
+      if (p.vehicle) (p.level = p.vehicle.level), (p.levelInit = true);
+      else if (!p.levelInit) (p.level = w.spawnLevel(p.x, p.y, p.r)), (p.levelInit = true);
+      else w.updateLevel(p, p.vx, p.vy, p.r);
+    }
   }
 
   private vehicleCollisions() {
@@ -904,8 +927,8 @@ export class Game {
     const k = Math.min(1, dt * 5);
     this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
     this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
-    const base = Math.min(this.viewW, this.viewH) / 46;
-    const target = (v ? (base * 0.78) / (1 + v.speed / 24) : base) * this.juice.zoomFactor(v, dt);
+    const base = Math.min(this.viewW, this.viewH) / CAM_FOOT_M;
+    const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : base) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }

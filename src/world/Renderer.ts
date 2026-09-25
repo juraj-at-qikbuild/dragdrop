@@ -5,6 +5,7 @@ import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
 import { texture, animateWater, type TexKind } from './Textures';
 import { facadeTexture, groundTexture, facadeGlow, groundGlow, type FacadeStyle } from './Facades';
+import { STOREY, WP, hash01, heightBin, roofSlopes, wallPieces } from './BuildingGeometry';
 
 const CHUNK = 128;
 
@@ -18,43 +19,9 @@ interface Layer {
   order: number;
 }
 
-interface Ring {
-  pts: Float32Array;
-  /** +1/-1 winding sign, used to find the outward normal of each edge */
-  sign: number;
-  /** vertex index of the edge (in `pts`) chosen as this ring's shopfront edge, or -1 for doors-only */
-  shopEdge: number;
-  /** per-edge constants for the facade passes, EDGE_STRIDE floats per edge (edge i/2):
-   *  length, unit direction (ux,uy), outward normal (nx,ny), facade tile variant (0-2) */
-  edges: Float32Array;
-}
-
-const EDGE_STRIDE = 6;
-
-/** Per-edge facade constants (see `Ring.edges`), so the per-frame facade loops do no
- *  sqrt/hash work of their own. */
-function edgeData(pts: ArrayLike<number>, sign: number): Float32Array {
-  const n = pts.length / 2 - 1;
-  const out = new Float32Array(Math.max(0, n) * EDGE_STRIDE);
-  for (let k = 0; k < n; k++) {
-    const ax = pts[k * 2], ay = pts[k * 2 + 1];
-    const ex = pts[k * 2 + 2] - ax, ey = pts[k * 2 + 3] - ay;
-    const elen = Math.hypot(ex, ey);
-    const inv = elen > 0 ? 1 / elen : 0;
-    const o = k * EDGE_STRIDE;
-    out[o] = elen;
-    out[o + 1] = ex * inv;
-    out[o + 2] = ey * inv;
-    out[o + 3] = ey * inv * sign;
-    out[o + 4] = -ex * inv * sign;
-    out[o + 5] = (hash01((ax * 131 + ay * 977) | 0, 4) * 3) | 0;
-  }
-  return out;
-}
-
-/** 'rgba(...)' strings for the facade Lambert overlay, by alpha in 1/255 steps, so the
- *  per-edge loop reuses interned strings instead of formatting (and the canvas
- *  re-parsing) a fresh colour for every wall edge, every frame */
+/** 'rgba(...)' strings for translucent dark/light overlays (facade Lambert shading, roof
+ *  slopes), by alpha in 1/255 steps, so per-edge loops reuse interned strings instead of
+ *  formatting (and the canvas re-parsing) a fresh colour every time */
 const SHADE_DARK: string[] = [];
 const SHADE_LIGHT: string[] = [];
 for (let i = 0; i <= 255; i++) {
@@ -62,46 +29,101 @@ for (let i = 0; i <= 255; i++) {
   SHADE_LIGHT.push(`rgba(255,250,235,${i / 255})`);
 }
 
-interface BGroup {
+/** One chunk's buildings of one height: they share a roof projection, so they are drawn as a
+ *  unit. The building pass draws tiers lowest first (see `drawBuildings`). */
+interface Tier {
+  /** storeys (0.6 for canopies) and height in metres */
+  bin: number;
   h: number;
-  /** bbox of every member ring, for per-group screen culling */
-  bbox: BBox;
-  wall: string;
-  wallDark: string;
-  /** 4 quantised Lambert wall tones, dark to bright */
-  wallShades: string[];
-  roof: string;
-  /** roof colour baked with a tile/concrete texture */
-  roofTex?: CanvasPattern;
-  pitched: boolean;
-  path: Path2D;
-  outline: Path2D;
-  /** decorative ridge line(s) for pitched roofs */
-  ridge: Path2D;
-  /** HVAC/skylight/vent details for large flat roofs, chimneys for pitched ones */
-  roofDetail: Path2D;
-  chimneys: Path2D;
-  rings: Ring[];
   levels: number;
+  /** footprint bbox of every member */
+  bbox: BBox;
+  walls: WallSet[];
+  roofs: RoofSet[];
+  /** every roof outline, for the eave stroke */
+  outline: Path2D;
+  /** flat roofs' outlines, for the parapet highlight */
+  flatOutline: Path2D | null;
+  /** fallback ridge line for pitched roofs without usable slopes */
+  ridge: Path2D | null;
+  /** hip and ridge lines between roof slopes */
+  hips: Path2D | null;
+  /** roof slopes by downslope compass direction (8 buckets, 45° apart), shaded per frame */
+  slopes: (Path2D | null)[];
+  chimneys: Path2D | null;
+  roofDetail: Path2D | null;
+  /** ground-level wall pieces as plain segments, for the zoomed-out storey lines */
+  storeys: Path2D | null;
+  /** footprints, for sun shadows */
+  rings: Float32Array[];
   shadow?: Path2D;
   shadowKey?: number;
-  /** facade style for close-up window/door rendering; undefined = fences/kind4, keep flat */
+  ads: RoofAd[];
+  /** deterministic per-tier value for the zoomed-out lit-window dashes */
+  seed: number;
+}
+
+/** A tier's walls of one colour and facade style. */
+interface WallSet {
+  wall: string;
+  /** 4 quantised Lambert wall tones, dark to bright */
+  wallShades: string[];
+  /** facade style for close-up window/door rendering; undefined = plain walls */
   facade?: FacadeStyle;
-  /** cached wall-quad Path2D buckets, rebuilt only when the quantised roof offset changes;
-   *  `used` flags the non-empty ones so empty tones cost no fill call */
-  bucketCache?: { key: string; buckets: Path2D[]; used: boolean[] };
-  /** whether ridge/roofDetail/chimneys got any geometry (most groups' are empty) */
-  hasRidge: boolean;
-  hasRoofDetail: boolean;
-  hasChimneys: boolean;
-  /** baked facade/ground CanvasPatterns for this group's 3 variants, keyed by day/night
-   *  so the per-edge draw loop never has to touch the Facades pattern cache itself */
+  /** exposed wall pieces, WP floats each (see BuildingGeometry.WP) */
+  pieces: Float32Array;
+  bbox: BBox;
+  /** wall quads bucketed by tone, rebuilt when the tier's quantised projection or the sun moves */
+  cache?: { qx: number; qy: number; qh: number; sk: number; buckets: Path2D[]; used: boolean[] };
+  /** baked facade/ground CanvasPatterns for the 3 variants, keyed by day/night */
   facadeCache?: { lit: boolean; upper: CanvasPattern[]; door: CanvasPattern[]; shop: CanvasPattern[] };
   /** glow-only (transparent except lit windows) variants, redrawn after the light composite */
   glowCache?: { upper: (CanvasPattern | null)[]; door: (CanvasPattern | null)[]; shop: (CanvasPattern | null)[] };
-  /** shop/brand signs on this group's walls */
   signs: SignInfo[];
+  /** piece offsets that get facade textures this frame (see `facadePrepass`) */
+  drawList: number[];
 }
+
+interface RoofSet {
+  color: string;
+  /** colour baked with a tile/concrete texture */
+  tex?: CanvasPattern;
+  path: Path2D;
+}
+
+interface RoofAd {
+  b: Building;
+  ad: (typeof ROOF_ADS)[number];
+  angle: number;
+  w: number;
+  len: number;
+}
+
+/** Perspective for one height this frame. A point p at that height is drawn at
+ *  c + (p - c)·s: the camera looks straight down, so everything at one height is the ground
+ *  plan scaled about the camera. The camera (c) is quantised per height so cached wall
+ *  geometry survives small camera moves, and walls/roofs/facades of a height always agree. */
+interface Proj {
+  k: number;
+  s: number;
+  cx: number;
+  cy: number;
+  qx: number;
+  qy: number;
+  qh: number;
+  camH: number;
+}
+
+/** roof shift per metre of distance from the camera, for something `z` metres up */
+function kAt(z: number, camH: number) {
+  const hh = Math.min(z, camH * 0.6);
+  return hh / (camH - hh);
+}
+
+/** largest roof misplacement allowed by the per-height camera quantisation (metres) */
+const PROJ_EPS = 0.05;
+/** light for roof slopes at night (from the north-west, the classic top-left map light) */
+const MOON = { x: -0.5, y: -0.85 };
 
 interface TreeSet {
   shadow: Path2D;
@@ -109,12 +131,14 @@ interface TreeSet {
   highlight: Path2D;
 }
 
+/** A shop/brand sign board on the ground floor of a wall piece, centred at (x, y) on the footprint. */
 interface SignInfo {
-  ax: number;
-  ay: number;
+  x: number;
+  y: number;
   ux: number;
   uy: number;
-  u0: number;
+  nx: number;
+  ny: number;
   name: string;
   colors?: [string, string];
 }
@@ -126,7 +150,9 @@ interface Chunk {
   cx: number;
   cy: number;
   layers: Map<string, Path2D>;
-  bgroups: BGroup[];
+  /** buildings of this chunk by height, lowest first */
+  tiers: Tier[];
+  nBuildings: number;
   trees?: TreeSet;
   lamps?: number[];
   lampPath?: Path2D;
@@ -233,27 +259,9 @@ function offsetPolyline(p: ArrayLike<number>, off: number): number[] {
   return out;
 }
 
-/** cheap deterministic hash -> [0,1) */
-function hash01(a: number, b: number) {
-  let h = (a * 374761393 + b * 668265263) ^ ((a << 13) | 0);
-  h = Math.imul(h ^ (h >>> 15), 2246822519);
-  h ^= h >>> 13;
-  return ((h >>> 0) % 10000) / 10000;
-}
-
 /** true for a ground layer that belongs to a bridge deck (drawn in `drawBridges`, not `drawGround`) */
 function isBridgeLayer(key: string): boolean {
   return key.startsWith('bc:') || key.startsWith('br:') || key.startsWith('f1:') || key.startsWith('m1') || key.startsWith('edge1') || key.startsWith('kerb1');
-}
-
-function signedArea(p: ArrayLike<number>): number {
-  let a = 0;
-  const n = p.length;
-  for (let i = 0; i < n; i += 2) {
-    const j = (i + 2) % n;
-    a += p[i] * p[j + 1] - p[j] * p[i + 1];
-  }
-  return a / 2;
 }
 
 /** World-space rect actually covered by the canvas under its current transform (so it
@@ -271,14 +279,16 @@ function onRect(sr: BBox | null, x0: number, y0: number, x1: number, y1: number,
   return !sr || (x1 + pad > sr.x0 && x0 - pad < sr.x1 && y1 + pad > sr.y0 && y0 - pad < sr.y1);
 }
 
-/** slack for group culling: strokes, chimney shadows, and shop sign boards that can be
- *  wider than the wall edge they hang on */
+/** slack for tier/wall-set culling: strokes, chimney shadows, shop sign boards that can be wider
+ *  than the wall they hang on, and camera shake (the projection centre is the unshaken camera) */
 const GROUP_CULL_PAD = 6;
+/** per-frame cap on facade wall width drawn (screen px), so a dense Old Town view can't blow the frame budget */
+const FACADE_BUDGET_PX = 200000;
 
 export class Renderer {
   private chunks: Chunk[] = [];
   private layers = new Map<string, Layer>();
-  ads: { b: Building; ad: (typeof ROOF_ADS)[number]; chunk: Chunk; h: number; angle: number; w: number; len: number }[] = [];
+  ads: RoofAd[] = [];
   /** bridge deck polylines, for the cast shadow + railings drawn by `drawBridges` */
   private bridges: { p: Float32Array; hw: number; bbox: BBox }[] = [];
   private treeCount = 0;
@@ -290,8 +300,9 @@ export class Renderer {
   /** layer draw order, sorted once (layers are fixed after build) */
   private sortedLayers: [string, Layer][] = [];
   private sortedBridgeLayers: [string, Layer][] = [];
-  /** hard per-frame cap on facade edges drawn, so a dense Old Town view can't blow the frame budget */
-  private facadeBudget = 0;
+  /** wall sets that got facades in the last `drawBuildings`, with their tier and projection,
+   *  replayed by `drawNightWindows` */
+  private facadeSets: { set: WallSet; t: Tier; P: Proj }[] = [];
 
   /** set by Game after construction; read for sun direction, night and rain */
   atmos = new Atmosphere();
@@ -316,7 +327,8 @@ export class Renderer {
         cx: (cx + 0.5) * CHUNK,
         cy: (cy + 0.5) * CHUNK,
         layers: new Map(),
-        bgroups: [],
+        tiers: [],
+        nBuildings: 0,
       };
       map.set(k, c);
       this.chunks.push(c);
@@ -517,14 +529,29 @@ export class Renderer {
       });
     }
 
-    // buildings grouped by chunk, height bin and colour
-    const groups = new Map<Chunk, Map<string, BGroup>>();
-    const buildingGroup = new Map<Building, BGroup>();
+    this.buildBuildings(map);
+  }
+
+  /** Buildings, grouped per chunk into height tiers, and within a tier into wall sets (by
+   *  wall colour + facade style) and roof sets (by roof colour), so each draws in few calls. */
+  private buildBuildings(map: Map<number, Chunk>) {
+    const w = this.world;
+    const addPoly = (p: Path2D, flat: ArrayLike<number>) => {
+      p.moveTo(flat[0], flat[1]);
+      for (let i = 2; i < flat.length; i += 2) p.lineTo(flat[i], flat[i + 1]);
+      p.closePath();
+    };
+    const tierOf = new Map<Chunk, Map<number, Tier>>();
+    const setOf = new Map<Tier, Map<string, { set: WallSet; pieces: number[] }>>();
+    const roofOf = new Map<Tier, Map<string, RoofSet>>();
+    const pieceOf = new Map<Building, { pieces: number[]; entry: { set: WallSet; pieces: number[] } }>();
     const oldTownAt = w.landmark('main');
     for (const b of w.buildings) {
-      const c = this.chunkAt(b.bbox, map);
+      const c = this.chunkAt(b.bboxAll, map);
+      c.nBuildings++;
       const r = rng(b.seed * 7919);
-      const bin = b.kind === 4 ? 0.6 : Math.min(14, Math.round(b.levels));
+      const bin = heightBin(b);
+      const h = bin * STOREY;
       let wall = OLD_WALLS[(r() * OLD_WALLS.length) | 0], roof = ROOFS[(r() * ROOFS.length) | 0], flat = false;
       if (b.kind === 3 || (b.area > 2500 && b.levels >= 4)) (wall = '#767b82'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]), (flat = true);
       if (b.levels >= 8) (wall = '#6c7179'), (roof = FLAT_ROOFS[(r() * FLAT_ROOFS.length) | 0]), (flat = true);
@@ -532,6 +559,7 @@ export class Renderer {
       if (b.kind === 2) (wall = '#e9e3d6'), (roof = '#b8553a');
       if (b.kind === 4) (wall = 'rgba(80,80,80,0.5)'), (roof = 'rgba(150,150,150,0.55)');
       if (b.color) (roof = b.color), (wall = b.wallColor ?? wall);
+      const pitched = !flat && b.kind !== 4;
 
       // facade style: churches/castles are always baroque-ish; otherwise by height,
       // then Old Town proximity, then a coin flip between panel and office/industrial
@@ -544,78 +572,105 @@ export class Renderer {
         else facade = hash01(b.seed, 2) < 0.5 ? 'panel' : 'office';
       }
 
-      const key = `${bin}|${wall}|${roof}|${facade ?? ''}`;
-      let gm = groups.get(c);
-      if (!gm) groups.set(c, (gm = new Map()));
-      let g = gm.get(key);
-      if (!g) {
-        g = {
-          h: bin * 3.2,
+      // the chunk's tier for this height
+      let tm = tierOf.get(c);
+      if (!tm) tierOf.set(c, (tm = new Map()));
+      let t = tm.get(bin);
+      if (!t) {
+        t = {
+          bin, h, levels: Math.max(1, bin),
           bbox: { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity },
-          wall,
-          wallDark: darken(wall),
-          wallShades: WALL_SHADE_LEVELS.map((f) => shade(wall, f)),
-          roof,
-          roofTex: roof.startsWith('#') && b.kind !== 4 ? texture(flat ? 'concrete' : 'roofTile', roof) : undefined,
-          pitched: !flat && b.kind !== 4,
-          path: new Path2D(),
-          outline: new Path2D(),
-          ridge: new Path2D(),
-          roofDetail: new Path2D(),
-          chimneys: new Path2D(),
-          rings: [],
-          levels: Math.max(1, bin),
-          facade,
-          signs: [],
-          hasRidge: false,
-          hasRoofDetail: false,
-          hasChimneys: false,
+          walls: [], roofs: [], outline: new Path2D(), flatOutline: null, ridge: null, hips: null,
+          slopes: [null, null, null, null, null, null, null, null],
+          chimneys: null, roofDetail: null, storeys: null, rings: [], ads: [],
+          seed: hash01((c.cx * 7 + h) | 0, (c.cy * 3) | 0),
         };
-        gm.set(key, g);
-        c.bgroups.push(g);
+        tm.set(bin, t);
+        c.tiers.push(t);
       }
-      buildingGroup.set(b, g);
-      // every ring, not `b.bbox`: that only covers rings[0], and multipolygon
-      // buildings have further outer rings well outside it
-      for (const ring of b.rings) bboxOf(ring, 0, g.bbox);
-      // pick a shopfront edge (longest, near a named street) for commercial-ish buildings
-      let shopEdge = -1;
-      if (facade && b.rings.length === 1 && b.area > 30 && (b.kind === 3 || (facade === 'oldtown' && hash01(b.seed, 9) < 0.35))) {
-        const ring = b.rings[0];
-        let best = 0, bestK = -1;
-        for (let k = 0; k < ring.length - 2; k += 2) {
-          const l = Math.hypot(ring[k + 2] - ring[k], ring[k + 3] - ring[k + 1]);
-          if (l > best) (best = l), (bestK = k);
+      bboxOf(b.rings[0], 0, t.bbox);
+      for (let i = 1; i < b.rings.length; i++) bboxOf(b.rings[i], 0, t.bbox);
+      t.rings.push(...b.rings);
+
+      // walls: only the exposed parts (party walls hidden, or starting at a lower neighbour's roof)
+      const pieces = wallPieces(w, b, h);
+      if (pieces.length) {
+        let sm = setOf.get(t);
+        if (!sm) setOf.set(t, (sm = new Map()));
+        const key = `${wall}|${facade ?? ''}`;
+        let entry = sm.get(key);
+        if (!entry) {
+          const set: WallSet = {
+            wall, wallShades: WALL_SHADE_LEVELS.map((f) => shade(wall, f)), facade, pieces: new Float32Array(0),
+            bbox: { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }, signs: [], drawList: [],
+          };
+          sm.set(key, (entry = { set, pieces: [] }));
+          t.walls.push(set);
         }
-        if (bestK >= 0) {
-          const mx = (ring[bestK] + ring[bestK + 2]) / 2, my = (ring[bestK + 1] + ring[bestK + 3]) / 2;
-          if (w.streetName(mx, my) !== null) shopEdge = bestK;
-        }
-        // Old Town shopfronts without a named POI get a generic label (Potraviny, Bar, ...)
-        if (shopEdge >= 0 && facade === 'oldtown' && hash01(b.seed, 12) < 0.5) {
-          const mx = (ring[shopEdge] + ring[shopEdge + 2]) / 2, my = (ring[shopEdge + 1] + ring[shopEdge + 3]) / 2;
-          const nearPoi = w.data.pois.some((p) => p.k === 'shop' && Math.hypot(p.x - mx, p.y - my) < 15);
-          if (!nearPoi) {
-            const elen = Math.hypot(ring[shopEdge + 2] - ring[shopEdge], ring[shopEdge + 3] - ring[shopEdge + 1]) || 1;
-            const [name, bg, fg] = GENERIC_SIGNS[(hash01(b.seed, 13) * GENERIC_SIGNS.length) | 0];
-            g.signs.push({
-              ax: ring[shopEdge], ay: ring[shopEdge + 1],
-              ux: (ring[shopEdge + 2] - ring[shopEdge]) / elen, uy: (ring[shopEdge + 3] - ring[shopEdge + 1]) / elen,
-              u0: elen / 2, name, colors: [bg, fg],
-            });
+        bboxOf(b.rings[0], 0, entry.set.bbox);
+        for (let i = 1; i < b.rings.length; i++) bboxOf(b.rings[i], 0, entry.set.bbox);
+        pieceOf.set(b, { pieces, entry });
+        // shopfront: the edge with the most exposed ground-floor wall, if it faces a named street
+        if (facade && b.rings.length === 1 && b.area > 30 && (b.kind === 3 || (facade === 'oldtown' && hash01(b.seed, 9) < 0.35))) {
+          const byEdge = new Map<string, number>();
+          let bestKey = '', best = 0, bestI = -1, bestLen = 0;
+          for (let i = 0; i < pieces.length; i += WP) {
+            if (pieces[i + 9] > 0) continue;
+            const k = `${pieces[i]}|${pieces[i + 1]}`;
+            const len = pieces[i + 8] - pieces[i + 7];
+            const tot = (byEdge.get(k) ?? 0) + len;
+            byEdge.set(k, tot);
+            if (tot > best) (best = tot), (bestKey = k);
+          }
+          for (let i = 0; i < pieces.length; i += WP) {
+            const len = pieces[i + 8] - pieces[i + 7];
+            if (pieces[i + 9] === 0 && `${pieces[i]}|${pieces[i + 1]}` === bestKey && len > bestLen) (bestLen = len), (bestI = i);
+          }
+          if (bestI >= 0 && best >= 3) {
+            const um = (pieces[bestI + 7] + pieces[bestI + 8]) / 2;
+            const mx = pieces[bestI] + pieces[bestI + 2] * um, my = pieces[bestI + 1] + pieces[bestI + 3] * um;
+            if (w.streetName(mx, my) !== null) {
+              for (let i = 0; i < pieces.length; i += WP) if (pieces[i + 9] === 0 && `${pieces[i]}|${pieces[i + 1]}` === bestKey) pieces[i + 11] = 1;
+              // Old Town shopfronts without a named POI get a generic label (Potraviny, Bar, ...)
+              if (facade === 'oldtown' && hash01(b.seed, 12) < 0.5 && !w.data.pois.some((p) => p.k === 'shop' && Math.hypot(p.x - mx, p.y - my) < 15)) {
+                const [name, bg, fg] = GENERIC_SIGNS[(hash01(b.seed, 13) * GENERIC_SIGNS.length) | 0];
+                entry.set.signs.push({ x: mx, y: my, ux: pieces[bestI + 2], uy: pieces[bestI + 3], nx: pieces[bestI + 4], ny: pieces[bestI + 5], name, colors: [bg, fg] });
+              }
+            }
           }
         }
+        for (const v of pieces) entry.pieces.push(v);
       }
-      for (const ring of b.rings) {
-        addPoly(g.path, ring, true);
-        const sign = signedArea(ring) >= 0 ? 1 : -1;
-        g.rings.push({ pts: ring, sign, shopEdge: ring === b.rings[0] ? shopEdge : -1, edges: edgeData(ring, sign) });
-      }
-      addPoly(g.outline, b.rings[0], true);
 
-      // roof ridge (pitched) or rooftop details (large flat roofs)
-      if (b.kind !== 4 && b.rings.length === 1 && b.area > 40) {
-        if (!flat) {
+      // roof fill, by colour (and flat/pitched texture)
+      let rm = roofOf.get(t);
+      if (!rm) roofOf.set(t, (rm = new Map()));
+      const rkey = `${roof}|${flat ? 1 : 0}`;
+      let rs = rm.get(rkey);
+      if (!rs) {
+        rs = { color: roof, tex: roof.startsWith('#') && b.kind !== 4 ? texture(flat ? 'concrete' : 'roofTile', roof) : undefined, path: new Path2D() };
+        rm.set(rkey, rs);
+        t.roofs.push(rs);
+      }
+      for (const ring of b.rings) addPoly(rs.path, ring);
+      for (const ring of b.rings) addPoly(t.outline, ring);
+      if (!pitched && b.kind !== 4) for (const ring of b.rings) addPoly((t.flatOutline ??= new Path2D()), ring);
+
+      // pitched: hipped/gabled slopes (or a plain ridge line when the outline defeats them) and
+      // chimneys; large flat roofs: HVAC boxes and skylights
+      if (pitched && b.area > 30) {
+        const bands = roofSlopes(w, b);
+        if (bands) {
+          for (const band of bands) {
+            addPoly((t.slopes[band.dir] ??= new Path2D()), band.pts);
+            const hp = (t.hips ??= new Path2D());
+            for (let i = 0; i < band.lines.length; i += 4) {
+              hp.moveTo(band.lines[i], band.lines[i + 1]);
+              hp.lineTo(band.lines[i + 2], band.lines[i + 3]);
+            }
+          }
+        }
+        if (b.rings.length === 1 && b.area > 40) {
           const ring = b.rings[0];
           let best = 0, angle = 0;
           for (let k = 0; k < ring.length - 2; k += 2) {
@@ -623,37 +678,78 @@ export class Renderer {
             if (l > best) (best = l), (angle = Math.atan2(ring[k + 3] - ring[k + 1], ring[k + 2] - ring[k]));
           }
           const len = Math.min(best, Math.sqrt(b.area)) * 0.42;
-          g.hasRidge = true;
-          g.ridge.moveTo(b.cx - Math.cos(angle) * len, b.cy - Math.sin(angle) * len);
-          g.ridge.lineTo(b.cx + Math.cos(angle) * len, b.cy + Math.sin(angle) * len);
-          // chimney(s) near the ridge ends, offset off-centre so they read as boxes, not the ridge itself
+          if (!bands) {
+            const rp = (t.ridge ??= new Path2D());
+            rp.moveTo(b.cx - Math.cos(angle) * len, b.cy - Math.sin(angle) * len);
+            rp.lineTo(b.cx + Math.cos(angle) * len, b.cy + Math.sin(angle) * len);
+          }
+          // chimney(s) near the ridge, offset off-centre so they read as boxes, not the ridge itself
           if (b.area > 70) {
             const nx = -Math.sin(angle), ny = Math.cos(angle);
             const cr = rng(b.seed * 331 + 5);
             const n = 1 + (cr() < 0.4 ? 1 : 0);
             for (let k = 0; k < n; k++) {
-              const t = (cr() - 0.5) * len * 1.1;
-              const s = 0.7 + cr() * 0.4;
-              const px = b.cx + Math.cos(angle) * t + nx * len * 0.18, py = b.cy + Math.sin(angle) * t + ny * len * 0.18;
-              g.chimneys.rect(px - s / 2, py - s / 2, s, s * 1.6);
-              g.hasChimneys = true;
+              const tt = (cr() - 0.5) * len * 1.1;
+              const sz = 0.7 + cr() * 0.4;
+              const px = b.cx + Math.cos(angle) * tt + nx * len * 0.18, py = b.cy + Math.sin(angle) * tt + ny * len * 0.18;
+              if (pointInRings(px, py, b.rings)) (t.chimneys ??= new Path2D()).rect(px - sz / 2, py - sz / 2, sz, sz * 1.6);
             }
           }
-        } else if (b.area > 600) {
-          const rr = rng(b.seed * 131 + 7);
-          const n = 1 + ((rr() * 3) | 0);
-          const bw = b.bbox.x1 - b.bbox.x0, bh = b.bbox.y1 - b.bbox.y0;
-          for (let k = 0; k < n; k++) {
-            const dw = Math.min(bw, bh) * (0.08 + rr() * 0.07);
-            const dx = b.bbox.x0 + bw * (0.2 + rr() * 0.6), dy = b.bbox.y0 + bh * (0.2 + rr() * 0.6);
-            if (!pointInRings(dx, dy, b.rings)) continue;
-            g.roofDetail.rect(dx - dw / 2, dy - dw / 2, dw, dw);
-            g.hasRoofDetail = true;
-          }
+        }
+      } else if (!pitched && b.kind !== 4 && b.rings.length === 1 && b.area > 600) {
+        const rr = rng(b.seed * 131 + 7);
+        const n = 1 + ((rr() * 3) | 0);
+        const bw = b.bbox.x1 - b.bbox.x0, bh = b.bbox.y1 - b.bbox.y0;
+        for (let k = 0; k < n; k++) {
+          const dw = Math.min(bw, bh) * (0.08 + rr() * 0.07);
+          const dx = b.bbox.x0 + bw * (0.2 + rr() * 0.6), dy = b.bbox.y0 + bh * (0.2 + rr() * 0.6);
+          if (!pointInRings(dx, dy, b.rings)) continue;
+          (t.roofDetail ??= new Path2D()).rect(dx - dw / 2, dy - dw / 2, dw, dw);
         }
       }
     }
-    for (const c of this.chunks) c.bgroups.sort((a, b) => a.h - b.h);
+
+    // shop/fuel POI signs: on the nearest exposed ground-floor wall piece
+    for (const p of w.data.pois) {
+      if (p.k !== 'shop' && p.k !== 'fuel') continue;
+      let bestD = 30 * 30, bestP: number[] | null = null, bestI = -1, bestSet: WallSet | null = null;
+      w.forBuildingsNear(p.x - 30, p.y - 30, p.x + 30, p.y + 30, (b) => {
+        const e = pieceOf.get(b);
+        if (!e) return;
+        const pc = e.pieces;
+        for (let i = 0; i < pc.length; i += WP) {
+          if (pc[i + 9] > 0 || pc[i + 8] - pc[i + 7] < 1.5) continue;
+          const ax = pc[i] + pc[i + 2] * pc[i + 7], ay = pc[i + 1] + pc[i + 3] * pc[i + 7];
+          const dx = pc[i + 2] * (pc[i + 8] - pc[i + 7]), dy = pc[i + 3] * (pc[i + 8] - pc[i + 7]);
+          const l2 = dx * dx + dy * dy || 1;
+          const tt = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / l2));
+          const d = (ax + dx * tt - p.x) ** 2 + (ay + dy * tt - p.y) ** 2;
+          if (d < bestD) (bestD = d), (bestP = pc), (bestI = i), (bestSet = e.entry.set);
+        }
+      });
+      if (!bestP || !bestSet) continue;
+      const pc: number[] = bestP;
+      const um = (pc[bestI + 7] + pc[bestI + 8]) / 2;
+      (bestSet as WallSet).signs.push({
+        x: pc[bestI] + pc[bestI + 2] * um, y: pc[bestI + 1] + pc[bestI + 3] * um,
+        ux: pc[bestI + 2], uy: pc[bestI + 3], nx: pc[bestI + 4], ny: pc[bestI + 5],
+        name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
+      });
+    }
+
+    // pack wall pieces; storey-line segments for the zoomed-out fallback
+    for (const [t, sm] of setOf) {
+      for (const { set, pieces } of sm.values()) {
+        set.pieces = Float32Array.from(pieces);
+        for (let i = 0; i < pieces.length; i += WP) {
+          if (pieces[i + 9] > 0) continue;
+          const sp = (t.storeys ??= new Path2D());
+          sp.moveTo(pieces[i] + pieces[i + 2] * pieces[i + 7], pieces[i + 1] + pieces[i + 3] * pieces[i + 7]);
+          sp.lineTo(pieces[i] + pieces[i + 2] * pieces[i + 8], pieces[i + 1] + pieces[i + 3] * pieces[i + 8]);
+        }
+      }
+    }
+    for (const c of this.chunks) c.tiers.sort((a, b) => a.h - b.h);
 
     // rooftop advertising on the biggest flat roofs (like GTA 2)
     const candidates = w.buildings
@@ -672,43 +768,30 @@ export class Renderer {
       }
       if (angle > Math.PI / 2) angle -= Math.PI;
       if (angle < -Math.PI / 2) angle += Math.PI;
-      const chunk = this.chunkAt(b.bbox, map);
+      const tier = tierOf.get(this.chunkAt(b.bboxAll, map))?.get(heightBin(b));
+      if (!tier) return;
       const len = Math.min(best * 0.7, Math.sqrt(b.area) * 1.1);
-      this.ads.push({ b, ad: ROOF_ADS[i % ROOF_ADS.length], chunk, h: Math.min(14, Math.round(b.levels)) * 3.2, angle, w: len * 0.32, len });
+      const ad: RoofAd = { b, ad: ROOF_ADS[i % ROOF_ADS.length], angle, w: len * 0.32, len };
+      tier.ads.push(ad);
+      this.ads.push(ad);
     });
-
-    // shop/fuel POI signs: projected onto the nearest building wall edge
-    for (const p of w.data.pois) {
-      if (p.k !== 'shop' && p.k !== 'fuel') continue;
-      let bestD = 30 * 30, bestB: Building | null = null, bestK = -1;
-      for (const b of w.buildings) {
-        if (b.kind === 4 || p.x < b.bbox.x0 - 30 || p.x > b.bbox.x1 + 30 || p.y < b.bbox.y0 - 30 || p.y > b.bbox.y1 + 30) continue;
-        const ring = b.rings[0];
-        for (let k = 0; k < ring.length - 2; k += 2) {
-          const ax = ring[k], ay = ring[k + 1], dx = ring[k + 2] - ax, dy = ring[k + 3] - ay;
-          const l2 = dx * dx + dy * dy || 1;
-          const t = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / l2));
-          const d = (ax + dx * t - p.x) ** 2 + (ay + dy * t - p.y) ** 2;
-          if (d < bestD) (bestD = d), (bestB = b), (bestK = k);
-        }
-      }
-      if (!bestB || bestK < 0) continue;
-      const g = buildingGroup.get(bestB);
-      if (!g) continue;
-      const ring = bestB.rings[0];
-      const ax = ring[bestK], ay = ring[bestK + 1];
-      const elen = Math.hypot(ring[bestK + 2] - ax, ring[bestK + 3] - ay) || 1;
-      g.signs.push({
-        ax, ay, ux: (ring[bestK + 2] - ax) / elen, uy: (ring[bestK + 3] - ay) / elen,
-        u0: elen / 2, name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
-      });
-    }
   }
 
+  /** Screen-space shift of a point `h` metres up relative to its ground position (exact, not
+   *  quantised; for one-off things like the UFO). */
   roofOffset(x: number, y: number, h: number, v: View): [number, number] {
-    const hh = Math.min(h, v.camH * 0.6);
-    const k = hh / (v.camH - hh);
+    const k = kAt(h, v.camH);
     return [(x - v.camX) * k, (y - v.camY) * k];
+  }
+
+  /** This frame's projection for height `h` (see Proj). */
+  private project(h: number, v: View): Proj {
+    const qh = Math.round(Math.log(v.camH) * 100);
+    const camH = Math.exp(qh / 100);
+    const k = kAt(h, camH);
+    const q = k > 1e-6 ? PROJ_EPS / k : 1;
+    const qx = Math.round(v.camX / q), qy = Math.round(v.camY / q);
+    return { k, s: 1 + k, cx: qx * q, cy: qy * q, qx, qy, qh, camH };
   }
 
   drawGround(ctx: CanvasRenderingContext2D, v: View, detail = true) {
@@ -850,12 +933,15 @@ export class Renderer {
     }
   }
 
-  /** Fake-3D buildings: walls are extruded from the footprint towards the shifted roof. */
+  /** Fake-3D buildings in true perspective (see Proj). The camera looks straight down, so depth is
+   *  just height: tiers are drawn lowest first, and at each height every wall (with its facade and
+   *  signs) goes down before any roof. A roof then covers every wall at or below its height and
+   *  equal-height neighbours never paint over each other; party walls are already gone (see
+   *  BuildingGeometry.wallPieces), and a taller neighbour's wall rises from the lower roof. */
   drawBuildings(ctx: CanvasRenderingContext2D, v: View) {
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, { x0: v.x0 - 60, y0: v.y0 - 60, x1: v.x1 + 60, y1: v.y1 + 60 }));
-    // `vis` is padded generously so tall roofs leaning in from off-screen chunks are
-    // kept; everything below is additionally culled against the true canvas rect,
-    // which skips the (many) groups/edges of those chunks that still land off-screen
+    // `vis` is padded for trees (canopies and sun-shifted shadows reach past their trunk
+    // point); everything below is additionally culled against the true canvas rect
     const sr = screenRect(ctx);
 
     // trees are registered by their trunk point: canopies reach ~5m past it, and the
@@ -866,191 +952,266 @@ export class Renderer {
     ctx.fillStyle = '#2c2c2e';
     for (const c of vis) if (c.lampPath && onRect(sr, c.bbox.x0, c.bbox.y0, c.bbox.x1, c.bbox.y1, 1)) ctx.fill(c.lampPath);
 
-    // draw far chunks first so nearer tall roofs overlap them
-    vis.sort((a, b) => Math.hypot(b.cx - v.camX, b.cy - v.camY) - Math.hypot(a.cx - v.camX, a.cy - v.camY));
-    ctx.lineJoin = 'miter';
-    const sunDir = this.atmos.sunDir;
-    // cheap storey-lines/lit-dash fallback while zoomed out (e.g. driving) - lowered
-    // so moderate-speed driving still reads as a lit-up city, not flat slabs
-    const wantWindows = v.scale > 3;
+    // visible tiers. Projection pushes points away from the camera, so a tier whose footprints
+    // are all off-screen is drawn entirely off-screen too
+    const tiers: Tier[] = [];
+    for (const c of vis) for (const t of c.tiers) if (onRect(sr, t.bbox.x0, t.bbox.y0, t.bbox.x1, t.bbox.y1, GROUP_CULL_PAD)) tiers.push(t);
+    const far = (t: Tier) => Math.hypot((t.bbox.x0 + t.bbox.x1) / 2 - v.camX, (t.bbox.y0 + t.bbox.y1) / 2 - v.camY);
+    tiers.sort((a, b) => a.h - b.h || far(b) - far(a));
+
     const night = this.atmos.night;
-    // any wall on screen gets real facade patterns (windows/doors/shopfronts) once
-    // zoomed in enough to read them - no distance-from-camera cap, so a big building
-    // like Eurovea gets windows on the part of it that's actually on screen, not just
-    // near-camera chunks. Eligibility instead requires the chunk to actually intersect
-    // the true viewport `v` (not `vis`'s 60m-padded rect) - otherwise buildings just
-    // outside the frame would compete for the pixel budget below and starve the ones
-    // actually visible, since `vis` is sorted far-to-near and budget is spent in that
-    // order. Cost is further bounded per-edge (tiny projected edges stay flat).
+    const sunDir = this.atmos.sunDir;
+    const sk = Math.round(sunDir.x * 20) * 64 + Math.round(sunDir.y * 20);
+    // windows/doors/shopfronts once zoomed in enough to read them; the cheap storey-line
+    // fallback while zoomed out (e.g. driving) so the city still reads as lit up at night
     const facadeReady = this.facades && v.scale > 6;
-    this.facadeBudget = 200000; // px of on-screen wall-edge width, this frame
-    // one save/restore around the whole pass (state leaks out of it exactly as before);
-    // per group, the roof/chimney offsets are set as absolute transforms from `base`
-    // rather than a save/translate/restore per group (a full canvas-state clone each)
+    const wantWindows = v.scale > 3;
+    const projs = new Map<number, Proj>();
+    const projFor = (h: number) => {
+      let p = projs.get(h);
+      if (!p) projs.set(h, (p = this.project(h, v)));
+      return p;
+    };
+    this.facadeSets.length = 0;
+    if (facadeReady) this.facadePrepass(tiers, projFor, v, sr);
+    const slopeShade = this.slopeShades();
+
     ctx.save();
+    ctx.lineJoin = 'miter';
     const base = ctx.getTransform();
-    const A = base.a, B = base.b, C = base.c, D = base.d, E = base.e, F = base.f;
-    const at = (x: number, y: number) => ctx.setTransform(A, B, C, D, A * x + C * y + E, B * x + D * y + F);
-    for (const c of vis) {
-      const chunkOnScreen = bboxHit(c.bbox, v);
-      for (const g of c.bgroups) {
-        const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
-        // everything this group draws lies between its footprints and their roof-shifted copy
-        const bb = g.bbox;
-        if (!onRect(sr, Math.min(bb.x0, bb.x0 + ox), Math.min(bb.y0, bb.y0 + oy), Math.max(bb.x1, bb.x1 + ox), Math.max(bb.y1, bb.y1 + oy), GROUP_CULL_PAD)) continue;
-        const px = Math.hypot(ox, oy) * v.scale;
-        const useFacade = facadeReady && g.facade && px > 10 && chunkOnScreen && this.facadeBudget > 0;
-        if (px > 0.6) {
-          // wall-quad geometry only needs rebuilding when the (quantised) roof
-          // offset actually changes - camera pans/zooms shift it every frame in
-          // theory, but the quantisation lets a mostly-still camera reuse it
-          const qkey = `${Math.round(ox * 20)}|${Math.round(oy * 20)}`;
-          let buckets: Path2D[], used: boolean[];
-          if (g.bucketCache && g.bucketCache.key === qkey) ({ buckets, used } = g.bucketCache);
-          else {
-            // extruded walls: one quad per footprint edge, wound consistently so
-            // a single nonzero fill covers them; edges are bucketed into 4 Lambert tones
-            buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
-            used = [false, false, false, false];
-            for (const rr of g.rings) {
-              const pts = rr.pts;
-              for (let i = 0; i < pts.length - 2; i += 2) {
-                const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
-                const ex = bx - ax, ey = by - ay;
-                const elen = Math.hypot(ex, ey) || 1;
-                let nx = ey / elen, ny = -ex / elen;
-                if (rr.sign < 0) (nx = -nx), (ny = -ny);
-                const lambert = Math.max(0, nx * sunDir.x + ny * sunDir.y);
-                const tone = Math.min(3, (lambert * 3.4) | 0);
-                const p = buckets[tone];
-                used[tone] = true;
-                if (ex * oy - ey * ox >= 0) {
-                  p.moveTo(ax, ay);
-                  p.lineTo(bx, by);
-                  p.lineTo(bx + ox, by + oy);
-                  p.lineTo(ax + ox, ay + oy);
-                } else {
-                  p.moveTo(ax, ay);
-                  p.lineTo(ax + ox, ay + oy);
-                  p.lineTo(bx + ox, by + oy);
-                  p.lineTo(bx, by);
-                }
-                p.closePath();
-              }
-            }
-            g.bucketCache = { key: qkey, buckets, used };
-          }
-          for (let k = 0; k < 4; k++) {
-            if (!used[k]) continue;
-            ctx.fillStyle = g.wallShades[k];
-            ctx.fill(buckets[k]);
-          }
-          if (useFacade) {
-            this.drawFacade(ctx, g, ox, oy, night, v.scale, sr);
-          } else if (wantWindows && px > 10 && g.levels >= 2) {
-            // storey lines (and lit windows at night): the cached footprint outline
-            // translated part-way up the wall; the roof drawn next hides the parts
-            // that fall on the far side of the building
-            const rows = Math.min(g.levels, 5);
-            ctx.save();
-            ctx.strokeStyle = 'rgba(30,26,22,0.16)';
-            ctx.lineWidth = 0.12;
-            let px0 = 0, py0 = 0;
-            for (let k = 1; k < rows; k++) {
-              const t = k / rows;
-              ctx.translate(ox * t - px0, oy * t - py0);
-              (px0 = ox * t), (py0 = oy * t);
-              ctx.stroke(g.outline);
-            }
-            ctx.restore();
-            if (night > 0.3 && hash01((c.cx * 7 + g.h) | 0, (c.cy * 3) | 0) < 0.6) {
-              ctx.save();
-              ctx.lineCap = 'butt';
-              ctx.strokeStyle = `rgba(255,214,140,${Math.min(0.85, (night - 0.3) * 1.5)})`;
-              ctx.lineWidth = Math.min(0.55, Math.hypot(ox, oy) / rows * 0.35);
-              ctx.setLineDash([0.9, 2.6]);
-              ctx.lineDashOffset = hash01(c.cx | 0, c.cy | 0) * 3;
-              px0 = 0; py0 = 0;
-              for (let k = 0; k < rows; k++) {
-                const t = (k + 0.5) / rows;
-                ctx.translate(ox * t - px0, oy * t - py0);
-                (px0 = ox * t), (py0 = oy * t);
-                ctx.lineDashOffset += 1.3;
-                ctx.stroke(g.outline);
-              }
-              ctx.restore();
-            }
-          }
-          if (v.scale > 6 && g.signs.length) this.drawGroupSigns(ctx, g, ox, oy, v);
-        }
-        at(ox, oy);
-        ctx.fillStyle = v.scale > 7.5 && g.roofTex ? g.roofTex : g.roof;
-        ctx.fill(g.path, 'evenodd');
-        if (v.scale > 5) {
-          if (g.pitched) {
-            if (g.hasRidge) {
-              ctx.strokeStyle = 'rgba(255,235,215,0.22)';
-              ctx.lineWidth = 0.22;
-              ctx.stroke(g.ridge);
-            }
-            if (g.hasChimneys) {
-              // chimney pots: shadow then brick-coloured box with a dark cap
-              ctx.fillStyle = 'rgba(0,0,0,0.22)';
-              at(ox + 0.15, oy + 0.2);
-              ctx.fill(g.chimneys);
-              at(ox, oy);
-              ctx.fillStyle = '#6b5850';
-              ctx.fill(g.chimneys);
-            }
-          } else {
-            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-            ctx.lineWidth = 0.4;
-            ctx.stroke(g.outline);
-            ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-            ctx.lineWidth = 0.16;
-            ctx.stroke(g.outline);
-            if (g.hasRoofDetail) {
-              ctx.fillStyle = 'rgba(0,0,0,0.18)';
-              at(ox + 0.25, oy + 0.3);
-              ctx.fill(g.roofDetail);
-              at(ox, oy);
-              ctx.fillStyle = '#7d8084';
-              ctx.fill(g.roofDetail);
-            }
-          }
-        }
-        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-        ctx.lineWidth = 0.35;
-        ctx.stroke(g.outline);
-        ctx.setTransform(base);
-      }
+    for (let i = 0; i < tiers.length; ) {
+      let j = i;
+      while (j < tiers.length && tiers[j].h === tiers[i].h) j++;
+      const P = projFor(tiers[i].h);
+      for (let k = i; k < j; k++) this.drawTierWalls(ctx, tiers[k], P, v, sr, sk, night, facadeReady, wantWindows, base);
+      this.roofTransform(ctx, base, P.cx, P.cy, P.s);
+      for (let k = i; k < j; k++) this.drawTierRoof(ctx, tiers[k], P, v, base, slopeShade);
+      for (let k = i; k < j; k++) if (tiers[k].ads.length) this.drawAds(ctx, tiers[k], P, v, base);
+      ctx.setTransform(base);
+      i = j;
     }
     ctx.restore();
-    this.drawAds(ctx, v);
   }
 
-  /** Small brand/shop sign boards, one wall-edge's worth of ground-floor band. Drawn
-   *  inline in the building pass (between that group's walls and its roof) so nearer
-   *  buildings drawn later still correctly overlap a farther one's sign, and so the
-   *  sign sits on the wall face rather than floating over the roof. Only the storey
-   *  a shop actually occupies (t in [0.5,0.85] of one level, up from the footprint
-   *  edge) is used, and only when that edge is the one actually facing the camera. */
-  private drawGroupSigns(ctx: CanvasRenderingContext2D, g: BGroup, ox: number, oy: number, v: View) {
-    const invLevels = 1 / g.levels;
+  /** Set the transform that draws ground-plan coordinates at a height: scale `s` about (cx, cy),
+   *  plus an optional on-screen nudge (ex, ey) in world metres (e.g. small drop shadows). */
+  private roofTransform(ctx: CanvasRenderingContext2D, m: DOMMatrix, cx: number, cy: number, s: number, ex = 0, ey = 0) {
+    const tx = cx * (1 - s) + ex, ty = cy * (1 - s) + ey;
+    ctx.setTransform(m.a * s, m.b * s, m.c * s, m.d * s, m.a * tx + m.c * ty + m.e, m.b * tx + m.d * ty + m.f);
+  }
+
+  /** One tier's walls (tone-bucketed quads), then their facades or storey lines, then signs. */
+  private drawTierWalls(
+    ctx: CanvasRenderingContext2D, t: Tier, P: Proj, v: View, sr: BBox | null, sk: number,
+    night: number, facadeReady: boolean, wantWindows: boolean, base: DOMMatrix,
+  ) {
+    for (const set of t.walls) {
+      const bb = set.bbox;
+      if (!onRect(sr, bb.x0, bb.y0, bb.x1, bb.y1, GROUP_CULL_PAD)) continue;
+      const c = this.wallBuckets(set, t, P, sk);
+      for (let k = 0; k < 4; k++) {
+        if (!c.used[k]) continue;
+        ctx.fillStyle = set.wallShades[k];
+        ctx.fill(c.buckets[k]);
+      }
+      if (facadeReady && set.drawList.length) this.drawFacade(ctx, set, t, P, night, base);
+      if (v.scale > 6 && set.signs.length) this.drawSigns(ctx, set, P, v);
+    }
+    if (!facadeReady && wantWindows && t.storeys && t.levels >= 2) this.drawStoreyLines(ctx, t, P, v, night, base);
+  }
+
+  /** A wall set's quads for this projection, bucketed into 4 Lambert tones. Only walls facing the
+   *  camera are kept (the rest are under their own roof); each runs from its base (ground, or a
+   *  lower neighbour's roof) up to the tier's height. Rebuilt only when the tier's quantised
+   *  camera, zoom or the sun changes. */
+  private wallBuckets(set: WallSet, t: Tier, P: Proj, sk: number) {
+    const c = set.cache;
+    if (c && c.qx === P.qx && c.qy === P.qy && c.qh === P.qh && c.sk === sk) return c;
+    const buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+    const used = [false, false, false, false];
+    const pc = set.pieces, cx = P.cx, cy = P.cy, kh = P.k, sun = this.atmos.sunDir;
+    for (let i = 0; i < pc.length; i += WP) {
+      const ax = pc[i], ay = pc[i + 1], nx = pc[i + 4], ny = pc[i + 5];
+      if ((ax - cx) * nx + (ay - cy) * ny >= 0) continue;
+      const ux = pc[i + 2], uy = pc[i + 3], u0 = pc[i + 7], u1 = pc[i + 8];
+      const x0 = ax + ux * u0, y0 = ay + uy * u0, x1 = ax + ux * u1, y1 = ay + uy * u1;
+      const kb = pc[i + 9] > 0 ? kAt(pc[i + 9], P.camH) : 0;
+      const tone = Math.min(3, (Math.max(0, nx * sun.x + ny * sun.y) * 3.4) | 0);
+      const p = buckets[tone];
+      used[tone] = true;
+      // camera-facing quads all wind the same way, so one nonzero fill covers overlaps
+      p.moveTo(x0 + (x0 - cx) * kb, y0 + (y0 - cy) * kb);
+      p.lineTo(x1 + (x1 - cx) * kb, y1 + (y1 - cy) * kb);
+      p.lineTo(x1 + (x1 - cx) * kh, y1 + (y1 - cy) * kh);
+      p.lineTo(x0 + (x0 - cx) * kh, y0 + (y0 - cy) * kh);
+      p.closePath();
+    }
+    return (set.cache = { qx: P.qx, qy: P.qy, qh: P.qh, sk, buckets, used });
+  }
+
+  /** Pick this frame's facade pieces nearest-first against a pixel-width budget, so a dense view
+   *  can't blow the frame time and it's the far walls, not the tall ones, that go plain. Night
+   *  windows replay exactly this list (`facadeSets`). */
+  private facadePrepass(tiers: Tier[], projFor: (h: number) => Proj, v: View, sr: BBox | null) {
+    const cands: { set: WallSet; t: Tier; P: Proj; d: number }[] = [];
+    for (const t of tiers) {
+      const P = projFor(t.h);
+      for (const set of t.walls) {
+        set.drawList.length = 0;
+        const bb = set.bbox;
+        if (!set.facade || !onRect(sr, bb.x0, bb.y0, bb.x1, bb.y1, GROUP_CULL_PAD)) continue;
+        const dx = Math.max(bb.x0 - v.camX, 0, v.camX - bb.x1), dy = Math.max(bb.y0 - v.camY, 0, v.camY - bb.y1);
+        cands.push({ set, t, P, d: dx * dx + dy * dy });
+      }
+    }
+    cands.sort((a, b) => a.d - b.d);
+    let budget = FACADE_BUDGET_PX;
+    for (const { set, t, P } of cands) {
+      const pc = set.pieces;
+      for (let i = 0; i < pc.length && budget > 0; i += WP) {
+        const len = pc[i + 8] - pc[i + 7];
+        const epx = len * v.scale;
+        if (len < 1.4 || epx < 4) continue;
+        const ax = pc[i], ay = pc[i + 1], nx = pc[i + 4], ny = pc[i + 5];
+        if ((ax - P.cx) * nx + (ay - P.cy) * ny >= 0) continue;
+        const ux = pc[i + 2], uy = pc[i + 3];
+        const x0 = ax + ux * pc[i + 7], y0 = ay + uy * pc[i + 7], x1 = ax + ux * pc[i + 8], y1 = ay + uy * pc[i + 8];
+        const ox = ((x0 + x1) / 2 - P.cx) * P.k, oy = ((y0 + y1) / 2 - P.cy) * P.k;
+        // too short on screen to read windows
+        if (Math.hypot(ox, oy) * v.scale < 10) continue;
+        if (!onRect(sr, Math.min(x0, x1, x0 + ox, x1 + ox), Math.min(y0, y1, y0 + oy, y1 + oy), Math.max(x0, x1, x0 + ox, x1 + ox), Math.max(y0, y1, y0 + oy, y1 + oy), 1)) continue;
+        budget -= epx;
+        set.drawList.push(i);
+      }
+      if (set.drawList.length) this.facadeSets.push({ set, t, P });
+      if (budget <= 0) break;
+    }
+  }
+
+  /** Windows, doors and shopfronts on a wall set's chosen pieces. Per piece, the transform maps
+   *  (u metres along its edge, storey) onto the wall, with the vertical axis taken at the edge's
+   *  midpoint; the filled shape is the exact wall region in that space, which widens by
+   *  (u - L/2)·k per storey (true perspective scales the roof about the camera). Pieces of one
+   *  edge share its frame, so window columns line up across a party-wall break. */
+  private drawFacade(ctx: CanvasRenderingContext2D, set: WallSet, t: Tier, P: Proj, night: number, base: DOMMatrix) {
+    const style = set.facade!;
+    const lit = night > 0.3;
+    // bake this set's 3 variants once (day/night) instead of hitting the Facades pattern
+    // cache (string keys + Map.get) on every piece, every frame
+    if (!set.facadeCache || set.facadeCache.lit !== lit) {
+      const upper: CanvasPattern[] = [], door: CanvasPattern[] = [], shop: CanvasPattern[] = [];
+      for (let variant = 0; variant < 3; variant++) {
+        upper.push(facadeTexture(style, set.wall, variant, lit));
+        door.push(groundTexture(style, set.wall, variant, lit, false));
+        shop.push(groundTexture(style, set.wall, variant, lit, true));
+      }
+      set.facadeCache = { lit, upper, door, shop };
+      if (lit && !set.glowCache) {
+        const gu: (CanvasPattern | null)[] = [], gd: (CanvasPattern | null)[] = [], gs: (CanvasPattern | null)[] = [];
+        for (let variant = 0; variant < 3; variant++) {
+          gu.push(facadeGlow(style, set.wall, variant));
+          gd.push(groundGlow(style, set.wall, variant, false));
+          gs.push(groundGlow(style, set.wall, variant, true));
+        }
+        set.glowCache = { upper: gu, door: gd, shop: gs };
+      }
+    }
+    const { upper, door, shop: shopTex } = set.facadeCache;
+    const sun = this.atmos.sunDir;
+    const pc = set.pieces, levels = t.levels;
+    for (const i of set.drawList) {
+      const low = this.facadePiece(ctx, base, pc, i, P, levels);
+      const variant = pc[i + 10];
+      if (levels > Math.max(1, low)) {
+        ctx.fillStyle = upper[variant];
+        this.facadeQuad(ctx, pc, i, P, levels, Math.max(1, low), levels);
+        ctx.fill();
+      }
+      if (low === 0) {
+        ctx.fillStyle = pc[i + 11] ? shopTex[variant] : door[variant];
+        this.facadeQuad(ctx, pc, i, P, levels, 0, Math.min(1, levels));
+        ctx.fill();
+      }
+      // Lambert shading on top so the baked tile still reads sun direction (skip the extra
+      // fill where it would barely register)
+      const lambert = Math.max(0, pc[i + 4] * sun.x + pc[i + 5] * sun.y);
+      const shadeAlpha = (0.5 - lambert) * 0.5;
+      if (Math.abs(shadeAlpha) > 0.04) {
+        ctx.fillStyle = shadeAlpha >= 0 ? SHADE_DARK[Math.round(shadeAlpha * 255)] : SHADE_LIGHT[Math.round(-shadeAlpha * 0.6 * 255)];
+        this.facadeQuad(ctx, pc, i, P, levels, low, levels);
+        ctx.fill();
+      }
+    }
+    ctx.setTransform(base);
+  }
+
+  /** Set the (u, storey) -> world transform for piece `i` (see drawFacade); returns the storey its
+   *  visible wall starts at (0 unless it rises from a lower neighbour's roof). */
+  private facadePiece(ctx: CanvasRenderingContext2D, m: DOMMatrix, pc: Float32Array, i: number, P: Proj, levels: number) {
+    const ax = pc[i], ay = pc[i + 1], ux = pc[i + 2], uy = pc[i + 3], half = pc[i + 6] / 2;
+    const f = P.k / levels;
+    const vx = (ax + ux * half - P.cx) * f, vy = (ay + uy * half - P.cy) * f;
+    ctx.setTransform(m.a * ux + m.c * uy, m.b * ux + m.d * uy, m.a * vx + m.c * vy, m.b * vx + m.d * vy, m.a * ax + m.c * ay + m.e, m.b * ax + m.d * ay + m.f);
+    return pc[i + 9] / STOREY;
+  }
+
+  /** Path of piece `i`'s wall between storeys lv0 and lv1, in the facadePiece space. */
+  private facadeQuad(ctx: CanvasRenderingContext2D, pc: Float32Array, i: number, P: Proj, levels: number, lv0: number, lv1: number) {
+    const u0 = pc[i + 7], u1 = pc[i + 8], half = pc[i + 6] / 2;
+    const f0 = (P.k * lv0) / levels, f1 = (P.k * lv1) / levels;
+    ctx.beginPath();
+    ctx.moveTo(u0 + (u0 - half) * f0, lv0);
+    ctx.lineTo(u1 + (u1 - half) * f0, lv0);
+    ctx.lineTo(u1 + (u1 - half) * f1, lv1);
+    ctx.lineTo(u0 + (u0 - half) * f1, lv1);
+    ctx.closePath();
+  }
+
+  /** Zoomed-out stand-in for facades: storey lines (and lit-window dashes at night) along each
+   *  tier's ground-level wall pieces, lifted to each storey's height. The roofs drawn next hide
+   *  the parts on the far side of each building. */
+  private drawStoreyLines(ctx: CanvasRenderingContext2D, t: Tier, P: Proj, v: View, night: number, base: DOMMatrix) {
+    const d = Math.hypot((t.bbox.x0 + t.bbox.x1) / 2 - v.camX, (t.bbox.y0 + t.bbox.y1) / 2 - v.camY);
+    const wallPx = d * P.k * v.scale;
+    if (wallPx < 10) return;
+    const rows = Math.min(t.levels, 5);
+    ctx.strokeStyle = 'rgba(30,26,22,0.16)';
+    for (let k = 1; k < rows; k++) {
+      const s = 1 + kAt((t.h * k) / rows, P.camH);
+      this.roofTransform(ctx, base, P.cx, P.cy, s);
+      ctx.lineWidth = 0.12 / s;
+      ctx.stroke(t.storeys!);
+    }
+    if (night > 0.3 && t.seed < 0.6) {
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = `rgba(255,214,140,${Math.min(0.85, (night - 0.3) * 1.5)})`;
+      ctx.setLineDash([0.9, 2.6]);
+      for (let k = 0; k < rows; k++) {
+        const s = 1 + kAt((t.h * (k + 0.5)) / rows, P.camH);
+        this.roofTransform(ctx, base, P.cx, P.cy, s);
+        ctx.lineWidth = Math.min(0.55, (d * P.k) / rows * 0.35) / s;
+        ctx.lineDashOffset = t.seed * 3 + k * 1.3;
+        ctx.stroke(t.storeys!);
+      }
+      ctx.setLineDash([]);
+      ctx.lineCap = 'round';
+    }
+    ctx.setTransform(base);
+  }
+
+  /** Small brand/shop sign boards on the ground floor of a wall, drawn with the walls (so taller
+   *  buildings drawn later still cover them), only on walls facing the camera. */
+  private drawSigns(ctx: CanvasRenderingContext2D, set: WallSet, P: Proj, v: View) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const fs = 0.62;
     ctx.font = `800 ${fs}px system-ui, sans-serif`;
-    for (const s of g.signs) {
-      if (s.ax < v.x0 - 20 || s.ax > v.x1 + 20 || s.ay < v.y0 - 20 || s.ay > v.y1 + 20) continue;
-      const ex = s.ux * s.u0 * 2, ey = s.uy * s.u0 * 2;
-      // visibility uses a roof offset computed at the edge's own position, not the
-      // group's chunk-centre one (ox,oy) - that coarser approximation can point the
-      // "wrong" way for an edge far from the chunk centre and hide every sign
-      const [eox, eoy] = this.roofOffset(s.ax + s.ux * s.u0, s.ay + s.uy * s.u0, g.h, v);
-      if (ex * eoy - ey * eox < 0) continue; // edge faces away from the camera: not visible, skip
-      const t = 0.55 + hash01((s.ax * 53) | 0, (s.ay * 97) | 0) * 0.3; // 0.55-0.85 up the ground floor
-      const px = s.ax + s.ux * s.u0 + ox * invLevels * t, py = s.ay + s.uy * s.u0 + oy * invLevels * t;
+    for (const s of set.signs) {
+      if (s.x < v.x0 - 20 || s.x > v.x1 + 20 || s.y < v.y0 - 20 || s.y > v.y1 + 20) continue;
+      if ((s.x - P.cx) * s.nx + (s.y - P.cy) * s.ny >= 0) continue; // faces away from the camera
+      const t = 0.55 + hash01((s.x * 53) | 0, (s.y * 97) | 0) * 0.3; // 0.55-0.85 up the ground floor
+      const k = kAt(t * STOREY, P.camH);
+      const px = s.x + (s.x - P.cx) * k, py = s.y + (s.y - P.cy) * k;
       let angle = Math.atan2(s.uy, s.ux);
       if (angle > Math.PI / 2) angle -= Math.PI;
       if (angle < -Math.PI / 2) angle += Math.PI;
@@ -1072,139 +1233,123 @@ export class Renderer {
     }
   }
 
-  /** Windows, doors and shopfronts for one building group's walls, close up. One
-   *  fillRect per edge: ctx.transform maps (u, level) -> world metres so a facade
-   *  tile always lands as one bay per storey regardless of the edge's own angle. */
-  private drawFacade(ctx: CanvasRenderingContext2D, g: BGroup, ox: number, oy: number, night: number, scale: number, sr: BBox | null) {
-    const style = g.facade!;
-    const lit = night > 0.3;
-    const sunDir = this.atmos.sunDir;
-    const invLevels = 1 / g.levels;
-    // bake this group's 3 variants once (day/night) instead of hitting the Facades
-    // pattern cache (string keys + Map.get) on every edge, every frame
-    if (!g.facadeCache || g.facadeCache.lit !== lit) {
-      const upper: CanvasPattern[] = [], door: CanvasPattern[] = [], shop: CanvasPattern[] = [];
-      for (let variant = 0; variant < 3; variant++) {
-        upper.push(facadeTexture(style, g.wall, variant, lit));
-        door.push(groundTexture(style, g.wall, variant, lit, false));
-        shop.push(groundTexture(style, g.wall, variant, lit, true));
-      }
-      g.facadeCache = { lit, upper, door, shop };
-      if (lit && !g.glowCache) {
-        const gu: (CanvasPattern | null)[] = [], gd: (CanvasPattern | null)[] = [], gs: (CanvasPattern | null)[] = [];
-        for (let variant = 0; variant < 3; variant++) {
-          gu.push(facadeGlow(style, g.wall, variant));
-          gd.push(groundGlow(style, g.wall, variant, false));
-          gs.push(groundGlow(style, g.wall, variant, true));
-        }
-        g.glowCache = { upper: gu, door: gd, shop: gs };
+  /** Overlay colour per roof-slope direction bucket (see Tier.slopes): slopes facing the light
+   *  brighten, slopes facing away darken. By day the light is the sun; at night a fixed moonlight
+   *  from the north-west keeps roofs readable. */
+  private slopeShades(): (string | null)[] {
+    const day = this.atmos.daylight, sun = this.atmos.sunDir;
+    let lx = sun.x * day + MOON.x * (1 - day), ly = sun.y * day + MOON.y * (1 - day);
+    const l = Math.hypot(lx, ly) || 1;
+    (lx /= l), (ly /= l);
+    const out: (string | null)[] = [];
+    for (let d = 0; d < 8; d++) {
+      const a = (d * Math.PI) / 4;
+      const dot = Math.cos(a) * lx + Math.sin(a) * ly;
+      out.push(dot < -0.05 ? SHADE_DARK[Math.round(-dot * 0.3 * 255)] : dot > 0.05 ? SHADE_LIGHT[Math.round(dot * 0.14 * 255)] : null);
+    }
+    return out;
+  }
+
+  /** One tier's roofs, drawn in its roof transform (already set): fills, slope shading, hip lines,
+   *  chimneys, flat-roof parapets and details, then the eave outline. */
+  private drawTierRoof(ctx: CanvasRenderingContext2D, t: Tier, P: Proj, v: View, base: DOMMatrix, slopeShade: (string | null)[]) {
+    const tex = v.scale > 7.5;
+    for (const r of t.roofs) {
+      ctx.fillStyle = tex && r.tex ? r.tex : r.color;
+      ctx.fill(r.path, 'evenodd');
+    }
+    const inv = 1 / P.s;
+    if (v.scale > 2.5) {
+      for (let d = 0; d < 8; d++) {
+        const p = t.slopes[d], sh = slopeShade[d];
+        if (!p || !sh) continue;
+        ctx.fillStyle = sh;
+        ctx.fill(p);
       }
     }
-    const { upper, door, shop: shopTex } = g.facadeCache;
-    // one base transform captured up front; each edge overwrites the CTM directly
-    // (base * translate(a) * [u | o/levels], expanded by hand - no DOMMatrix garbage)
-    // instead of save/restore (cheaper - no full canvas-state clone per edge)
-    const base = ctx.getTransform();
-    const A = base.a, B = base.b, C = base.c, D = base.d, E = base.e, F = base.f;
-    const vx = ox * invLevels, vy = oy * invLevels;
-    const va = A * vx + C * vy, vb = B * vx + D * vy;
-    const upperH = g.levels - 1;
-    let dirty = false;
-    for (const rr of g.rings) {
-      const pts = rr.pts, ed = rr.edges;
-      for (let i = 0, o = 0; i < pts.length - 2; i += 2, o += EDGE_STRIDE) {
-        const elen = ed[o];
-        const epx = elen * scale;
-        if (elen < 1.4 || epx < 4) continue;
-        const ax = pts[i], ay = pts[i + 1];
-        const ux = ed[o + 1], uy = ed[o + 2];
-        // back-facing edges (far side of the footprint from the camera) never read on screen
-        if (ux * oy - uy * ox < 0) continue;
-        const bx = pts[i + 2], by = pts[i + 3];
-        if (!onRect(sr, Math.min(ax, bx, ax + ox, bx + ox), Math.min(ay, by, ay + oy, by + oy), Math.max(ax, bx, ax + ox, bx + ox), Math.max(ay, by, ay + oy, by + oy), 0.5)) continue;
-        const variant = ed[o + 5];
-        const shop = i === rr.shopEdge;
-        if ((this.facadeBudget -= epx) < 0) break; // pixel-width budget, not edge count
-        ctx.setTransform(A * ux + C * uy, B * ux + D * uy, va, vb, A * ax + C * ay + E, B * ax + D * ay + F);
-        dirty = true;
-        if (upperH > 0) {
-          ctx.fillStyle = upper[variant];
-          ctx.fillRect(0, 1, elen, upperH);
-        }
-        ctx.fillStyle = shop ? shopTex[variant] : door[variant];
-        ctx.fillRect(0, 0, elen, 1);
-        // Lambert shading on top so the baked tile still reads sun direction (skip
-        // the extra fillRect where it would barely register)
-        const lambert = Math.max(0, ed[o + 3] * sunDir.x + ed[o + 4] * sunDir.y);
-        const shadeAlpha = (0.5 - lambert) * 0.5;
-        if (Math.abs(shadeAlpha) > 0.04) {
-          ctx.fillStyle = shadeAlpha >= 0 ? SHADE_DARK[Math.round(shadeAlpha * 255)] : SHADE_LIGHT[Math.round(-shadeAlpha * 0.6 * 255)];
-          ctx.fillRect(0, 0, elen, g.levels);
-        }
+    if (v.scale > 5) {
+      if (t.hips) {
+        ctx.strokeStyle = 'rgba(255,240,220,0.14)';
+        ctx.lineWidth = 0.12 * inv;
+        ctx.stroke(t.hips);
+      }
+      if (t.ridge) {
+        ctx.strokeStyle = 'rgba(255,235,215,0.22)';
+        ctx.lineWidth = 0.22 * inv;
+        ctx.stroke(t.ridge);
+      }
+      if (t.chimneys) {
+        // chimney pots: shadow then brick-coloured box
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        this.roofTransform(ctx, base, P.cx, P.cy, P.s, 0.15, 0.2);
+        ctx.fill(t.chimneys);
+        this.roofTransform(ctx, base, P.cx, P.cy, P.s);
+        ctx.fillStyle = '#6b5850';
+        ctx.fill(t.chimneys);
+      }
+      if (t.flatOutline) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 0.4 * inv;
+        ctx.stroke(t.flatOutline);
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.lineWidth = 0.16 * inv;
+        ctx.stroke(t.flatOutline);
+      }
+      if (t.roofDetail) {
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        this.roofTransform(ctx, base, P.cx, P.cy, P.s, 0.25, 0.3);
+        ctx.fill(t.roofDetail);
+        this.roofTransform(ctx, base, P.cx, P.cy, P.s);
+        ctx.fillStyle = '#7d8084';
+        ctx.fill(t.roofDetail);
       }
     }
-    if (dirty) ctx.setTransform(base);
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.lineWidth = 0.35 * inv;
+    ctx.stroke(t.outline);
   }
 
   /** Redraw lit windows/shopfronts additively, on top of the night light-map composite
    *  (call once, right after `LightLayer.composite`) so they glow instead of getting
-   *  darkened along with the rest of the world by that multiply pass. Reuses the exact
-   *  same per-edge geometry as `drawFacade`, so the glow lines up window-for-window. */
+   *  darkened along with the rest of the world by that multiply pass. Replays exactly the
+   *  facade pieces `drawBuildings` drew this frame, so the glow lines up window-for-window. */
   drawNightWindows(ctx: CanvasRenderingContext2D, v: View) {
     const night = this.atmos.night;
-    if (night < 0.28 || v.scale <= 6 || !this.facades) return;
-    const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
+    if (night < 0.28 || v.scale <= 6 || !this.facades || !this.facadeSets.length) return;
     let budget = 40000;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = Math.min(0.85, (night - 0.28) * 1.3);
-    const base0 = ctx.getTransform();
-    const A = base0.a, B = base0.b, C = base0.c, D = base0.d, E = base0.e, F = base0.f;
-    const sr = screenRect(ctx);
-    for (const c of vis) {
-      for (const g of c.bgroups) {
-        if (!g.facade || !g.glowCache) continue;
-        const [ox, oy] = this.roofOffset(c.cx, c.cy, g.h, v);
-        const px = Math.hypot(ox, oy) * v.scale;
-        if (px < 10 || budget <= 0) continue;
-        const { upper, door, shop: shopTex } = g.glowCache;
-        const invLevels = 1 / g.levels;
-        const vx = ox * invLevels, vy = oy * invLevels;
-        const va = A * vx + C * vy, vb = B * vx + D * vy;
-        for (const rr of g.rings) {
-          const pts = rr.pts, ed = rr.edges;
-          for (let i = 0, o = 0; i < pts.length - 2; i += 2, o += EDGE_STRIDE) {
-            const elen = ed[o];
-            const epx = elen * v.scale;
-            const ux = ed[o + 1], uy = ed[o + 2];
-            if (elen < 1.4 || epx < 4 || ux * oy - uy * ox < 0) continue;
-            const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
-            if (!onRect(sr, Math.min(ax, bx, ax + ox, bx + ox), Math.min(ay, by, ay + oy, by + oy), Math.max(ax, bx, ax + ox, bx + ox), Math.max(ay, by, ay + oy, by + oy), 0.5)) continue;
-            const variant = ed[o + 5];
-            const shop = i === rr.shopEdge;
-            const up = g.levels > 1 ? upper[variant] : null;
-            const ground = shop ? shopTex[variant] : door[variant];
-            budget -= epx;
-            // variants without any lit glass have no glow tile: nothing to add
-            if (!up && !ground) {
-              if (budget <= 0) break;
-              continue;
-            }
-            ctx.setTransform(A * ux + C * uy, B * ux + D * uy, va, vb, A * ax + C * ay + E, B * ax + D * ay + F);
-            if (up) {
-              ctx.fillStyle = up;
-              ctx.fillRect(0, 1, elen, g.levels - 1);
-            }
-            if (ground) {
-              ctx.fillStyle = ground;
-              ctx.fillRect(0, 0, elen, 1);
-            }
-            if (budget <= 0) break;
+    const base = ctx.getTransform();
+    for (const { set, t, P } of this.facadeSets) {
+      if (!set.glowCache) continue;
+      const { upper, door, shop: shopTex } = set.glowCache;
+      const pc = set.pieces, levels = t.levels;
+      for (const i of set.drawList) {
+        const variant = pc[i + 10];
+        const low = pc[i + 9] / STOREY;
+        const up = levels > Math.max(1, low) ? upper[variant] : null;
+        const ground = low === 0 ? (pc[i + 11] ? shopTex[variant] : door[variant]) : null;
+        budget -= (pc[i + 8] - pc[i + 7]) * v.scale;
+        // variants without any lit glass have no glow tile: nothing to add
+        if (up || ground) {
+          this.facadePiece(ctx, base, pc, i, P, levels);
+          if (up) {
+            ctx.fillStyle = up;
+            this.facadeQuad(ctx, pc, i, P, levels, Math.max(1, low), levels);
+            ctx.fill();
+          }
+          if (ground) {
+            ctx.fillStyle = ground;
+            this.facadeQuad(ctx, pc, i, P, levels, 0, Math.min(1, levels));
+            ctx.fill();
           }
         }
+        if (budget <= 0) break;
       }
+      if (budget <= 0) break;
     }
-    ctx.setTransform(base0);
+    ctx.setTransform(base);
     ctx.restore();
   }
 
@@ -1231,12 +1376,12 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawAds(ctx: CanvasRenderingContext2D, v: View) {
-    for (const a of this.ads) {
+  /** Rooftop ads of one tier, in its roof transform (already set). */
+  private drawAds(ctx: CanvasRenderingContext2D, t: Tier, P: Proj, v: View, base: DOMMatrix) {
+    for (const a of t.ads) {
       if (!bboxHit(a.b.bbox, v)) continue;
-      const [ox, oy] = this.roofOffset(a.chunk.cx, a.chunk.cy, a.h, v);
       ctx.save();
-      ctx.translate(a.b.cx + ox, a.b.cy + oy);
+      ctx.translate(a.b.cx, a.b.cy);
       ctx.rotate(a.angle);
       const w = a.len, h = a.w;
       ctx.fillStyle = a.ad.bg;
@@ -1269,10 +1414,10 @@ export class Renderer {
     let visKey = '';
     for (const c of vis) {
       visKey += c.idx + ',';
-      for (const g of c.bgroups) {
-        if (!g.shadow || (sunMoved && g.shadowKey !== sunKey && budget > 0)) {
-          g.shadow = this.buildShadow(g, sdx, sdy);
-          g.shadowKey = sunKey;
+      for (const t of c.tiers) {
+        if (!t.shadow || (sunMoved && t.shadowKey !== sunKey && budget > 0)) {
+          t.shadow = this.buildShadow(t, sdx, sdy);
+          t.shadowKey = sunKey;
           budget--;
           rebuilt = true;
         }
@@ -1283,7 +1428,7 @@ export class Renderer {
     // when nothing changed; reuse the same merged path until something does
     if (rebuilt || visKey !== this.shadowVisKey || !this.shadowMerged) {
       const merged = new Path2D();
-      for (const c of vis) for (const g of c.bgroups) merged.addPath(g.shadow!);
+      for (const c of vis) for (const t of c.tiers) merged.addPath(t.shadow!);
       this.shadowMerged = merged;
       this.shadowVisKey = visKey;
     }
@@ -1291,11 +1436,10 @@ export class Renderer {
     ctx.fill(this.shadowMerged);
   }
 
-  private buildShadow(g: BGroup, sdx: number, sdy: number): Path2D {
-    const ox = sdx * g.h, oy = sdy * g.h;
+  private buildShadow(t: Tier, sdx: number, sdy: number): Path2D {
+    const ox = sdx * t.h, oy = sdy * t.h;
     const p = new Path2D();
-    for (const rr of g.rings) {
-      const pts = rr.pts;
+    for (const pts of t.rings) {
       for (let i = 0; i < pts.length - 2; i += 2) {
         const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
         const ex = bx - ax, ey = by - ay;
@@ -1404,8 +1548,8 @@ export class Renderer {
             L.glow(x, y, 1.8, '#ffdca0', 0.5 * night);
           }
         }
-        if (c.bgroups.length && L.visible(c.cx, c.cy, 45)) {
-          L.point(c.cx, c.cy, 42, '#ffb26b', Math.min(0.3, c.bgroups.length * 0.018) * night);
+        if (c.nBuildings && L.visible(c.cx, c.cy, 45)) {
+          L.point(c.cx, c.cy, 42, '#ffb26b', Math.min(0.3, c.nBuildings * 0.018) * night);
         }
       }
     }
@@ -1420,18 +1564,12 @@ export class Renderer {
   /** Flat 2D rendering of all buildings, for the pause map. */
   drawBuildingsFlat(ctx: CanvasRenderingContext2D) {
     for (const c of this.chunks)
-      for (const g of c.bgroups) {
-        ctx.fillStyle = g.roof;
-        ctx.fill(g.path, 'evenodd');
-      }
+      for (const t of c.tiers)
+        for (const r of t.roofs) {
+          ctx.fillStyle = r.color;
+          ctx.fill(r.path, 'evenodd');
+        }
   }
-}
-
-function darken(c: string) {
-  if (!c.startsWith('#')) return c;
-  const n = parseInt(c.slice(1), 16);
-  const f = (v: number) => Math.round(v * 0.78);
-  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
 function shade(color: string, factor: number): string {

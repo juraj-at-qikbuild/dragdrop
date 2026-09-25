@@ -81,6 +81,8 @@ export class Vehicle {
   driver: Ped | null = null;
   /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
   level: 0 | 1 = 0;
+  /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */
+  levelInit = false;
   /** player-controlled? set by Game */
   isPlayer = false;
   siren = false;

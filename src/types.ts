@@ -19,6 +19,7 @@ export interface BuildingJSON {
   n?: number;
   c?: string; // roof colour override
   w?: string; // wall colour override
+  u?: 1; // levels untagged in OSM (defaulted to 3); only set when the map has `flagsUntagged`
 }
 
 export interface EdgeJSON {
@@ -49,6 +50,8 @@ export interface MapJSON {
   pois: { k: 'police' | 'hospital' | 'fuel' | 'shop'; x: number; y: number; n: string }[];
   landmarks: { id: string; n: string; x: number; y: number }[];
   graph: { car: GraphJSON; ped: GraphJSON; tram: GraphJSON };
+  /** 1 when buildings carry the `u` (untagged levels) flag; older maps predate it */
+  flagsUntagged?: 1;
 }
 
 export const enum RoadClass {

@@ -25,6 +25,8 @@ export class Tram {
   bell = 0;
   /** bridge deck level: 0 ground/underneath, 1 on the deck (see World.updateLevel) */
   level: 0 | 1 = 0;
+  /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */
+  levelInit = false;
   length = SECTIONS * (SEG + GAP);
   sections: { x: number; y: number; a: number }[] = [];
 
