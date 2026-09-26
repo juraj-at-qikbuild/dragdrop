@@ -287,6 +287,9 @@ the existing SQLite `players.token_hash` column keeps its name but now holds thi
 Voice is a WebRTC mesh — audio is peer-to-peer; the server (`server/src/features/Voice.ts`) only ever
 decides *who* may signal *whom*, and relays that signalling over the existing game WebSocket.
 
+- **Opting in** (`voice{on:true}`) is rate-limited per session, a repeat while already on is ignored,
+  and at most one TURN mint per session is ever in flight. A player becomes pairable only once their
+  `voiceIce` has gone out, so a client never builds a peer connection without its ICE servers.
 - **Pairing** runs once a second (`pairVoice()`, pure and unit-tested against plain fixtures): a
   spatial, greedy match over every opted-in, connected, non-AFK player. A pair **links** below 45 m
   (`VOICE_LINK_M`) and stays linked until it drifts past 60 m (`VOICE_UNLINK_M`) — hysteresis, so
@@ -365,6 +368,16 @@ server's own SQLite, so a join or a tick never waits on the network.
   most-wanted bounty never pays a party-mate of the target; a party's payout split (event and job
   money — not race stakes, pickups or the samaritan bonus) only reaches connected members within 300 m
   who are playing or downed.
+- **Party invites and kicks.** An invite code is 10 random base32 characters (50 bits, minted at most
+  once per 10 s per player, valid 24 h), so guessing one isn't practical. A kicked player can't rejoin
+  that party through anyone's invite for 30 minutes, and a member's invite codes die with their
+  membership (leaving, a kick, a drop, an account deletion or a claim).
+- **Friendly races.** The $50 city prize for a stakeless race is paid at most 3 times per player per
+  (sim) day, counted by player id, so renaming doesn't reset it.
+- **Derby.** A car counts toward the prize pool and the paid places only if it's still in the fight
+  10 s into the live phase, so decoys that drive in and straight out neither inflate the pot nor take
+  3rd place. The arena's star amnesty never covers the most wanted target, and it ends without giving
+  stars back when a player is wasted or busted (the respawn already set their wanted level).
 - **Escrowed stakes are refunded on shutdown.** A Závod? stake leaves both players' accounts the
   moment they accept, before the countdown even starts. It comes back if the race times out after
   5 minutes with nobody finishing, and — on a graceful shutdown (`fly deploy` sends `SIGTERM`) — every
@@ -379,6 +392,9 @@ server's own SQLite, so a join or a tick never waits on the network.
   five minutes, but its centre is re-randomised within 0.6× the *new* radius at every step
   (`CIRCLE_JITTER`) rather than staying centred on the real target — the circle always contains the
   statue, but its centre alone never gives away exactly where.
+- **Crash safety.** Every fire-and-forget promise (Supabase writes, the config poll, the account
+  hello's token check, the TURN mint) carries its own `.catch`, and `server/src/index.ts` also logs any
+  unhandled rejection instead of letting Node exit: one bad response must never drop every player.
 - Every reward is decided server-side and paid through `sim.payout`; the daily puzzle's coordinates
   never reach a client (only the image and the hints do); a guest's claim into an account is one-shot
   and only into an empty one, so progress can't be duplicated.
