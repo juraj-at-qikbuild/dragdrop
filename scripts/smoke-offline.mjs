@@ -6,7 +6,8 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const PORT = 4174;
+// SMOKE_PORT lets parallel runs (several worktrees) use their own preview server
+const PORT = Number(process.env.SMOKE_PORT) || 4174;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
 const check = (ok, what) => (ok ? console.log('[smoke] PASS', what) : (failures++, console.log('[smoke] FAIL', what)));
