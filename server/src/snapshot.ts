@@ -21,6 +21,8 @@ import {
 export const INTEREST_R = 300;
 /** people are small: a tighter radius */
 export const PED_R = 200;
+/** the Hon na Čumila statue is sent only this close, so its position can't be read from afar */
+export const GOLDEN_CUMIL_R = 40;
 /** entities stay sent until this much further away (no flicker at the edge) */
 export const HYSTERESIS = 30;
 /** beyond this distance an entity is refreshed every other tick */
@@ -164,7 +166,7 @@ export class SnapshotBuilder {
     const known = view.known;
     this.grid.query(f.x, f.y, INTEREST_R + HYSTERESIS, (e) => {
       if (e.obj === p.ped || e.obj === own) return;
-      const r = e.type === Ent.Ped ? PED_R : INTEREST_R;
+      const r = e.type === Ent.Ped ? PED_R : e.type === Ent.Pickup && (e.obj as Pickup).kind === 'goldenCumil' ? GOLDEN_CUMIL_R : INTEREST_R;
       const dx = e.x - f.x, dy = e.y - f.y;
       const d2 = dx * dx + dy * dy;
       let k = known.get(e.id);

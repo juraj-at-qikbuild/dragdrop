@@ -905,6 +905,11 @@ export class Sim {
         ev.toPlayer(p.id, { k: 'cumil', id: pk.cumil, count: p.profile.cumils.length, reward: pk.amount });
         this.onProfileChange?.(p);
         return true;
+      case 'goldenCumil':
+        // Hon na Čumila (rules/events/CumilHunt.ts): its onPickup hook pays out and ends the event.
+        // Just let it be taken here, on foot or in a car, instead of falling into the weapon default
+        // below (which would write a garbage ammo slot and switch the player's weapon).
+        return true;
       default: {
         if (!onFoot) return false;
         const w = pk.kind as WeaponId & PickupKind;

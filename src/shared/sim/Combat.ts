@@ -115,6 +115,19 @@ export function traceMelee(peds: Iterable<Ped>, s: Shooter, angle: number): Ped 
   return null;
 }
 
+/** true if (hx, hy) landed within 0.6 m of one of the car's four wheels: local (±(length/2 − 0.7),
+ *  ±width/2), the wheel positions `Vehicle`'s own axle model assumes (see CarSpec). */
+function hitsWheel(v: Vehicle, hx: number, hy: number): boolean {
+  const s = v.spec, fx = Math.cos(v.angle), fy = Math.sin(v.angle);
+  const lx = s.length / 2 - 0.7, ly = s.width / 2;
+  for (const sx of [-1, 1])
+    for (const sy of [-1, 1]) {
+      const wx = v.x + sx * lx * fx - sy * ly * fy, wy = v.y + sx * lx * fy + sy * ly * fx;
+      if (dist(hx, hy, wx, wy) <= 0.6) return true;
+    }
+  return false;
+}
+
 export class CombatRules {
   constructor(private sim: Sim) {}
 
@@ -150,6 +163,11 @@ export class CombatRules {
         const carDmg = w.dmg * 0.35;
         sim.damageVehicle(car, carDmg, pid);
         for (const r of sim.rules) r.onVehicleHit?.(car, carDmg, pid, pl.hx, pl.hy);
+        // a pellet near a wheel bursts the tyres, for any car (Horúca Kofolka's box-in-and-ram dynamic)
+        if (hitsWheel(car, pl.hx, pl.hy)) {
+          car.tyresBurst = 1;
+          if (car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
+        }
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
         if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid);
         if (car.isPlayer && car.owner !== pid) {

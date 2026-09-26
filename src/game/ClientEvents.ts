@@ -178,6 +178,9 @@ export class ClientEvents implements SimEvents {
       case 'spray':
         g.audio.cash();
         break;
+      case 'tyres':
+        g.audio.snap();
+        break;
     }
     for (const f of g.features) f.onPrivate?.(e);
   }

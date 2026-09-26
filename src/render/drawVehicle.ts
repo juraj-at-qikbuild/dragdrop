@@ -2,7 +2,7 @@
 // src/shared/entities/Vehicle.ts so the server can run them.
 import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
-import type { Vehicle } from '../shared/entities/Vehicle';
+import { LIVERY_ARMORED, LIVERY_DERBY, LIVERY_KOFOLKA, LIVERY_NONE, type Vehicle } from '../shared/entities/Vehicle';
 import { clamp } from '../shared/util/math';
 import { shade } from '../shared/util/color';
 import { roundRect } from './shapes';
@@ -350,6 +350,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.closePath();
     ctx.fill();
   }
+  if (v.livery !== LIVERY_NONE && !v.wrecked) drawLivery(v, ctx);
   if (v.mission && !v.wrecked) {
     ctx.strokeStyle = `rgba(255,214,0,${0.5 + 0.5 * Math.sin(time * 6)})`;
     ctx.lineWidth = 0.25;
@@ -357,6 +358,85 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/** World-event paint jobs (LIVERY_*), drawn last so they show over the ordinary body (still inside
+ *  the car's local transform: +x is the nose). Study the `van`/`police` branches above for how the
+ *  roof and lettering are laid out; these just add to it. */
+function drawLivery(v: Vehicle, ctx: CanvasRenderingContext2D) {
+  const s = v.spec, L = s.length, W = s.width;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (v.livery === LIVERY_KOFOLKA) {
+    // a gold pinstripe down both sides and a cash badge on the roof, clear of the van's "KOFOLKA" text
+    ctx.fillStyle = '#ffd600';
+    ctx.fillRect(-L / 2 + 0.3, -W / 2 + 0.1, L - 0.9, 0.07);
+    ctx.fillRect(-L / 2 + 0.3, W / 2 - 0.17, L - 0.9, 0.07);
+    ctx.beginPath();
+    ctx.arc(L * 0.18, 0, 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffd600';
+    ctx.fill();
+    ctx.strokeStyle = KOFOLKA_RED;
+    ctx.lineWidth = 0.05;
+    ctx.stroke();
+    ctx.fillStyle = KOFOLKA_RED;
+    ctx.font = `900 0.4px Arial Black, sans-serif`;
+    ctx.fillText('€', L * 0.18, 0.02);
+  } else if (v.livery === LIVERY_ARMORED) {
+    // repaint the cargo box dark grey-green (hiding the ordinary van's cheerful branding), a shield
+    // badge and "BANKOVÁ SLUŽBA" lettering
+    ctx.fillStyle = ARMOR_GREEN;
+    ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, W - 0.4);
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 0.04;
+    ctx.beginPath();
+    ctx.moveTo(-L / 2 + 0.6, -W / 2 + 0.2);
+    ctx.lineTo(-L / 2 + 0.6, W / 2 - 0.2);
+    ctx.stroke();
+    shieldPath(ctx, -L * 0.22, 0, 0.42, 0.5);
+    ctx.fillStyle = '#78909c';
+    ctx.fill();
+    ctx.strokeStyle = '#eceff1';
+    ctx.lineWidth = 0.04;
+    ctx.stroke();
+    ctx.fillStyle = ARMOR_GREEN;
+    ctx.font = `900 0.3px Arial Black, sans-serif`;
+    ctx.fillText('$', -L * 0.22, 0.01);
+    ctx.fillStyle = '#cfd8dc';
+    ctx.font = `700 0.24px Arial, sans-serif`;
+    ctx.fillText('BANKOVÁ', L * 0.14, -0.15);
+    ctx.fillText('SLUŽBA', L * 0.14, 0.15);
+  } else if (v.livery === LIVERY_DERBY) {
+    // white stripes over the hood/roof and a big race number in a roundel
+    ctx.fillStyle = '#fafafa';
+    ctx.fillRect(-L / 2 + 0.1, -W * 0.16, L - 0.2, W * 0.1);
+    ctx.beginPath();
+    ctx.arc(0, 0, 0.36, 0, Math.PI * 2);
+    ctx.fillStyle = '#fafafa';
+    ctx.fill();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 0.05;
+    ctx.stroke();
+    ctx.fillStyle = '#111';
+    ctx.font = `900 0.46px Arial Black, sans-serif`;
+    ctx.fillText(String(1 + (v.id % 9)), 0, 0.02);
+  }
+  ctx.restore();
+}
+
+const KOFOLKA_RED = '#c8102e';
+const ARMOR_GREEN = '#33413a';
+
+/** a simple heraldic shield, point down, centred at (cx, cy) */
+function shieldPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number) {
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, cy - h / 2);
+  ctx.lineTo(cx + w / 2, cy - h / 2);
+  ctx.lineTo(cx + w / 2, cy + h * 0.1);
+  ctx.quadraticCurveTo(cx + w / 2, cy + h * 0.45, cx, cy + h / 2);
+  ctx.quadraticCurveTo(cx - w / 2, cy + h * 0.45, cx - w / 2, cy + h * 0.1);
+  ctx.closePath();
 }
 
 /** fractional (x, y, size) offsets for damage scuffs, deterministic across frames */

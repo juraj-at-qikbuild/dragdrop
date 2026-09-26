@@ -4,12 +4,16 @@ import type { Sim } from '../Sim';
 import type { SimRule } from './SimRule';
 import { WorldEvents, type RulesMode } from './WorldEvents';
 import { Revive } from './Revive';
+import { KOFOLKA_DEF } from './events/Kofolka';
+import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 
 export type { RulesMode };
 
 export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   const director = new WorldEvents(sim, mode);
-  // world events: director.register(KOFOLKA) …
+  director.register(KOFOLKA_DEF);
+  director.register(CUMIL_HUNT_DEF);
+  // world events: director.register(MOST_WANTED_DEF) …
   const rules: SimRule[] = [director];
   // revive is online-only: offline never sets SimOptions.downed, so there's nothing for it to do
   if (mode === 'server') rules.push(new Revive(sim));

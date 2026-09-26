@@ -568,6 +568,11 @@ export class NetSimHost implements SimHost, NetView {
         v.fire = -1;
         break;
       }
+      case 'tyres': {
+        const v = this.ownCar;
+        if (v && v.id === e.vehicle) v.tyresBurst = 1;
+        break;
+      }
       case 'found':
         if (!this.me.profile.found.includes(e.id)) this.me.profile.found.push(e.id);
         break;

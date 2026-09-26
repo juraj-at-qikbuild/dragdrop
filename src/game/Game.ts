@@ -105,6 +105,8 @@ export class Game {
   private lastFrameT = 0;
   private baseLightRes: number | null = null;
   private vignette: HTMLCanvasElement | null = null;
+  /** when each golden Čumil pickup (Hon na Čumila) was first drawn, for its "pop out" animation */
+  private goldenPopAt = new Map<number, number>();
   ctx: CanvasRenderingContext2D;
   /** GPU post-processing (bloom/grade/vignette/grain/fx); null-safe no-ops when WebGL is unavailable */
   postFx: PostFX | null = null;
@@ -885,6 +887,38 @@ export class Game {
         ctx.beginPath();
         ctx.arc(0, 0, 1.1, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (p.kind === 'goldenCumil') {
+        // the Hon na Čumila statue: a gold head peeking out of a dark manhole, popping out the first
+        // time it's drawn (a fresh sighting online, or right when the event goes live offline)
+        let born = this.goldenPopAt.get(p.id);
+        if (born === undefined) this.goldenPopAt.set(p.id, (born = this.time));
+        const t = clamp((this.time - born) / 0.6, 0, 1);
+        const pop = t >= 1 ? 1 : popScale(t);
+        ctx.scale(pop, pop);
+        ctx.fillStyle = '#161616';
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.85, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 0.05;
+        ctx.stroke();
+        const grad = ctx.createRadialGradient(-0.14, -0.16, 0.05, 0, 0, 0.5);
+        grad.addColorStop(0, '#fff6c8');
+        grad.addColorStop(0.55, '#ffd700');
+        grad.addColorStop(1, '#b8860b');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, -0.06, 0.42, Math.PI, 0);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(0, 0.08, 0.3, 0.24, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const glow = 0.4 + 0.35 * (0.5 + 0.5 * Math.sin(this.time * 5));
+        ctx.strokeStyle = `rgba(255,215,0,${glow})`;
+        ctx.lineWidth = 0.14;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.15, 0, Math.PI * 2);
+        ctx.stroke();
       } else {
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.fillRect(-0.5, -0.4, 1.1, 1);
@@ -1136,6 +1170,12 @@ export class Game {
     }
     this.lastFrameT = now;
   }
+}
+
+/** ease-out-back: overshoots past 1 then settles, for a little "pop" (t: 0..1) */
+function popScale(t: number): number {
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
 const PICKUP_GLOW: Record<PickupKind, string> = {
