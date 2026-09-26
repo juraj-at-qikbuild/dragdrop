@@ -6,6 +6,7 @@ import { WorldEvents, type RulesMode } from './WorldEvents';
 import { Revive } from './Revive';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
+import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
 
 export type { RulesMode };
 
@@ -13,9 +14,13 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   const director = new WorldEvents(sim, mode);
   director.register(KOFOLKA_DEF);
   director.register(CUMIL_HUNT_DEF);
-  // world events: director.register(MOST_WANTED_DEF) …
+  director.register(MOST_WANTED_DEF);
   const rules: SimRule[] = [director];
-  // revive is online-only: offline never sets SimOptions.downed, so there's nothing for it to do
-  if (mode === 'server') rules.push(new Revive(sim));
+  // revive and the most-wanted watcher are online-only: offline never sets SimOptions.downed, and a
+  // lone player can't be "most wanted" (minPlayers: 2), so there's nothing for either to do
+  if (mode === 'server') {
+    rules.push(new Revive(sim));
+    rules.push(new MostWantedWatch(sim));
+  }
   return rules;
 }
