@@ -167,10 +167,10 @@ export interface Mark {
   uy: number;
   /** half-width of the street */
   hw: number;
-  /** 0 stop sign, 1 give way, 2 speed bump, 3 raised table, 4 speed cushions, 5 rumble strip */
+  /** 0 stop sign, 1 give way, 2 speed bump, 3 raised table, 4 speed cushions, 5 rumble strip, 6 bus stop */
   kind: number;
 }
-export const MARK_STOP = 0, MARK_GIVE_WAY = 1, MARK_BUMP = 2;
+export const MARK_STOP = 0, MARK_GIVE_WAY = 1, MARK_BUMP = 2, MARK_BUS_STOP = 6;
 
 /** The map's stop and give-way signs and speed bumps, on the approaches of the car graph they
  *  apply to, in travel order along each edge (traffic reads them like the traffic lights). */
@@ -232,6 +232,51 @@ export class StreetMarks {
         if (e.oneway !== -1) add(e, true, pr.s, kind);
         if (e.oneway !== 1) add(e, false, pr.s, kind);
       });
+    }
+    // bus stops at the kerb: on the street beside them, for traffic going the way that has the
+    // stop on its right
+    const f = world.furniture;
+    for (let i = 0; i < f.length; i += 4) {
+      if (f[i + 3] !== 3 && f[i + 3] !== 4) continue;
+      const x0 = f[i], y0 = f[i + 1];
+      let best: Edge | null = null, bs = 0, bd = 9, bdx = 0, bdy = 0;
+      near(x0, y0, 9, (e) => {
+        if (e.cls > 5) return;
+        const pr = project(e.p, x0, y0);
+        if (pr && pr.dist < bd) (bd = pr.dist), (best = e), (bs = pr.s), (bdx = pr.dx), (bdy = pr.dy);
+      });
+      if (!best) continue;
+      const e: Edge = best;
+      const px = along(e.p, bs);
+      // the stop is on the right of the direction whose right-hand normal points at it
+      const right = (x0 - px.x) * -bdy + (y0 - px.y) * bdx > 0;
+      const fwd = right;
+      if ((fwd && e.oneway === -1) || (!fwd && e.oneway === 1)) continue;
+      add(e, fwd, bs, MARK_BUS_STOP);
+    }
+    // Where no sign is mapped, a side street still gives way to the bigger road it comes out on
+    // (the major road's priority signs are rarely in the map): an approach yields when a road of a
+    // higher class runs through the junction ahead, unless traffic lights or a sign already
+    // govern it. Not drawn: the map has no sign there.
+    const incident: Edge[][] = Array.from({ length: g.nodes.length / 2 }, () => []);
+    for (const e of g.edges) {
+      incident[e.a].push(e);
+      if (e.b !== e.a) incident[e.b].push(e);
+    }
+    const lights = world.lights;
+    for (const e of g.edges) {
+      if (e.len < 8) continue;
+      for (const fwd of [true, false]) {
+        if ((fwd && e.oneway === -1) || (!fwd && e.oneway === 1)) continue;
+        const node = fwd ? e.b : e.a;
+        const bigger = incident[node].filter((f) => f !== e && f.cls < e.cls).length;
+        if (bigger < 2) continue;
+        const link = { edge: e, fwd, to: node } as Link;
+        const s = fwd ? e.len - 4.5 : 4.5;
+        const near = (m: { x: number; y: number }) => Math.hypot(m.x - g.nx(node), m.y - g.ny(node)) < 18;
+        if (lights.forLink(link).some(near) || this.forLink(link).some((m) => m.kind < MARK_BUMP && near(m))) continue;
+        add(e, fwd, s, MARK_GIVE_WAY);
+      }
     }
     for (const [id, entry] of this.byEdge) {
       const e = g.edges[id];

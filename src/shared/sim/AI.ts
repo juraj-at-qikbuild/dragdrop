@@ -6,7 +6,7 @@ import { Ped } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
 import { angleDiff, bboxOf, clamp, dist, pointInRings } from '../util/math';
-import type { StopLine } from '../world/TrafficLights';
+import { MARK_BUS_STOP, MARK_GIVE_WAY, MARK_STOP, type Mark, type StopLine } from '../world/TrafficLights';
 import { OFF_MAP } from '../world/World';
 import { SECONDS_PER_HOUR } from './Clock';
 import { CountGrid, playerScale, targetDensity } from './density';
@@ -34,6 +34,31 @@ export interface Driver {
   retarget: number;
   /** traffic lights ahead on the links queued in `pts`, in order */
   stops: StopLine[];
+  /** stop and give-way signs, speed bumps and (buses) bus stops ahead, in order */
+  marks: Mark[];
+  /** the sign or bus stop it's standing at, and for how long */
+  waitAt: Mark | null;
+  waited: number;
+  /** which of a multi-lane street's lanes it keeps to (0 = the kerb lane) */
+  lane: number;
+  /** how far it has pulled out of its lane (m, + to the right) to get round a car that isn't going
+   *  anywhere, and how far it's heading for */
+  nudge: number;
+  nudgeTo: number;
+  /** the car it's pulling out round, or waiting behind until the way past is clear, and for how long */
+  passing: Vehicle | null;
+  waitFor: Vehicle | null;
+  waitedFor: number;
+  /** time to the next look at the way past */
+  passCheck: number;
+  /** the car in its way last update, and for how long it has been */
+  blocker: Vehicle | null;
+  blockedT: number;
+  /** a head-on standoff (two cars each waiting for the other): the car it's giving way to (backing
+   *  up and tucking in), or squeezing past, for `standoff` seconds more */
+  yieldTo: Vehicle | null;
+  squeeze: Vehicle | null;
+  standoff: number;
   /** times it has had to back up since it last got anywhere, and where that was */
   wedged: number;
   px: number;
@@ -47,11 +72,28 @@ const PARKED_MIX: [VehicleKind, number][] = [['hatch', 35], ['sedan', 35], ['van
 
 /** how far right of the centre line traffic drives on this link (fitted to the street by World) */
 const laneOffset = (l: Link) => (l.fwd ? l.edge.laneF : l.edge.laneR) ?? (l.edge.oneway ? 0 : Math.min(l.edge.width / 4, 1.9));
+/** marked lanes in the direction of a link (1 when the map doesn't say) */
+const lanesOf = (l: Link) => (l.fwd ? l.edge.lanesF : l.edge.lanesR) ?? 1;
+/** Lane `lane` (0 = by the kerb) of a link: on a street with several marked lanes each way, their
+ *  centres across the carriageway (the directions share it lane by lane); else the fitted lane. */
+function laneFor(l: Link, lane: number) {
+  const n = lanesOf(l);
+  if (n < 2) return laneOffset(l);
+  const total = (l.edge.lanesF ?? 0) + (l.edge.lanesR ?? 0), lw = l.edge.width / Math.max(1, total);
+  return l.edge.width / 2 - (Math.min(lane, n - 1) + 0.5) * lw;
+}
+/** how fast traffic takes a speed bump, a raised table, cushions, a rumble strip (m/s) */
+const BUMP_SPEED = [4.5, 7, 8.5, 30];
+/** how long a bus stands at a stop (s) */
+const BUS_DWELL = 5;
 /** a link traffic may take: its lane doesn't run into a building, and it doesn't lead off the map */
 const drivable = (l: Link) => !(l.fwd ? l.edge.blockedF : l.edge.blockedR);
 const EMPTY_PEDS: Ped[] = [];
-/** scratch point for `AI.along` */
+/** scratch points for `AI.along` */
 const AHEAD = { x: 0, y: 0, a: 0, got: 0 };
+const PASS = { x: 0, y: 0, a: 0, got: 0 };
+/** gap (m) traffic leaves behind a parked car it's waiting to get round */
+const PASS_GAP = 3.5;
 /** distances ahead (m) at which traffic checks how far its lane has turned, to slow for bends */
 const CURVE_SAMPLES = [4, 8, 13, 20, 28, 38, 50];
 const COPS_WANTED = [0, 2, 3, 5, 7, 9];
@@ -64,6 +106,8 @@ export class AI {
   policeGraph: Graph;
   private spawnTimer = 0;
   private retire = new Set<Vehicle>();
+  /** the nearest car `obstacleAhead` last found in the way */
+  private lastBlocker: Vehicle | null = null;
   /** while prewarming around this player, their own screen doesn't block spawns */
   private warmFor: SimPlayer | null = null;
   /** walking groups: follower -> leader + fixed offset (WeakMap so despawned peds can be GC'd) */
@@ -269,7 +313,9 @@ export class AI {
 
   spawnOnLink(kind: VehicleKind, link: Link, mode: Driver['mode'], target = 0) {
     const sim = this.sim;
-    const pts = linkPoints(link, laneOffset(link));
+    // on a multi-lane street, most keep to the kerb lane, the rest overtake (buses keep right)
+    const lane = kind === 'bus' || kind === 'van' ? 0 : sim.rng.chance(0.45) ? 1 + sim.rng.int(2) : 0;
+    const pts = linkPoints(link, mode === 'police' ? 0 : laneFor(link, lane));
     const x = pts[0], y = pts[1];
     if (!this.freeSpot(x, y, 4)) return null;
     const v = new Vehicle(kind, x, y, Math.atan2(pts[3] - pts[1], pts[2] - pts[0]), sim.rng.pick(SPECS[kind].colors));
@@ -282,6 +328,9 @@ export class AI {
     const d: Driver = {
       mode, link, pts, idx: 1, route: [], repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0,
       searchTarget: null, searchTimer: 0, target, retarget: 2, stops: mode === 'traffic' ? [...sim.world.lights.forLink(link)] : [],
+      marks: mode === 'traffic' ? this.marksFor(link, kind) : [], waitAt: null, waited: 0, lane,
+      nudge: 0, nudgeTo: 0, passing: null, waitFor: null, waitedFor: 0, passCheck: 0,
+      blocker: null, blockedT: 0, yieldTo: null, squeeze: null, standoff: 0,
       wedged: 0, px: x, py: y,
     };
     this.drivers.set(v, d);
@@ -307,7 +356,7 @@ export class AI {
     let kind = sim.rng.weighted(TRAFFIC_MIX);
     if (kind === 'bus' && link.edge.cls > 4) kind = 'sedan';
     // not with its nose in a wall (a lane that starts in a tight corner)
-    const pts = linkPoints(link, laneOffset(link));
+    const pts = linkPoints(link, laneFor(link, 0));
     if (!this.clearOfWalls(kind, pts[0], pts[1], Math.atan2(pts[3] - pts[1], pts[2] - pts[0]))) return false;
     return !!this.spawnOnLink(kind, link, 'traffic');
   }
@@ -409,9 +458,13 @@ export class AI {
     const nodes = w.car.nodesAround(x, y, rMin, rMax);
     if (!nodes.length) return false;
     const n = sim.rng.pick(nodes);
-    const link = w.car.out[n].find((l) => l.edge.cls >= 4 && l.edge.len > 20);
+    // at the kerb of a residential street (not in a lane of a multi-lane one), and on a narrow
+    // two-way street only along one side of it, so there's still room to get past
+    const link = w.car.out[n].find(
+      (l) => l.edge.cls >= 4 && l.edge.len > 20 && (l.edge.lanesF ?? 1) + (l.edge.lanesR ?? 1) <= 2 && (l.edge.oneway || l.edge.width >= 9 || l.fwd === (l.edge.id % 2 === 0)),
+    );
     if (!link) return false;
-    const pts = linkPoints(link, link.edge.width / 2 - 1.1);
+    const pts = linkPoints(link, link.edge.width / 2 - 1);
     if (pts.length < 4) return false;
     const t = sim.rng.range(0.2, 0.8);
     const x0 = pts[0] + (pts[2] - pts[0]) * t, y0 = pts[1] + (pts[3] - pts[1]) * t;
@@ -575,8 +628,8 @@ export class AI {
     return out;
   }
 
-  private appendLink(d: Driver, link: Link) {
-    const pts = linkPoints(link, d.mode === 'police' ? 0 : laneOffset(link));
+  private appendLink(d: Driver, link: Link, v?: Vehicle) {
+    const pts = linkPoints(link, d.mode === 'police' ? 0 : laneFor(link, d.lane));
     // trim consumed points
     if (d.idx > 6) {
       d.pts.splice(0, (d.idx - 2) * 2);
@@ -584,7 +637,291 @@ export class AI {
     }
     d.pts.push(...pts.slice(2));
     d.link = link;
-    if (d.mode === 'traffic') d.stops.push(...this.sim.world.lights.forLink(link));
+    if (d.mode === 'traffic') {
+      d.stops.push(...this.sim.world.lights.forLink(link));
+      d.marks.push(...this.marksFor(link, v?.kind));
+    }
+  }
+
+  /** the signs and bumps on a link (bus stops only for buses) */
+  private marksFor(link: Link, kind?: VehicleKind): Mark[] {
+    const all = this.sim.world.marks.forLink(link);
+    return kind === 'bus' ? [...all] : all.filter((m) => m.kind !== MARK_BUS_STOP);
+  }
+
+  /** Stop signs, give-way signs, speed bumps and bus stops ahead: the speed they allow now. */
+  private obeyMarks(v: Vehicle, d: Driver, desired: number, dt: number): number {
+    const fwd = Math.max(0, v.fwdSpeed);
+    while (d.marks.length) {
+      const m = d.marks[0];
+      const past = (v.x - m.x) * m.ux + (v.y - m.y) * m.uy;
+      if (past > 0.5 || (d.waitAt === m && past > -1.2 && d.waited < 0)) {
+        d.marks.shift();
+        if (d.waitAt === m) (d.waitAt = null), (d.waited = 0);
+        continue;
+      }
+      break;
+    }
+    for (let k = 0; k < Math.min(3, d.marks.length); k++) {
+      const m = d.marks[k];
+      const gap = (m.x - v.x) * m.ux + (m.y - v.y) * m.uy - v.spec.length / 2;
+      if (gap > 45) break;
+      /** the speed that still stops by `at` metres before the line */
+      const stopBy = (at: number) => (gap < at ? 0 : Math.sqrt(2 * 3 * (gap - at)));
+      if (m.kind >= 2 && m.kind < MARK_BUS_STOP) {
+        if (gap < 16) desired = Math.min(desired, BUMP_SPEED[m.kind - 2] + Math.max(0, gap - 1.5) * 0.7);
+      } else if (m.kind === MARK_BUS_STOP) {
+        // a bus pulls up at the stop, stands a few seconds, then goes on
+        if (d.waitAt === m && d.waited < 0) continue;
+        desired = Math.min(desired, stopBy(0.5));
+        if (gap < 2 && fwd < 0.5) {
+          d.waitAt = m;
+          if ((d.waited += dt) > BUS_DWELL) d.waited = -1;
+        }
+      } else if (m.kind === MARK_STOP) {
+        // stop at the line, then go when the way across is clear
+        if (d.waitAt === m && d.waited < 0) continue;
+        desired = Math.min(desired, stopBy(1));
+        if (gap < 3 && fwd < 0.6) {
+          d.waitAt = m;
+          // (on a busy road someone lets it out in the end)
+          if ((d.waited += dt) > 1 && (this.crossClear(v, m) || d.waited > 9)) d.waited = -1;
+        }
+      } else if (m.kind === MARK_GIVE_WAY) {
+        // slow down to look, stop only for traffic coming across (and after a long wait at the
+        // line, nose out anyway: someone lets it in)
+        if (d.waitAt === m && d.waited < 0) continue;
+        if (gap < 20) desired = Math.min(desired, 3.5 + gap * 0.35);
+        if (gap < 12 && !this.crossClear(v, m)) {
+          desired = Math.min(desired, stopBy(1));
+          if (gap < 3 && fwd < 0.6) {
+            d.waitAt = m;
+            if ((d.waited += dt) > 10) d.waited = -1;
+          }
+        }
+      }
+      // only the next sign or stop matters (bumps before it count too)
+      if (m.kind === MARK_STOP || m.kind === MARK_GIVE_WAY || m.kind === MARK_BUS_STOP) break;
+    }
+    return desired;
+  }
+
+  /** Head-on standoffs: two cars that have each been waiting for the other a moment (nose to nose
+   *  on a narrow street, or across each other's path in a junction). The one with the lower id
+   *  gives way: backs up a little and tucks in to the right; the other squeezes past slowly,
+   *  tucked in too. Returns the speed that allows. */
+  private standoffs(v: Vehicle, d: Driver, dt: number): number {
+    if (d.yieldTo || d.squeeze) {
+      const o = (d.yieldTo ?? d.squeeze)!;
+      const hx = Math.cos(v.angle), hy = Math.sin(v.angle);
+      // over once they're past each other, or it's taking too long
+      const past = (o.x - v.x) * hx + (o.y - v.y) * hy < -(o.spec.length + v.spec.length) / 2;
+      if ((d.standoff -= dt) <= 0 || past || o.wrecked || !this.drivers.has(o)) {
+        d.yieldTo = d.squeeze = null;
+        d.standoff = 0;
+        if (!d.passing) d.nudgeTo = 0;
+        return Infinity;
+      }
+      return d.yieldTo ? 0 : 3.5;
+    }
+    const o = d.blocker;
+    if (!o || d.blockedT < 1.5 || o.speed > 1 || v.speed > 1) return Infinity;
+    const od = this.drivers.get(o);
+    if (!od || od.blocker !== v || od.blockedT < 0.5 || od.yieldTo || od.squeeze) return Infinity;
+    const [y, yd, g, gd] = v.id < o.id ? [v, d, o, od] : [o, od, v, d];
+    yd.yieldTo = g;
+    gd.squeeze = y;
+    yd.standoff = gd.standoff = 4;
+    if (!this.obstacleBehind(y, 4)) yd.reverse = 1.1;
+    yd.nudgeTo = this.tuckIn(y, yd, 1.2);
+    gd.nudgeTo = this.tuckIn(g, gd, 0.8);
+    return d.yieldTo ? 0 : 3.5;
+  }
+
+  /** how far right of its lane (up to `max` m) a car can tuck in over the next few metres without
+   *  touching a wall */
+  private tuckIn(v: Vehicle, d: Driver, max: number) {
+    const w = this.sim.world;
+    for (const n of [max, max * 0.6, max * 0.3]) {
+      let ok = true;
+      for (let s = 0; s <= 6 && ok; s += 2) {
+        this.along(v, d, s, PASS);
+        if (w.collideCircle(PASS.x - Math.sin(PASS.a) * n, PASS.y + Math.cos(PASS.a) * n, v.spec.width / 2, 0)) ok = false;
+      }
+      if (ok) return n;
+    }
+    return 0;
+  }
+
+  /** a car in the way that isn't going anywhere by itself: parked, abandoned, wrecked, or a bus
+   *  standing at its stop */
+  private stillCar(o: Vehicle) {
+    if (o.speed > 0.8) return false;
+    return o.parked || !o.driver || o.wrecked || o.sinking > 0 || this.drivers.get(o)?.waitAt?.kind === MARK_BUS_STOP;
+  }
+
+  /** How far (x, y), `lon` metres ahead of the car, lies right of its queued lane (null where the
+   *  queued lane doesn't reach). */
+  private laneOff(v: Vehicle, d: Driver, x: number, y: number, lon: number): number | null {
+    this.along(v, d, Math.max(0, lon), PASS);
+    if (PASS.got < lon - 1) return null;
+    const sa = Math.sin(PASS.a), ca = Math.cos(PASS.a);
+    if (Math.abs((x - PASS.x) * ca + (y - PASS.y) * sa) > 4) return null;
+    return (x - PASS.x) * -sa + (y - PASS.y) * ca;
+  }
+
+  /** the nearest car that isn't going anywhere standing in the lane within `range` ahead */
+  private stillAhead(v: Vehicle, d: Driver, range: number): Vehicle | null {
+    const hx = Math.cos(v.angle), hy = Math.sin(v.angle);
+    let best: Vehicle | null = null, bl = Infinity;
+    this.sim.forVehiclesNear(v.x + (hx * range) / 2, v.y + (hy * range) / 2, range / 2 + 6, (o) => {
+      if (o === v || !this.stillCar(o)) return;
+      const lon = (o.x - v.x) * hx + (o.y - v.y) * hy;
+      if (lon < 0 || lon > range + v.spec.length / 2 || lon >= bl) return;
+      const off = this.laneOff(v, d, o.x, o.y, lon);
+      if (off === null || Math.abs(off - d.nudge) >= (v.spec.width + o.spec.width) / 2 + 0.3) return;
+      (bl = lon), (best = o);
+    });
+    return best;
+  }
+
+  /** Is the way past `o`, `nudge` metres off the lane, clear: on the carriageway, no wall, post,
+   *  person or tram in it, no car in it, and nothing oncoming that would arrive before we're past?
+   *  An impatient driver (`squeeze`) mounts the kerb and squeezes by closer. */
+  private clearToPass(v: Vehicle, d: Driver, o: Vehicle, nudge: number, squeeze = false) {
+    const sim = this.sim, w = sim.world;
+    const hx = Math.cos(v.angle), hy = Math.sin(v.angle);
+    const lonO = (o.x - v.x) * hx + (o.y - v.y) * hy;
+    const L = lonO + (o.spec.length + v.spec.length) / 2 + 2;
+    // stays on the carriageway (a wheel over the kerb at most; service roads and car parks have
+    // room either side)
+    if (d.link && d.mode !== 'police') {
+      const lane = laneFor(d.link, d.lane) + nudge;
+      if (Math.abs(lane) + v.spec.width / 2 > d.link.edge.width / 2 + (squeeze || d.link.edge.cls >= 6 ? 1.5 : 0.6)) return false;
+    }
+    for (let s = 1.5; s <= L; s += 1.5) {
+      this.along(v, d, s, PASS);
+      if (PASS.got < s - 0.5) return false;
+      const x = PASS.x - Math.sin(PASS.a) * nudge, y = PASS.y + Math.cos(PASS.a) * nudge;
+      if (w.collideCircle(x, y, v.spec.width / 2, 0)) return false;
+    }
+    let clear = true;
+    const margin = squeeze ? 0.05 : 0.15;
+    sim.forVehiclesNear(v.x + (hx * L) / 2, v.y + (hy * L) / 2, L / 2 + 32, (q) => {
+      if (!clear || q === v || q === o) return;
+      const dx = q.x - v.x, dy = q.y - v.y;
+      const lon = dx * hx + dy * hy, sp = q.vx * hx + q.vy * hy;
+      // oncoming: as far as it gets in the few seconds the pass takes
+      const oncoming = sp < -1;
+      if (lon < -v.spec.length || lon > (oncoming ? L - sp * 3.5 + 6 : L)) return;
+      const off = this.laneOff(v, d, q.x, q.y, lon) ?? -dx * hy + dy * hx + d.nudge;
+      if (Math.abs(off - nudge) < (v.spec.width + q.spec.width) / 2 + margin) clear = false;
+    });
+    if (!clear) return false;
+    for (const p of sim.pedsNear(v.x + (hx * L) / 2, v.y + (hy * L) / 2, L / 2 + 2)) {
+      if (p.vehicle || p.dead) continue;
+      const lon = (p.x - v.x) * hx + (p.y - v.y) * hy;
+      if (lon < 0 || lon > L) continue;
+      const off = this.laneOff(v, d, p.x, p.y, lon);
+      if (off !== null && Math.abs(off - nudge) < v.spec.width / 2 + 0.8) return false;
+    }
+    for (const t of sim.trams)
+      for (const s of t.sections) {
+        if (dist(s.x, s.y, v.x, v.y) > L + 10) continue;
+        const lon = (s.x - v.x) * hx + (s.y - v.y) * hy;
+        const off = this.laneOff(v, d, s.x, s.y, lon);
+        if (lon > -4 && lon < L + 8 && off !== null && Math.abs(off - nudge) < v.spec.width / 2 + 1.8) return false;
+      }
+    return true;
+  }
+
+  /** Get round a car that isn't going anywhere standing in the lane ahead: pull out past it when
+   *  the way is clear, else wait a few metres back until it is (honking now and then). Returns
+   *  the speed that allows. */
+  private passStill(v: Vehicle, d: Driver, dt: number): number {
+    const hx = Math.cos(v.angle), hy = Math.sin(v.angle);
+    const fwd = Math.max(0, v.fwdSpeed);
+    const lonOf = (o: Vehicle) => (o.x - v.x) * hx + (o.y - v.y) * hy;
+    // done with the car being passed (it's behind now, or drove off): back into the lane
+    if (d.passing) {
+      const o = d.passing;
+      if (lonOf(o) < -(o.spec.length + v.spec.length) / 2 - 1 || !this.stillCar(o) || dist(o.x, o.y, v.x, v.y) > 30) (d.passing = null), (d.nudgeTo = 0);
+    }
+    if (d.waitFor && (!this.stillCar(d.waitFor) || lonOf(d.waitFor) < 0 || dist(d.waitFor.x, d.waitFor.y, v.x, v.y) > 30)) (d.waitFor = null), (d.waitedFor = 0);
+    d.passCheck -= dt;
+    if (d.passCheck <= 0) {
+      d.passCheck = 0.25;
+      const o = d.passing ?? this.stillAhead(v, d, 8 + fwd * 1.8);
+      if (o) {
+        const lon = lonOf(o);
+        const off = this.laneOff(v, d, o.x, o.y, lon) ?? 0;
+        const need = (v.spec.width + o.spec.width) / 2 + 0.35;
+        const alongside = lon < (o.spec.length + v.spec.length) / 2 - 0.5;
+        const squeeze = d.waitedFor > 12;
+        if (d.passing === o) {
+          // oncoming traffic turned up before we got level: back into the lane and wait
+          if (!alongside && !this.clearToPass(v, d, o, d.nudgeTo, squeeze)) (d.passing = null), (d.nudgeTo = 0), (d.waitFor = o);
+        } else {
+          // round the side away from it (the car parked on the right is passed on the left);
+          // after a long wait, mounting the kerb and squeezing by closer
+          const nudge = off >= 0 ? off - need + (squeeze ? 0.2 : 0) : off + need - (squeeze ? 0.2 : 0);
+          if (Math.abs(nudge) < 3.6 && this.clearToPass(v, d, o, nudge, squeeze)) {
+            d.passing = o;
+            d.nudgeTo = nudge;
+            d.waitFor = null;
+            d.waitedFor = 0;
+            // right up behind it: back up a little first to have room to pull out
+            const gap = lon - (o.spec.length + v.spec.length) / 2;
+            if (gap < 1.8 && fwd < 0.5 && !this.obstacleBehind(v, 5)) d.reverse = 0.7;
+          } else d.waitFor = o;
+        }
+      }
+    }
+    // ease out of (and back into) the lane
+    const rate = 1.2 + fwd * 0.3;
+    d.nudge += clamp(d.nudgeTo - d.nudge, -rate * dt, rate * dt);
+    if (d.passing) return 5.5;
+    const o = d.waitFor;
+    if (!o) return Infinity;
+    // waiting for the way past to clear: a few metres back, honking now and then (and after half a
+    // minute stuck there, it's as good as wedged: towed away once nobody's looking)
+    d.waitedFor += dt;
+    if (d.waitedFor > 6 && this.sim.rng.chance(dt * 0.15)) v.horn = 0.5;
+    if (d.waitedFor > 30) d.wedged = Math.max(d.wedged, 3);
+    const gap = lonOf(o) - (o.spec.length + v.spec.length) / 2;
+    return gap < PASS_GAP ? 0 : Math.sqrt(2 * 3 * (gap - PASS_GAP));
+  }
+
+  /** a car or person within `range` behind `v` (in the way of backing up) */
+  private obstacleBehind(v: Vehicle, range: number) {
+    const hx = Math.cos(v.angle), hy = Math.sin(v.angle), back = v.spec.length / 2;
+    let hit = false;
+    this.sim.forVehiclesNear(v.x - hx * (back + range / 2), v.y - hy * (back + range / 2), range / 2 + 6, (o) => {
+      if (hit || o === v) return;
+      const dx = o.x - v.x, dy = o.y - v.y;
+      const lon = -(dx * hx + dy * hy) - back - o.spec.length / 2;
+      if (lon > -0.5 && lon < range && Math.abs(-dx * hy + dy * hx) < (v.spec.width + o.spec.width) / 2 + 0.3) hit = true;
+    });
+    return hit;
+  }
+
+  /** nothing coming across the junction past sign `m` (cars within ~18 m of it, moving toward it,
+   *  heading another way) */
+  private crossClear(v: Vehicle, m: Mark): boolean {
+    const jx = m.x + m.ux * 5, jy = m.y + m.uy * 5;
+    let clear = true;
+    this.sim.forVehiclesNear(jx, jy, 20, (o) => {
+      if (!clear || o === v || o.parked || o.wrecked) return;
+      const sp = o.speed;
+      if (sp < 1.5) return;
+      const dx = jx - o.x, dy = jy - o.y, d = Math.hypot(dx, dy);
+      if (d > 20) return;
+      // moving toward the junction, and not just the car ahead going our way
+      if (dx * o.vx + dy * o.vy <= 0) return;
+      if ((o.vx * m.ux + o.vy * m.uy) / sp > 0.8) return;
+      clear = false;
+    });
+    return clear;
   }
 
   private drive(v: Vehicle, d: Driver, dt: number, chase: boolean) {
@@ -606,12 +943,15 @@ export class AI {
     for (let i = 0; i < 6 && this.along(v, d, horizon, AHEAD).got < horizon; i++) {
       const next = this.chooseNext(v, d, graph);
       if (!next) break;
-      this.appendLink(d, next);
+      this.appendLink(d, next, v);
     }
+    // a parked or abandoned car, a wreck or a bus at its stop in the lane: pull out round it
+    const passCap = chase ? Infinity : this.passStill(v, d, dt);
     // steer for a point a little further along the lane (not the next vertex, which on a long
     // straight can be far off and made traffic cut every corner into the buildings)
     const look = 2.5 + Math.abs(v.fwdSpeed) * 0.3;
     this.along(v, d, look, AHEAD);
+    if (d.nudge) (AHEAD.x -= Math.sin(AHEAD.a) * d.nudge), (AHEAD.y += Math.cos(AHEAD.a) * d.nudge);
     let diff = angleDiff(v.angle, Math.atan2(AHEAD.y - v.y, AHEAD.x - v.x));
     let desired = chase ? Math.max(10, (d.link?.edge.speed ?? 10) * 1.6) : (d.link?.edge.speed ?? 10) * 0.75;
     // bends ahead: no faster than the tyres hold round them (traffic comfortably, police at the
@@ -627,7 +967,7 @@ export class AI {
       if (got < s) break;
     }
     if (Math.abs(diff) > 0.9) desired = Math.min(desired, 4);
-    if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5);
+    if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5, passCap);
 
     // civilian traffic reacts to nearby gunfire/explosions and to a siren closing in from behind
     if (!chase && sim.anyWanted) {
@@ -658,8 +998,20 @@ export class AI {
       }
     }
 
+    // stop and give-way signs, speed bumps, bus stops
+    if (!chase && d.marks.length) desired = this.obeyMarks(v, d, desired, dt);
+
     // police in pursuit shove through traffic instead of queueing
-    const obstacle = chase ? null : this.obstacleAhead(v, 4 + Math.abs(v.fwdSpeed) * 1.1, false);
+    const obstacle = chase ? null : this.obstacleAhead(v, 4 + Math.abs(v.fwdSpeed) * 1.1, false, d.passing ?? d.squeeze);
+    // two cars nose to nose, each waiting for the other: one gives way
+    // (the look-ahead shrinks as a car stops, so a car nose to nose with it drops in and out of
+    // view: it only counts as gone after a while)
+    const blk = obstacle ? this.lastBlocker : null;
+    if (blk) {
+      if (blk !== d.blocker) (d.blocker = blk), (d.blockedT = 0);
+      d.blockedT += dt;
+    } else if (d.blocker && (d.blockedT -= dt * 0.5) <= 0) (d.blocker = null), (d.blockedT = 0);
+    if (!chase) desired = Math.min(desired, this.standoffs(v, d, dt));
     if (obstacle) {
       desired = 0;
       if (obstacle === 'player' && !chase && sim.rng.chance(dt * 0.4)) v.horn = 0.6;
@@ -714,30 +1066,71 @@ export class AI {
       d.stuck = 0;
       d.reverse = 1.5;
       d.wedged++;
+      // backed up twice and still nowhere: it has lost its lane (shunted off it, or cut a corner
+      // into a wall): pick the road up again from the nearest junction the way it's facing
+      if (d.wedged === 2 && d.mode === 'traffic') this.rejoin(v, d);
     }
   }
 
-  obstacleAhead(v: Vehicle, range: number, chase: boolean): 'player' | 'other' | null {
+  /** Put a traffic car that lost its lane back on the road network: its path starts where it is
+   *  and joins the street out of the nearest junction that best matches the way it faces (or the
+   *  way behind it, when that's all there is). */
+  private rejoin(v: Vehicle, d: Driver) {
+    const w = this.sim.world, g = w.car;
+    const n = g.nearest(v.x, v.y, 50, (i) => g.out[i].some(drivable));
+    if (n < 0) return;
+    const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
+    let best: Link | null = null, bs = -Infinity;
+    for (const l of g.out[n]) {
+      if (!drivable(l)) continue;
+      const pts = linkPoints(l);
+      const dx = pts[2] - pts[0], dy = pts[3] - pts[1], L = Math.hypot(dx, dy) || 1;
+      // heading the same way, and the junction not behind the car
+      const toNode = (g.nx(n) - v.x) * fx + (g.ny(n) - v.y) * fy;
+      const score = (dx * fx + dy * fy) / L + (toNode > -2 ? 0.5 : 0);
+      if (score > bs) (bs = score), (best = l);
+    }
+    if (!best) return;
+    const pts = linkPoints(best, laneFor(best, d.lane));
+    d.link = best;
+    d.pts = [v.x, v.y, ...pts];
+    d.idx = 1;
+    d.route = [];
+    d.stops = [...w.lights.forLink(best)];
+    d.marks = this.marksFor(best, v.kind);
+    d.waitAt = null;
+    d.nudge = d.nudgeTo = 0;
+    d.passing = d.waitFor = d.yieldTo = d.squeeze = null;
+  }
+
+  /** Is anything in the way just ahead of `v` (within `range` of its front)? Oncoming cars only
+   *  count when they'd actually touch (narrow streets are passed mirror to mirror); `ignore` is a
+   *  car it's pulling out round. The nearest car in the way is left in `lastBlocker`. */
+  obstacleAhead(v: Vehicle, range: number, chase: boolean, ignore: Vehicle | null = null): 'player' | 'other' | null {
     const sim = this.sim;
     const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
     const front = v.spec.length / 2;
-    const test = (x: number, y: number, r: number) => {
+    const test = (x: number, y: number, r: number, margin = 0.4) => {
       const dx = x - v.x, dy = y - v.y;
       const lon = dx * fx + dy * fy - front;
       const lat = Math.abs(-dx * fy + dy * fx);
-      return lon > -0.5 && lon < range && lat < v.spec.width / 2 + r + 0.4;
+      return lon > -0.5 && lon < range && lat < v.spec.width / 2 + r + margin;
     };
     let res: 'player' | 'other' | null = null;
+    let near: Vehicle | null = null, nd = Infinity;
     const cx = v.x + fx * (front + range / 2), cy = v.y + fy * (front + range / 2);
     const qr = range / 2 + 8;
     sim.forVehiclesNear(cx, cy, qr, (o) => {
-      if (res === 'player' || o === v) return;
+      if (res === 'player' || o === v || o === ignore) return;
       if (Math.abs(o.x - v.x) > range + 8 || Math.abs(o.y - v.y) > range + 8) return;
-      if (test(o.x, o.y, o.spec.width / 2)) {
+      if (test(o.x, o.y, o.spec.width / 2, Math.cos(o.angle - v.angle) < -0.5 ? 0.15 : 0.4)) {
         if (chase && o.isPlayer) return;
         res = o.isPlayer ? 'player' : res ?? 'other';
+        const od = (o.x - v.x) * fx + (o.y - v.y) * fy;
+        if (od < nd) (nd = od), (near = o);
       }
     });
+    this.lastBlocker = near;
     if (res) return res;
     if (!chase) {
       for (const p of sim.pedsNear(cx, cy, qr)) {
