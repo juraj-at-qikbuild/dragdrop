@@ -264,6 +264,7 @@ export class Sim {
     this.ai.update(dt);
     this.police.update(dt);
     this.updateVehicles(dt);
+    this.world.gates.sweep(this.vehicles, dt);
     updateLevels(this.world, this.trams, this.peds);
     this.updatePickups(dt);
     for (const p of this.players.values()) {

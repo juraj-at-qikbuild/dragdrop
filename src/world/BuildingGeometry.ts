@@ -8,10 +8,15 @@ import { pointInRings, segIntersect } from '../shared/util/math';
 /** metres per storey */
 export const STOREY = 3.2;
 
-/** drawn height, in storeys, of a building (canopies are thin roofs on posts) */
+/** drawn height, in storeys, of a building (canopies are thin roofs on posts); towers up to 160 m */
 export function heightBin(b: Building): number {
-  return b.kind === 4 ? 0.6 : Math.min(14, Math.round(b.levels));
+  return b.kind === 4 ? 0.6 : Math.min(50, Math.max(1, Math.round(b.levels)));
 }
+
+/** Does `o` stand against the walls of other buildings, for hiding party walls and gable ends? The
+ *  solid outlines do, and the parts (towers, wings) of a building drawn as its parts; an outline
+ *  whose parts are drawn instead doesn't (its parts do). */
+const neighbour = (o: Building) => !o.hidden && (o.solid || o.part);
 
 /** cheap deterministic hash -> [0,1) */
 export function hash01(a: number, b: number) {
@@ -47,7 +52,9 @@ function coverage(world: World, self: Building, ax: number, ay: number, bx: numb
   const out: Cover[] = [];
   const pad = PROBES[PROBES.length - 1] + 0.1;
   world.forBuildingsNear(Math.min(ax, bx) - pad, Math.min(ay, by) - pad, Math.max(ax, bx) + pad, Math.max(ay, by) + pad, (o) => {
-    if (o === self || !o.solid) return;
+    if (o === self || !neighbour(o)) return;
+    // a raised part (a tower's upper storeys) doesn't reach down to cover a wall below it
+    if (o.minH > 0 && !o.solid && o.minH > 0.5) return;
     const oh = heightBin(o) * STOREY;
     for (const d of PROBES) {
       const px = ax + nx * d, py = ay + ny * d, qx = bx + nx * d, qy = by + ny * d;

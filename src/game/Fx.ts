@@ -287,6 +287,14 @@ export class Fx {
     this.lightEvents.push({ x, y, r: 5, color: '#fff1c8', intensity: 1.2, glow: 2.2, life: 0.05 });
   }
 
+  /** a knocked-over fire hydrant gushing: call every frame while it runs */
+  geyser(x: number, y: number) {
+    for (let i = 0; i < 2; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(0.5, 3);
+      this.particles.push({ x: x + rand(-0.15, 0.15), y: y + rand(-0.15, 0.15), vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, life: rand(0.4, 0.9), max: 0.9, size: rand(0.12, 0.3), grow: 0.8, color: 'rgba(200,225,240,0.6)', alphaMax: 1, top: true, kind: 'splash' });
+    }
+  }
+
   /** water impact splash, e.g. a car driving into the river */
   splash(x: number, y: number) {
     for (let i = 0; i < 10; i++) {

@@ -1,23 +1,19 @@
 // Downloads raw OpenStreetMap data for the playable Bratislava area from the
 // OSM editing API in small tiles (the API rejects large bounding boxes).
-// Output: .cache/osm/<lon>_<lat>.osm  (raw XML, not committed)
+// Output: .cache/osm/<minLon>_<minLat>_<maxLon>_<maxLat>.osm  (raw XML, not committed)
 import { mkdir, writeFile, access } from 'node:fs/promises';
 
-import { BBOX } from './bbox.mjs';
-const STEP = 0.005;
+import { tiles } from './bbox.mjs';
 const OUT = new URL('../.cache/osm/', import.meta.url);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchTile(lon, lat) {
-  const file = new URL(`${lon.toFixed(3)}_${lat.toFixed(3)}.osm`, OUT);
+async function fetchTile({ bbox, file: name }) {
+  const file = new URL(name, OUT);
   try {
     await access(file);
     return 'cached';
   } catch {}
-  const bbox = [lon, lat, Math.min(lon + STEP, BBOX.maxLon), Math.min(lat + STEP, BBOX.maxLat)]
-    .map((v) => v.toFixed(4))
-    .join(',');
   const url = `https://api.openstreetmap.org/api/0.6/map?bbox=${bbox}`;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -34,18 +30,15 @@ async function fetchTile(lon, lat) {
 }
 
 await mkdir(OUT, { recursive: true });
-const tiles = [];
-for (let lon = BBOX.minLon; lon < BBOX.maxLon - 1e-9; lon += STEP)
-  for (let lat = BBOX.minLat; lat < BBOX.maxLat - 1e-9; lat += STEP) tiles.push([lon, lat]);
-
+const all = tiles();
 let done = 0;
-const queue = [...tiles];
+const queue = [...all];
 await Promise.all(
   Array.from({ length: 3 }, async () => {
     while (queue.length) {
-      const [lon, lat] = queue.shift();
-      const status = await fetchTile(lon, lat);
-      console.log(`[${++done}/${tiles.length}] ${lon.toFixed(3)},${lat.toFixed(3)} ${status}`);
+      const t = queue.shift();
+      const status = await fetchTile(t);
+      console.log(`[${++done}/${all.length}] ${t.bbox} ${status}`);
     }
   }),
 );

@@ -6,6 +6,7 @@ import type { LightLayer } from './Lighting';
 import { texture, animateWater, type TexKind } from './Textures';
 import { facadeTexture, groundTexture, facadeGlow, groundGlow, type FacadeStyle } from './Facades';
 import { STOREY, WP, hash01, heightBin, roofSlopes, wallPieces } from './BuildingGeometry';
+import { StreetDetail } from './StreetDetail';
 
 const CHUNK = 128;
 
@@ -61,6 +62,24 @@ interface Tier {
   ads: RoofAd[];
   /** deterministic per-tier value for the zoomed-out lit-window dashes */
   seed: number;
+  /** spires, pyramids, domes and onions on top of this tier's walls */
+  special?: SpecialRoof[];
+  /** the tallest of them (m), for culling */
+  spireH?: number;
+}
+
+/** A raised roof on a building's walls: 4 pyramid, 5 dome, 6 onion, 9 cone (spire), `rh` metres tall. */
+interface SpecialRoof {
+  b: Building;
+  shape: number;
+  rh: number;
+  color: string;
+}
+
+/** How tall a raised roof is when the map doesn't say: from the size of the footprint. */
+function defaultRoofH(b: Building, shape: number) {
+  const r = Math.sqrt(b.area / Math.PI);
+  return shape === 9 ? Math.min(30, r * 2.4) : shape === 4 ? Math.min(14, r * 0.9) : shape === 6 ? Math.min(12, r * 1.6) : Math.min(16, r * 0.85);
 }
 
 /** A tier's walls of one colour and facade style. */
@@ -215,6 +234,23 @@ const GENERIC_SIGNS: [string, string, string][] = [
   ['Pekáreň', '#f9a825', '#3e2723'],
 ];
 
+/** Facade signs for the map's places, by kind: [label, board colour, text colour] (museums,
+ *  theatres and libraries show their own name when it fits) */
+const PLACE_SIGNS: Record<string, [string, string, string]> = {
+  food: ['Reštaurácia', '#6d2c1f', '#ffe0b2'],
+  cafe: ['Kaviareň', '#4e342e', '#ffcc80'],
+  bar: ['Bar', '#263238', '#ffca28'],
+  pharmacy: ['✚ Lekáreň', '#00897b', '#ffffff'],
+  museum: ['Múzeum', '#37474f', '#eceff1'],
+  theatre: ['Divadlo', '#4a148c', '#ffffff'],
+  hotel: ['Hotel', '#1a237e', '#ffd54f'],
+  grocery: ['Potraviny', '#2e7d32', '#ffffff'],
+  bakery: ['Pekáreň', '#f9a825', '#3e2723'],
+  bank: ['Banka', '#0d47a1', '#ffffff'],
+  post: ['Pošta', '#ef8a1e', '#1b3f8b'],
+  library: ['Knižnica', '#5d4037', '#ffffff'],
+};
+
 /** Walk a flat [x0,y0,x1,y1,...] polyline at a fixed arc-length step, calling
  *  fn(x, y, nx, ny) at each sample (nx,ny = unit normal to the segment). */
 function walkPolyline(p: ArrayLike<number>, step: number, start: number, fn: (x: number, y: number, nx: number, ny: number) => void) {
@@ -318,8 +354,11 @@ export class Renderer {
   atmos = new Atmosphere();
   /** textured facades (windows, doors, shopfronts); off on the lowest quality tier, where they cost most */
   facades = true;
+  /** signs, gates and street furniture, drawn each frame */
+  street: StreetDetail;
 
   constructor(private world: World) {
+    this.street = new StreetDetail(world);
     this.build();
     this.sortedLayers = [...this.layers.entries()].sort((a, b) => a[1].order - b[1].order);
     this.sortedBridgeLayers = this.sortedLayers.filter(([k]) => isBridgeLayer(k));
@@ -406,10 +445,14 @@ export class Renderer {
       } else if (ROAD_CASING[r.c]) {
         addPoly(this.path(c, `c:${r.c}:${wq}`, { kind: 'stroke', color: ROAD_CASING[r.c], width: wq + 1.6 }, base + 10 - r.c * 0.1), r.p, false);
       }
-      const fill = ROAD_FILL[r.c];
-      const tex = texture(r.c >= 8 ? 'cobble' : 'asphalt', fill);
-      addPoly(this.path(c, `f${bridge}:${r.c}:${wq}`, { kind: 'stroke', color: fill, width: wq, tex }, base + 30 - r.c * 0.1), r.p, false);
-      if (r.c <= 5 && r.w >= 7) {
+      // car streets paved with granite setts (the Old Town) or concrete pavers look it
+      const paving = r.c <= 7 ? r.s ?? 0 : 0;
+      const fill = paving === 1 ? '#6f6a63' : paving === 2 ? '#7c7872' : ROAD_FILL[r.c];
+      const tex = texture(r.c >= 8 || paving === 1 ? 'cobble' : paving === 2 ? 'pavers' : 'asphalt', fill);
+      addPoly(this.path(c, `f${bridge}:${r.c}:${wq}:${paving}`, { kind: 'stroke', color: fill, width: wq, tex }, base + 30 - r.c * 0.1 + paving * 0.01), r.p, false);
+      const lanes = r.c <= 7 ? r.l ?? 0 : 0;
+      if (lanes >= 2 && r.w / lanes >= 2.4) this.laneMarkings(c, r.p, r.w, lanes, r.o ?? 0, r.lf, bridge, base);
+      else if (r.c <= 5 && r.w >= 7) {
         const key = r.o ? `m${bridge}:lane` : `m${bridge}:center`;
         addPoly(
           this.path(c, key, { kind: 'stroke', color: r.o ? 'rgba(255,255,255,0.55)' : '#e8e2c8', width: 0.18, dash: [3, 5] }, base + 50),
@@ -447,6 +490,91 @@ export class Renderer {
             pp.ellipse(px_, py_, rw, rw * 0.55, angle, 0, Math.PI * 2);
           }
         });
+      }
+    }
+
+    // raised traffic islands: grass or paving inside a light kerb, with a dark lip where it drops
+    // to the road
+    w.islands.rings.forEach((ring, i) => {
+      const c = this.chunkAt(bboxOf(ring, 1), map);
+      const grass = w.islands.grass[i];
+      const col = grass ? '#7fa35a' : '#b9b2a3';
+      addPoly(this.path(c, grass ? 'isl:grass' : 'isl:paved', { kind: 'fill', color: col, tex: texture(grass ? 'grass' : 'pavers', col) }, 157), ring, true);
+      addPoly(this.path(c, 'isl:lip', { kind: 'stroke', color: 'rgba(25,24,22,0.45)', width: 0.42 }, 157.5), ring, true);
+      addPoly(this.path(c, 'isl:kerb', { kind: 'stroke', color: '#dcd6c8', width: 0.24 }, 158), ring, true);
+    });
+    // bridge piers standing on the river bank and in the water (the decks are drawn over them)
+    for (const ring of w.data.supports ?? []) {
+      const c = this.chunkAt(bboxOf(ring, 1), map);
+      addPoly(this.path(c, 'sup:fill', { kind: 'fill', color: '#8f8b83', tex: texture('concrete', '#8f8b83') }, 156), ring, true);
+      addPoly(this.path(c, 'sup:edge', { kind: 'stroke', color: 'rgba(30,30,30,0.5)', width: 0.2 }, 156.5), ring, true);
+    }
+    // speed bumps (black and yellow), raised tables (a paler hump with white triangles on its
+    // ramps), speed cushions (red pads in each lane) and rumble strips
+    {
+      const d = w.bumps.data;
+      for (let i = 0; i < w.bumps.n; i++) {
+        const x = d[i * 6], y = d[i * 6 + 1], ux = d[i * 6 + 2], uy = d[i * 6 + 3], hw = d[i * 6 + 4] - 0.25, kind = d[i * 6 + 5];
+        const nx = -uy, ny = ux;
+        const c = this.chunkAt({ x0: x - hw - 4, y0: y - hw - 4, x1: x + hw + 4, y1: y + hw + 4 }, map);
+        const across = (path: Path2D, along: number) => {
+          path.moveTo(x + ux * along - nx * hw, y + uy * along - ny * hw);
+          path.lineTo(x + ux * along + nx * hw, y + uy * along + ny * hw);
+        };
+        if (kind === 0) {
+          across(this.path(c, 'bump:base', { kind: 'stroke', color: '#2b2a28', width: 0.6, cap: 'butt' }, 255), 0);
+          across(this.path(c, 'bump:stripe', { kind: 'stroke', color: '#f0c02e', width: 0.6, dash: [0.5, 0.5], cap: 'butt' }, 255.1), 0);
+        } else if (kind === 1) {
+          const t = this.path(c, 'table:fill', { kind: 'fill', color: 'rgba(214,204,188,0.5)' }, 254);
+          t.moveTo(x - ux * 3 - nx * hw, y - uy * 3 - ny * hw);
+          t.lineTo(x + ux * 3 - nx * hw, y + uy * 3 - ny * hw);
+          t.lineTo(x + ux * 3 + nx * hw, y + uy * 3 + ny * hw);
+          t.lineTo(x - ux * 3 + nx * hw, y - uy * 3 + ny * hw);
+          t.closePath();
+          // white triangles on both ramps, pointing up the ramp
+          const tri = this.path(c, 'table:tri', { kind: 'fill', color: 'rgba(245,244,238,0.85)' }, 254.1);
+          for (const s of [-1, 1])
+            for (let o = -hw + 0.6; o <= hw - 0.6; o += 1.4) {
+              const bx = x + ux * s * 3 + nx * o, by = y + uy * s * 3 + ny * o;
+              tri.moveTo(bx - nx * 0.4, by - ny * 0.4);
+              tri.lineTo(bx + nx * 0.4, by + ny * 0.4);
+              tri.lineTo(bx - ux * s * 0.9, by - uy * s * 0.9);
+              tri.closePath();
+            }
+        } else if (kind === 2) {
+          const pad = this.path(c, 'cushion', { kind: 'fill', color: '#9c4a36' }, 254);
+          for (const o of [-hw / 2, hw / 2]) {
+            const bx = x + nx * o, by = y + ny * o;
+            pad.moveTo(bx - ux * 1.5 - nx * 0.85, by - uy * 1.5 - ny * 0.85);
+            pad.lineTo(bx + ux * 1.5 - nx * 0.85, by + uy * 1.5 - ny * 0.85);
+            pad.lineTo(bx + ux * 1.5 + nx * 0.85, by + uy * 1.5 + ny * 0.85);
+            pad.lineTo(bx - ux * 1.5 + nx * 0.85, by - uy * 1.5 + ny * 0.85);
+            pad.closePath();
+          }
+        } else {
+          const r = this.path(c, 'rumble', { kind: 'stroke', color: 'rgba(240,238,230,0.75)', width: 0.12, cap: 'butt' }, 255);
+          for (let a = -1.2; a <= 1.2; a += 0.6) across(r, a);
+        }
+      }
+    }
+    // stop lines with STOP, and give-way "shark's teeth", across the approach half of the street
+    for (const m of w.marks.signs) {
+      const nx = -m.uy, ny = m.ux, hw = Math.max(1.5, m.hw - 0.2);
+      const c = this.chunkAt({ x0: m.x - hw - 3, y0: m.y - hw - 3, x1: m.x + hw + 3, y1: m.y + hw + 3 }, map);
+      if (m.kind === 0) {
+        const l = this.path(c, 'stop:line', { kind: 'stroke', color: 'rgba(245,244,238,0.9)', width: 0.5, cap: 'butt' }, 259);
+        l.moveTo(m.x + nx * 0.15, m.y + ny * 0.15);
+        l.lineTo(m.x + nx * hw, m.y + ny * hw);
+      } else {
+        const tri = this.path(c, 'yield:tri', { kind: 'fill', color: 'rgba(245,244,238,0.9)' }, 259);
+        for (let o = 0.5; o <= hw - 0.3; o += 0.9) {
+          const bx = m.x + nx * o, by = m.y + ny * o;
+          // the base on the line, the point toward the oncoming driver
+          tri.moveTo(bx - nx * 0.28, by - ny * 0.28);
+          tri.lineTo(bx + nx * 0.28, by + ny * 0.28);
+          tri.lineTo(bx - m.ux * 0.7, by - m.uy * 0.7);
+          tri.closePath();
+        }
       }
     }
 
@@ -588,6 +716,31 @@ export class Renderer {
     this.buildBuildings(map);
   }
 
+  /** The marked lanes of a street: dashed lines between lanes that go the same way, and a solid
+   *  line (a double one on the big roads) between the two directions. Forward lanes are on the
+   *  right of the way's direction. */
+  private laneMarkings(c: Chunk, p: ArrayLike<number>, width: number, lanes: number, oneway: number, split: [number, number] | undefined, deck: number, base: number) {
+    const lw = width / lanes, hw = width / 2;
+    let fwd = oneway === 1 ? lanes : oneway === -1 ? 0 : split?.[0] || (split?.[1] ? lanes - split[1] : (lanes + 1) >> 1);
+    fwd = Math.max(0, Math.min(lanes, fwd));
+    const back = lanes - fwd;
+    const dashed = this.path(c, `m${deck}:lane`, { kind: 'stroke', color: 'rgba(255,255,255,0.55)', width: 0.15, dash: [3, 5] }, base + 50);
+    const solid = this.path(c, `m${deck}:solid`, { kind: 'stroke', color: 'rgba(250,250,245,0.8)', width: 0.14 }, base + 50.2);
+    const line = (path: Path2D, off: number) => {
+      const q = offsetPolyline(p, off);
+      path.moveTo(q[0], q[1]);
+      for (let i = 2; i < q.length; i += 2) path.lineTo(q[i], q[i + 1]);
+    };
+    for (let i = 1; i < lanes; i++) {
+      const off = -hw + i * lw;
+      if (i === back && back > 0 && fwd > 0) {
+        // between the directions
+        if (lanes >= 4) (line(solid, off - 0.12), line(solid, off + 0.12));
+        else line(solid, off);
+      } else line(dashed, off);
+    }
+  }
+
   /** Buildings, grouped per chunk into height tiers, and within a tier into wall sets (by
    *  wall colour + facade style) and roof sets (by roof colour), so each draws in few calls. */
   private buildBuildings(map: Map<number, Chunk>) {
@@ -603,8 +756,9 @@ export class Renderer {
     const pieceOf = new Map<Building, { pieces: number[]; entry: { set: WallSet; pieces: number[] } }>();
     const oldTownAt = w.landmark('main');
     for (const b of w.buildings) {
-      // the Most SNP pylon and its UFO are drawn by the game as one structure (Game.drawLandmarks)
-      if (b.kind === 5) continue;
+      // the Most SNP pylon and its UFO are drawn by the game as one structure (Game.drawLandmarks);
+      // a building mapped in 3D is drawn as its parts instead of its outline
+      if (b.kind === 5 || b.hidden) continue;
       const c = this.chunkAt(b.bboxAll, map);
       c.nBuildings++;
       const r = rng(b.seed * 7919);
@@ -616,13 +770,21 @@ export class Renderer {
       if (b.kind === 1) (wall = '#cfc6b4'), (roof = r() < 0.6 ? '#5c8a73' : '#8c4a36');
       if (b.kind === 2) (wall = '#e9e3d6'), (roof = '#b8553a');
       if (b.kind === 4) (wall = 'rgba(80,80,80,0.5)'), (roof = 'rgba(150,150,150,0.55)');
-      if (b.color) (roof = b.color), (wall = b.wallColor ?? wall);
-      const pitched = !flat && b.kind !== 4;
+      // the map's own colours and roof shape win over the guesses
+      if (b.color) roof = b.color;
+      if (b.wallColor) wall = b.wallColor;
+      const shape = b.roofShape;
+      if (b.kind === 6) (wall = b.wallColor ?? '#e9e6df'), (roof = b.color ?? '#dcd8cf'), (flat = true);
+      if (shape === 1 || shape === 7 || shape === 8 || shape === 10) flat = true;
+      else if (shape === 2 || shape === 3) flat = false;
+      // a spire, pyramid, dome or onion sits on top of the walls (drawn in `drawSpecialRoofs`)
+      const special = shape === 4 || shape === 5 || shape === 6 || shape === 9;
+      const pitched = !flat && !special && b.kind !== 4;
 
       // facade style: churches/castles are always baroque-ish; otherwise by height,
       // then Old Town proximity, then a coin flip between panel and office/industrial
       let facade: FacadeStyle | undefined;
-      if (b.kind !== 4) {
+      if (b.kind !== 4 && b.kind !== 6) {
         if (b.kind === 1 || b.kind === 2) facade = 'oldtown';
         else if (bin >= 8) facade = hash01(b.seed, 1) < 0.55 ? 'panel' : 'office';
         else if (Math.hypot(b.cx - oldTownAt.x, b.cy - oldTownAt.y) < 450) facade = 'oldtown';
@@ -648,11 +810,18 @@ export class Renderer {
       }
       bboxOf(b.rings[0], 0, t.bbox);
       for (let i = 1; i < b.rings.length; i++) bboxOf(b.rings[i], 0, t.bbox);
-      // ground shadow from the footprint up (a raised structure's own small shadow is left out)
-      if (!b.minH) t.rings.push(...b.rings);
+      // ground shadow from the footprint up (a raised structure's own small shadow is left out,
+      // but a building part standing on the rest of its building casts one)
+      if (!b.minH || b.part) t.rings.push(...b.rings);
+      if (special) {
+        const rh = b.roofH > 0 ? b.roofH : defaultRoofH(b, shape);
+        (t.special ??= []).push({ b, shape, rh, color: roof });
+        if (rh > 0) t.spireH = Math.max(t.spireH ?? 0, rh);
+      }
 
-      // walls: only the exposed parts (party walls hidden, or starting at a lower neighbour's roof)
-      const pieces = wallPieces(w, b, h);
+      // walls: only the exposed parts (party walls hidden, or starting at a lower neighbour's roof);
+      // an inverted pyramid's walls are all under its own overhang, out of sight from above
+      const pieces = shape === 10 ? [] : wallPieces(w, b, h);
       if (pieces.length) {
         let sm = setOf.get(t);
         if (!sm) setOf.set(t, (sm = new Map()));
@@ -690,8 +859,8 @@ export class Renderer {
             const mx = pieces[bestI] + pieces[bestI + 2] * um, my = pieces[bestI + 1] + pieces[bestI + 3] * um;
             if (w.streetName(mx, my) !== null) {
               for (let i = 0; i < pieces.length; i += WP) if (pieces[i + 9] === 0 && `${pieces[i]}|${pieces[i + 1]}` === bestKey) pieces[i + 11] = 1;
-              // Old Town shopfronts without a named POI get a generic label (Potraviny, Bar, ...)
-              if (facade === 'oldtown' && hash01(b.seed, 12) < 0.5 && !w.data.pois.some((p) => p.k === 'shop' && Math.hypot(p.x - mx, p.y - my) < 15)) {
+              // maps without real places: Old Town shopfronts get a generic label (Potraviny, Bar, ...)
+              if (!w.data.places && facade === 'oldtown' && hash01(b.seed, 12) < 0.5 && !w.data.pois.some((p) => p.k === 'shop' && Math.hypot(p.x - mx, p.y - my) < 15)) {
                 const [name, bg, fg] = GENERIC_SIGNS[(hash01(b.seed, 13) * GENERIC_SIGNS.length) | 0];
                 entry.set.signs.push({ x: mx, y: my, ux: pieces[bestI + 2], uy: pieces[bestI + 3], nx: pieces[bestI + 4], ny: pieces[bestI + 5], name, colors: [bg, fg] });
               }
@@ -717,7 +886,7 @@ export class Renderer {
 
       // pitched: hipped/gabled slopes (or a plain ridge line when the outline defeats them) and
       // chimneys; large flat roofs: HVAC boxes and skylights
-      if (pitched && b.area > 30) {
+      if (pitched && b.area > 30 && !(b.part && b.kind === 1)) {
         const bands = roofSlopes(w, b);
         if (bands) {
           for (const band of bands) {
@@ -743,7 +912,8 @@ export class Renderer {
             rp.lineTo(b.cx + Math.cos(angle) * len, b.cy + Math.sin(angle) * len);
           }
           // chimney(s) near the ridge, offset off-centre so they read as boxes, not the ridge itself
-          if (b.area > 70) {
+          // (not on churches and castles)
+          if (b.area > 70 && b.kind !== 1 && b.kind !== 2) {
             const nx = -Math.sin(angle), ny = Math.cos(angle);
             const cr = rng(b.seed * 331 + 5);
             const n = 1 + (cr() < 0.4 ? 1 : 0);
@@ -755,7 +925,7 @@ export class Renderer {
             }
           }
         }
-      } else if (!pitched && b.kind !== 4 && b.rings.length === 1 && b.area > 600) {
+      } else if (!pitched && !special && b.kind !== 4 && b.rings.length === 1 && b.area > 600) {
         const rr = rng(b.seed * 131 + 7);
         const n = 1 + ((rr() * 3) | 0);
         const bw = b.bbox.x1 - b.bbox.x0, bh = b.bbox.y1 - b.bbox.y0;
@@ -768,9 +938,17 @@ export class Renderer {
       }
     }
 
-    // shop/fuel POI signs: on the nearest exposed ground-floor wall piece
-    for (const p of w.data.pois) {
-      if (p.k !== 'shop' && p.k !== 'fuel') continue;
+    // shop/fuel POI signs, and the real cafés, restaurants, bars, pharmacies, hotels, museums and
+    // theatres: on the nearest exposed ground-floor wall piece
+    const signed: { k: string; x: number; y: number; n: string }[] = [];
+    for (const p of w.data.pois) if (p.k === 'shop' || p.k === 'fuel') signed.push({ k: p.k, x: p.x, y: p.y, n: p.k === 'fuel' ? `⛽ ${p.n}` : p.n });
+    for (const p of w.data.places ?? []) {
+      const sign = PLACE_SIGNS[p.k];
+      if (!sign) continue;
+      const own = p.n !== undefined && (p.k === 'museum' || p.k === 'theatre' || p.k === 'library') ? w.names[p.n] : '';
+      signed.push({ k: p.k, x: p.x, y: p.y, n: own && own.length <= 28 ? own : sign[0] });
+    }
+    for (const p of signed) {
       let bestD = 30 * 30, bestP: number[] | null = null, bestI = -1, bestSet: WallSet | null = null;
       w.forBuildingsNear(p.x - 30, p.y - 30, p.x + 30, p.y + 30, (b) => {
         const e = pieceOf.get(b);
@@ -788,11 +966,17 @@ export class Renderer {
       });
       if (!bestP || !bestSet) continue;
       const pc: number[] = bestP;
-      const um = (pc[bestI + 7] + pc[bestI + 8]) / 2;
-      (bestSet as WallSet).signs.push({
-        x: pc[bestI] + pc[bestI + 2] * um, y: pc[bestI + 1] + pc[bestI + 3] * um,
-        ux: pc[bestI + 2], uy: pc[bestI + 3], nx: pc[bestI + 4], ny: pc[bestI + 5],
-        name: p.k === 'fuel' ? `⛽ ${p.n}` : p.n, colors: BRAND_COLORS[p.n],
+      // the sign goes where the place is along that wall (not always the middle of it)
+      const L = pc[bestI + 8] - pc[bestI + 7];
+      const along = (p.x - pc[bestI]) * pc[bestI + 2] + (p.y - pc[bestI + 1]) * pc[bestI + 3];
+      const um = Math.max(pc[bestI + 7] + Math.min(1.5, L / 2), Math.min(pc[bestI + 8] - Math.min(1.5, L / 2), along));
+      const sx = pc[bestI] + pc[bestI + 2] * um, sy = pc[bestI + 1] + pc[bestI + 3] * um;
+      const set = bestSet as WallSet;
+      // two places side by side share a wall: one board each, not on top of each other
+      if (set.signs.some((o) => Math.hypot(o.x - sx, o.y - sy) < 3.2)) continue;
+      set.signs.push({
+        x: sx, y: sy, ux: pc[bestI + 2], uy: pc[bestI + 3], nx: pc[bestI + 4], ny: pc[bestI + 5],
+        name: p.n, colors: BRAND_COLORS[p.n] ?? PLACE_SIGNS[p.k]?.slice(1) as [string, string] | undefined,
       });
     }
 
@@ -812,7 +996,7 @@ export class Renderer {
 
     // rooftop advertising on the biggest flat roofs (like GTA 2)
     const candidates = w.buildings
-      .filter((b) => b.kind !== 1 && b.kind !== 2 && b.kind !== 4 && b.kind !== 5 && b.area > 900 && b.rings.length === 1)
+      .filter((b) => b.kind !== 1 && b.kind !== 2 && b.kind !== 4 && b.kind !== 5 && !b.hidden && !b.part && b.roofShape <= 1 && b.area > 900 && b.rings.length === 1)
       .sort((a, b) => b.area - a.area)
       .slice(0, 60);
     const rnd = rng(42);
@@ -1017,6 +1201,7 @@ export class Renderer {
     // shadow is shifted by up to 6 * |sun| (~17m at low sun) on top of that
     this.drawTrees(ctx, v, vis.filter((c) => c.trees && onRect(sr, c.bbox.x0, c.bbox.y0, c.bbox.x1, c.bbox.y1, 24)));
     this.drawPostTops(ctx, v);
+    this.street.drawHigh(ctx, v, (x, y, h) => this.roofOffset(x, y, h, v), performance.now() / 1000);
 
     // lamp posts (cheap, always drawn - dark by day, glow comes from emitLights at night)
     ctx.fillStyle = '#2c2c2e';
@@ -1058,9 +1243,110 @@ export class Renderer {
       for (let k = i; k < j; k++) this.drawTierRoof(ctx, tiers[k], P, v, base, slopeShade);
       for (let k = i; k < j; k++) if (tiers[k].ads.length) this.drawAds(ctx, tiers[k], P, v, base);
       ctx.setTransform(base);
+      for (let k = i; k < j; k++) if (tiers[k].special) this.drawSpecialRoofs(ctx, tiers[k], P, v, sr);
       i = j;
     }
     ctx.restore();
+  }
+
+  /** Spires, pyramids, domes and onions on top of a tier's walls, in true perspective: every point
+   *  is drawn where its own height puts it, so a spire leans away from the camera like a tower. */
+  private drawSpecialRoofs(ctx: CanvasRenderingContext2D, t: Tier, P: Proj, v: View, sr: BBox | null) {
+    const sun = this.atmos.sunDir, day = this.atmos.daylight;
+    let lx = sun.x * day + MOON.x * (1 - day), ly = sun.y * day + MOON.y * (1 - day);
+    const ll = Math.hypot(lx, ly) || 1;
+    (lx /= ll), (ly /= ll);
+    const cx = P.cx, cy = P.cy;
+    for (const sp of t.special!) {
+      const b = sp.b, bb = b.bbox;
+      // a spire leans out far past its footprint: cull generously
+      const lean = sp.rh * 2 + t.h * 0.5;
+      if (!onRect(sr, bb.x0, bb.y0, bb.x1, bb.y1, lean)) continue;
+      const ring = b.rings[0];
+      const n = ring.length / 2 - 1;
+      if (n < 3) continue;
+      let ax = 0, ay = 0;
+      for (let i = 0; i < n; i++) (ax += ring[i * 2]), (ay += ring[i * 2 + 1]);
+      (ax /= n), (ay /= n);
+      const k0 = P.k, k1 = kAt(t.h + sp.rh, P.camH);
+      if (sp.shape === 4 || sp.shape === 9) {
+        // faces from each eave edge up to the apex, far ones first
+        const apx = ax + (ax - cx) * k1, apy = ay + (ay - cy) * k1;
+        const faces: { i: number; d: number; lit: number }[] = [];
+        for (let i = 0; i < n; i++) {
+          const x0 = ring[i * 2], y0 = ring[i * 2 + 1], x1 = ring[i * 2 + 2], y1 = ring[i * 2 + 3];
+          const L = Math.hypot(x1 - x0, y1 - y0) || 1;
+          // outward normal (rings are wound so that (by - ay, ax - bx) points out)
+          const nx = (y1 - y0) / L, ny = (x0 - x1) / L;
+          faces.push({ i, d: Math.hypot((x0 + x1) / 2 - v.camX, (y0 + y1) / 2 - v.camY), lit: nx * lx + ny * ly });
+        }
+        faces.sort((p, q) => q.d - p.d);
+        ctx.lineJoin = 'round';
+        for (const f of faces) {
+          const x0 = ring[f.i * 2], y0 = ring[f.i * 2 + 1], x1 = ring[f.i * 2 + 2], y1 = ring[f.i * 2 + 3];
+          ctx.beginPath();
+          ctx.moveTo(x0 + (x0 - cx) * k0, y0 + (y0 - cy) * k0);
+          ctx.lineTo(x1 + (x1 - cx) * k0, y1 + (y1 - cy) * k0);
+          ctx.lineTo(apx, apy);
+          ctx.closePath();
+          ctx.fillStyle = shade(sp.color, 0.78 + 0.34 * f.lit);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(20,20,24,0.35)';
+          ctx.lineWidth = 0.08;
+          ctx.stroke();
+        }
+        // a church spire ends in a gilded ball and cross
+        if (b.kind === 1 && sp.rh > 6) {
+          ctx.fillStyle = '#d9b44a';
+          ctx.beginPath();
+          ctx.arc(apx, apy, 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        // a dome (or an onion, which bulges and ends in a point): its outline shrunk toward the
+        // centre ring by ring as it rises, shaded from the eaves up, lit toward the light
+        const onion = sp.shape === 6;
+        const N = 7;
+        for (let j = 0; j < N; j++) {
+          const th = (j / N) * (Math.PI / 2);
+          const sc = onion ? Math.cos(th) * (1 + 0.45 * Math.sin(th * 2)) : Math.cos(th);
+          const z = t.h + sp.rh * (onion ? 0.75 : 1) * Math.sin(th);
+          const k = kAt(z, P.camH);
+          // shift each ring a little toward the light for a highlight
+          const hx = lx * sp.rh * 0.06 * (j / N), hy = ly * sp.rh * 0.06 * (j / N);
+          ctx.beginPath();
+          for (let i = 0; i <= n; i++) {
+            const px = ax + (ring[i * 2] - ax) * sc + hx, py = ay + (ring[i * 2 + 1] - ay) * sc + hy;
+            const qx = px + (px - cx) * k, qy = py + (py - cy) * k;
+            if (i) ctx.lineTo(qx, qy);
+            else ctx.moveTo(qx, qy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = shade(sp.color, 0.72 + (j / N) * 0.45);
+          ctx.fill();
+        }
+        if (onion) {
+          const apx = ax + (ax - cx) * k1, apy = ay + (ay - cy) * k1;
+          const kb = kAt(t.h + sp.rh * 0.8, P.camH);
+          ctx.fillStyle = shade(sp.color, 1.1);
+          ctx.beginPath();
+          ctx.moveTo(apx, apy);
+          const r0 = Math.sqrt(b.area) * 0.08;
+          ctx.lineTo(ax - r0 + (ax - r0 - cx) * kb, ay + (ay - cy) * kb);
+          ctx.lineTo(ax + r0 + (ax + r0 - cx) * kb, ay + (ay - cy) * kb);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // the lantern on top of a church dome
+        if (b.kind === 1) {
+          const k = kAt(t.h + sp.rh, P.camH);
+          ctx.fillStyle = '#d9b44a';
+          ctx.beginPath();
+          ctx.arc(ax + (ax - cx) * k, ay + (ay - cy) * k, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
   }
 
   /** Set the transform that draws ground-plan coordinates at a height: scale `s` about (cx, cy),

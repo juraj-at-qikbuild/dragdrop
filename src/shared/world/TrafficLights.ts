@@ -157,6 +157,99 @@ export class TrafficLights {
 
 const NONE: StopLine[] = [];
 
+/** A stop or give-way sign where traffic on one approach yields, or a speed bump / raised table
+ *  across the street (both directions), placed on the car graph. */
+export interface Mark {
+  x: number;
+  y: number;
+  /** travel direction */
+  ux: number;
+  uy: number;
+  /** half-width of the street */
+  hw: number;
+  /** 0 stop sign, 1 give way, 2 speed bump, 3 raised table, 4 speed cushions, 5 rumble strip */
+  kind: number;
+}
+export const MARK_STOP = 0, MARK_GIVE_WAY = 1, MARK_BUMP = 2;
+
+/** The map's stop and give-way signs and speed bumps, on the approaches of the car graph they
+ *  apply to, in travel order along each edge (traffic reads them like the traffic lights). */
+export class StreetMarks {
+  /** every sign, for drawing (bumps are drawn from World.bumps) */
+  signs: Mark[] = [];
+  private byEdge = new Map<number, { fwd: Mark[]; rev: Mark[] }>();
+
+  constructor(world: World) {
+    const g = world.car;
+    const grid = new Map<number, Edge[]>();
+    const G = 32;
+    for (const e of g.edges)
+      for (let i = 0; i < e.p.length; i += 2) {
+        const k = Math.floor(e.p[i] / G) * 4096 + Math.floor(e.p[i + 1] / G);
+        const c = grid.get(k);
+        if (!c) grid.set(k, [e]);
+        else if (c[c.length - 1] !== e) c.push(e);
+      }
+    const near = (x: number, y: number, r: number, fn: (e: Edge) => void) => {
+      const seen = new Set<Edge>();
+      for (let gx = Math.floor((x - r) / G); gx <= Math.floor((x + r) / G); gx++)
+        for (let gy = Math.floor((y - r) / G); gy <= Math.floor((y + r) / G); gy++)
+          for (const e of grid.get(gx * 4096 + gy) ?? []) if (!seen.has(e)) seen.add(e), fn(e);
+    };
+    const add = (e: Edge, fwd: boolean, sAlong: number, kind: number) => {
+      const { x, y, dx, dy } = along(e.p, sAlong);
+      const m: Mark = { x, y, ux: fwd ? dx : -dx, uy: fwd ? dy : -dy, hw: e.width / 2, kind };
+      let entry = this.byEdge.get(e.id);
+      if (!entry) this.byEdge.set(e.id, (entry = { fwd: [], rev: [] }));
+      const list = fwd ? entry.fwd : entry.rev;
+      if (list.some((o) => o.kind === kind && Math.hypot(o.x - x, o.y - y) < 6)) return null;
+      list.push(m);
+      return m;
+    };
+    // signs: the approach whose travel direction they face, not the street carrying on past them
+    const y = world.data.yields ?? [];
+    for (let i = 0; i < y.length; i += 5) {
+      const x0 = y[i], y0 = y[i + 1], a = y[i + 2], kind = y[i + 4];
+      near(x0, y0, 3, (e) => {
+        const pr = project(e.p, x0, y0);
+        if (!pr || pr.dist > 2.5) return;
+        const c = Math.cos(a - Math.atan2(pr.dy, pr.dx));
+        const fwd = c > 0.3 ? true : c < -0.3 ? false : null;
+        if (fwd === null || (fwd && e.oneway === -1) || (!fwd && e.oneway === 1)) return;
+        // a sign at the very start of this edge (in travel order) belongs to the one before it
+        if ((fwd ? pr.s : e.len - pr.s) < 0.5) return;
+        const m = add(e, fwd, Math.max(0, Math.min(e.len, pr.s)), kind);
+        if (m) this.signs.push(m);
+      });
+    }
+    // bumps: both directions of the street they cross
+    const b = world.data.calming ?? [];
+    for (let i = 0; i < b.length; i += 5) {
+      const x0 = b[i], y0 = b[i + 1], kind = 2 + b[i + 4];
+      near(x0, y0, 3, (e) => {
+        const pr = project(e.p, x0, y0);
+        if (!pr || pr.dist > 2) return;
+        if (e.oneway !== -1) add(e, true, pr.s, kind);
+        if (e.oneway !== 1) add(e, false, pr.s, kind);
+      });
+    }
+    for (const [id, entry] of this.byEdge) {
+      const e = g.edges[id];
+      const pos = (l: Mark) => (l.x - e.p[0]) * l.ux + (l.y - e.p[1]) * l.uy;
+      entry.fwd.sort((p, q) => pos(p) - pos(q));
+      entry.rev.sort((p, q) => pos(p) - pos(q));
+    }
+  }
+
+  /** signs and bumps met while driving `link`, in order */
+  forLink(link: Link): Mark[] {
+    const entry = this.byEdge.get(link.edge.id);
+    return entry ? (link.fwd ? entry.fwd : entry.rev) : NO_MARKS;
+  }
+}
+
+const NO_MARKS: Mark[] = [];
+
 /** Point at arc length `d` along a flat polyline, with the direction there. */
 function along(p: ArrayLike<number>, d: number) {
   let acc = 0;

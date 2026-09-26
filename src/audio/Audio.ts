@@ -171,6 +171,24 @@ export class Audio {
   punch() {
     this.noiseBurst(0.08, 400, 0.6);
   }
+  /** the suspension bottoming out: a speed bump or a kerb taken fast (k 0..1) */
+  thud(k: number) {
+    this.tone(60 + 40 * k, 0.2, 'sine', 0.2 + 0.45 * k, 0, undefined, 0.5);
+    this.noiseBurst(0.12, 320, 0.25 * k);
+  }
+  /** a lift gate's boom snapping */
+  snap(d = 0) {
+    const v = this.vol(d);
+    if (!v) return;
+    this.noiseBurst(0.1, 2600, 0.5 * v, 3, 'bandpass');
+    this.tone(900, 0.14, 'triangle', 0.08 * v, 0, undefined, 0.6);
+  }
+  /** street furniture knocked flying: metal (a bin, a sign) or wood (a bench, a café table) */
+  knock(d = 0, metal = true) {
+    const v = this.vol(d);
+    if (!v) return;
+    this.noiseBurst(0.16, metal ? 1900 : 650, 0.45 * v, 2, 'bandpass');
+  }
   whoosh() {
     this.noiseBurst(0.12, 1200, 0.15, 2, 'bandpass');
   }

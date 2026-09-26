@@ -29,6 +29,11 @@ export interface Edge {
   /** pedestrian graph: nobody walks it: it leads off the map, or even its best walking line runs
    *  into a building or the river (steps down to the water, a door the path ends at) */
   noWalk?: boolean;
+  /** car graph: marked lanes a -> b and b -> a, when either way has more than one (else undefined) */
+  lanesF?: number;
+  lanesR?: number;
+  /** tram graph: bit mask of the tram lines running along it (1 << line number) */
+  lines: number;
 }
 
 /** A directed traversal of an edge: forward (a -> b) or reverse (b -> a). */
@@ -70,6 +75,9 @@ export class Graph {
       name: e.n ?? -1,
       speed: e.s ?? CLASS_SPEED[e.c] ?? 5,
       noCars: e.x === 1 || undefined,
+      lanesF: e.ln?.[0],
+      lanesR: e.ln?.[1],
+      lines: e.r ?? 0,
     }));
     this.cost = Float32Array.from(this.edges, (e) => (costFn ? costFn(e) : e.len));
     for (const e of this.edges) {

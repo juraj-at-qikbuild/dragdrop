@@ -30,6 +30,7 @@ import { WEAPONS, traceMelee, traceShot } from '../shared/sim/Combat';
 import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
+import { FURNITURE, F_HYDRANT } from '../shared/world/Street';
 import { EntityFx } from './EntityFx';
 import { ClientEvents } from './ClientEvents';
 import { LocalSimHost } from './LocalSimHost';
@@ -113,6 +114,10 @@ export class Game {
   district = '';
   private lastMouseMove = -10;
   private lastMouse = { x: 0, y: 0 };
+  /** the player's car and how many jolts (bumps, kerbs) it had, to react to new ones */
+  private joltCar: Vehicle | null = null;
+  private joltSeen = 0;
+  private geyserAcc = 0;
   private radioLineTimer = 4;
   running = false;
   onPause?: (paused: boolean) => void;
@@ -150,6 +155,16 @@ export class Game {
     this.cam.y = this.player.y;
     this.resize();
     addEventListener('resize', () => this.resize());
+    // a lift gate's boom snapping: splinters and a crack
+    this.world.gates.onSnap = (_i, x, y, speed) => {
+      const f = this.focus();
+      if (dist(x, y, f.x, f.y) > 80) return;
+      for (let k = 0; k < 5; k++) this.fx.debris(x, y);
+      this.fx.chunk(x, y, '#e53935');
+      this.fx.chunk(x, y, '#f4f4f0');
+      this.audio.snap(dist(x, y, f.x, f.y));
+      if (this.player.vehicle && dist(x, y, f.x, f.y) < 8) this.juice.addTrauma(Math.min(0.25, speed / 60));
+    };
   }
 
   /** fill the streets around the player right away (start of play) */
@@ -345,6 +360,7 @@ export class Game {
     host.setObserver(this.observer());
     host.update(dt);
     this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus());
+    this.updateStreet(dt);
     this.fx.update(dt);
     this.missions.enabled = host.missionsEnabled;
     this.missions.update(dt);
@@ -509,6 +525,47 @@ export class Game {
     return P.active && Math.hypot(P.rx, P.ry) > min ? Math.atan2(P.ry, P.rx) : null;
   }
 
+  /** Street furniture the cars knock over, hydrants gushing, and the player's own car jolting
+   *  over speed bumps and kerbs (camera shake, a thud, the pad's rumble). */
+  private updateStreet(dt: number) {
+    const f = this.focus();
+    const street = this.renderer.street;
+    street.update(dt, this.host.vehicles, (x, y, kind, speed) => {
+      const d = dist(x, y, f.x, f.y);
+      if (d > 70) return;
+      for (let k = 0; k < 4; k++) this.fx.debris(x, y);
+      if (kind === F_HYDRANT) this.fx.splash(x, y);
+      this.audio.knock(d, !FURNITURE[kind]?.seat && kind !== 9);
+      const car = this.player.vehicle;
+      if (car && d < 6) {
+        this.juice.addTrauma(Math.min(0.12, speed / 120));
+        this.rumble(0.2, 0.35, 90);
+      }
+    });
+    this.geyserAcc += dt;
+    if (street.geysers.size && this.geyserAcc > 1 / 30) {
+      this.geyserAcc = 0;
+      const fu = this.world.furniture;
+      for (const i of street.geysers.keys()) if (dist(fu[i], fu[i + 1], f.x, f.y) < 60) this.fx.geyser(fu[i], fu[i + 1]);
+    }
+    const car = this.player.vehicle;
+    if (car !== this.joltCar) (this.joltCar = car), (this.joltSeen = car?.jolts ?? 0);
+    else if (car && car.jolts !== this.joltSeen) {
+      this.joltSeen = car.jolts;
+      const k = car.joltK;
+      if (k > 0.12) {
+        this.juice.addTrauma(0.05 + k * 0.3);
+        this.audio.thud(k);
+        this.rumble(0.3 + k * 0.6, 0.2 + k * 0.4, 80 + k * 150);
+      }
+    }
+  }
+
+  /** Gamepad vibration (when a pad is what the player is using). */
+  rumble(strong: number, weak: number, ms: number) {
+    if (this.input.pad.active) this.input.rumble(strong, weak, ms);
+  }
+
   /** police siren and helicopter rotor loudness from the nearest unit */
   private updateAudio() {
     const f = this.focus();
@@ -597,6 +654,7 @@ export class Game {
     this.renderer.drawShadows(ctx, v);
     this.renderer.drawBarriers(ctx, v);
     this.renderer.drawPosts(ctx, v);
+    this.renderer.street.drawLow(ctx, v, this.time);
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);

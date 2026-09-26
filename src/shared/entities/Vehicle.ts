@@ -125,6 +125,14 @@ export class Vehicle {
   /** nitro charge 0..1 */
   nitro = 1;
   boosting = false;
+  /** seconds left of the body's bounce after a jolt (a speed bump, a kerb), for drawing */
+  bounce = 0;
+  /** how hard that jolt was, 0..1 */
+  joltK = 0;
+  /** jolts so far: the client watches its own car's count for camera shake and rumble */
+  jolts = 0;
+  /** seconds left in the air after flying over a bump: the tyres barely touch the road */
+  air = 0;
   private surf: Surface = 'asphalt';
   private surfT = 0;
 
@@ -177,14 +185,23 @@ export class Vehicle {
     const s = this.spec;
     const c = this.wrecked || this.sinking ? STOPPED : this.ctrl;
 
-    // surface, cached and re-queried a few times a second
+    // surface, cached and re-queried every metre or so (often enough to catch a kerb)
     this.surfT -= dt;
     if (this.surfT <= 0) {
+      const was = this.surf;
       this.surf = world.surfaceAt(this.x, this.y, this.level);
-      this.surfT = 0.1;
+      this.surfT = clamp(1.2 / Math.max(1, this.speed), 0.02, 0.1);
+      // up the kerb of a traffic island (and down off it): a jolt that costs speed, and at speed the
+      // wheels and suspension
+      if ((this.surf === 'kerb') !== (was === 'kerb') && !this.wrecked) this.kerbJolt(this.surf === 'kerb');
     }
-    let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : this.surf === 'steps' ? 0.6 : 1;
+    if (this.bounce > 0) this.bounce = Math.max(0, this.bounce - dt);
+    let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : this.surf === 'steps' ? 0.6 : this.surf === 'kerb' ? 0.8 : 1;
     muSurf *= 1 - 0.28 * Vehicle.env.wet;
+    // flying off a speed bump: nothing to push, brake or steer with until the wheels land
+    const airborne = this.air > 0;
+    if (airborne) this.air = Math.max(0, this.air - dt);
+    const wheels = airborne ? 0.08 : 1;
     const tyreMul = this.tyresBurst ? 0.45 : 1;
 
     // nitro
@@ -221,12 +238,13 @@ export class Vehicle {
     else if (tIn < 0 && vF > 0.5) (ax = s.brake * muLong * tIn * abs), (braking = -tIn * abs);
     else if (tIn < 0) ax = vF > -revMax ? s.accel * 0.5 * muLong * tIn : 0;
     else ax = -Math.sign(vF) * Math.min(Math.abs(vF) / dt, ENGINE_BRAKE);
+    ax *= wheels;
     // air drag and rolling resistance (never enough to reverse the car), and the rough off the road
-    const rough = this.surf === 'offroad' ? OFFROAD_DRAG : this.surf === 'steps' ? STEPS_DRAG : 0;
+    const rough = airborne ? 0 : this.surf === 'offroad' ? OFFROAD_DRAG : this.surf === 'steps' ? STEPS_DRAG : this.surf === 'kerb' ? KERB_DRAG : 0;
     const resist = drag(Math.abs(vF)) + rough * Math.min(1, Math.abs(vF) / 4);
     ax -= Math.sign(vF) * Math.min(Math.abs(vF) / dt, resist);
     vF += ax * dt;
-    if (c.handbrake) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 5 * muLong * dt);
+    if (c.handbrake && !airborne) vF -= Math.sign(vF) * Math.min(Math.abs(vF), 5 * muLong * dt);
     vF = clamp(vF, -revMax - 0.5, maxSpeed * 1.15);
 
     // steering: the wheels turn as far as a driver would at this speed, about as far as the front
@@ -260,8 +278,8 @@ export class Vehicle {
     const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * (c.handbrake ? 0.2 : 1);
     // Fy is a genuine force (N): tireCurve * mu * load-fraction * peak-accel-per-tyre * mass,
     // so dividing by mass below gives back the peak accel, and dividing by inertia gives a sane yaw accel.
-    let FyF = -tireCurve(slipF) * muF * (loadF / staticF) * TIRE_FORCE * s.mass;
-    let FyR = -tireCurve(slipR) * muR * (loadR / staticR) * TIRE_FORCE * s.mass;
+    let FyF = -tireCurve(slipF) * muF * (loadF / staticF) * TIRE_FORCE * s.mass * wheels;
+    let FyR = -tireCurve(slipR) * muR * (loadR / staticR) * TIRE_FORCE * s.mass * wheels;
     // friction ellipse: tyres that brake or drive hard give up some of their cornering grip (the
     // brakes are biased to the front, so braking mostly costs the front tyres theirs)
     const driveF = s.drive === 'fwd' ? 1 : s.drive === 'awd' ? 0.5 : 0;
@@ -294,8 +312,14 @@ export class Vehicle {
     // free let cars round a corner at 90 km/h in 10 m)
     this.vx = fx * vF - fy * vR;
     this.vy = fy * vF + fx * vR;
+    const x0 = this.x, y0 = this.y;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    // speed bumps and raised tables: over one too fast and the car takes off
+    if (this.level === 0 && world.bumps.n) {
+      const kind = world.bumps.crossed(x0, y0, this.x, this.y);
+      if (kind >= 0) this.overBump(kind, vF);
+    }
 
     // walls: impulse at the contact point, no energy gain
     let impact = 0;
@@ -325,6 +349,48 @@ export class Vehicle {
     if (this.fire > 0) this.fire -= dt;
     if (this.horn > 0) this.horn -= dt;
     return impact;
+  }
+
+  /** Rolled over a bump of kind 0 speed bump, 1 raised table, 2 cushions, 3 rumble strip at forward
+   *  speed vF: gentle below the speed it's built for, a hard jolt above it, airborne well above. */
+  private overBump(kind: number, vF: number) {
+    const v = Math.abs(vF);
+    if (kind === 3) return this.jolt(Math.min(0.2, v / 60), 0.2);
+    // buses and vans straddle cushions
+    const limit = [5.5, 8, this.spec.width > 2 ? 30 : 9][kind] ?? 6;
+    const over = v - limit;
+    if (over <= 0) return this.jolt(Math.min(0.15, v / 40), 0.3);
+    const k = clamp(over / 12, 0.15, 1);
+    const keep = 1 - clamp(over * 0.012, 0, 0.18);
+    this.vx *= keep;
+    this.vy *= keep;
+    if (over > 5) this.air = Math.max(this.air, clamp((over - 5) * 0.03, 0.05, 0.45));
+    if (over > 11) {
+      this.damage((over - 11) * 2);
+      this.dmg.front = clamp(this.dmg.front + 0.03, 0, 1);
+    }
+    this.jolt(k, 0.45);
+  }
+
+  /** Up onto (or down off) a traffic island's kerb. */
+  private kerbJolt(up: boolean) {
+    const v = this.speed;
+    if (v < 1.5) return;
+    const keep = 1 - clamp((up ? 0.05 : 0.02) + v * (up ? 0.006 : 0.002), 0, up ? 0.25 : 0.08);
+    this.vx *= keep;
+    this.vy *= keep;
+    if (up && v > 14) {
+      this.damage((v - 14) * 1.2);
+      this.dmg.front = clamp(this.dmg.front + (v - 14) * 0.006, 0, 1);
+      if (v > 24) this.air = Math.max(this.air, 0.12);
+    }
+    this.jolt(clamp(v / (up ? 18 : 30), 0.1, 1), 0.35);
+  }
+
+  private jolt(k: number, t: number) {
+    this.joltK = k;
+    this.bounce = t;
+    this.jolts++;
   }
 
   damage(amount: number) {
@@ -368,6 +434,8 @@ const ENGINE_BRAKE = 0.9;
 const OFFROAD_DRAG = 1.4;
 /** ...and bumping down a flight of steps */
 const STEPS_DRAG = 5;
+/** ...and over a traffic island's kerbs and verge */
+const KERB_DRAG = 2.4;
 
 /** Slip-angle -> normalized lateral force: rises to a peak near SLIP_PEAK, then softens a little as the
  *  tyre slides (real tyre behaviour; kept gentle, so a car at the limit slides progressively instead of

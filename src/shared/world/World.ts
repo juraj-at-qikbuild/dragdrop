@@ -1,6 +1,7 @@
 import type { BuildingJSON, MapJSON, RoadJSON } from '../types';
 import { Graph, linkPoints, type Edge } from './Graph';
-import { TrafficLights } from './TrafficLights';
+import { TrafficLights, StreetMarks } from './TrafficLights';
+import { Bumps, FURNITURE, F_COLUMN, Gates, Islands } from './Street';
 import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
 
 /** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on
@@ -8,8 +9,8 @@ import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox 
  *  footways, the motorway flyover over its ramps: OSM layer 2 and up). */
 export type Level = -1 | 0 | 1 | 2;
 
-/** what a car drives on (see `World.surfaceAt`) */
-export type Surface = 'asphalt' | 'cobble' | 'offroad' | 'bridge' | 'steps';
+/** what a car drives on (see `World.surfaceAt`): `kerb` is up on a traffic island */
+export type Surface = 'asphalt' | 'cobble' | 'offroad' | 'bridge' | 'steps' | 'kerb';
 
 /** the deck level (1 or 2) of a bridge road */
 export const deckLevel = (r: RoadJSON): 1 | 2 => ((r.y ?? 0) >= 2 ? 2 : 1);
@@ -36,6 +37,14 @@ export interface Building {
   /** metres above the ground the building starts at: > 0 for raised structures with nothing solid
    *  below them (the UFO, skywalks, a floor bridging a street), which are not obstacles */
   minH: number;
+  /** a building part (tower, spire, wing): drawn only, its building's outline is the obstacle */
+  part: boolean;
+  /** an outline drawn as its parts instead (still solid) */
+  hidden: boolean;
+  /** roof shape from the map (see BuildingJSON.rs; 0 = the renderer decides) */
+  roofShape: number;
+  /** height (m) of a pyramid, dome, onion or cone roof above the walls */
+  roofH: number;
 }
 
 export interface Landmark {
@@ -93,18 +102,23 @@ export const W_POST = 8;
 const LANE_R = 1.0;
 /** a pedestrian's radius plus a little room, for fitting walking lines */
 const WALK_R = 0.45;
+/** a walking line still this deep in a wall, fence or post at its best (m) isn't used: people walk
+ *  the other side of the way, or nobody walks it */
+const WALK_BLOCKED = 0.2;
 /** cell size of the water raster (m) */
 const WCELL = 8;
 /** sampling step along lanes and walking lines when fitting them (m; the map builder bakes the
  *  fits, so this is paid once, not on every page load) */
-const FIT_STEP = 0.75;
+const FIT_STEP = 0.5;
 /** dead-end depth of the car-graph nodes past the edge of the playable area: never entered */
 export const OFF_MAP = 1 << 20;
 /** bump whenever the lane and walking-line fitting changes: maps baked with an older version
  *  (MapJSON.fit) are fitted again at startup */
-export const FIT_VERSION = 1;
+export const FIT_VERSION = 2;
 /** floats per tunnel tube segment: ax, ay, bx, by, halfWidth, openA, openB */
 const TUBE = 7;
+/** floats per `surfSegs` entry: ax, ay, bx, by, halfWidth, road class, paving (RoadJSON.s) */
+const SURF = 7;
 /** an entity only goes up onto a deck (or down into a tube) it fits in with at least this much room either side */
 const DECK_FIT = 0.5;
 /** tree trunk collision radius */
@@ -156,8 +170,25 @@ export class World {
   tunnels: { p: Float32Array; hw: number; tram: boolean; open: [boolean, boolean]; bbox: BBox }[] = [];
   /** the real traffic lights, as stop lines on the car graph with their cycles */
   lights: TrafficLights;
+  /** stop and give-way signs and speed bumps, placed on the car graph for traffic */
+  marks: StreetMarks;
   /** tram stops on the tracks, flat x, y */
   tramStops: Float32Array;
+  /** name of each tram stop ('' when the map has none) */
+  tramStopNames: string[];
+  /** raised traffic islands */
+  islands: Islands;
+  /** speed bumps and raised tables */
+  bumps: Bumps;
+  /** lift gates: their booms, and which are snapped (state: each simulation keeps its own) */
+  gates: Gates;
+  /** street furniture, flat x, y, angle, kind (see FURNITURE) */
+  furniture: Float32Array;
+  private furnGrid = new Map<number, number[]>();
+  /** the city's boroughs, quarters and squares */
+  private districts: { name: string; rings: Float32Array[]; bbox: BBox }[] = [];
+  private quarters: { name: string; x: number; y: number }[] = [];
+  private squares: { name: string; rings: Float32Array[]; bbox: BBox }[] = [];
 
   /** wall segments, WALL floats each (see WALL) */
   private walls: Float32Array;
@@ -168,7 +199,7 @@ export class World {
   private roadGrid = new Map<number, number[]>();
   /** road-grid cells that contain at least one bridge segment (fast "not on a bridge" answers) */
   private bridgeCells = new Set<number>();
-  /** all road segments for surface queries [ax, ay, bx, by, halfWidth, class] */
+  /** all road segments for surface queries [ax, ay, bx, by, halfWidth, class, paving] (see SURF) */
   private surfSegs: Float32Array;
   private surfGrid = new Map<number, number[]>();
   private water: { rings: Float32Array[]; bbox: BBox }[] = [];
@@ -227,8 +258,12 @@ export class World {
         color: b.c,
         wallColor: b.w,
         area,
-        solid: b.k !== 4 && area > 6 && minH <= 0,
+        solid: b.k !== 4 && area > 6 && minH <= 0 && !b.p,
         minH,
+        part: b.p === 1,
+        hidden: b.x === 1,
+        roofShape: b.rs ?? 0,
+        roofH: b.rh ?? 0,
       };
     });
 
@@ -252,12 +287,12 @@ export class World {
       for (let k = 0; k < p.p.length - 2; k += 2) this.addBoxToGrid(this.passageGrid, i * 65536 + k, p.p[k], p.p[k + 1], p.p[k + 2], p.p[k + 3], p.w / 2);
     }
 
-    // surface lookup: every road (not just named/bridged ones), tagged with its class
+    // surface lookup: every road (not just named/bridged ones), tagged with its class and paving
     const surf: number[] = [];
     for (const r of data.roads)
-      for (let i = 0; i < r.p.length - 2; i += 2) surf.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2, r.c);
+      for (let i = 0; i < r.p.length - 2; i += 2) surf.push(r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2, r.c, r.s ?? 0);
     this.surfSegs = Float32Array.from(surf);
-    for (let i = 0; i < this.surfSegs.length; i += 6) this.addToGrid(this.surfGrid, i, this.surfSegs, 6);
+    for (let i = 0; i < this.surfSegs.length; i += SURF) this.addToGrid(this.surfGrid, i, this.surfSegs, 6);
 
     // road segments for street names and bridges
     const segs: number[] = [];
@@ -348,6 +383,27 @@ export class World {
         wall(x - d, y + d, x + d, y - d, 0, W_SIGHT | W_LOW | W_NOHIT);
       }
     }
+    // bridge piers: solid at street level (like a wall, nothing up on the decks meets them)
+    for (const r of data.supports ?? []) for (let i = 0; i < r.length - 2; i += 2) wall(r[i], r[i + 1], r[i + 2], r[i + 3], 0.05, W_LOW | W_SIGHT);
+    // street furniture: advertising columns stand as solid as a monument; the rest is knocked over
+    this.furniture = Float32Array.from(data.furniture ?? []);
+    const fu = this.furniture;
+    for (let i = 0; i < fu.length; i += 4) {
+      const x = fu[i], y = fu[i + 1], k = fu[i + 3];
+      const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL), key = this.key(gx, gy);
+      const c = this.furnGrid.get(key);
+      if (c) c.push(i);
+      else this.furnGrid.set(key, [i]);
+      if (k === F_COLUMN) {
+        const r = FURNITURE[k].r;
+        wall(x, y, x, y, r, W_LOW | W_POST);
+        wall(x - r * 0.8, y - r * 0.8, x + r * 0.8, y + r * 0.8, 0, W_SIGHT | W_LOW | W_NOHIT);
+        wall(x - r * 0.8, y + r * 0.8, x + r * 0.8, y - r * 0.8, 0, W_SIGHT | W_LOW | W_NOHIT);
+      }
+    }
+    this.islands = new Islands(data.islands);
+    this.bumps = new Bumps(data.calming);
+    this.gates = new Gates(data.gates);
     this.trees = this.placeTrees();
     for (let i = 0; i < this.trees.length; i += 4) {
       const x = this.trees[i], y = this.trees[i + 1];
@@ -379,7 +435,20 @@ export class World {
     }
     this.car.depth = this.deadEnds();
     this.lights = new TrafficLights(this);
+    this.marks = new StreetMarks(this);
     this.tramStops = Float32Array.from(data.tramStops ?? []);
+    this.tramStopNames = (data.tramStops ?? []).filter((_, i) => i % 2 === 0).map((_, i) => data.names[data.tramStopNames?.[i] ?? -1] ?? '');
+    for (const d of data.districts ?? []) {
+      const rings = d.r.map((r) => Float32Array.from(r));
+      const bbox = bboxOf(rings[0]);
+      for (let i = 1; i < rings.length; i++) bboxOf(rings[i], 0, bbox);
+      this.districts.push({ name: data.names[d.n], rings, bbox });
+    }
+    for (const q of data.quarters ?? []) this.quarters.push({ name: data.names[q.n], x: q.x, y: q.y });
+    for (const q of data.squares ?? []) {
+      const rings = q.r.map((r) => Float32Array.from(r));
+      this.squares.push({ name: data.names[q.n], rings, bbox: bboxOf(rings[0]) });
+    }
   }
 
   /** Deepest overlap (m) of a circle with anything solid at `level`, 0 when it's clear: walls,
@@ -427,6 +496,8 @@ export class World {
           const td = this.tunnelDepth(x, y);
           if (td >= 0 && td < 8) continue; // at a portal the level is ambiguous
           level = this.spawnLevel(x, y, r, a);
+          // traffic keeps off the traffic islands' kerbs
+          if (level === 0) worst = Math.max(worst, this.islands.overlap(x, y, r));
         } else {
           if (this.tunnelDepth(x, y) >= 0) continue;
           const f = this.onBridge(x, y) ? this.deckFit(x, y, r) : null;
@@ -541,10 +612,10 @@ export class World {
       const blockR = this.lastBlock;
       e.walkL = -this.bestOffset(e.p, cands.map((c) => -c), WALK_R, 2, false);
       const blockL = this.lastBlock;
-      if (offMap(e.a) || offMap(e.b) || Math.min(blockR, blockL) > 0.3) e.noWalk = true;
+      if (offMap(e.a) || offMap(e.b) || Math.min(blockR, blockL) > WALK_BLOCKED) e.noWalk = true;
       // one side has no room at all (a wall, a basin the path clips): everyone walks the other side
-      else if (blockR > 0.3) e.walkR = -e.walkL;
-      else if (blockL > 0.3) e.walkL = -e.walkR;
+      else if (blockR > WALK_BLOCKED) e.walkR = -e.walkL;
+      else if (blockL > WALK_BLOCKED) e.walkL = -e.walkR;
     }
   }
 
@@ -1228,29 +1299,69 @@ export class World {
   }
 
   /** Surface under a point, for tyre grip/drag: bridge deck, steps (class 10: a car crawls down them),
-   *  cobble (class >= 8), asphalt, or off-road. */
+   *  up on a traffic island's kerb, cobble (pedestrian zones, class >= 8, and streets paved with
+   *  setts), asphalt, or off-road. */
   surfaceAt(x: number, y: number, level?: Level): Surface {
     if (level === -1) return 'asphalt';
     if (this.onBridge(x, y)) return 'bridge';
+    if (this.islands.at(x, y) >= 0) return 'kerb';
     const c = this.surfGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
     if (!c) return 'offroad';
     const s = this.surfSegs;
-    let bestD = Infinity, bestCls = -1;
+    let bestD = Infinity, bestCls = -1, bestPave = 0;
     for (const i of c) {
       const d = Math.sqrt(segDist2(x, y, s[i], s[i + 1], s[i + 2], s[i + 3])) - s[i + 4];
-      if (d < bestD) (bestD = d), (bestCls = s[i + 5]);
+      if (d < bestD) (bestD = d), (bestCls = s[i + 5]), (bestPave = s[i + 6]);
     }
     if (bestD > 2) return 'offroad';
-    return bestCls === 10 && bestD < 0.3 ? 'steps' : bestCls >= 8 ? 'cobble' : 'asphalt';
+    return bestCls === 10 && bestD < 0.3 ? 'steps' : bestCls >= 8 || bestPave === 1 ? 'cobble' : 'asphalt';
   }
 
+  /** The borough (mestská časť) a point is in, from the real boundaries; the nearest one for points
+   *  outside all of them (the river between them). */
   district(x: number, y: number): string {
-    // rough boundaries of the real city districts inside the playable area
-    if (y > 250 + x * 0.12 && !this.inWater(x, y)) return 'Petržalka';
-    if (x < -650 && y < 150) return 'Hradný vrch';
-    if (x > 950 && y < 150) return 'Ružinov';
-    if (y < -700) return 'Staré Mesto – sever';
-    return 'Staré Mesto';
+    if (!this.districts.length) return 'Staré Mesto';
+    let best = this.districts[0].name, bd = Infinity;
+    for (const d of this.districts) {
+      const b = d.bbox;
+      if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && pointInRings(x, y, d.rings)) return d.name;
+      for (const r of d.rings)
+        for (let i = 0; i < r.length - 2; i += 2) {
+          const dd = segDist2(x, y, r[i], r[i + 1], r[i + 2], r[i + 3]);
+          if (dd < bd) (bd = dd), (best = d.name);
+        }
+    }
+    return best;
+  }
+
+  /** The named quarter (Vnútorné mesto, Podhradie, Dunajská štvrť…) nearest a point, within ~650 m,
+   *  and in the same borough as the point. */
+  quarter(x: number, y: number): string | null {
+    let best: string | null = null, bd = 650 * 650;
+    const here = this.district(x, y);
+    for (const q of this.quarters) {
+      const d = (q.x - x) ** 2 + (q.y - y) ** 2;
+      if (d < bd && this.district(q.x, q.y) === here) (bd = d), (best = q.name);
+    }
+    return best;
+  }
+
+  /** the named square (x, y) is on, or null */
+  squareAt(x: number, y: number): string | null {
+    for (const q of this.squares) {
+      const b = q.bbox;
+      if (x >= b.x0 - 1 && x <= b.x1 + 1 && y >= b.y0 - 1 && y <= b.y1 + 1 && pointInRings(x, y, q.rings)) return q.name;
+    }
+    return null;
+  }
+
+  /** Visit the street furniture near (x, y): index into `furniture` (x, y, angle, kind at i..i+3). */
+  forFurnitureNear(x: number, y: number, r: number, fn: (i: number) => void) {
+    for (let gx = Math.floor((x - r) / CELL); gx <= Math.floor((x + r) / CELL); gx++)
+      for (let gy = Math.floor((y - r) / CELL); gy <= Math.floor((y + r) / CELL); gy++) {
+        const c = this.furnGrid.get(this.key(gx, gy));
+        if (c) for (const i of c) fn(i);
+      }
   }
 
   pois(kind: 'police' | 'hospital' | 'fuel' | 'shop') {

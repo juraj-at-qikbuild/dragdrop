@@ -10,7 +10,7 @@
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { BBOX } from './bbox.mjs';
+import { BBOX, ORIGIN, tiles } from './bbox.mjs';
 
 const SRC = new URL('../.cache/osm/', import.meta.url);
 const OUT = process.env.MAP_OUT ? pathToFileURL(resolve(process.env.MAP_OUT)) : new URL('../public/data/bratislava.json', import.meta.url);
@@ -67,13 +67,17 @@ function parse(xml) {
   }
 }
 
-const files = (await readdir(SRC)).filter((f) => f.endsWith('.osm'));
+// only this area's tiles (the cache may hold tiles of an older, smaller area)
+const cached = new Set((await readdir(SRC)).filter((f) => f.endsWith('.osm')));
+const files = tiles().map((t) => t.file);
+const missing = files.filter((f) => !cached.has(f));
+if (missing.length) throw new Error(`${missing.length} OSM tiles missing from .cache/osm (npm run fetch:osm)`);
 for (const f of files) parse(await readFile(new URL(f, SRC), 'utf8'));
 console.log(`parsed ${files.length} tiles: ${nodes.size} nodes, ${ways.size} ways, ${rels.size} relations`);
 
 // ------------------------------------------------------------- projection
-const LAT0 = (BBOX.minLat + BBOX.maxLat) / 2;
-const LON0 = (BBOX.minLon + BBOX.maxLon) / 2;
+const LAT0 = ORIGIN.lat;
+const LON0 = ORIGIN.lon;
 const KX = Math.cos((LAT0 * Math.PI) / 180) * 111320;
 const KY = 110574;
 const project = (lat, lon) => [(lon - LON0) * KX, -(lat - LAT0) * KY];
@@ -320,6 +324,24 @@ function roadWidth(t, cls) {
   return DEFAULT_WIDTH[cls];
 }
 
+/** Marked lanes of a car road: [total, forward, backward] (forward/backward 0 when not tagged),
+ *  or null when the map doesn't say. */
+function roadLanes(t) {
+  const n = parseInt(t.lanes);
+  if (!(n > 0 && n <= 8)) return null;
+  const f = parseInt(t['lanes:forward']), b = parseInt(t['lanes:backward']);
+  return [n, f > 0 && f <= n ? f : 0, b > 0 && b <= n ? b : 0];
+}
+
+/** How a car road is paved: 1 setts / cobblestones (the Old Town, bumpy, less grip), 2 paving
+ *  stones (smooth pavers), 0 asphalt and the rest. */
+function roadPaving(t) {
+  const s = t.surface;
+  if (s === 'sett' || s === 'cobblestone' || s === 'unhewn_cobblestone' || s === 'cobblestone:flattened') return 1;
+  if (s === 'paving_stones' || s === 'paving_stones:30' || s === 'grass_paver') return 2;
+  return 0;
+}
+
 /** Legal speed limit in m/s, or undefined (the class default applies). */
 function maxspeed(t) {
   const v = t.maxspeed;
@@ -348,21 +370,72 @@ function areaKind(t) {
 /** metres per storey (must match BuildingGeometry.STOREY) */
 const STOREY = 3.2;
 
+/** CSS colour names OSM uses for building:colour / roof:colour, as hex */
+const CSS_COLORS = {
+  white: '#ffffff', snow: '#fffafa', ivory: '#fffff0', whitesmoke: '#f5f5f5', mintcream: '#f5fffa', aliceblue: '#f0f8ff', ghostwhite: '#f8f8ff',
+  linen: '#faf0e6', beige: '#f5f5dc', oldlace: '#fdf5e6', cornsilk: '#fff8dc', lightyellow: '#ffffe0', lemonchiffon: '#fffacd', wheat: '#f5deb3',
+  cream: '#f3ead3', gainsboro: '#dcdcdc', lightgrey: '#d3d3d3', lightgray: '#d3d3d3', silver: '#c0c0c0', darkgray: '#a9a9a9', darkgrey: '#a9a9a9',
+  gray: '#808080', grey: '#808080', dimgray: '#696969', dimgrey: '#696969', slategray: '#708090', slategrey: '#708090', lightslategray: '#778899',
+  darkslategray: '#2f4f4f', black: '#262626', red: '#c0392b', darkred: '#8b0000', maroon: '#800000', brown: '#8b4a2b', firebrick: '#b22222',
+  indianred: '#cd5c5c', crimson: '#c0203c', salmon: '#fa8072', lightsalmon: '#ffa07a', coral: '#ff7f50', tomato: '#ff6347', orangered: '#ff4500',
+  orange: '#f39c12', darkorange: '#ff8c00', gold: '#e8c33a', yellow: '#f1d93b', khaki: '#f0e68c', darkkhaki: '#bdb76b', tan: '#d2b48c',
+  burlywood: '#deb887', sandybrown: '#f4a460', peru: '#cd853f', chocolate: '#d2691e', sienna: '#a0522d', saddlebrown: '#8b4513', rosybrown: '#bc8f8f',
+  pink: '#ffc0cb', lightpink: '#ffb6c1', hotpink: '#ff69b4', mistyrose: '#ffe4e1', lavender: '#e6e6fa', thistle: '#d8bfd8', plum: '#dda0dd',
+  violet: '#ee82ee', purple: '#800080', indigo: '#4b0082', navy: '#1f2a5c', darkblue: '#1d2b7a', mediumblue: '#2a3fcd', blue: '#2e5fbf',
+  royalblue: '#4169e1', steelblue: '#4682b4', cornflowerblue: '#6495ed', dodgerblue: '#1e90ff', deepskyblue: '#00bfff', skyblue: '#87ceeb',
+  lightskyblue: '#87cefa', lightblue: '#add8e6', powderblue: '#b0e0e6', lightsteelblue: '#b0c4de', cadetblue: '#5f9ea0', teal: '#008080',
+  darkcyan: '#008b8b', cyan: '#00ffff', lightcyan: '#e0ffff', turquoise: '#40e0d0', aquamarine: '#7fffd4', green: '#3f7d3a', darkgreen: '#1f5a1f',
+  forestgreen: '#228b22', seagreen: '#2e8b57', olive: '#808000', olivedrab: '#6b8e23', darkolivegreen: '#556b2f', yellowgreen: '#9acd32',
+  lightgreen: '#90ee90', palegreen: '#98fb98', darkseagreen: '#8fbc8f', mediumseagreen: '#3cb371', lime: '#32cd32', limegreen: '#32cd32',
+};
+/** a building:colour / roof:colour tag as '#rrggbb', or null */
+function cssColor(v) {
+  if (!v) return null;
+  v = v.trim().toLowerCase().replace(/[\s_-]/g, '');
+  if (/^#[0-9a-f]{6}$/.test(v)) return v;
+  if (/^#[0-9a-f]{3}$/.test(v)) return '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+  return CSS_COLORS[v] ?? null;
+}
+/** roof colour for a roof:material when no roof:colour is mapped (null: the game's own palette) */
+const ROOF_MATERIAL = { copper: '#5f9a82', metal: '#8d949a', metal_sheet: '#8d949a', tin: '#8d949a', zinc: '#9aa3a8', slate: '#4f555c', glass: '#9fc3d6', concrete: '#a7a7a1', tar_paper: '#5a5a5c', gravel: '#9e9a92', grass: '#6f9a4e', plants: '#6f9a4e', eternit: '#7d7f80', asbestos: '#7d7f80', gold: '#d9b44a' };
+/** wall colour for a building:material when no building:colour is mapped */
+const WALL_MATERIAL = { brick: '#a4533f', glass: '#7fa4b8', concrete: '#a8a8a0', stone: '#cbbd9c', marble: '#eeeae2', metal: '#9aa0a6', steel: '#9aa0a6', wood: '#8b6a47', sandstone: '#d8c39a' };
+
+/** roof shape codes (see BuildingJSON.rs) */
+const ROOF_SHAPE = {
+  flat: 1, gabled: 2, side_hipped: 2, saltbox: 2, double_saltbox: 2, quadruple_saltbox: 2, crosspitched: 2, gambrel: 2, sawtooth: 2, apse_gabled: 2,
+  hipped: 3, 'half-hipped': 3, half_hipped: 3, mansard: 3, many: 3, pyramidal: 4, dome: 5, onion: 6, round: 7, skillion: 8, lean_to: 8, cone: 9, conical: 9,
+};
+/** shapes drawn as a raised roof of their own (roof:height up from the eaves) */
+const RAISED_ROOF = new Set([4, 5, 6, 9]);
+
+/** Height, kind, roof and colours of a building or building part from its tags. `levels` is the
+ *  height of the walls in storeys (a raised roof - spire, dome, pyramid - sits on top of them,
+ *  `roofH` metres tall); `minH` where it starts above the ground. */
 function buildingInfo(t) {
-  let levels = parseFloat(t['building:levels']);
+  const lv = parseFloat(t['building:levels']);
   const h = parseFloat(t.height);
+  const rl = parseFloat(t['roof:levels']);
   const small = ['garage', 'garages', 'shed', 'kiosk', 'roof', 'hut'].includes(t.building);
   // no height at all: default to 3 storeys and flag it, so the game can vary untagged heights
-  const untagged = !(levels > 0) && !(h > 0) && !small;
-  if (!(levels > 0)) levels = h > 0 ? h / STOREY : small ? 1 : 3;
+  const untagged = !(lv > 0) && !(h > 0) && !small;
+  const shape = ROOF_SHAPE[t['roof:shape']] ?? 0;
+  let roofH = parseFloat(t['roof:height']);
+  if (!(roofH > 0)) roofH = rl > 0 && RAISED_ROOF.has(shape) ? rl * STOREY : 0;
+  // the real height wins over a storey count; storeys alone leave out the roof, so an attic
+  // (roof:levels) raises a pitched roof's ridge
+  let levels = h > 0 ? h / STOREY : lv > 0 ? lv + (rl > 0 && !RAISED_ROOF.has(shape) ? Math.min(rl, 2) * 0.7 : 0) : small ? 1 : 3;
+  if (RAISED_ROOF.has(shape) && roofH > 0) levels = h > 0 ? Math.max(1, (h - roofH) / STOREY) : levels;
   let kind = 0; // 0 normal, 1 church, 2 castle/landmark, 3 industrial, 4 roof/shelter, 5 tower structure drawn by the game
-  if (['church', 'cathedral', 'chapel'].includes(t.building) || t.amenity === 'place_of_worship') kind = 1;
+  if (['church', 'cathedral', 'chapel', 'synagogue', 'mosque', 'temple', 'shrine'].includes(t.building) || t.amenity === 'place_of_worship') kind = 1;
   if (t.historic === 'castle' || t.building === 'castle' || t.historic === 'city_gate') kind = 2;
   if (['industrial', 'warehouse', 'retail', 'commercial'].includes(t.building)) kind = 3;
-  if (['roof', 'canopy', 'carport'].includes(t.building)) kind = 4;
+  if (['roof', 'canopy', 'carport'].includes(t.building) || t['building:part'] === 'roof') kind = 4;
   // the Most SNP pylon legs and the UFO restaurant on top of them (building=bridge + man_made=tower)
   if (t.building === 'bridge' && t.man_made === 'tower') kind = 5;
-  levels = Math.min(40, Math.max(1, levels));
+  // a monument built as a building (Slavín): plain stone, no windows
+  if (t.historic === 'monument' || t.building === 'monument' || (t.historic === 'memorial' && t.building && t.building !== 'yes')) kind = 6;
+  levels = Math.min(60, Math.max(1, levels));
   // raised structures: the part of the building that starts above the ground (min_height,
   // building:min_level). Nothing stands under it at street level (the UFO, skywalks, arcades).
   let minH = parseFloat(t.min_height);
@@ -371,19 +444,41 @@ function buildingInfo(t) {
     minH = ml > 0 ? ml * STOREY : 0;
   }
   if (minH >= levels * STOREY - 0.5) minH = 0;
-  return { levels, kind, untagged, minH };
+  const roof = cssColor(t['roof:colour']) ?? ROOF_MATERIAL[t['roof:material']] ?? null;
+  const wall = cssColor(t['building:colour']) ?? WALL_MATERIAL[t['building:material']] ?? null;
+  return { levels, kind, untagged, minH, shape, roofH, roof, wall };
+}
+
+/** the BuildingJSON of a building or part from its (simplified) rings and tag info */
+function buildingRecord(rs, info, seed) {
+  const b = { r: rs.map(flat), l: Math.round(info.levels * 10) / 10, k: info.kind, s: seed };
+  if (info.minH >= 2) b.m = r1(info.minH);
+  if (info.shape) b.rs = info.shape;
+  if (info.roofH > 0 && RAISED_ROOF.has(info.shape)) b.rh = r1(Math.min(60, info.roofH));
+  if (info.roof) b.c = info.roof;
+  if (info.wall) b.w = info.wall;
+  return b;
 }
 
 function addBuilding(rings, t, id) {
   if (t.building === 'no' || t['building:part'] || t.location === 'underground' || t.layer < 0) return;
   const rs = rings.map((r) => simplify(r, 0.25)).filter((r) => r.length >= 4);
   if (!rs.length || !inView(rs[0])) return;
-  const { levels, kind, untagged, minH } = buildingInfo(t);
-  const b = { r: rs.map(flat), l: Math.round(levels * 10) / 10, k: kind, s: id % 997 };
-  if (untagged) b.u = 1;
-  if (minH >= 2) b.m = r1(minH);
+  const info = buildingInfo(t);
+  const b = buildingRecord(rs, info, id % 997);
+  if (info.untagged) b.u = 1;
   if (t.name) b.n = nameId(t.name);
   buildings.push(b);
+}
+
+/** building:part outlines (ways and multipolygons): towers, spires, naves, wings, each with its
+ *  own height and roof. Matched to their buildings after the heights are settled (see "parts"). */
+const partList = [];
+function addPart(rings, t) {
+  if (t.location === 'underground' || t.layer < 0 || t['building:part'] === 'no') return;
+  const rs = rings.map((r) => simplify(r, 0.2)).filter((r) => r.length >= 4);
+  if (!rs.length || !inView(rs[0])) return;
+  partList.push({ rs, t, hasHeight: parseFloat(t.height) > 0 || parseFloat(t['building:levels']) > 0 });
 }
 
 function addArea(kind, rings) {
@@ -415,6 +510,7 @@ for (const [id, w] of ways) {
   const pts = wayPts(w);
   if (pts.length < 4 || !inView(pts)) continue;
   if (t.building) addBuilding([pts], t, +id);
+  else if (t['building:part']) addPart([pts], t);
   const kind = areaKind(t);
   if (kind) addArea(kind, [pts]);
 }
@@ -432,7 +528,7 @@ for (const [id, r] of rels) {
   const t = r.tags;
   if (t.type !== 'multipolygon') continue;
   const kind = areaKind(t);
-  if (!t.building && !kind) continue;
+  if (!t.building && !t['building:part'] && !kind) continue;
   const outer = r.members.filter((m) => m.type === 'way' && m.role !== 'inner').map((m) => m.ref);
   const inner = r.members.filter((m) => m.type === 'way' && m.role === 'inner').map((m) => m.ref);
   const outers = assembleRings(outer).filter((r) => r.length >= 4);
@@ -440,26 +536,23 @@ for (const [id, r] of rels) {
   const inners = assembleRings(inner).filter((r) => r.length >= 4);
   const rings = [...outers, ...inners];
   if (t.building) addBuilding(rings, t, +id);
+  else if (t['building:part']) addPart(rings, t);
   if (kind) addArea(kind, rings);
 }
 
 // Buildings OSM has no height for often have 3D building:parts that do (towers, wings,
 // the cathedral...): use their area-weighted height instead of a guess.
+for (const p of partList) {
+  const ring = p.rs[0];
+  p.cx = centroid(ring.slice(0, -1))[0];
+  p.cy = centroid(ring.slice(0, -1))[1];
+  p.area = polyArea(ring);
+  p.info = buildingInfo(p.t);
+  p.top = p.info.levels * STOREY + (p.info.roofH > 0 && RAISED_ROOF.has(p.info.shape) ? p.info.roofH : 0);
+}
 {
-  const parts = [];
-  for (const w of ways.values()) {
-    const t = w.tags;
-    if (!t['building:part'] || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
-    const lv = parseFloat(t['building:levels']), h = parseFloat(t.height);
-    const top = h > 0 ? h : lv > 0 ? lv * STOREY : 0;
-    if (!(top > 0)) continue;
-    const pts = wayPts(w);
-    if (pts.length < 4) continue;
-    const [cx, cy] = centroid(pts.slice(0, -1));
-    parts.push({ cx, cy, area: polyArea(pts), top });
-  }
   const grid = new Grid(64);
-  for (const p of parts) grid.add(p, p.cx, p.cy, p.cx, p.cy);
+  for (const p of partList) if (p.hasHeight) grid.add(p, p.cx, p.cy, p.cx, p.cy);
   let fixed = 0;
   for (const b of buildings) {
     if (!b.u) continue;
@@ -473,7 +566,7 @@ for (const [id, r] of rels) {
       hsum += p.area * p.top;
     });
     if (wsum > 0) {
-      b.l = Math.round(Math.min(40, Math.max(1, hsum / wsum / STOREY)) * 10) / 10;
+      b.l = Math.round(Math.min(60, Math.max(1, hsum / wsum / STOREY)) * 10) / 10;
       delete b.u;
       fixed++;
     }
@@ -517,11 +610,80 @@ try {
   console.log('no .cache/heights/floors.geojson (npm run fetch:heights): heights of untagged buildings stay estimated');
 }
 
+// ---------------------------------------------------------------- building parts
+// A building mapped in 3D (the cathedral: nave, chapels and its 85 m tower with a copper spire;
+// the castle's wings and corner towers; the Blue Church's dome) is drawn as its parts, each at its
+// own height with its own roof, instead of one block. The outline stays the solid footprint. When
+// the parts cover most of it, only they are drawn; otherwise the outline is drawn as before and
+// only the parts rising above it (towers, spires) are added on top.
+{
+  const outlineGrid = new Grid(48);
+  buildings.forEach((b, i) => {
+    if (b.k === 5) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const r of b.r) for (let k = 0; k < r.length; k += 2) (x0 = Math.min(x0, r[k])), (x1 = Math.max(x1, r[k])), (y0 = Math.min(y0, r[k + 1])), (y1 = Math.max(y1, r[k + 1]));
+    outlineGrid.add({ i, b, x0, y0, x1, y1 }, x0, y0, x1, y1);
+  });
+  /** the smallest building outline the point lies in */
+  const outlineAt = (x, y) => {
+    let best = null;
+    outlineGrid.query(x, y, x, y, (o) => {
+      if (x < o.x0 || x > o.x1 || y < o.y0 || y > o.y1 || !pointInRings(x, y, o.b.r)) return;
+      if (!best || flatArea(o.b.r[0]) < flatArea(best.b.r[0])) best = o;
+    });
+    return best;
+  };
+  const byParent = new Map();
+  for (const p of partList) {
+    const o = outlineAt(p.cx, p.cy);
+    if (!o) continue;
+    let l = byParent.get(o.i);
+    if (!l) byParent.set(o.i, (l = []));
+    l.push(p);
+  }
+  let hidden = 0, drawn = 0;
+  const out = [];
+  for (const [i, list] of byParent) {
+    const parent = buildings[i];
+    const area = flatArea(parent.r[0]);
+    const top = parent.l * STOREY;
+    let ground = 0;
+    for (const p of list) if (p.info.minH < 1 && p.info.kind !== 4) ground += p.area;
+    const hide = ground >= area * 0.75;
+    for (const p of list) {
+      const info = { ...p.info };
+      // parts without a height of their own are as tall as their building
+      if (!p.hasHeight) info.levels = parent.l;
+      const partTop = info.levels * STOREY + (RAISED_ROOF.has(info.shape) ? info.roofH : 0);
+      // over a drawn outline, only what rises above it (towers, spires, a dome)
+      if (!hide && partTop < top + 1.5 && !(info.minH > 0 && info.minH >= top - 0.5)) continue;
+      // the building's own character, where the part doesn't say otherwise
+      if (!info.kind) info.kind = parent.k === 4 || parent.k === 5 ? 0 : parent.k;
+      if (!info.roof && parent.c) info.roof = parent.c;
+      if (!info.wall && parent.w) info.wall = parent.w;
+      const b = buildingRecord(p.rs, info, parent.s);
+      b.p = 1;
+      // (for the landmark colours below; not written out)
+      Object.defineProperty(b, 'parent', { value: parent, enumerable: false });
+      Object.defineProperty(b, 'ownRoof', { value: !!p.info.roof, enumerable: false });
+      Object.defineProperty(b, 'ownWall', { value: !!p.info.wall, enumerable: false });
+      out.push(b);
+      drawn++;
+    }
+    if (hide) {
+      parent.x = 1;
+      hidden++;
+    }
+  }
+  buildings.push(...out);
+  console.log(`building parts: ${drawn} drawn, ${hidden} outlines replaced by their parts (${partList.length} parts mapped)`);
+}
+
 // Spatial index of the footprints the game treats as solid (see World: not a canopy, not a
 // sliver, not raised off the ground).
 const solidGrid = new Grid(32);
 for (const b of buildings) {
-  if (b.k === 4 || b.m || flatArea(b.r[0]) <= 6) continue;
+  if (b.k === 4 || b.m || b.p || flatArea(b.r[0]) <= 6) continue;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const r of b.r) for (let i = 0; i < r.length; i += 2) (x0 = Math.min(x0, r[i])), (x1 = Math.max(x1, r[i])), (y0 = Math.min(y0, r[i + 1])), (y1 = Math.max(y1, r[i + 1]));
   solidGrid.add({ b, x0, y0, x1, y1 }, x0, y0, x1, y1);
@@ -565,6 +727,14 @@ function vertical(t) {
 }
 
 const graphWays = { car: [], ped: [], tram: [] };
+/** tram way id -> bit mask of the line numbers (route=tram relations) running along it */
+const tramLines = new Map();
+for (const r of rels.values()) {
+  if (r.tags.route !== 'tram') continue;
+  const ref = parseInt(r.tags.ref);
+  if (!(ref > 0 && ref < 31)) continue;
+  for (const m of r.members) if (m.type === 'way') tramLines.set(m.ref, (tramLines.get(m.ref) ?? 0) | (1 << ref));
+}
 /** surface highways the game keeps, for passages, barrier gaps, crossings and trees */
 const kept = [];
 /** tunnel tubes: public road tunnels and the tram tunnel under the castle hill */
@@ -613,11 +783,18 @@ for (const [id, w] of ways) {
       if (t.oneway === 'yes' || t.oneway === '1' || t.junction === 'roundabout') road.o = 1;
       if (t.oneway === '-1') road.o = -1;
       if (+t.layer) road.y = +t.layer;
+      const lanes = c <= 7 ? roadLanes(t) : null;
+      if (lanes) {
+        road.l = lanes[0];
+        if (lanes[1] || lanes[2]) road.lf = [lanes[1], lanes[2]];
+      }
+      const paving = c <= 7 ? roadPaving(t) : 0;
+      if (paving) road.s = paving;
       roads.push(road);
       kept.push({ w, pts, c, width, bridge: !!bridge });
       for (const n of w.nds) surfaceRoadNodes.add(n);
       if (drivable) {
-        graphWays.car.push({ w, c, oneway: road.o ?? 0, width: road.w, name: road.n ?? -1, speed: maxspeed(t) });
+        graphWays.car.push({ w, c, oneway: road.o ?? 0, width: road.w, name: road.n ?? -1, speed: maxspeed(t), lanes });
         if (!bridge)
           for (let i = 0; i < w.nds.length; i++) {
             let l = carWaysAt.get(w.nds[i]);
@@ -633,10 +810,10 @@ for (const [id, w] of ways) {
     if (vert === 'tunnel') {
       tunnels.push({ p: flat(simplify(pts, 0.3)), w: 3.4, k: 1, nds: [w.nds[0], w.nds[w.nds.length - 1]] });
       tunnelWays.push(w);
-      graphWays.tram.push({ w, c: 0, oneway: 0, width: 3, name: -1 });
+      graphWays.tram.push({ w, c: 0, oneway: 0, width: 3, name: -1, tram: tramLines.get(id) });
     } else if (vert !== 'indoor' && vert !== 'underground') {
       trams.push(flat(simplify(pts, 0.3)));
-      graphWays.tram.push({ w, c: 0, oneway: 0, width: 3, name: -1 });
+      graphWays.tram.push({ w, c: 0, oneway: 0, width: 3, name: -1, tram: tramLines.get(id) });
       for (const n of w.nds) surfaceTramNodes.add(n);
     }
   }
@@ -1034,6 +1211,363 @@ for (const w of ways.values()) {
 }
 console.log(`features: ${trees.length / 2} trees, ${lamps.length / 2} lamps, ${crossings.length / 4} crossings, ${signals.length / 5} traffic lights, ${tramStops.length / 2} tram stops, ${rails.length} rail ways`);
 
+// ------------------------------------------------ the street in detail: kerbs, gates, signs, furniture
+/** kept surface ways through each node (not bridges) */
+const keptAt = new Map();
+for (const k of kept) if (!k.bridge) k.w.nds.forEach((n, i) => (keptAt.get(n) ?? keptAt.set(n, []).get(n)).push({ k, i }));
+/** the nearest surface street or path segment to (x, y) within `r` m (optionally only car roads):
+ *  its direction, how far off it the point is and which side */
+function nearestSeg(x, y, r, cars = false) {
+  let best = null, bd = r;
+  segGrid.query(x - r, y - r, x + r, y + r, (s) => {
+    if (cars && s.c > 7) return;
+    const d = segDist(x, y, s.ax, s.ay, s.bx, s.by) - (cars ? s.hw : 0);
+    if (d < bd) (bd = d), (best = s);
+  });
+  if (!best) return null;
+  const a = Math.atan2(best.by - best.ay, best.bx - best.ax);
+  // which side of the segment's direction the point is on (+1: right of it, y down)
+  const side = (best.bx - best.ax) * (y - best.ay) - (best.by - best.ay) * (x - best.ax) >= 0 ? 1 : -1;
+  return { s: best, a, d: bd, side };
+}
+/** a compass `direction` tag (degrees from north, or N/NE/...) as a game angle (0 = east, y down) */
+function tagAngle(v) {
+  if (!v) return null;
+  const card = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 }[v.toUpperCase()];
+  const deg = card ?? parseFloat(v);
+  return Number.isFinite(deg) ? ((deg - 90) * Math.PI) / 180 : null;
+}
+const bigWaterRings = areas.water.filter((rings) => flatArea(rings[0]) >= POOL_MAX);
+const dryAt = (x, y) => inBounds(x, y) && !insideOf(solidGrid, x, y) && !bigWaterRings.some((rings) => pointInRings(x, y, rings));
+
+// Raised traffic islands in the carriageway (area:highway=traffic_island): kerbed, grassed or
+// paved. Cars jolt up onto them and drag over them (World.onIsland), traffic's lanes keep off them.
+const islands = [];
+{
+  const greenAt = (x, y) => areas.green.some((rings) => pointInRings(x, y, rings));
+  for (const w of ways.values()) {
+    const t = w.tags;
+    if (t['area:highway'] !== 'traffic_island' || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+    const pts = wayPts(w);
+    if (pts.length < 4 || !inView(pts)) continue;
+    const area = polyArea(pts);
+    if (area < 1.5 || area > 4000) continue;
+    const [cx, cy] = centroid(pts.slice(0, -1));
+    // an island up on a bridge deck isn't in the street under it
+    let onDeck = false;
+    for (const k of kept) if (k.bridge) for (let i = 1; i < k.pts.length && !onDeck; i++) if (segDist(cx, cy, k.pts[i - 1][0], k.pts[i - 1][1], k.pts[i][0], k.pts[i][1]) < k.width / 2) onDeck = true;
+    if (onDeck) continue;
+    const isl = { p: flat(simplify(pts, 0.15)) };
+    if (t.surface === 'grass' || t.landuse === 'grass' || (!t.surface && greenAt(cx, cy))) isl.g = 1;
+    islands.push(isl);
+  }
+}
+
+// Lift gates (boom barriers) at car park and service entrances: [x, y, direction of the way, boom
+// length]. Traffic doesn't route through them (the car graph is cut there, see cutAtClosures);
+// a car that rams one snaps the boom (World.gates).
+const gates = [];
+/** node id of a lift gate -> the drivable way it closes */
+const gatesAt = new Map();
+for (const [id, n] of nodes) {
+  if (n.tags.barrier !== 'lift_gate') continue;
+  const [x, y] = project(n.lat, n.lon);
+  if (!inBounds(x, y)) continue;
+  const at = keptAt.get(id);
+  if (!at) continue;
+  const { k, i } = at.reduce((a, b) => (b.k.c < a.k.c ? b : a));
+  gates.push(r1(x), r1(y), r2(wayAngle(k.w, i)), r1(Math.min(8, Math.max(3, k.width))));
+  if (DRIVABLE.has(k.c)) gatesAt.set(id, { ways: new Set(at.map((a) => a.k.w)), x, y });
+}
+
+// Bridge piers standing in the river and on its banks: solid at street level, under the decks.
+const supports = [];
+for (const w of ways.values()) {
+  if (!w.tags['bridge:support'] || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+  const pts = wayPts(w);
+  if (pts.length >= 4 && inView(pts)) supports.push(flat(simplify(pts, 0.2)));
+}
+for (const n of nodes.values()) {
+  if (!n.tags['bridge:support']) continue;
+  const [x, y] = project(n.lat, n.lon);
+  if (!inBounds(x, y)) continue;
+  const ring = [];
+  for (let i = 0; i <= 8; i++) ring.push([x + Math.cos((i / 8) * Math.PI * 2) * 1.3, y + Math.sin((i / 8) * Math.PI * 2) * 1.3]);
+  supports.push(flat(ring));
+}
+
+// Speed bumps and raised tables: [x, y, street direction, street half-width, kind] (kind 0 bump,
+// 1 raised table, 2 speed cushions, 3 rumble strip). Traffic slows for them; a car that doesn't
+// takes off.
+const calming = [];
+{
+  const KIND = { bump: 0, hump: 0, yes: 0, table: 1, cushion: 2, rumble_strip: 3, mini_bumps: 3, dip: 3 };
+  for (const [id, n] of nodes) {
+    const kind = KIND[n.tags.traffic_calming];
+    if (kind === undefined) continue;
+    const at = carWaysAt.get(id);
+    if (!at) continue;
+    const [x, y] = project(n.lat, n.lon);
+    if (!inBounds(x, y)) continue;
+    const main = at.reduce((a, b) => (b.c < a.c ? b : a));
+    calming.push(r1(x), r1(y), r2(wayAngle(main.w, main.i)), r1(main.width / 2), kind);
+  }
+}
+
+// Stop and give-way signs: [x, y, direction of the traffic they stop, street half-width, kind] (kind
+// 0 stop, 1 give way). A sign without a direction faces the traffic heading into the junction it
+// stands nearest.
+const yields = [];
+{
+  const junction = (n) => (carWaysAt.get(n)?.length ?? 0) > 1 || (surfaceRoadNodes.has(n) && (keptAt.get(n)?.filter((a) => DRIVABLE.has(a.k.c)).length ?? 0) > 1);
+  for (const [id, n] of nodes) {
+    const hw = n.tags.highway;
+    if (hw !== 'stop' && hw !== 'give_way') continue;
+    const at = carWaysAt.get(id);
+    if (!at) continue;
+    const [x, y] = project(n.lat, n.lon);
+    if (!inBounds(x, y)) continue;
+    const kind = hw === 'stop' ? 0 : 1;
+    const dir = n.tags.direction ?? n.tags['traffic_sign:direction'];
+    // on a junction node itself: it stops the minor roads coming in
+    if (at.length > 1 && !dir) {
+      const major = Math.min(...at.map((a) => a.c));
+      for (const a of at) {
+        if (a.c === major) continue;
+        const ang = wayAngle(a.w, a.i);
+        // toward the node: along the way if the node is at its end, against it at its start
+        if (a.i > 0) yields.push(r1(x), r1(y), r2(ang), r1(a.width / 2), kind);
+        if (a.i < a.w.nds.length - 1) yields.push(r1(x), r1(y), r2(ang + Math.PI), r1(a.width / 2), kind);
+      }
+      continue;
+    }
+    const { w, i, width } = at[0];
+    const ang = wayAngle(w, i);
+    let travel = null;
+    if (dir === 'forward') travel = ang;
+    else if (dir === 'backward') travel = ang + Math.PI;
+    else {
+      // the nearer junction along the way decides
+      let fwdD = Infinity, backD = Infinity;
+      for (let j = i + 1, d = 0; j < w.nds.length; j++) {
+        const a = xy(w.nds[j - 1]), b = xy(w.nds[j]);
+        if (!a || !b) break;
+        d += Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (junction(w.nds[j])) {
+          fwdD = d;
+          break;
+        }
+      }
+      for (let j = i - 1, d = 0; j >= 0; j--) {
+        const a = xy(w.nds[j + 1]), b = xy(w.nds[j]);
+        if (!a || !b) break;
+        d += Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (junction(w.nds[j])) {
+          backD = d;
+          break;
+        }
+      }
+      if (fwdD === Infinity && backD === Infinity) continue;
+      travel = fwdD <= backD ? ang : ang + Math.PI;
+    }
+    yields.push(r1(x), r1(y), r2(Math.atan2(Math.sin(travel), Math.cos(travel))), r1(width / 2), kind);
+  }
+}
+
+// Street furniture: [x, y, angle, kind] (see World.FURNITURE: 0 bench, 1 litter bin, 2 fire hydrant,
+// 3 bus stop, 4 bus shelter, 5 billboard, 6 advertising column, 7 bicycle stand, 8 post box, 9 café
+// table, 10 drinking fountain, 11 recycling containers, 12 flagpole, 13 bike-share dock, 14 picnic
+// table, 15 charging station). Cars knock the small things flying; people sit on the benches.
+const furniture = [];
+{
+  const add = (x, y, a, kind) => furniture.push(r1(x), r1(y), r2(Math.atan2(Math.sin(a), Math.cos(a))), kind);
+  const kindOf = (t) =>
+    t.amenity === 'bench' ? 0 :
+    t.amenity === 'waste_basket' ? 1 :
+    t.emergency === 'fire_hydrant' && t['fire_hydrant:type'] !== 'underground' ? 2 :
+    t.highway === 'bus_stop' || (t.public_transport === 'platform' && t.bus === 'yes') ? (t.shelter === 'yes' ? 4 : 3) :
+    t.advertising === 'billboard' ? 5 :
+    t.advertising === 'column' ? 6 :
+    t.amenity === 'bicycle_parking' && (t.bicycle_parking === 'stands' || t.bicycle_parking === 'rack' || !t.bicycle_parking) ? 7 :
+    t.amenity === 'post_box' ? 8 :
+    t.amenity === 'drinking_water' ? 10 :
+    t.amenity === 'recycling' && t.recycling_type !== 'centre' ? 11 :
+    t.man_made === 'flagpole' ? 12 :
+    t.amenity === 'bicycle_rental' ? 13 :
+    t.leisure === 'picnic_table' ? 14 :
+    t.amenity === 'charging_station' ? 15 : -1;
+  const seen = new Set();
+  const place = (x, y, t, kind, wayDir) => {
+    if (!dryAt(x, y)) return;
+    // one of a kind per spot (a stop mapped as a platform and a stop point)
+    const key = `${kind}:${Math.round(x / 2)}:${Math.round(y / 2)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    let a = tagAngle(t.direction);
+    // benches, billboards and stops line up with the nearest street or path and face it
+    const near = nearestSeg(x, y, kind === 3 || kind === 4 ? 14 : 8, kind === 3 || kind === 4);
+    if (a === null && wayDir !== undefined) a = wayDir;
+    if (a === null && near) a = near.a + (near.side > 0 ? -Math.PI / 2 : Math.PI / 2);
+    // a stop's sign or shelter stands in the carriageway in the data now and then: onto the kerb
+    if ((kind === 3 || kind === 4) && near && near.d < 0.6) {
+      const push = 0.6 - near.d, nx = -Math.sin(near.a) * near.side, ny = Math.cos(near.a) * near.side;
+      (x += nx * push), (y += ny * push);
+    }
+    add(x, y, a ?? 0, kind);
+  };
+  for (const n of nodes.values()) {
+    const kind = kindOf(n.tags);
+    if (kind < 0) continue;
+    const [x, y] = project(n.lat, n.lon);
+    place(x, y, n.tags, kind);
+  }
+  for (const w of ways.values()) {
+    const kind = kindOf(w.tags);
+    if (kind !== 0 && kind !== 4) continue; // benches and shelters mapped as outlines
+    const pts = wayPts(w);
+    if (pts.length < 2 || !inView(pts)) continue;
+    const [x, y] = centroid(w.nds[0] === w.nds[w.nds.length - 1] ? pts.slice(0, -1) : pts);
+    // the long side's direction
+    let best = 0, dir = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      if (L > best) (best = L), (dir = Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]));
+    }
+    place(x, y, w.tags, kind, dir + Math.PI / 2);
+  }
+  // café terraces: tables in rows over the mapped seating area
+  let tables = 0;
+  for (const w of ways.values()) {
+    if (w.tags.leisure !== 'outdoor_seating' || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+    const pts = wayPts(w);
+    if (pts.length < 4 || !inView(pts)) continue;
+    const ring = flat(pts);
+    let best = 0, dir = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      if (L > best) (best = L), (dir = Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]));
+    }
+    const ux = Math.cos(dir), uy = Math.sin(dir);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [px, py] of pts) {
+      const u = px * ux + py * uy, v = -px * uy + py * ux;
+      (u0 = Math.min(u0, u)), (u1 = Math.max(u1, u)), (v0 = Math.min(v0, v)), (v1 = Math.max(v1, v));
+    }
+    let n = 0;
+    for (let u = u0 + 1.3; u <= u1 - 1.1 && n < 24; u += 2.6)
+      for (let v = v0 + 1.2; v <= v1 - 1.0 && n < 24; v += 2.4) {
+        const x = u * ux - v * uy, y = u * uy + v * ux;
+        if (!pointInRings(x, y, [ring]) || !dryAt(x, y)) continue;
+        add(x, y, dir, 9);
+        n++;
+      }
+    tables += n;
+  }
+  const counts = {};
+  for (let i = 3; i < furniture.length; i += 4) counts[furniture[i]] = (counts[furniture[i]] ?? 0) + 1;
+  console.log(`street: ${islands.length} traffic islands, ${gates.length / 4} lift gates, ${supports.length} bridge piers, ${calming.length / 5} speed bumps/tables, ${yields.length / 5} stop/give-way signs, ${furniture.length / 4} pieces of street furniture (${tables} café tables) ${JSON.stringify(counts)}`);
+}
+
+// Places people go, by kind: [{k, x, y, n?}] (the name only for museums, galleries, theatres,
+// churches and libraries; cafés, bars and restaurants stay anonymous)
+const places = [];
+{
+  const kindOf = (t) =>
+    ['restaurant', 'fast_food', 'food_court'].includes(t.amenity) ? 'food' :
+    t.amenity === 'cafe' || t.amenity === 'ice_cream' ? 'cafe' :
+    ['bar', 'pub', 'biergarten', 'nightclub'].includes(t.amenity) ? 'bar' :
+    t.amenity === 'pharmacy' || t.healthcare === 'pharmacy' ? 'pharmacy' :
+    t.tourism === 'museum' || t.tourism === 'gallery' ? 'museum' :
+    ['theatre', 'cinema', 'concert_hall'].includes(t.amenity) ? 'theatre' :
+    ['hotel', 'hostel', 'guest_house', 'motel'].includes(t.tourism) ? 'hotel' :
+    ['supermarket', 'convenience', 'greengrocer'].includes(t.shop) ? 'grocery' :
+    t.shop === 'bakery' || t.shop === 'pastry' ? 'bakery' :
+    t.amenity === 'place_of_worship' ? 'church' :
+    t.amenity === 'bank' ? 'bank' :
+    t.amenity === 'post_office' ? 'post' :
+    t.amenity === 'library' ? 'library' :
+    t.tourism === 'viewpoint' ? 'view' :
+    t.amenity === 'toilets' ? 'wc' :
+    t.amenity === 'taxi' ? 'taxi' : null;
+  const NAMED = new Set(['museum', 'theatre', 'church', 'library']);
+  const grid = new Grid(24);
+  const add = (k, x, y, name) => {
+    let dup = false;
+    grid.query(x - 15, y - 15, x + 15, y + 15, (p) => {
+      if (p.k === k && Math.hypot(p.x - x, p.y - y) < 15 && (!NAMED.has(k) || p.name === name)) dup = true;
+    });
+    if (dup || !inBounds(x, y)) return;
+    const pl = { k, x: r1(x), y: r1(y) };
+    if (NAMED.has(k) && name) pl.n = nameId(name);
+    grid.add({ k, x, y, name }, x, y, x, y);
+    places.push(pl);
+  };
+  for (const [type, map] of [['way', ways], ['relation', rels], ['node', nodes]])
+    for (const el of map.values()) {
+      const t = el.tags;
+      if (!t) continue;
+      const k = kindOf(t);
+      if (!k) continue;
+      const p = elementAt(type, el);
+      if (p) add(k, p[0], p[1], t.name);
+    }
+  const byKind = {};
+  for (const p of places) byKind[p.k] = (byKind[p.k] ?? 0) + 1;
+  console.log(`places: ${places.length} ${JSON.stringify(byKind)}`);
+}
+
+// Where you are: the city's boroughs (their real boundaries), the named quarters inside them, and
+// the squares.
+const districts = [];
+const quarters = [];
+const squares = [];
+{
+  for (const r of rels.values()) {
+    const t = r.tags;
+    if (t.boundary !== 'administrative' || t.admin_level !== '9' || !t.name) continue;
+    const outer = r.members.filter((m) => m.type === 'way' && m.role !== 'inner').map((m) => m.ref);
+    const rings = assembleRings(outer).filter((ring) => ring.length >= 4).map((ring) => flat(simplify(ring, 5)));
+    if (!rings.length || !rings.some((ring) => inView(ring.reduce((a, v, i) => (i % 2 ? a : a.concat([[v, ring[i + 1]]])), [])))) continue;
+    districts.push({ n: nameId(t.name.replace(/^Bratislava-/, '')), r: rings });
+  }
+  for (const n of nodes.values()) {
+    const t = n.tags;
+    if (!['neighbourhood', 'quarter', 'locality'].includes(t.place) || !t.name) continue;
+    const [x, y] = project(n.lat, n.lon);
+    if (inBounds(x, y, 400)) quarters.push({ n: nameId(t.name), x: r1(x), y: r1(y) });
+  }
+  const addSquare = (name, rings) => {
+    const rs = rings.filter((ring) => ring.length >= 4 && inView(ring)).map((ring) => flat(simplify(ring, 0.8)));
+    if (rs.length) squares.push({ n: nameId(name), r: rs });
+  };
+  for (const w of ways.values()) {
+    const t = w.tags;
+    if (t.place !== 'square' || !t.name || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+    addSquare(t.name, [wayPts(w)]);
+  }
+  for (const r of rels.values()) {
+    const t = r.tags;
+    if (t.place !== 'square' || !t.name) continue;
+    const outer = r.members.filter((m) => m.type === 'way' && m.role !== 'inner').map((m) => m.ref);
+    addSquare(t.name, assembleRings(outer));
+  }
+  console.log(`areas: ${districts.length} boroughs (${districts.map((d) => names[d.n]).join(', ')}), ${quarters.length} quarters, ${squares.length} squares`);
+}
+
+// tram stop names, in the order of `tramStops`
+const tramStopNames = [];
+for (let i = 0; i < tramStops.length; i += 2) {
+  let best = -1, bd = 25;
+  for (const n of nodes.values()) {
+    const t = n.tags;
+    if (!t.name || !(t.railway === 'tram_stop' || (t.public_transport === 'stop_position' && t.tram === 'yes') || (t.public_transport === 'platform' && t.tram === 'yes'))) continue;
+    const [x, y] = project(n.lat, n.lon);
+    const d = Math.hypot(x - tramStops[i], y - tramStops[i + 1]);
+    if (d < bd) (bd = d), (best = nameId(t.name));
+  }
+  tramStopNames.push(best);
+}
+
 // river centre-line as a fallback water body (width ~ 300 m for the Danube)
 const rivers = [];
 for (const w of ways.values()) {
@@ -1058,8 +1592,16 @@ function buildGraph(list) {
     return gIdx.get(n);
   };
   const edges = [];
-  for (const { w, c, oneway, width, name, speed } of list) {
+  for (const { w, c, oneway, width, name, speed, lanes, tram } of list) {
     const nds = w.nds.filter((n) => nodes.has(n));
+    // marked lanes each way, when there's more than one to choose from (see EdgeJSON.ln)
+    let ln = null;
+    if (lanes) {
+      const [n, lf, lb] = lanes;
+      const fwd = oneway === 1 ? n : oneway === -1 ? 0 : lf || (lb ? Math.max(1, n - lb) : (n + 1) >> 1);
+      const bwd = oneway === 1 ? 0 : oneway === -1 ? n : lb || Math.max(1, n - fwd);
+      if (Math.max(fwd, bwd) >= 2) ln = [fwd, bwd];
+    }
     let start = 0;
     for (let i = 1; i < nds.length; i++) {
       if (i === nds.length - 1 || use.get(nds[i]) > 1) {
@@ -1070,6 +1612,8 @@ function buildGraph(list) {
           if (oneway) e.o = oneway;
           if (name >= 0) e.n = name;
           if (speed) e.s = r1(speed);
+          if (ln) e.ln = ln;
+          if (tram) e.r = tram;
           // a row of bollards across it (people get through, cars don't), or it's mapped across a
           // fountain: no way for a car
           if (seg.some((n) => closesWay(n, w)) || crossesFountain(pts)) e.x = 1;
@@ -1125,75 +1669,111 @@ for (const [type, map] of [['node', nodes], ['way', ways]]) {
 }
 
 // ---------------------------------------------------------------- landmarks
+/** Landmarks: [id, label, name patterns (first that matches wins), options]. `near` picks the
+ *  match closest to a point (several things share a name: a tram stop and the tower it's named
+ *  after), `ok` filters by tags, `style` gives [roof, walls] colours the map doesn't have. */
+const isPlace = (t) => !t.highway && !t.railway && !t.public_transport && !t.route && !t.amenity?.startsWith('bicycle') && t.amenity !== 'parking';
 const LANDMARKS = [
-  ['castle', 'Bratislavský hrad', [/^Bratislavský hrad$/]],
-  ['michael', 'Michalská brána', [/^Michalská brána$/, /^Michalská veža$/]],
+  ['castle', 'Bratislavský hrad', [/^Bratislavský hrad$/], { style: ['#b8553a', '#f3efe6'] }],
+  ['michael', 'Michalská brána', [/^Michalská brána$/, /^Michalská veža$/], { style: ['#4f8a6e', '#f0ebe0'] }],
   ['snp', 'Most SNP (UFO)', [/^UFO$/, /^Most SNP$/]],
-  ['cathedral', 'Dóm sv. Martina', [/Dóm svätého Martina/, /Katedrála svätého Martina/, /Dóm sv\. Martina/]],
-  ['primate', 'Primaciálny palác', [/^Primaciálny palác$/]],
-  ['blue', 'Modrý kostolík', [/Kostol svätej Alžbety/, /Modrý kostol/]],
-  ['eurovea', 'Eurovea', [/^Eurovea$/]],
-  ['market', 'Stará tržnica', [/^Stará tržnica$/]],
-  ['snd', 'Slovenské národné divadlo', [/Historická budova SND/, /^Slovenské národné divadlo$/]],
+  ['cathedral', 'Dóm sv. Martina', [/Dóm svätého Martina/, /Katedrála svätého Martina/, /Dóm sv\. Martina/], { style: ['#59646c', '#d9d0bd'] }],
+  ['primate', 'Primaciálny palác', [/^Primaciálny palác$/], { style: ['#a44a35', '#f2d4cf'] }],
+  ['blue', 'Modrý kostolík', [/Kostol svätej Alžbety/, /Modrý kostol/], { style: ['#5f9fd6', '#a9cde8'] }],
+  ['eurovea', 'Eurovea', [/^Eurovea$/], { style: ['#c9ced2', '#8fa4b3'] }],
+  ['market', 'Stará tržnica', [/^Stará tržnica$/], { style: ['#9a4b3a', '#e6d6b8'] }],
+  ['snd', 'Slovenské národné divadlo', [/Historická budova SND/, /^Slovenské národné divadlo$/], { near: [-176, -151], style: ['#6b7d8a', '#efe6cf'] }],
   ['cumil', 'Čumil', [/Čumil/]],
   ['main', 'Hlavné námestie', [/^Hlavné námestie$/]],
-  ['president', 'Prezidentský palác', [/Grasalkovičov palác/, /Prezidentský palác/]],
+  ['president', 'Prezidentský palác', [/Grasalkovičov palác/, /Prezidentský palác/], { style: ['#7b8a92', '#f2ecdc'] }],
   ['apollo', 'Most Apollo', [/^Most Apollo$/]],
-  ['sad', 'Sad Janka Kráľa', [/^Sad Janka Kráľa$/]],
+  ['sad', 'Sad Janka Kráľa', [/^Sad Janka Kráľa$/], { ok: (t) => t.leisure === 'park' }],
   ['oldbridge', 'Starý most', [/^Starý most$/]],
   ['hviezdoslav', 'Hviezdoslavovo námestie', [/^Hviezdoslavovo námestie$/]],
-  ['reduta', 'Reduta', [/^Reduta$/]],
-  ['sng', 'Slovenská národná galéria', [/^Slovenská národná galéria$/]],
+  ['reduta', 'Reduta', [/^Reduta$/], { style: ['#6f7d86', '#f0e1c0'] }],
+  ['sng', 'Slovenská národná galéria', [/^Slovenská národná galéria$/], { style: ['#b0413e', '#e8e0d0'] }],
   ['kamenne', 'Kamenné námestie', [/^Kamenné námestie$/]],
   ['aupark', 'Aupark', [/^Aupark$/]],
-  ['slavin', 'Slavín', [/^Slavín$/]],
-  ['parliament', 'Národná rada SR', [/Národná rada Slovenskej republiky/]],
+  ['parliament', 'Národná rada SR', [/Národná rada Slovenskej republiky/], { style: ['#9aa3a8', '#e8e4da'] }],
+  // the Old Town
+  ['radnica', 'Stará radnica', [/^Stará radnica$/], { style: ['#8f5b34', '#ecd9b8'] }],
+  ['jesuit', 'Jezuitský kostol', [/^Kostol Najsvätejšieho Spasiteľa$/], { style: ['#6d4c3d', '#f2ede2'] }],
+  ['franciscan', 'Františkánsky kostol', [/^Kostol Zvestovania Pána$/], { style: ['#7a4a3a', '#e8e1d2'] }],
+  ['klarisky', 'Klarisky', [/^Kláštor Klarisiek$/, /Povýšenia svätého Kríža/], { style: ['#6f5446', '#ece4d4'] }],
+  ['mirbach', 'Mirbachov palác', [/^Mirbachov palác$/], { style: ['#8a5a44', '#f0e4c8'] }],
+  ['palffy', 'Pálffyho palác', [/^Pálffyho palác$/], { near: [-423, -195] }],
+  ['ganymede', 'Ganymedova fontána', [/^Ganymedova fontána$/]],
+  ['vodnaveza', 'Vodná veža', [/^Vodná veža$/], { near: [-866, 79], ok: isPlace }],
+  ['mikulas', 'Kostol sv. Mikuláša', [/^Kostol svätého Mikuláša$/], { style: ['#5c8a73', '#efe8da'] }],
+  ['chatam', 'Mauzóleum Chatama Sofera', [/^Mauzóleum Chatama Sofera$/]],
+  ['snm', 'Slovenské národné múzeum', [/^Slovenské národné múzeum$/], { style: ['#7d8b92', '#e8dcc2'] }],
+  ['uk', 'Univerzita Komenského', [/^Univerzita Komenského$/], { ok: (t) => !!t.historic, style: ['#7d8b92', '#ece2cc'] }],
+  // around Námestie SNP and Kamenné
+  ['snpsquare', 'Námestie SNP', [/^Námestie SNP$/], { ok: (t) => t.place === 'square' }],
+  ['manderlak', 'Manderlák', [/^Obchodný a obytný dom Manderla$/], { style: ['#9b9b95', '#d9d2c3'] }],
+  ['kyjev', 'Hotel Kyjev', [/^Hotel Kyjev$/]],
+  ['synagogue', 'Synagóga', [/^Ortodoxná synagóga$/], { style: ['#6b7075', '#ece6da'] }],
+  ['trinity', 'Trinitársky kostol', [/^Kostol svätého Jána z Mathy$/], { style: ['#6a5040', '#f1e6cf'] }],
+  ['capuchin', 'Kapucínsky kostol', [/^Kostol svätého Štefana$/], { near: [-536, -487] }],
+  ['lutheran', 'Veľký evanjelický kostol', [/^Veľký evanjelický kostol$/], { style: ['#6f6a64', '#ece6d8'] }],
+  // up the hill: Hodžovo námestie, Slavín, the Radio, the national bank
+  ['hodzovo', 'Hodžovo námestie', [/^Hodžovo námestie$/], { near: [-360, -800] }],
+  ['medicka', 'Medická záhrada', [/^Medická záhrada$/], { ok: (t) => t.leisure === 'park' }],
+  ['blumental', 'Blumentálsky kostol', [/^Kostol Nanebovzatia Panny Márie$/], { near: [485, -1325] }],
+  ['slavin', 'Slavín', [/^Slavín$/], { ok: (t) => !!t.building }],
+  ['radio', 'Slovenský rozhlas', [/^Slovenský rozhlas$/], { ok: (t) => !!t.building, style: ['#6e5a4e', '#8a6a55'], shape: 10 }],
+  ['nbs', 'Národná banka Slovenska', [/^Národná banka Slovenska$/], { ok: (t) => !!t.building, style: ['#a9b3ba', '#8ea1ad'] }],
+  // the new downtown on the river
+  ['newsnd', 'Nové SND', [/^Slovenské národné divadlo$/], { near: [819, -42] }],
+  ['euroveatower', 'Eurovea Tower', [/^Eurovea Tower$/], { style: ['#c7cdd1', '#7d98ab'] }],
+  ['panorama', 'Panorama City', [/^Panorama Towers$/]],
+  ['skypark', 'Sky Park', [/^Sky Park$/], { near: [954, -329] }],
+  ['nivytower', 'Nivy Tower', [/^Nivy Tower$/]],
+  // Petržalka
+  ['incheba', 'Incheba', [/^Incheba Expo Bratislava$/, /^Incheba tower$/]],
 ];
 const landmarks = [];
-for (const [id, label, patterns] of LANDMARKS) {
+/** where an element is: a node's position, a way's centroid, a relation's outer ways' centroid */
+function elementAt(type, el) {
+  if (type === 'relation') {
+    const outer = el.members.filter((m) => m.type === 'way' && m.role !== 'inner').map((m) => ways.get(m.ref)).filter(Boolean);
+    const pts = outer.flatMap(wayPts);
+    return pts.length ? centroid(pts) : null;
+  }
+  return elemPos(type, el);
+}
+for (const [id, label, patterns, opt = {}] of LANDMARKS) {
   let found = null;
-  outer: for (const re of patterns) {
+  for (const re of patterns) {
+    let best = null, bestD = Infinity;
     for (const [type, map] of [['way', ways], ['node', nodes], ['relation', rels]]) {
       for (const el of map.values()) {
-        if (!el.tags?.name || !re.test(el.tags.name)) continue;
-        let p = null;
-        if (type === 'relation') {
-          const outer = el.members.filter((m) => m.type === 'way' && m.role !== 'inner').map((m) => ways.get(m.ref)).filter(Boolean);
-          const pts = outer.flatMap(wayPts);
-          if (pts.length) p = centroid(pts);
-        } else p = elemPos(type, el);
-        if (p && inView([p])) {
-          found = p;
-          break outer;
-        }
+        if (!el.tags?.name || !re.test(el.tags.name) || (opt.ok && !opt.ok(el.tags))) continue;
+        const p = elementAt(type, el);
+        if (!p || !inView([p])) continue;
+        const d = opt.near ? Math.hypot(p[0] - opt.near[0], p[1] - opt.near[1]) : 0;
+        if (d < bestD) (bestD = d), (best = p);
+        if (!opt.near) break;
       }
+      if (best && !opt.near) break;
+    }
+    if (best && (!opt.near || bestD < 250)) {
+      found = best;
+      break;
     }
   }
   if (found) landmarks.push({ id, n: label, x: r1(found[0]), y: r1(found[1]) });
   else console.warn(`landmark not found: ${label}`);
 }
 
-// Real-world colours for landmark buildings: [roof, walls]
-const LANDMARK_STYLE = {
-  castle: ['#b8553a', '#f3efe6'],
-  blue: ['#5f9fd6', '#a9cde8'],
-  primate: ['#a44a35', '#f2d4cf'],
-  michael: ['#4f8a6e', '#f0ebe0'],
-  cathedral: ['#59646c', '#d9d0bd'],
-  snd: ['#6b7d8a', '#efe6cf'],
-  president: ['#7b8a92', '#f2ecdc'],
-  reduta: ['#6f7d86', '#f0e1c0'],
-  market: ['#9a4b3a', '#e6d6b8'],
-  eurovea: ['#c9ced2', '#8fa4b3'],
-  parliament: ['#9aa3a8', '#e8e4da'],
-  sng: ['#b0413e', '#e8e0d0'],
-};
+// Real-world colours for landmark buildings: [roof, walls], also for their parts (unless the map
+// colours a part itself, like the cathedral's copper spire)
 for (const l of landmarks) {
-  const style = LANDMARK_STYLE[l.id];
+  const style = LANDMARKS.find((d) => d[0] === l.id)?.[3]?.style;
   if (!style) continue;
   let best = null, bestScore = Infinity;
   for (const b of buildings) {
-    if (b.k === 5) continue;
+    if (b.k === 5 || b.p) continue;
     const r = b.r[0];
     let cx = 0, cy = 0;
     for (let i = 0; i < r.length; i += 2) (cx += r[i]), (cy += r[i + 1]);
@@ -1204,9 +1784,16 @@ for (const l of landmarks) {
     if (score < bestScore && (score < 0 || d < 60)) (bestScore = score), (best = b);
   }
   if (best) {
-    best.c = style[0];
-    best.w = style[1];
-    best.k = best.k === 1 ? 1 : 2;
+    const [roof, wall] = style;
+    for (const b of buildings) {
+      if (b !== best && b.parent !== best) continue;
+      if (b === best || !b.ownRoof) b.c = roof;
+      if (b === best || !b.ownWall) b.w = wall;
+      b.k = b.k === 1 ? 1 : b.k === 4 || b.k === 6 ? b.k : 2;
+    }
+    // the Slovak Radio stands on its point: an inverted pyramid (see BuildingJSON.rs)
+    const shape = LANDMARKS.find((d) => d[0] === l.id)?.[3]?.shape;
+    if (shape) best.rs = shape;
   } else console.warn(`no building for landmark ${l.id}`);
 }
 
@@ -1244,20 +1831,21 @@ function cutAtClosures(list) {
     nodeXY.set(id, [row.x + ((tx - row.x) * STOP) / d, row.y + ((ty - row.y) * STOP) / d]);
     return id;
   };
+  const cuts = (n, w) => closesWay(n, w) || (gatesAt.get(n)?.ways.has(w) ?? false);
   for (const e of list) {
     const nds = e.w.nds.filter((n) => nodes.has(n));
-    if (!nds.some((n) => closesWay(n, e.w))) {
+    if (!nds.some((n) => cuts(n, e.w))) {
       out.push(e);
       continue;
     }
     let piece = [];
     for (let i = 0; i < nds.length; i++) {
       const n = nds[i];
-      if (!closesWay(n, e.w)) {
+      if (!cuts(n, e.w)) {
         piece.push(n);
         continue;
       }
-      const row = closes.get(n);
+      const row = closes.get(n) ?? gatesAt.get(n);
       // end the piece so far short of the row, and start the next one past it
       if (piece.length) {
         const end = stub(row, piece[piece.length - 1]);
@@ -1301,7 +1889,18 @@ const map = {
   crossings,
   signals,
   tramStops,
+  tramStopNames,
   rails,
+  islands,
+  gates,
+  supports,
+  calming,
+  yields,
+  furniture,
+  places,
+  districts,
+  quarters,
+  squares,
   flagsUntagged: 1,
 };
 // Bake the lanes and walking lines the game fits to the streets (World.fitLanes/fitWalks: traffic

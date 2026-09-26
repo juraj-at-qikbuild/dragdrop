@@ -16,6 +16,8 @@ export const PHYS_STEP = 1 / 120;
 export const TRAM_RADIUS = 1.2;
 /** a car faster than this runs a pedestrian over instead of nudging them */
 export const RUN_OVER_SPEED = 4.5;
+/** a car driving into a lift gate's boom faster than this (m/s) snaps it; slower, the boom holds */
+export const GATE_SNAP = 2.5;
 
 export interface PhysicsHooks {
   /** a car hit a wall hard (sev > 6), once per substep */
@@ -84,6 +86,7 @@ export class VehiclePhysics {
         world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
         const impact = v.update(h, world);
         if (impact > 6) hooks.impact?.(v, impact);
+        if (v.level === 0 && world.gates.n) gateContact(v, world);
       }
       this.collide(vehicles, trams, hooks);
       this.accum -= STEP;
@@ -175,6 +178,31 @@ export class VehiclePhysics {
           hooks.tramContact?.(v, t, sev);
         }
       }
+  }
+}
+
+/** A car against the lift-gate booms still down near it: rammed faster than GATE_SNAP, a boom
+ *  snaps (costing the car a little speed); nudged, it holds like a fence. */
+function gateContact(v: Vehicle, world: World) {
+  const g = world.gates, r = v.spec.width / 2;
+  for (let c = 0; c < v.circles.length; c++) {
+    const cx = v.circleX(c), cy = v.circleY(c);
+    g.forDown(cx, cy, (i) => {
+      const hit = g.contact(i, cx, cy, r);
+      if (!hit) return;
+      const into = -(v.vx * hit.nx + v.vy * hit.ny);
+      if (into > GATE_SNAP) {
+        g.snap(i, v.vx, v.vy, v.speed);
+        v.vx *= 0.94;
+        v.vy *= 0.94;
+        v.damage(0.5);
+        return;
+      }
+      v.x += hit.nx * hit.depth;
+      v.y += hit.ny * hit.depth;
+      const px = cx - hit.nx * (r - hit.depth), py = cy - hit.ny * (r - hit.depth);
+      resolveContact(v, px, py, null, px, py, -hit.nx, -hit.ny, 0.1, 0.4, undefined, 2.5);
+    });
   }
 }
 

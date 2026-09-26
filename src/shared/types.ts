@@ -9,18 +9,25 @@ export interface RoadJSON {
   b?: 1; // bridge
   o?: 1 | -1; // oneway
   y?: number; // layer
+  l?: number; // marked lanes (both ways together)
+  lf?: [number, number]; // ...of which forward, backward (when the map says)
+  s?: 1 | 2; // paving of a car road: 1 setts / cobblestones, 2 paving stones
 }
 
 export interface BuildingJSON {
   r: number[][]; // rings (outer first, then courtyards)
   l: number; // levels (to the top of the building)
-  k: number; // kind: 0 normal, 1 church, 2 castle / historic, 3 commercial, 4 roof, 5 tower structure drawn by the game (Most SNP pylon, UFO)
+  k: number; // kind: 0 normal, 1 church, 2 castle / historic, 3 commercial, 4 roof, 5 tower structure drawn by the game (Most SNP pylon, UFO), 6 monument (plain stone)
   s: number; // seed
   n?: number;
   c?: string; // roof colour override
   w?: string; // wall colour override
   u?: 1; // levels untagged in OSM (defaulted to 3); only set when the map has `flagsUntagged`
   m?: number; // raised: metres above the ground where it starts (min_height); nothing solid stands below it
+  rs?: number; // roof shape: 1 flat, 2 gabled, 3 hipped, 4 pyramidal, 5 dome, 6 onion, 7 round, 8 skillion, 9 cone, 10 an inverted pyramid: the whole building overhangs its foot (the Slovak Radio) (0 / absent: the game decides)
+  rh?: number; // height (m) of a pyramid, dome, onion or cone roof on top of the walls (`l` is the walls' height then)
+  p?: 1; // a building part (a tower, a spire, a wing): drawn, never solid; its building's outline is the obstacle
+  x?: 1; // an outline whose parts are drawn instead of it (still solid)
 }
 
 /** A public road tunnel tube or the tram tunnel: centre line, width, 0 road / 1 tram, which ends are portals to the surface. */
@@ -53,6 +60,8 @@ export interface EdgeJSON {
   n?: number;
   s?: number; // speed m/s (car graph)
   x?: 1; // pedestrian graph: bollards or blocks across it stop cars
+  ln?: [number, number]; // car graph: marked lanes a -> b and b -> a, when there's a choice (2+ one way)
+  r?: number; // tram graph: bit mask of the tram lines (1 << line number) running along it
   // baked by the map builder from World's fitting (see MapJSON.fit), only where not the default:
   lf?: number; // car graph: lane offset a -> b
   lr?: number; // car graph: lane offset b -> a
@@ -105,6 +114,29 @@ export interface MapJSON {
   /** World.FIT_VERSION the lanes and walking lines in the graphs were baked with (else the game
    *  fits them itself at startup) */
   fit?: number;
+  /** name index of each tram stop in `tramStops` (-1 unnamed) */
+  tramStopNames?: number[];
+  /** raised traffic islands in the carriageway: outline, grassed (g) or paved */
+  islands?: { p: number[]; g?: 1 }[];
+  /** lift gates (boom barriers): flat [x, y, direction of the way, boom length, ...] */
+  gates?: number[];
+  /** bridge piers standing on the ground or in the river: closed rings */
+  supports?: number[][];
+  /** speed bumps and raised tables: flat [x, y, street direction, street half-width, kind (0 bump, 1 table, 2 cushions, 3 rumble strip), ...] */
+  calming?: number[];
+  /** stop and give-way signs: flat [x, y, direction of the traffic they stop, street half-width, kind (0 stop, 1 give way), ...] */
+  yields?: number[];
+  /** street furniture: flat [x, y, angle, kind, ...], `kind` indexes World.FURNITURE */
+  furniture?: number[];
+  /** places by kind (food, cafe, bar, pharmacy, museum, theatre, hotel, grocery, bakery, church, bank,
+   *  post, library, view, wc, taxi); `n`: name index (museums, theatres, churches, libraries) */
+  places?: { k: string; x: number; y: number; n?: number }[];
+  /** the city's boroughs: name index and boundary rings */
+  districts?: { n: number; r: number[][] }[];
+  /** named quarters and neighbourhoods: name index and label point */
+  quarters?: { n: number; x: number; y: number }[];
+  /** named squares: name index and outline rings */
+  squares?: { n: number; r: number[][] }[];
 }
 
 export const enum RoadClass {

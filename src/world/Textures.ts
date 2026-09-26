@@ -70,6 +70,30 @@ const DEFS = {
       }
     },
   },
+  /** rectangular concrete pavers laid in a running bond (modern streets and islands) */
+  pavers: {
+    m: 1.6,
+    px: 48,
+    paint(c, px, r) {
+      const rows = 6, h = px / rows, w = h * 2;
+      for (let y = 0; y < rows; y++) {
+        const off = (y % 2) * w * 0.5;
+        for (let x = -1; x * w < px; x++) {
+          const s = r();
+          c.fillStyle = s < 0.5 ? `rgba(0,0,0,${0.02 + s * 0.06})` : `rgba(255,255,255,${0.02 + (s - 0.5) * 0.07})`;
+          c.fillRect(x * w + off + 0.5, y * h + 0.5, w - 1, h - 1);
+        }
+      }
+      c.strokeStyle = 'rgba(30,25,20,0.14)';
+      c.lineWidth = 0.7;
+      for (let y = 0; y <= rows; y++) {
+        c.beginPath();
+        c.moveTo(0, y * h);
+        c.lineTo(px, y * h);
+        c.stroke();
+      }
+    },
+  },
   grass: {
     m: 4,
     px: 96,

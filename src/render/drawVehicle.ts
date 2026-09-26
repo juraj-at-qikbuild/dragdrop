@@ -89,9 +89,18 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
       salpha = 0.25 + 0.2 * atmos.daylight;
     }
   }
+  // a jolt or a jump (a speed bump taken fast, a kerb): the body lifts off its shadow and looms a
+  // little larger for a moment
+  const lift = v.air > 0 ? 0.35 + v.air * 2 : v.bounce > 0 ? Math.sin((v.bounce / 0.45) * Math.PI) * 0.4 * v.joltK : 0;
+  if (lift > 0.01) {
+    sx += lift * 0.5;
+    sy += lift * 0.7;
+    salpha *= 1 - Math.min(0.5, lift * 0.4);
+  }
   ctx.fillStyle = `rgba(0,0,0,${salpha})`;
   roundRect(ctx, -L / 2 + sx, -W / 2 + sy, L, W, 0.4);
   ctx.fill();
+  if (lift > 0.01) ctx.scale(1 + lift * 0.06, 1 + lift * 0.06);
 
   // wheels (front pair steers)
   const wheelLen = Math.min(0.5, L * 0.11), wheelWid = 0.22;

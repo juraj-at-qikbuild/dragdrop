@@ -225,6 +225,7 @@ export class NetSimHost implements SimHost, NetView {
     const world = game.world;
     this.mirrors.interpolate(rt, dt, this.ownCar);
     Vehicle.env.wet = game.atmos.wet;
+    world.gates.sweep(this.vehicles, dt);
     const me = this.me;
     const p = me.ped;
     const car = this.ownCar;

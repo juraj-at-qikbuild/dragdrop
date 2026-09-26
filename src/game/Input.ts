@@ -123,6 +123,17 @@ export class Input {
     if (any) P.active = true;
   }
 
+  /** Vibrate the pad (dual-rumble where the browser supports it): strong and weak motors 0..1. */
+  rumble(strong: number, weak: number, ms: number) {
+    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const g of pads) {
+      const act = (g as (Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown> } }) | null)?.vibrationActuator;
+      if (!g?.connected || !act?.playEffect) continue;
+      act.playEffect('dual-rumble', { duration: Math.round(ms), strongMagnitude: Math.min(1, strong), weakMagnitude: Math.min(1, weak) }).catch(() => {});
+      return;
+    }
+  }
+
   /** movement axes: keyboard, touch stick, or the gamepad's left stick */
   axis() {
     let x = 0, y = 0;
