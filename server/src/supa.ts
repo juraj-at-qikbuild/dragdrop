@@ -71,6 +71,12 @@ export class Supa {
     return !!this.url && !!this.key;
   }
 
+  /** the project URL, for a feature that builds its own (public, unauthenticated) asset URLs, e.g.
+   *  the daily puzzle's photo in Storage (server/src/features/Daily.ts) */
+  get baseUrl(): string {
+    return this.url;
+  }
+
   // --------------------------------------------------------------------------------- direct calls
   select<T>(table: string, query: string): Promise<T[]> {
     if (!this.enabled) return Promise.resolve([]);

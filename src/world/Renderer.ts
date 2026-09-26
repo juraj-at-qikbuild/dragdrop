@@ -354,6 +354,11 @@ export class Renderer {
   atmos = new Atmosphere();
   /** textured facades (windows, doors, shopfronts); off on the lowest quality tier, where they cost most */
   facades = true;
+  /** big in-world text: facade signs (shopfront/museum/theatre/library names), rooftop ad
+   *  billboards, and (via StreetDetail) tram-stop-name plates. Real names are place-identifying;
+   *  even a generic ad billboard can fill most of a close-up frame. Off for the "Kde to je?" photo
+   *  mode (src/game/features/PhotoMode.ts); on (unaffected by `facades`) for ordinary play. */
+  labels = true;
   /** signs, gates and street furniture, drawn each frame */
   street: StreetDetail;
 
@@ -1241,7 +1246,7 @@ export class Renderer {
       for (let k = i; k < j; k++) this.drawTierWalls(ctx, tiers[k], P, v, sr, sk, night, facadeReady, wantWindows, base);
       this.roofTransform(ctx, base, P.cx, P.cy, P.s);
       for (let k = i; k < j; k++) this.drawTierRoof(ctx, tiers[k], P, v, base, slopeShade);
-      for (let k = i; k < j; k++) if (tiers[k].ads.length) this.drawAds(ctx, tiers[k], P, v, base);
+      for (let k = i; k < j; k++) if (this.labels && tiers[k].ads.length) this.drawAds(ctx, tiers[k], P, v, base);
       ctx.setTransform(base);
       for (let k = i; k < j; k++) if (tiers[k].special) this.drawSpecialRoofs(ctx, tiers[k], P, v, sr);
       i = j;
@@ -1371,7 +1376,7 @@ export class Renderer {
         ctx.fill(c.buckets[k]);
       }
       if (facadeReady && set.drawList.length) this.drawFacade(ctx, set, t, P, night, base);
-      if (v.scale > 6 && set.signs.length) this.drawSigns(ctx, set, P, v);
+      if (this.labels && v.scale > 6 && set.signs.length) this.drawSigns(ctx, set, P, v);
     }
     if (!facadeReady && wantWindows && t.storeys && t.levels >= 2) this.drawStoreyLines(ctx, t, P, v, night, base);
   }

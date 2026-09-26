@@ -26,6 +26,8 @@ export class StreetDetail {
   knocked = new Map<number, Knock>();
   /** hydrants gushing water: furniture index -> seconds left */
   geysers = new Map<number, number>();
+  /** tram-stop name plates: real, place-identifying text, off for photo mode (Renderer.labels) */
+  labels = true;
 
   constructor(private world: World) {
     const cell = (x: number, y: number) => {
@@ -338,7 +340,7 @@ export class StreetDetail {
     ctx.textBaseline = 'middle';
     ctx.fillText('Z', sx, sy + 0.02);
     const name = this.world.tramStopNames[i / 2];
-    if (name && v.scale > 5) {
+    if (this.labels && name && v.scale > 5) {
       ctx.font = '700 0.55px system-ui, sans-serif';
       const w = ctx.measureText(name).width + 0.4;
       ctx.fillStyle = 'rgba(20,24,30,0.72)';

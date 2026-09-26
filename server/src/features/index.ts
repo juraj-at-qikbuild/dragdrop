@@ -4,6 +4,7 @@ import type { Room } from '../Room';
 import { Supa } from '../supa';
 import { Account } from './Account';
 import { Activity } from './Activity';
+import { Daily } from './Daily';
 import { Party } from './Party';
 import { RemoteConfig } from './RemoteConfig';
 import type { RoomFeature } from './RoomFeature';
@@ -11,7 +12,7 @@ import { Revive } from './Revive';
 import { Voice } from './Voice';
 
 export type { RoomFeature };
-export { Activity, RemoteConfig, Supa, Voice };
+export { Activity, Daily, RemoteConfig, Supa, Voice };
 
 export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeature[] {
   // tests inject a disabled (or fake-fetch) Supa through RoomOptions.supa; under vitest the default is
@@ -28,6 +29,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Revive(room));
   out.push(new Party(room));
   out.push(new Voice(room, remoteConfig, activity));
-  // each feature adds its line here: out.push(new Daily(room)) …
+  out.push(new Daily(room, supa));
+  // each feature adds its line here: out.push(new Race(room)) …
   return out;
 }

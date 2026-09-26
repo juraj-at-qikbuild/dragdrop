@@ -33,6 +33,14 @@ async function boot() {
   // e-mail coming back. Online play boots through a reload with #online, so the page starts from a
   // clean world and the offline save is never touched (the online profile is separate).
   const links = parseBootLinks(location.hash, location.search);
+  if (links.photo) {
+    // scripts/spots-gen.mjs drives window.__photo directly: no menu, HUD or simulation (loaded on
+    // demand, so players never download the photo-mode code)
+    $('loading').classList.add('hidden');
+    const { bootPhotoMode } = await import('./game/features/PhotoMode');
+    bootPhotoMode(data);
+    return;
+  }
   // a stored session counts as an identity too: a returning signed-in account skips straight to
   // loading, the same as a returning guest (resolveOnlineIdentity/AccountUi figures out which once it runs)
   const onlineBoot = links.online && !!SERVER_URL && (!!loadIdentity() || hasStoredSession());
