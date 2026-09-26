@@ -2237,14 +2237,16 @@ export class Renderer {
     }
   }
 
-  /** Flat 2D rendering of all buildings, for the pause map. */
-  drawBuildingsFlat(ctx: CanvasRenderingContext2D) {
-    for (const c of this.chunks)
+  /** Flat 2D rendering of the buildings (all of them, or those in view), for the city map. */
+  drawBuildingsFlat(ctx: CanvasRenderingContext2D, v?: View) {
+    for (const c of this.chunks) {
+      if (v && !bboxHit(c.bbox, v)) continue;
       for (const t of c.tiers)
         for (const r of t.roofs) {
           ctx.fillStyle = r.color;
           ctx.fill(r.path, 'evenodd');
         }
+    }
   }
 }
 

@@ -39,6 +39,8 @@ canvas {
 #game {
   z-index: 0;
   transition: opacity 0.15s;
+  /* the city map pans and pinch-zooms with pointer events */
+  touch-action: none;
 }
 #fx {
   z-index: 1;

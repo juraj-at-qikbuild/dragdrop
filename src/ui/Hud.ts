@@ -117,7 +117,7 @@ export class Hud {
       ctx.globalAlpha = 1;
     }
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
-    shadowed(ctx, `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
+    shadowed(ctx, g.quarter ? `${g.quarter} · ${g.district}` : `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
 
     // mission objective banner
     const m = g.missions;
@@ -133,6 +133,9 @@ export class Hud {
       const tgt = m.target();
       if (tgt) this.drawArrow(ctx, tgt.x, tgt.y);
     }
+    // the waypoint set on the city map
+    const wp = g.gps.waypoint;
+    if (wp && !(m.active && m.target())) this.drawArrow(ctx, wp.x, wp.y, '#b388ff');
 
     // messages (one at a time)
     const msg = g.messages[0];
@@ -342,7 +345,7 @@ export class Hud {
     else drawMoonGlyph(ctx, cx, y, r);
   }
 
-  private drawArrow(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+  private drawArrow(ctx: CanvasRenderingContext2D, tx: number, ty: number, color = GOLD) {
     const g = this.g;
     const f = g.focus();
     const a = Math.atan2(ty - f.y, tx - f.x);
@@ -359,7 +362,7 @@ export class Hud {
       ctx.translate(g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r);
       ctx.rotate(a);
     }
-    ctx.fillStyle = GOLD;
+    ctx.fillStyle = color;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -376,7 +379,7 @@ export class Hud {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `700 12px ${BODY}`;
-      outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, GOLD);
+      outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, color);
     }
   }
 }

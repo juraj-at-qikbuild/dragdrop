@@ -10,6 +10,7 @@ import type { Vehicle } from '../shared/entities/Vehicle';
 import { MissionManager } from '../missions/Missions';
 import { Hud } from '../ui/Hud';
 import { MapView } from '../ui/MapView';
+import { Gps } from './Gps';
 import { RADIO, BRAND_COLORS } from '../data/brands';
 import { clamp, dist, lerp, rand } from '../shared/util/math';
 import { Rng } from '../shared/util/Rng';
@@ -70,6 +71,8 @@ export class Game {
   missions: MissionManager;
   hud: Hud;
   mapView: MapView;
+  /** waypoint and route (satnav) */
+  gps: Gps;
   atmos: Atmosphere;
   light = new LightLayer();
   weather = new Weather();
@@ -112,6 +115,9 @@ export class Game {
   time = 0;
   street = { name: '', timer: 0 };
   district = '';
+  /** the named quarter the player is in (Vnútorné mesto, Podhradie…), '' when none is near */
+  quarter = '';
+  private infoTimer = 0;
   private lastMouseMove = -10;
   private lastMouse = { x: 0, y: 0 };
   /** the player's car and how many jolts (bumps, kerbs) it had, to react to new ones */
@@ -150,6 +156,7 @@ export class Game {
     this.host = new LocalSimHost(this.world, this.events, profile, clock, () => this.persist());
     this.hud = new Hud(this);
     this.mapView = new MapView(this);
+    this.gps = new Gps(this);
     this.missions = new MissionManager(this);
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
@@ -331,11 +338,17 @@ export class Game {
     const inp = this.input;
     const host = this.host;
     inp.pollPad();
-    if (inp.hit('Escape', 'KeyP')) {
+    // Esc closes the city map before it pauses the game
+    if (this.showMap && inp.hit('Escape')) this.showMap = false;
+    else if (inp.hit('Escape', 'KeyP')) {
       this.paused = !this.paused;
       this.onPause?.(this.paused);
     }
-    if (inp.hit('KeyM', 'Tab')) this.showMap = !this.showMap;
+    if (inp.hit('KeyM', 'Tab')) {
+      this.showMap = !this.showMap;
+      if (this.showMap) this.mapView.onOpen();
+    }
+    if (this.showMap && !this.paused) this.mapView.update(dt);
     // the shared world can't be paused: online, the menus just take the controls away
     const frozen = this.paused || this.showMap;
     if (frozen && host.allowsPause) {
@@ -364,6 +377,7 @@ export class Game {
     this.fx.update(dt);
     this.missions.enabled = host.missionsEnabled;
     this.missions.update(dt);
+    this.gps.update(dtReal);
     this.updateAudio();
     this.updateCamera(dtReal);
     this.updateInfo(dt);
@@ -588,8 +602,8 @@ export class Game {
     const k = Math.min(1, dt * 5);
     this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
     this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
-    // the mouse wheel zooms in and out around the automatic zoom
-    const wheel = this.input.takeWheel();
+    // the mouse wheel zooms in and out around the automatic zoom (unless it's zooming the map)
+    const wheel = this.showMap ? 0 : this.input.takeWheel();
     if (wheel) this.zoomPref = clamp(this.zoomPref * 1.12 ** wheel, 0.55, 1.8);
     const base = (Math.min(this.viewW, this.viewH) / CAM_FOOT_M) * this.zoomPref;
     const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : base) * this.juice.zoomFactor(v, dt);
@@ -599,14 +613,21 @@ export class Game {
 
   private updateInfo(dt: number) {
     const f = this.focus();
-    const name = this.world.streetName(f.x, f.y);
-    if (name && name !== this.street.name) this.street = { name, timer: 3.5 };
-    if (this.street.timer > 0) this.street.timer -= dt;
-    const d = this.world.district(f.x, f.y);
-    if (d !== this.district) {
-      if (this.district) this.message('', d, 2.5, '#b3e5fc');
-      this.district = d;
+    this.infoTimer -= dt;
+    // the square you're on, else the street (a few times a second is plenty)
+    if (this.infoTimer <= 0) {
+      this.infoTimer = 0.25;
+      const name = this.world.squareAt(f.x, f.y) ?? this.world.streetName(f.x, f.y);
+      if (name && name !== this.street.name) this.street = { name, timer: 3.5 };
+      // the borough (a message when it changes) and the quarter within it
+      const d = this.world.district(f.x, f.y);
+      if (d !== this.district) {
+        if (this.district) this.message('', d, 2.5, '#b3e5fc');
+        this.district = d;
+      }
+      this.quarter = this.world.quarter(f.x, f.y) ?? '';
     }
+    if (this.street.timer > 0) this.street.timer -= dt;
     if (this.radioText.time > 0) this.radioText.time -= dt;
     // DJ chatter
     if (this.player.vehicle && this.radio < RADIO.length && this.player.vehicle.kind !== 'police') {
@@ -892,17 +913,24 @@ export class Game {
         ctx.fill();
       }
     }
-    // landmark labels when zoomed out a bit
+    // landmark labels when zoomed out a bit (one per spot: a label that would overlap one already
+    // placed waits until the view moves)
     if (v.scale < 9) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      const fs = 13 / v.scale;
+      ctx.font = `700 ${fs}px system-ui, sans-serif`;
+      const taken: number[] = [];
       for (const l of this.world.landmarks.values()) {
         if (l.x < v.x0 || l.x > v.x1 || l.y < v.y0 || l.y > v.y1) continue;
-        const fs = 13 / v.scale;
-        ctx.font = `700 ${fs}px system-ui, sans-serif`;
         const w = ctx.measureText(l.name).width;
+        const x0 = l.x - w / 2 - fs * 0.4, y0 = l.y - fs * 0.68, x1 = x0 + w + fs * 0.8, y1 = y0 + fs * 1.36;
+        let free = true;
+        for (let i = 0; i < taken.length && free; i += 4) if (x0 < taken[i + 2] && x1 > taken[i] && y0 < taken[i + 3] && y1 > taken[i + 1]) free = false;
+        if (!free) continue;
+        taken.push(x0, y0, x1, y1);
         ctx.fillStyle = 'rgba(10,12,16,0.45)';
-        roundRect(ctx, l.x - w / 2 - fs * 0.4, l.y - fs * 0.68, w + fs * 0.8, fs * 1.36, fs * 0.3);
+        roundRect(ctx, x0, y0, x1 - x0, y1 - y0, fs * 0.3);
         ctx.fill();
         ctx.fillStyle = this.save.found.includes(l.id) ? '#e1f5fe' : '#fff59d';
         ctx.fillText(l.name, l.x, l.y);
