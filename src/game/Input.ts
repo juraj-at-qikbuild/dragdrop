@@ -37,7 +37,7 @@ export class Input {
       this.resetTouch();
     };
     addEventListener('blur', release);
-    addEventListener('visibilitychange', () => document.hidden && release());
+    document.addEventListener('visibilitychange', () => document.hidden && release());
     // The mouse only: a tap on the touch screen also sends emulated mouse events, which would turn
     // the player toward the tap. Pointer events say which device they came from.
     addEventListener('pointermove', (e) => {
