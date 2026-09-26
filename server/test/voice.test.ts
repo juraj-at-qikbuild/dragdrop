@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import type { PrivateEvent } from '../../src/shared/sim/events';
 import type { AuthVerifier } from '../src/auth-types';
 import { Supa } from '../src/supa';
+import { config } from '../src/config';
 import { linkKey, pairVoice } from '../src/features/Voice';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, flush, loadWorld } from './helpers';
 
@@ -143,6 +144,30 @@ describe('Voice (wired into a Room)', () => {
     expect(pa?.add).toEqual([{ id: b.id, polite: a.id > b.id }]);
     expect(pb?.add).toEqual([{ id: a.id, polite: b.id > a.id }]);
     expect(pa!.add[0].polite).not.toBe(pb!.add[0].polite); // exactly one side is polite
+  });
+
+  it('a burst of voice{on:true} mints ICE at most once (rate limit + already-on + in-flight de-dup)', async () => {
+    const savedKeyId = config.cfTurnKeyId, savedToken = config.cfTurnApiToken;
+    config.cfTurnKeyId = 'kid-test';
+    config.cfTurnApiToken = 'tok-test';
+    let resolveFetch!: (r: Response) => void;
+    const fetchSpy = vi.fn(() => new Promise<Response>((r) => (resolveFetch = r)));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const { room, joinAuth, voice } = setup();
+      const a = await joinAuth(TOKEN_A, 'Aa', 'tok-a');
+      for (let i = 0; i < 8; i++) voice(a.conn, true); // a burst, all synchronous, well before the mint settles
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      resolveFetch(new Response(JSON.stringify({ iceServers: [{ urls: 'turn:turn.cloudflare.com:3478', username: 'u', credential: 'c' }] }), { status: 200 }));
+      await flush();
+      expect(room.sessionById(a.id)!.player.voiceOn).toBe(true);
+      expect(a.link.last('voiceIce')?.ice.length).toBeGreaterThan(0);
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // still just the one mint, even after it resolved
+    } finally {
+      config.cfTurnKeyId = savedKeyId;
+      config.cfTurnApiToken = savedToken;
+      vi.unstubAllGlobals();
+    }
   });
 
   it('a guest is refused while voice_requires_account is on, and accepted once the override turns it off', () => {

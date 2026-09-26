@@ -27,6 +27,11 @@ const SIG_RATE = 60;
 const SIG_BURST = 60;
 /** report: rate-limited so a report storm can't be used to spam Activity or grief a target */
 const REPORT_PER_MIN = 5;
+/** voice{on:true}: a small burst (a toggle, a reconnect) but capped hard, so a flood of them can't
+ *  each mint their own Cloudflare TURN credentials (they'd also be de-duped by voiceOn/inFlight below,
+ *  this only bounds how often that check itself even runs) */
+const VOICE_RATE = 0.5; // 1 token every 2s
+const VOICE_BURST = 4;
 
 const MSG_DISABLED = 'Hlasový chat je teraz vypnutý.';
 const MSG_GUEST = 'Hlasový chat je len pre prihlásených hráčov.';
@@ -93,9 +98,13 @@ export class Voice implements RoomFeature {
   private pairTimer = 0;
   private sigBuckets = new WeakMap<Session, Bucket>();
   private reportBuckets = new WeakMap<Session, Bucket>();
+  private voiceBuckets = new WeakMap<Session, Bucket>();
   /** per-session cached TURN credentials (server/src/turn.ts); one Map per Room/Voice instance so
    *  tests (and separate Rooms) never share cached credentials */
   private turnCache = new Map<string, TurnCacheEntry>();
+  /** a mint already in flight for a session key, so a burst of `voice{on:true}` (or an off/on flip
+   *  while the first mint hasn't landed yet) never fires more than one concurrent Cloudflare request */
+  private inFlight = new Map<string, Promise<IceServer[]>>();
   private unsubConfig: () => void;
 
   messages: FeatureHandlers = {
@@ -147,6 +156,10 @@ export class Voice implements RoomFeature {
   // ------------------------------------------------------------------------------------- opt in/out
   private onVoice(s: Session, m: Extract<ClientMsg, { t: 'voice' }>) {
     if (!m.on) return this.turnOff(s);
+    if (s.player.voiceOn) return; // already on: ICE was already sent, or its mint is already in flight
+    const t = this.room.wallNow();
+    const bucket = this.voiceBuckets.get(s) ?? this.voiceBuckets.set(s, new Bucket(VOICE_RATE, VOICE_BURST, t)).get(s)!;
+    if (!bucket.take(t)) return;
     const reason = this.refusalReason(s);
     if (reason) {
       s.player.voiceOn = false;
@@ -177,7 +190,12 @@ export class Voice implements RoomFeature {
   }
 
   private async mintAndSendIce(s: Session) {
-    const ice: IceServer[] = await mintIceServers(config.cfTurnKeyId, config.cfTurnApiToken, fetch, this.turnCache, s.key);
+    let p = this.inFlight.get(s.key);
+    if (!p) {
+      p = mintIceServers(config.cfTurnKeyId, config.cfTurnApiToken, fetch, this.turnCache, s.key).finally(() => this.inFlight.delete(s.key));
+      this.inFlight.set(s.key, p);
+    }
+    const ice = await p;
     if (!s.player.voiceOn) return; // turned off (or left) while the mint was in flight
     this.room.sendTo(s, { t: 'voiceIce', ice });
   }
