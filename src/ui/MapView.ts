@@ -64,8 +64,10 @@ export class MapView {
   private pointers = new Map<number, { x: number; y: number; sx: number; sy: number }>();
   private dragged = false;
   private pinch = 0;
-  /** legend rows' hit boxes, from the last draw */
-  private legendHits: { x: number; y: number; w: number; h: number; id: Group }[] = [];
+  /** legend rows' hit boxes, from the last draw ('toggle': the touch screen's "Vrstvy" chip) */
+  private legendHits: { x: number; y: number; w: number; h: number; id: Group | 'toggle' }[] = [];
+  /** touch: the legend opened from its chip */
+  private legendOpen = false;
   private hover: { x: number; y: number } | null = null;
 
   constructor(private g: Game) {
@@ -99,8 +101,15 @@ export class MapView {
   /** the map's frame on screen (CSS px) */
   private frame() {
     const W = this.g.viewW, H = this.g.viewH;
-    const top = 44, bottom = 30;
-    return { x: 8, y: top, w: W - 16, h: H - top - bottom };
+    const L = this.g.layout;
+    if (!L.touch) {
+      const top = 44, bottom = 30;
+      return { x: 8, y: top, w: W - 16, h: H - top - bottom };
+    }
+    // a phone: clear of the notch, a smaller title, two help lines under the map
+    const x = Math.max(8, L.padL - 2), r = Math.max(8, L.padR - 2);
+    const top = L.padT + (L.compact ? 30 : 40), bottom = L.padB + 32;
+    return { x, y: top, w: W - x - r, h: H - top - bottom };
   }
 
   private fitZoom() {
@@ -177,7 +186,8 @@ export class MapView {
 
   private onMove(e: PointerEvent) {
     if (!this.g.showMap) return;
-    this.hover = { x: e.clientX, y: e.clientY };
+    // what's under the cursor (a finger has no hover; the cross in the middle stays for it)
+    if (e.pointerType === 'mouse') this.hover = { x: e.clientX, y: e.clientY };
     const p = this.pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -210,7 +220,8 @@ export class MapView {
   private click(sx: number, sy: number) {
     for (const h of this.legendHits)
       if (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h) {
-        this.groups[h.id] = !this.groups[h.id];
+        if (h.id === 'toggle') this.legendOpen = !this.legendOpen;
+        else this.groups[h.id] = !this.groups[h.id];
         return;
       }
     const f = this.frame();
@@ -575,17 +586,27 @@ export class MapView {
     this.drawLegend(ctx, f);
     this.drawHoverInfo(ctx, f);
     // title and help
+    const L = g.layout;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = '26px "Arial Black", Impact, sans-serif';
-    outlined(ctx, 'BRATISLAVA – mapa', W / 2, 8, '#ffd600');
+    ctx.font = `${L.touch && L.compact ? 20 : 26}px "Arial Black", Impact, sans-serif`;
+    outlined(ctx, 'BRATISLAVA – mapa', W / 2, L.touch ? L.padT : 8, '#ffd600');
     ctx.font = `600 12px ${BODY}`;
     ctx.textBaseline = 'bottom';
     const pad = g.input.pad.active;
     const help = pad
       ? 'Páčka: posun · RT/LT: priblíženie · Y: cieľ · X: zrušiť cieľ · Back: zavrieť'
-      : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Pravý klik: zrušiť · 1–7: vrstvy · M: zavrieť';
-    outlined(ctx, `${help}   ·   Čumil ${g.save.cumils.length}/10 · pamiatky ${g.save.found.length}/${g.world.landmarks.size}   ·   © OpenStreetMap`, W / 2, H - 7, '#cfd8dc', 3);
+      : L.touch
+        ? 'Ťahaj: posun · Štipni: priblíženie · Ťukni: cieľ GPS (znova: zrušiť)'
+        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Pravý klik: zrušiť · 1–7: vrstvy · M: zavrieť';
+    const stats = `Čumil ${g.save.cumils.length}/10 · pamiatky ${g.save.found.length}/${g.world.landmarks.size}   ·   © OpenStreetMap`;
+    const line = `${help}   ·   ${stats}`;
+    if (L.touch && ctx.measureText(line).width > W - L.padL - L.padR - 8) {
+      // too long for a phone: the help, then the stats under it
+      ctx.font = `600 11px ${BODY}`;
+      outlined(ctx, help, W / 2, H - L.padB - 17, '#cfd8dc', 3);
+      outlined(ctx, stats, W / 2, H - L.padB - 3, '#cfd8dc', 3);
+    } else outlined(ctx, line, W / 2, H - (L.touch ? L.padB + 5 : 7), '#cfd8dc', 3);
   }
 
   /** Street and square names, quarters, boroughs, landmarks and places, decluttered: the more
@@ -738,6 +759,9 @@ export class MapView {
 
   /** the legend: the place layers, click (or 1-7) to switch each on or off */
   private drawLegend(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
+    // (cleared even when nothing's drawn: after a rotation stale boxes would still toggle layers)
+    this.legendHits = [];
+    if (this.g.layout.touch) return this.drawLegendChip(ctx, f);
     const small = this.g.viewW < 700;
     if (small) return;
     const rowH = 20, w = 250, h = GROUPS.length * rowH + 30;
@@ -751,7 +775,6 @@ export class MapView {
     ctx.font = `700 12px ${BODY}`;
     ctx.fillStyle = '#ffd600';
     ctx.fillText('Vrstvy', x + 10, y + 13);
-    this.legendHits = [];
     GROUPS.forEach((gr, i) => {
       const ry = y + 26 + i * rowH;
       const on = this.groups[gr.id];
@@ -765,6 +788,49 @@ export class MapView {
       ctx.globalAlpha = 1;
       this.legendHits.push({ x, y: ry, w, h: rowH, id: gr.id });
     });
+  }
+
+  /** A touch screen: a "Vrstvy" chip in the map's corner that opens the legend, with rows big
+   *  enough for a finger. */
+  private drawLegendChip(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
+    const chipW = 104, chipH = 34, rowH = 32, w = 236;
+    const x = f.x + 8, cy = f.y + f.h - chipH - 8;
+    ctx.save();
+    ctx.fillStyle = 'rgba(12,14,18,0.85)';
+    roundRect(ctx, x, cy, chipW, chipH, chipH / 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,214,0,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 13px ${BODY}`;
+    ctx.fillStyle = '#ffd600';
+    ctx.fillText(this.legendOpen ? 'Vrstvy ▾' : 'Vrstvy ▴', x + chipW / 2, cy + chipH / 2 + 1);
+    this.legendHits.push({ x, y: cy, w: chipW, h: chipH, id: 'toggle' });
+    if (this.legendOpen) {
+      const h = GROUPS.length * rowH + 8;
+      const y = cy - h - 6;
+      ctx.fillStyle = 'rgba(12,14,18,0.88)';
+      roundRect(ctx, x, y, w, h, 12);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,214,0,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.textAlign = 'left';
+      GROUPS.forEach((gr, i) => {
+        const ry = y + 4 + i * rowH;
+        const on = this.groups[gr.id];
+        ctx.globalAlpha = on ? 1 : 0.4;
+        badge(ctx, x + 20, ry + rowH / 2, 9, gr.icon);
+        ctx.fillStyle = on ? '#eceff1' : '#90a4ae';
+        ctx.font = `600 13px ${BODY}`;
+        ctx.fillText(gr.label, x + 38, ry + rowH / 2 + 1);
+        ctx.globalAlpha = 1;
+        this.legendHits.push({ x, y: ry, w, h: rowH, id: gr.id });
+      });
+    }
+    ctx.restore();
   }
 
   /** what's under the cursor: the street (or square) there */
