@@ -18,7 +18,7 @@ import { NetEvents } from './NetEvents';
 import { ClientView, SnapshotBuilder } from './snapshot';
 import { History } from './history';
 import { hashToken, type Store } from './db';
-import { Bucket, checkMove, plausibleHit, rewindTime, type Bounds } from './validate';
+import { Bucket, checkMove, CRAWL_MAX, plausibleHit, rewindTime, type Bounds } from './validate';
 import type { WorldEvents } from '../../src/shared/sim/rules/WorldEvents';
 import { createFeatures, type Activity, type RemoteConfig, type RoomFeature, type Supa } from './features';
 import type { AuthVerifier } from './auth-types';
@@ -146,7 +146,7 @@ export class Room {
     this.debug = !!opts.debug;
     this.auth = opts.auth ?? null;
     this.wall = opts.wallClock ?? (() => Date.now());
-    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server' });
+    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server', downed: true });
     // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
     // watching closely even less
     this.sim.physics.step_ = 1 / 60;
@@ -491,7 +491,11 @@ export class Room {
     const o = p.observer;
     o.hw = Math.min(150, Math.max(5, r.hw));
     o.hh = Math.min(150, Math.max(5, r.hh));
-    if (r.epoch !== p.epoch || p.state !== 'play') return;
+    // downed (Revive): still accepted, on foot only, crawl-speed capped — everything else is ignored
+    const downed = p.state === 'downed';
+    if (r.epoch !== p.epoch) return;
+    if (p.state !== 'play' && !downed) return;
+    if (downed && r.veh) return;
     if (s.poseEpoch !== p.epoch) {
       // first report since a respawn: measure moves from where the server put them
       s.poseEpoch = p.epoch;
@@ -499,7 +503,7 @@ export class Room {
       s.lastPoseAt = t;
     }
     const inCar = !!r.veh;
-    const verdict = checkMove(s.lastPose, r, t - s.lastPoseAt, inCar || s.wasInCar, this.bounds);
+    const verdict = checkMove(s.lastPose, r, t - s.lastPoseAt, inCar || s.wasInCar, this.bounds, downed ? CRAWL_MAX : undefined);
     if (verdict === 'reject') return this.strike(s.conn!);
     if (verdict === 'teleport') {
       this.counters.teleports++;

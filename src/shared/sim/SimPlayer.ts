@@ -53,6 +53,10 @@ export interface PlayerPolice {
   spikeTimer: number;
 }
 
+/** seconds a downed player has to be revived before they bleed out (SimOptions.downed). Here, not in
+ *  Sim.ts, so rules can import it without a runtime import cycle (Sim.ts imports the rules). */
+export const DOWNED_BLEED = 25;
+
 export class SimPlayer {
   wanted = 0;
   unseen = 0;

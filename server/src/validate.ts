@@ -6,6 +6,8 @@ import type { Level } from '../../src/shared/world/World';
 export const FOOT_MAX = 7.2 * 1.5;
 /** fastest vehicle (sport, 62 m/s) with nitro (x1.25) and the physics clamp (x1.15), plus slack */
 export const CAR_MAX = 62 * 1.25 * 1.15 * 1.3;
+/** downed players crawl at up to 0.8 m/s (Revive; Room.applyReport), plus the same slack factor as FOOT_MAX */
+export const CRAWL_MAX = 0.8 * 1.5;
 /** a jump larger than this is always a teleport */
 export const TELEPORT_M = 40;
 /** extra distance allowed per update to absorb jitter and packet bunching */
@@ -29,8 +31,9 @@ const finite = (...v: number[]) => v.every(Number.isFinite);
 /**
  * Checks one movement step. `dtMs` is the wall-clock time since the previous accepted update.
  * Returns 'ok', 'reject' (drop the update) or 'teleport' (drop it and send the client a correction).
+ * `maxSpeed` overrides the inCar/on-foot pick (Revive: a downed player may only crawl, CRAWL_MAX).
  */
-export function checkMove(prev: Pose | null, next: Pose, dtMs: number, inCar: boolean, bounds: Bounds): 'ok' | 'reject' | 'teleport' {
+export function checkMove(prev: Pose | null, next: Pose, dtMs: number, inCar: boolean, bounds: Bounds, maxSpeed?: number): 'ok' | 'reject' | 'teleport' {
   if (!finite(next.x, next.y)) return 'reject';
   if (next.x < bounds.x0 || next.x > bounds.x1 || next.y < bounds.y0 || next.y > bounds.y1) return 'reject';
   if (!prev) return 'ok';
@@ -38,7 +41,7 @@ export function checkMove(prev: Pose | null, next: Pose, dtMs: number, inCar: bo
   if (d > TELEPORT_M) return 'teleport';
   // updates can bunch up after a stall, so clamp the time window generously
   const dt = Math.min(Math.max(dtMs, 50), 2000) / 1000;
-  const max = (inCar ? CAR_MAX : FOOT_MAX) * dt + SLACK_M;
+  const max = (maxSpeed ?? (inCar ? CAR_MAX : FOOT_MAX)) * dt + SLACK_M;
   return d <= max ? 'ok' : 'teleport';
 }
 

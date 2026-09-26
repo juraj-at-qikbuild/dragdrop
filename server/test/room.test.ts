@@ -349,7 +349,7 @@ describe('Room respawn', () => {
     tick(2);
     const p = room.sim.players.get(w.id)!;
     room.sim.hurtPlayer(p, 1000, p.ped.x, p.ped.y);
-    tick(100); // wasted, then respawned at a hospital
+    tick(600); // downed (25 s bleed-out) → wasted → respawned at a hospital
     expect(p.state).toBe('play');
     expect(p.epoch).toBe(1);
     const hx = p.ped.x, hy = p.ped.y;
@@ -654,5 +654,116 @@ describe('accounts: nicknames, claiming, deletion (store-backed)', () => {
       expect(b.link.closed).toBeNull();
       expect(room.sim.players.get(b.w.id)!.nick).toBe('Jozef'); // kept
     });
+describe('Revive (downed online)', () => {
+  it('downing is on for online play', () => {
+    const { room } = setup();
+    expect(room.sim.downed).toBe(true);
+  });
+
+  it('sends the downed state and the ped flag over the wire', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const b = join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    room.onMessage(b.conn, stateMsg(b.x!, b.y!));
+    tick(4);
+    const pa = room.sim.players.get(a.id!)!, pb = room.sim.players.get(b.id!)!;
+    room.sim.hurtPlayer(pb, 1000, pa.ped.x, pa.ped.y, a.id!);
+    expect(pb.state).toBe('downed');
+    tick(2);
+    expect(b.link.lastSnapshot().me.state).toBe('downed');
+    // the ped record is only resent when it changes (delta-encoded snapshots): scan every one sent,
+    // like the "a shot NPC dies for everyone" test above does, instead of just the latest
+    let downed: boolean | undefined;
+    for (const s of a.link.snapshots()) for (const e of s.ents) if (e.id === b.ped && e.type === Ent.Ped) downed = e.v.downed;
+    expect(downed).toBe(true);
+  });
+
+  it('accepts crawl reports on foot while downed, capped well below the normal on-foot speed', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!;
+    room.sim.down(pa);
+    room.onMessage(a.conn, stateMsg(pa.ped.x, pa.ped.y)); // baseline report at the downed position
+    tick(20); // ~1 s passes before the next report
+    const x0 = pa.ped.x, y0 = pa.ped.y;
+    room.onMessage(a.conn, stateMsg(x0 + 1, y0)); // a plausible 1 m/s crawl: accepted
+    expect(a.link.json('correct')).toHaveLength(0);
+    expect(pa.ped.x).toBeCloseTo(x0 + 1, 1);
+    tick(20); // another ~1 s
+    const x1 = pa.ped.x;
+    room.onMessage(a.conn, stateMsg(x1 + 5, y0)); // 5 m/s: fine on foot, far too fast crawling
+    const c = a.link.last('correct');
+    expect(c).toBeTruthy();
+    expect(c.x).toBeCloseTo(x1, 1);
+  });
+
+  it('ignores a vehicle report while downed (no driving) but keeps the figure on foot', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!;
+    room.sim.down(pa);
+    const x0 = pa.ped.x, y0 = pa.ped.y;
+    room.onMessage(a.conn, stateMsg(x0, y0, {
+      veh: { vid: 1, av: 0, steer: 0, throttle: 0, handbrake: false, boost: false, siren: false, horn: false, boosting: false, wrecked: false, tyres: false, health: 100, dmg: [0, 0, 0, 0], fire: -1, sinking: 0, nitro: 1, skid: 0 },
+    }));
+    tick(1);
+    expect(pa.ped.vehicle).toBeNull();
+    expect(pa.state).toBe('downed'); // the report was simply dropped, nothing corrected or crashed
+  });
+
+  it('giveUp sends a downed player straight to wasted', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!;
+    room.sim.down(pa);
+    room.onMessage(a.conn, JSON.stringify({ t: 'giveUp' }));
+    expect(pa.state).toBe('wasted');
+    expect(pa.stateTimer).toBe(4);
+  });
+
+  it('ignores a fire message from a downed player', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const b = join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    room.onMessage(b.conn, stateMsg(b.x!, b.y!));
+    tick(4);
+    const pa = room.sim.players.get(a.id!)!, pb = room.sim.players.get(b.id!)!;
+    room.sim.hurtPlayer(pb, 1000, pa.ped.x, pa.ped.y, a.id!);
+    expect(pb.state).toBe('downed');
+    room.onMessage(b.conn, JSON.stringify({ t: 'debug', give: 'pistol' }));
+    const shotsBefore = room.stats().shots;
+    room.onMessage(b.conn, JSON.stringify({
+      t: 'fire', w: 'pistol', ox: pb.ped.x, oy: pb.ped.y, a: 0, lvl: 0, rt: 0,
+      pellets: [{ a: 0, kind: 0, hit: 0, hx: pb.ped.x + 1, hy: pb.ped.y }],
+    }));
+    expect(room.stats().shots).toBe(shotsBefore);
+    expect(pb.ammo.pistol).toBe(999);
+  });
+
+  it('lethal PvP damage downs the victim online; standing close revives them (no bonus for their own attacker)', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const b = join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    room.onMessage(b.conn, stateMsg(b.x!, b.y!));
+    tick(4);
+    const pa = room.sim.players.get(a.id!)!, pb = room.sim.players.get(b.id!)!;
+    const moneyBefore = pa.profile.money; // baseline: spawning near a landmark can pay its own, unrelated reward
+    room.sim.hurtPlayer(pb, 1000, pa.ped.x, pa.ped.y, a.id!);
+    expect(pb.state).toBe('downed');
+    pa.ped.x = pb.ped.x + 1.5;
+    pa.ped.y = pb.ped.y;
+    tick(65); // just over 3 s
+    expect(pb.state).toBe('play');
+    expect(pb.ped.health).toBe(40);
+    expect(pa.profile.money).toBe(moneyBefore); // Anna downed Boris herself: no Samaritan bonus for that revive
   });
 });

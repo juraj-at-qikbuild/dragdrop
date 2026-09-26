@@ -7,7 +7,9 @@ import { SpriteCache } from './SpriteCache';
 /** last draw time per ped, for decaying the hit flash in real time */
 const lastDraw = new WeakMap<Ped, number>();
 
-export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmosphere) {
+/** `scale`: the camera's world→screen factor (View.scale), so a downed figure's ✚ marker can stay a
+ *  constant size on screen regardless of zoom (Revive; docs/plans/social-events.md). */
+export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmosphere, scale = 1) {
   // decay the hit-flash timer using real elapsed time between draws
   const now = performance.now();
   const last = lastDraw.get(p);
@@ -18,6 +20,37 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   ctx.save();
   ctx.translate(p.x, p.y);
   const b = p.build;
+  if (p.downed) {
+    // lying wounded (Revive), not dead: the same sprawled pose as `dead` below, a smaller/darker
+    // blood pool (still bleeding, not a pool that's been growing for a while), no death rotation lock.
+    const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
+    ctx.rotate(p.angle + rot);
+    ctx.scale(1.45 * b, 1.45 * b);
+    ctx.fillStyle = 'rgba(90,0,0,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(0.1, 0.05, 0.22, 0.16, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = shade(p.shirt, -0.15);
+    ctx.beginPath();
+    ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineCap = 'round';
+    const legCol = shade(p.pants, -0.1);
+    drawLimb(ctx, -0.14, -0.1, (hashRand(p.seed, 4) - 0.5) * 1.3 + 0.35, 0.32, 0.1, legCol);
+    drawLimb(ctx, -0.14, 0.1, (hashRand(p.seed, 5) - 0.5) * 1.3 - 0.35, 0.32, 0.1, legCol);
+    drawLimb(ctx, 0.12, -0.12, (hashRand(p.seed, 2) - 0.5) * 1.8, 0.28, 0.09, p.skin);
+    drawLimb(ctx, 0.12, 0.12, (hashRand(p.seed, 3) - 0.5) * 1.8 + Math.PI * 0.15, 0.28, 0.09, p.skin);
+    ctx.fillStyle = p.skin;
+    ctx.beginPath();
+    ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 0.02;
+    ctx.stroke();
+    ctx.restore();
+    drawDownedMarker(ctx, p, scale);
+    return;
+  }
   if (p.dead) {
     const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
     ctx.rotate(p.angle + rot);
@@ -144,6 +177,28 @@ function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, col
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
+}
+
+/** a pulsing red ✚ over a downed figure's head, a constant size on screen at any zoom (Revive) */
+function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) {
+  ctx.save();
+  ctx.translate(p.x, p.y - 1.7);
+  const k = 1 / scale; // undoes the camera zoom: 1 unit here is 1 screen px
+  ctx.scale(k, k);
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+  ctx.globalAlpha = 0.6 + pulse * 0.4;
+  ctx.fillStyle = '#e53935';
+  ctx.beginPath();
+  ctx.arc(0, 0, 9 + pulse * 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-1.6, -5, 3.2, 10);
+  ctx.fillRect(-5, -1.6, 10, 3.2);
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function shoe(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {

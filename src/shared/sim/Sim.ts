@@ -23,7 +23,7 @@ import { Clock } from './Clock';
 import { IdPool } from './IdPool';
 import { nullEvents, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
-import { SimPlayer, type PlayerState, type Profile } from './SimPlayer';
+import { DOWNED_BLEED, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
 import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
 
@@ -52,8 +52,7 @@ const SPRAY_COST = 250;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
 const CREDIT_WINDOW = 10;
-/** seconds a downed player has to be revived before they bleed out (SimOptions.downed) */
-export const DOWNED_BLEED = 25;
+export { DOWNED_BLEED } from './SimPlayer';
 
 export class Sim {
   world: World;
@@ -722,8 +721,10 @@ export class Sim {
     this.events.toPlayer(p.id, { k: 'down', state: 'wasted' });
   }
 
+  /** also busts a downed player (Revive): a cop who catches up before a revive or a bleed-out. */
   bust(p: SimPlayer) {
-    if (p.state !== 'play') return;
+    if (p.state !== 'play' && p.state !== 'downed') return;
+    p.ped.downed = false;
     this.setState(p, 'busted');
     p.stateTimer = 4;
     this.events.toPlayer(p.id, { k: 'down', state: 'busted' });

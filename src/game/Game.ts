@@ -412,7 +412,7 @@ export class Game {
     if (host.me.state === 'play') {
       if (frozen) this.idlePlayer(dt);
       else this.updatePlayer(dt);
-    }
+    } else if (host.me.state === 'downed' && !frozen) this.crawlPlayer(dt);
     // the pad's button legend: when it's picked up, and on getting in or out of a car
     const pad = inp.pad.active, inCar = !!this.player.vehicle;
     if (pad && (!this.padWas || inCar !== this.carWas)) this.padHints = this.padWas ? 5 : 9;
@@ -562,6 +562,17 @@ export class Game {
       p.y = v.y;
       this.audio.engine(0, 0, false);
     } else p.move(dt, this.world, 0, 0);
+  }
+
+  /** downed (Revive, online only): crawl with the movement keys, no running, weapons or cars — the
+   *  server enforces the same cap and rejects vehicle reports (Room.applyReport). */
+  private crawlPlayer(dt: number) {
+    const CRAWL_SPEED = 0.8;
+    const ax = this.input.axis();
+    const len = Math.hypot(ax.x, ax.y);
+    const vx = len ? (ax.x / len) * CRAWL_SPEED * Math.min(1, len) : 0;
+    const vy = len ? (ax.y / len) * CRAWL_SPEED * Math.min(1, len) : 0;
+    this.player.move(dt, this.world, vx, vy);
   }
 
   /** trace a shot from (x, y) against what this client sees, and hand it to the world */
@@ -742,8 +753,8 @@ export class Game {
     const me = this.player;
     const underground = this.focusLevel() === -1;
     const drawEntities = (level: Level) => {
-      for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos);
-      for (const p of host.peds) if (!p.dead && !p.vehicle && p !== me && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos);
+      for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      for (const p of host.peds) if (!p.dead && !p.vehicle && p !== me && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
       for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, underground ? undefined : this.tunnelFade);
       for (const veh of host.vehicles) if (veh.level === level && inView(veh.x, veh.y, 8)) drawVehicle(veh, ctx, this.time, atmos);
     };
@@ -1026,7 +1037,7 @@ export class Game {
   private drawPlayerMarker(ctx: CanvasRenderingContext2D) {
     // the player is drawn above roofs as a subtle marker when hidden under buildings
     const p = this.player;
-    if (!p.vehicle) drawPed(p, ctx, this.atmos);
+    if (!p.vehicle) drawPed(p, ctx, this.atmos, this.cam.scale);
     if (this.state !== 'play') return;
     const f = this.focus();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';

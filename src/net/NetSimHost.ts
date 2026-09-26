@@ -192,6 +192,9 @@ export class NetSimHost implements SimHost, NetView {
     me.searchZone = ps.zone;
     me.profile.money = ps.money;
     if (ps.state !== 'play' && !p.dead) p.health = 0;
+    // the lying-down pose and crawling both key off this (Revive); `dead` stays false for the local
+    // player, so this never gets mistaken for the (NPC-only) death pose
+    p.downed = ps.state === 'downed';
     // ammo: the server's count, minus shots it hasn't seen yet
     this.pendingAmmo = this.pendingAmmo.filter((q) => ((s.ack - q.seq) & 0xffff) > 0x8000);
     const pend = (w: WeaponId) => this.pendingAmmo.reduce((n, q) => n + (q.w === w ? 1 : 0), 0);
@@ -485,6 +488,10 @@ export class NetSimHost implements SimHost, NetView {
 
   horn() {
     if (this.ownCar) this.conn.send({ t: 'horn' });
+  }
+
+  giveUp() {
+    this.conn.send({ t: 'giveUp' });
   }
 
   styleCash() {

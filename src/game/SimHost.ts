@@ -115,6 +115,8 @@ export interface SimHost {
   requestEnter(v: Vehicle): void;
   requestExit(): void;
   horn(): void;
+  /** downed (Revive): skip the bleed-out wait and go straight to hospital; a no-op offline (no downing there) */
+  giveUp(): void;
   /** combo cash (offline only) */
   styleCash(n: number): void;
   /** host-specific reaction to a private event (before the generic effects) */

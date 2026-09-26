@@ -171,8 +171,8 @@ export class Hud {
       ctx.globalAlpha = 1;
     }
 
-    // wasted / busted
-    if (g.state !== 'play') {
+    // wasted / busted (downed has its own HUD: ReviveUi's vignette + "Krvácaš" + give-up prompt)
+    if (g.state !== 'play' && g.state !== 'downed') {
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
@@ -452,7 +452,7 @@ function glyphW(label: string, r: number) {
 
 /** A button as the player's input shows it: the pad's round face buttons (coloured) and pill
  *  shoulders and sticks, a keyboard key cap, or the touch screen's button. */
-function buttonGlyph(ctx: CanvasRenderingContext2D, label: string, cx: number, cy: number, r: number, kind: 'pad' | 'key' | 'touch') {
+export function buttonGlyph(ctx: CanvasRenderingContext2D, label: string, cx: number, cy: number, r: number, kind: 'pad' | 'key' | 'touch') {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

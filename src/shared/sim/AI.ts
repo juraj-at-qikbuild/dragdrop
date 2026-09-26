@@ -1555,20 +1555,27 @@ export class AI {
     return true;
   }
 
-  /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by */
+  /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by.
+   *  Downed counts too (Revive): a cop can catch up and bust someone lying there before they're
+   *  revived or bleed out. */
   private copTarget(p: Ped): SimPlayer | undefined {
     const sim = this.sim;
     const t = sim.players.get(p.targetPid);
-    if (t && t.wanted > 0 && t.state === 'play') return t;
+    if (t && t.wanted > 0 && this.chaseable(t)) return t;
     let best: SimPlayer | undefined, bd = 80;
     for (const q of sim.players.values()) {
-      if (q.wanted <= 0 || q.state !== 'play') continue;
+      if (q.wanted <= 0 || !this.chaseable(q)) continue;
       const f = q.focus();
       const d = dist(p.x, p.y, f.x, f.y);
       if (d < bd) (bd = d), (best = q);
     }
     if (best) p.targetPid = best.id;
     return best;
+  }
+
+  /** a cop on foot can chase (and bust) a player who's still playing or lying downed (Revive) */
+  private chaseable(q: SimPlayer) {
+    return q.state === 'play' || q.state === 'downed';
   }
 
   private copOnFoot(p: Ped, dt: number) {
@@ -1584,7 +1591,9 @@ export class AI {
     const tx = pl.vehicle ? pl.vehicle.x : pl.x, ty = pl.vehicle ? pl.vehicle.y : pl.y;
     const d = dist(p.x, p.y, tx, ty);
     const los = d < 30 && (p.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(p.x, p.y, tx, ty, p.level) >= 1;
-    const armed = t.wanted >= 3 || t.shotCops;
+    // downed: lying wounded, can't fight back (Revive) — cops just walk up and cuff them, never shoot
+    const downed = t.state === 'downed';
+    const armed = !downed && (t.wanted >= 3 || t.shotCops);
     if (armed && los && d < 22) {
       // stop and shoot
       p.move(dt, sim.world, 0, 0);
@@ -1599,9 +1608,10 @@ export class AI {
       const sp = p.speed * (pl.vehicle ? 0.8 : 1);
       p.move(dt, sim.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp);
     }
-    // busted when touching the player on foot (or stopped car)
+    // busted when touching the player on foot (or stopped car), or within reach of one lying downed
     const stopped = !pl.vehicle || pl.vehicle.speed < 1.2;
-    if (d < (pl.vehicle ? pl.vehicle.radius + 0.6 : 1.3) && stopped && !armed) {
+    const reach = downed ? 2 : pl.vehicle ? pl.vehicle.radius + 0.6 : 1.3;
+    if (d < reach && stopped && !armed) {
       p.bustTimer += dt;
       if (p.bustTimer > (pl.vehicle ? 1.6 : 0.8)) sim.bust(t);
     } else p.bustTimer = Math.max(0, p.bustTimer - dt);
