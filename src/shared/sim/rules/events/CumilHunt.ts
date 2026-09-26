@@ -9,6 +9,7 @@ import { dist } from '../../../util/math';
 import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents';
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
+import { centroidOf, clearOfPlayers } from './placement';
 
 const ANNOUNCE_S = 30;
 const LIVE_S = 7 * 60;
@@ -21,23 +22,6 @@ const CIRCLE_START = 450, CIRCLE_END = 30, CIRCLE_STEPS = 6, CIRCLE_DURATION_S =
 const CIRCLE_JITTER = 0.6;
 /** `entry().place` is recomputed at most this often */
 const PLACE_REFRESH = 10;
-
-function centroidOf(sim: Sim): { x: number; y: number } | null {
-  const obs = sim.observers();
-  if (!obs.length) return null;
-  let x = 0, y = 0;
-  for (const p of obs) {
-    const f = p.focus();
-    x += f.x;
-    y += f.y;
-  }
-  return { x: x / obs.length, y: y / obs.length };
-}
-
-function clearOfPlayers(sim: Sim, x: number, y: number, minD: number): boolean {
-  for (const p of sim.players.values()) if (dist(x, y, p.focus().x, p.focus().y) < minD) return false;
-  return true;
-}
 
 /** A ped-graph node `TARGET_MIN`..`TARGET_MAX` m from (cx, cy), at least `PLAYER_CLEARANCE` m from
  *  every player, walkable, at level 0 and dry (Pickups.ts places the ten fixed Čumils on this same

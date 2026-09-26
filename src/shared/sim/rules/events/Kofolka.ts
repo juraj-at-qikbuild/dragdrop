@@ -10,6 +10,7 @@ import { dist } from '../../../util/math';
 import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents';
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
+import { centroidOf, clearOfPlayers } from './placement';
 
 const POT = 1500;
 const PAYOUT_PER_SEC = 10;
@@ -26,24 +27,6 @@ const PLACE_REFRESH = 10;
 const SPILL_MIN_POT = 50;
 const SPILL_MAX_PICKUPS = 10;
 const KOFOLKA_RED = '#c8102e';
-
-/** the observing players' centroid, or null when there are none (nothing to spawn near) */
-function centroidOf(sim: Sim): { x: number; y: number } | null {
-  const obs = sim.observers();
-  if (!obs.length) return null;
-  let x = 0, y = 0;
-  for (const p of obs) {
-    const f = p.focus();
-    x += f.x;
-    y += f.y;
-  }
-  return { x: x / obs.length, y: y / obs.length };
-}
-
-function clearOfPlayers(sim: Sim, x: number, y: number, minD: number): boolean {
-  for (const p of sim.players.values()) if (dist(x, y, p.focus().x, p.focus().y) < minD) return false;
-  return true;
-}
 
 /** stand-clear check along the van's length (AI.ts's own `clearOfWalls`, private there) */
 function clearOfWalls(sim: Sim, x: number, y: number, angle: number): boolean {
