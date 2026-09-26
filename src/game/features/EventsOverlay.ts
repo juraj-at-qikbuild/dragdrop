@@ -13,7 +13,8 @@ import type { EventEntry, EventKind } from '../../shared/sim/rules/types';
 import { eventLeft } from '../SimHost';
 import { placeName } from '../../shared/sim/rules/placeName';
 import { formatMoney } from '../../shared/util/math';
-import { drawEventList, type EventRow } from '../../ui/kit/EventList';
+import { drawEventList, EVENT_ROW_H, type EventRow } from '../../ui/kit/EventList';
+import { edgePoint, inPlay } from '../../ui/layout';
 import { mapMarker, pulsingCircle, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
 
@@ -48,12 +49,13 @@ export class EventsOverlay implements ClientFeature {
     const g = this.g;
     const live = g.host.live;
     if (!live.events.length) return;
-    const small = g.viewW < 700;
-    const pad = small ? 10 : 16;
-    const mr = small ? 60 : 88; // matches Hud.draw's minimap radius
-    const x = pad + mr * 2 + 12; // just right of the minimap
-    const y = g.viewH - pad - mr * 2; // level with its top edge, growing downward
+    const L = g.layout;
     const rows = live.events.map((e) => this.rowFor(e));
+    // just right of the minimap, level with its top edge, growing downward; on a touch screen in the
+    // feature stack under the street name
+    const spot = g.stackSpot(rows.length * EVENT_ROW_H + 26);
+    const x = spot ? spot.x : L.mini.cx + L.mini.r + 12;
+    const y = spot ? spot.y : L.mini.cy - L.mini.r;
     const usedH = drawEventList(ctx, x, y, rows, 'left');
 
     const kof = live.events.find((e) => e.kind === 'kofolka');
@@ -87,12 +89,12 @@ export class EventsOverlay implements ClientFeature {
     }
     const cx = g.viewW / 2 + (tx - g.cam.x) * g.cam.scale;
     const cy = g.viewH / 2 + (ty - g.cam.y) * g.cam.scale;
-    if (cx > 40 && cx < g.viewW - 40 && cy > 40 && cy < g.viewH - 40) return; // on screen: the floating cash icon already marks it
+    if (inPlay(g.layout, cx, cy)) return; // on screen: the floating cash icon already marks it
     const f = g.focus();
     const a = Math.atan2(ty - f.y, tx - f.x);
-    const r = Math.min(g.viewW, g.viewH) * 0.38;
+    const e = edgePoint(g.layout, a);
     ctx.save();
-    ctx.translate(g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r);
+    ctx.translate(e.x, e.y);
     ctx.rotate(a);
     ctx.fillStyle = KIND_INFO.kofolka.color;
     ctx.strokeStyle = '#000';

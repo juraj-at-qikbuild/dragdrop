@@ -173,15 +173,18 @@ export class PartyUi implements ClientFeature {
     const g = this.g;
     const party = g.host.live.party;
     if (!party || !g.online) return;
-    const small = g.viewW < 700;
+    const small = g.layout.small;
     const pad = small ? 10 : 16;
     const rowH = small ? 15 : 17;
     const w = small ? 132 : 154;
     const h = 8 + rowH * (party.members.length + 1);
+    // the top-left corner; on a touch screen (the minimap's corner there) in the feature stack
+    const spot = g.stackSpot(h);
+    const px = spot ? spot.x : pad, py = spot ? spot.y : pad;
     const meId = g.host.me.id;
     const my = g.focus();
     ctx.save();
-    roundRect(ctx, pad, pad, w, h, 10);
+    roundRect(ctx, px, py, w, h, 10);
     ctx.fillStyle = 'rgba(10,12,16,0.62)';
     ctx.fill();
     ctx.strokeStyle = party.color;
@@ -191,19 +194,19 @@ export class PartyUi implements ClientFeature {
     ctx.textAlign = 'left';
     ctx.font = `700 ${small ? 10 : 11}px ${FONT}`;
     ctx.fillStyle = party.color;
-    ctx.fillText(`PARTIA ${party.tag}`, pad + 8, pad + 5);
+    ctx.fillText(`PARTIA ${party.tag}`, px + 8, py + 5);
     ctx.font = `600 ${small ? 11 : 12}px ${FONT}`;
     party.members.forEach((m, i) => {
-      const y = pad + 6 + rowH * (i + 1);
+      const y = py + 6 + rowH * (i + 1);
       const rr = g.online!.roster.find((r) => r[0] === m.id);
       const downed = !!rr && !!(rr[8] & ROSTER_DOWNED);
       const d = m.id === meId ? 0 : rr ? Math.round(dist(rr[2], rr[3], my.x, my.y)) : null;
       ctx.textAlign = 'left';
       ctx.fillStyle = m.online ? '#fff' : 'rgba(255,255,255,0.45)';
-      ctx.fillText(`${m.leader ? '★' : ' '} ${m.nick}${downed ? ' ✚' : ''}`, pad + 8, y);
+      ctx.fillText(`${m.leader ? '★' : ' '} ${m.nick}${downed ? ' ✚' : ''}`, px + 8, y);
       if (d !== null) {
         ctx.textAlign = 'right';
-        ctx.fillText(`${d} m`, pad + w - 8, y);
+        ctx.fillText(`${d} m`, px + w - 8, y);
       }
     });
     ctx.restore();

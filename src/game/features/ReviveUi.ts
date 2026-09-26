@@ -95,13 +95,14 @@ export class ReviveUi implements ClientFeature {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    const small = W < 700;
+    const small = g.layout.small;
     const secs = Math.max(0, Math.ceil(g.host.me.stateTimer));
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${small ? 22 : 30}px 'Rajdhani', 'Arial Black', Impact, sans-serif`;
     outlined(ctx, `Krvácaš – ${secs} s`, W / 2, H * 0.22, '#ff5252', 4);
-    this.drawGiveUpPrompt(ctx, W, H, small);
+    // a touch screen has its own "Vzdať sa" button (TouchControls)
+    if (!g.touch || g.input.pad.active) this.drawGiveUpPrompt(ctx, W, H, small);
   }
 
   private drawGiveUpPrompt(ctx: CanvasRenderingContext2D, W: number, H: number, small: boolean) {

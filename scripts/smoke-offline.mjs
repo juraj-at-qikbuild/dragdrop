@@ -41,6 +41,7 @@ try {
   console.log('[smoke] after start', s1);
   check(s1.peds > 60 && s1.cars > 30, `NPCs spawned (${s1.peds} peds, ${s1.cars} cars, ${s1.trams} trams)`);
   check(s1.pickups >= 15, `pickups placed (${s1.pickups})`);
+  check(await page.evaluate(() => document.getElementById('touch').classList.contains('hidden')), 'no touch controls on a desktop');
 
   // get into the nearest car and drive
   await page.evaluate(() => {

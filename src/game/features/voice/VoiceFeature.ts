@@ -54,6 +54,11 @@ export class VoiceFeature implements ClientFeature {
     addNametagDecorator((playerId) => (this.speaking.get(playerId) ? { icons: ['🎙'] } : null));
   }
 
+  /** push-to-talk is on and the mic open: the touch controls show a hold-to-talk button */
+  get pushToTalk(): boolean {
+    return !!this.net() && this.active && this.client.micOpen && this.mode.get() === 'ptt';
+  }
+
   private net(): NetSimHost | null {
     return this.game.host.mode === 'net' ? (this.game.host as NetSimHost) : null;
   }
@@ -95,11 +100,12 @@ export class VoiceFeature implements ClientFeature {
     const net = this.net();
     if (!net || !this.active) return;
     const g = this.game;
-    const small = g.viewW < 700;
-    const pad = small ? 10 : 16;
-    const mr = small ? 60 : 88; // Hud.ts's minimap radius: sit just clear of it, still bottom-left
-    const x = pad + mr * 2 + 14;
-    const y = g.viewH - pad - (small ? 10 : 13);
+    const L = g.layout;
+    const small = L.small;
+    // just clear of the minimap, still bottom-left; on a touch screen in the feature stack
+    const spot = g.stackSpot(20);
+    const x = spot ? spot.x + 4 : L.mini.cx + L.mini.r + 14;
+    const y = spot ? spot.y + 10 : L.H - L.padB - (small ? 10 : 13);
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -280,7 +286,7 @@ export class VoiceFeature implements ClientFeature {
   }
 
   private refreshModeLabel() {
-    const label = !this.active ? 'Vypnutý' : this.mode.get() === 'open' ? 'Otvorený mikrofón' : 'Stlač V a hovor';
+    const label = !this.active ? 'Vypnutý' : this.mode.get() === 'open' ? 'Otvorený mikrofón' : (this.game.touch ? 'Drž 🎙 a hovor' : 'Stlač V a hovor');
     this.modeBtn.textContent = 'Hlasový chat: ' + label;
   }
 

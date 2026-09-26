@@ -1,5 +1,6 @@
 import './style.css';
 import { Game } from './game/Game';
+import { TouchControls } from './ui/TouchControls';
 import type { MapJSON } from './shared/types';
 import { NetSimHost } from './net/NetSimHost';
 import { clearPendingJoin, JOIN_KEY, loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
@@ -262,45 +263,8 @@ async function boot() {
   };
   game.onPause = (p) => $('pause').classList.toggle('hidden', !p);
 
-  // touch controls
-  if (matchMedia('(pointer: coarse)').matches) {
-    $('touch').classList.remove('hidden');
-    const stick = $('stick'), knob = $('knob');
-    const setStick = (e: PointerEvent) => {
-      const r = stick.getBoundingClientRect();
-      let x = (e.clientX - r.left - r.width / 2) / (r.width / 2);
-      let y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
-      const l = Math.hypot(x, y);
-      if (l > 1) (x /= l), (y /= l);
-      Object.assign(game.input.touch.move, { x, y, on: true });
-      knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
-    };
-    stick.addEventListener('pointerdown', (e) => {
-      stick.setPointerCapture(e.pointerId);
-      setStick(e);
-    });
-    stick.addEventListener('pointermove', (e) => game.input.touch.move.on && setStick(e));
-    const end = () => {
-      Object.assign(game.input.touch.move, { x: 0, y: 0, on: false });
-      knob.style.transform = '';
-    };
-    stick.addEventListener('pointerup', end);
-    stick.addEventListener('pointercancel', end);
-    document.querySelectorAll<HTMLButtonElement>('.tbtns button').forEach((b) => {
-      const code = b.dataset.code!;
-      b.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        game.audio.init();
-        if (code === 'KeyF' || code === 'KeyM') game.input.press(code);
-        else if (code === 'fire') game.input.touch.fire = true;
-        else game.input.touchButtons.add(code);
-      });
-      const up = () => (code === 'fire' ? (game.input.touch.fire = false) : game.input.touchButtons.delete(code));
-      b.addEventListener('pointerup', up);
-      b.addEventListener('pointerleave', up);
-      b.addEventListener('pointercancel', up);
-    });
-  }
+  // touch controls (a phone or tablet, or ?touch=1)
+  if (game.touch) game.touchUi = new TouchControls(game);
 
   let last = performance.now();
   const frame = (now: number) => {
@@ -308,8 +272,10 @@ async function boot() {
     last = now;
     if (mode === 'play') {
       game.update(dt);
+      game.touchUi?.update();
       game.draw();
     } else {
+      game.touchUi?.update();
       // attract mode: slow flight between landmarks
       attractT += dt * 0.06;
       const i = Math.floor(attractT) % attractPath.length;
@@ -331,6 +297,8 @@ async function boot() {
   const unlock = () => mode === 'play' && game.audio.init();
   addEventListener('keydown', unlock);
   addEventListener('pointerdown', unlock);
+  // iOS only counts the end of a touch as the gesture that may start audio
+  addEventListener('pointerup', unlock);
 
   if (onlineBoot) {
     showMenu();

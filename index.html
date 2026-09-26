@@ -2,7 +2,7 @@
 <html lang="sk">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Blava City</title>
     <meta name="description" content="Top-down open-world crime game on the real streets of Bratislava, built from OpenStreetMap data." />
     <link rel="icon" href="./assets/erb.svg" type="image/svg+xml" />
@@ -94,15 +94,8 @@
       </form>
     </div>
 
-    <div id="touch" class="hidden">
-      <div id="stick"><div id="knob"></div></div>
-      <div class="tbtns">
-        <button data-code="fire">🔫</button>
-        <button data-code="KeyF">🚗</button>
-        <button data-code="handbrake">✋</button>
-        <button data-code="KeyM">🗺️</button>
-      </div>
-    </div>
+    <!-- touch controls, built by src/ui/TouchControls.ts on a touch screen -->
+    <div id="touch" class="hidden"></div>
 
     <script type="module" src="./src/main.ts"></script>
   </body>

@@ -12,6 +12,7 @@ import type { JobKind, JobState } from '../../shared/sim/rules/types';
 import { formatMoney } from '../../shared/util/math';
 import { outlined } from '../../ui/Hud';
 import { bandBottom } from '../../ui/kit/Banners';
+import { edgePoint, inPlay } from '../../ui/layout';
 import { mapMarker } from '../../ui/MapView';
 import { roundRect } from '../../render/shapes';
 import { openModal, isModalOpen, toast } from '../../ui/kit/dom';
@@ -80,38 +81,40 @@ export class JobsHud implements ClientFeature {
     if (!job) return;
     const g = this.g;
     const W = g.viewW;
-    const small = W < 700;
-    const pad = small ? 10 : 16;
+    const L = g.layout;
+    const small = L.small;
+    const pad = L.padL;
     // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
-    // objective/countdown/status stack never overlaps either
-    const top = bandBottom(small);
+    // objective/countdown/status stack never overlaps either; on a phone, in the objective's slot
+    const top = L.touch ? L.objective.y : bandBottom(L);
     const color = COLOR[job.kind];
 
-    this.drawObjective(ctx, OBJECTIVE[job.kind][job.stage](job.label), W, pad, small, color);
+    this.drawObjective(ctx, OBJECTIVE[job.kind][job.stage](job.label), W, pad, small, color, top);
 
     if (job.left > 0) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.font = `700 ${small ? 18 : 24}px ${HEAD}`;
       const s = Math.ceil(job.left);
-      outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, W / 2, top + (small ? 26 : 46), s < 20 ? '#ff5252' : '#fff');
+      outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, L.band.cx, top + (small ? 26 : 46), s < 20 ? '#ff5252' : '#fff');
     }
 
-    this.drawStatus(ctx, job, W, small);
+    this.drawStatus(ctx, job, top, small);
     this.drawArrowTo(ctx, job.x, job.y, color);
   }
 
   /** the objective banner, in Hud.ts's `drawObjective` idiom (private there): a rounded glassy panel,
    *  a coloured left accent, the text centred and outlined. */
-  private drawObjective(ctx: CanvasRenderingContext2D, text: string, W: number, pad: number, small: boolean, color: string) {
+  private drawObjective(ctx: CanvasRenderingContext2D, text: string, W: number, pad: number, small: boolean, color: string, by: number) {
+    const L = this.g.layout;
     const fs = small ? 13 : 16;
     ctx.font = `700 ${fs}px ${BODY}`;
-    const maxW = Math.min(W * 0.62, 560);
+    const maxW = Math.min(W * 0.62, 560, L.band.w - fs * 2);
     const lines = wrapLines(ctx, text, maxW);
     const lh = small ? 17 : 21;
     const bw = Math.min(maxW + fs * 2, W - pad * 2);
     const bh = lines.length * lh + fs * 1.1;
-    const bx = W / 2 - bw / 2, by = bandBottom(small);
+    const bx = L.band.cx - bw / 2;
     roundRect(ctx, bx, by, bw, bh, Math.min(12, bh / 2));
     const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
     grad.addColorStop(0, 'rgba(32,34,42,0.68)');
@@ -125,14 +128,15 @@ export class JobsHud implements ClientFeature {
     ctx.fillRect(bx, by, 3, bh);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    lines.forEach((l, i) => outlined(ctx, l, W / 2, by + fs * 0.55 + i * lh, '#fff59d'));
+    lines.forEach((l, i) => outlined(ctx, l, L.band.cx, by + fs * 0.55 + i * lh, '#fff59d'));
   }
 
   /** the condition/mood bar and the running pay, one compact row under the countdown */
-  private drawStatus(ctx: CanvasRenderingContext2D, job: JobState, W: number, small: boolean) {
-    const y = bandBottom(small) + (small ? 52 : 78);
+  private drawStatus(ctx: CanvasRenderingContext2D, job: JobState, top: number, small: boolean) {
+    const cx = this.g.layout.band.cx;
+    const y = top + (small ? 52 : 78);
     const bw = small ? 130 : 170, bh = small ? 9 : 11;
-    const bx = W / 2 - bw - (small ? 6 : 10);
+    const bx = cx - bw - (small ? 6 : 10);
     roundRect(ctx, bx, y, bw, bh, bh / 2);
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fill();
@@ -154,7 +158,7 @@ export class JobsHud implements ClientFeature {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${small ? 14 : 17}px ${HEAD}`;
-    outlined(ctx, formatMoney(job.pay), W / 2 + (small ? 6 : 10), y + bh / 2, '#8bdc6b', 3);
+    outlined(ctx, formatMoney(job.pay), cx + (small ? 6 : 10), y + bh / 2, '#8bdc6b', 3);
   }
 
   /** off-screen arrow to the target, Hud.ts's `drawArrow` idiom (private there, so reimplemented) */
@@ -165,14 +169,14 @@ export class JobsHud implements ClientFeature {
     const d = Math.hypot(tx - f.x, ty - f.y);
     const cx = g.viewW / 2 + (tx - g.cam.x) * g.cam.scale;
     const cy = g.viewH / 2 + (ty - g.cam.y) * g.cam.scale;
-    const onScreen = cx > 40 && cx < g.viewW - 40 && cy > 40 && cy < g.viewH - 40;
+    const onScreen = inPlay(g.layout, cx, cy);
     ctx.save();
     if (onScreen) {
       ctx.translate(cx, cy - 26 + Math.sin(g.time * 5) * 5);
       ctx.rotate(Math.PI / 2);
     } else {
-      const r = Math.min(g.viewW, g.viewH) * 0.38;
-      ctx.translate(g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r);
+      const e = edgePoint(g.layout, a);
+      ctx.translate(e.x, e.y);
       ctx.rotate(a);
     }
     ctx.fillStyle = color;
@@ -188,11 +192,11 @@ export class JobsHud implements ClientFeature {
     ctx.stroke();
     ctx.restore();
     if (!onScreen) {
-      const r = Math.min(g.viewW, g.viewH) * 0.38 - 28;
+      const e = edgePoint(g.layout, a, 28);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `700 12px ${BODY}`;
-      outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, color);
+      outlined(ctx, `${Math.round(d)} m`, e.x, e.y, color);
     }
   }
 

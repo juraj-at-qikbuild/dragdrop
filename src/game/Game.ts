@@ -21,6 +21,7 @@ import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
 import { drawNametags } from '../render/nametags';
 import { Banners } from '../ui/kit/Banners';
+import { hudLayout, NO_INSETS, type HudLayout, type Insets } from '../ui/layout';
 import { Bubbles } from '../render/bubbles';
 import { drawVehicle, emitVehicleLights } from '../render/drawVehicle';
 import { drawPed } from '../render/drawPed';
@@ -35,6 +36,7 @@ import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
 import { newDriveState, touchDrive, type DriveScheme } from './touchDrive';
 import { aimKey, magnet, pickTarget, type AimCandidate } from './aimAssist';
+import type { TouchControls } from '../ui/TouchControls';
 import { FURNITURE, F_HYDRANT } from '../shared/world/Street';
 import { EntityFx } from './EntityFx';
 import { ClientEvents } from './ClientEvents';
@@ -107,6 +109,8 @@ export class Game {
   private aimKey = 0;
   /** seconds the touch fire button has been held without dragging */
   private touchFireHeld = 0;
+  /** the touch screen's controls (null without a touch screen), see main.ts */
+  touchUi: TouchControls | null = null;
   /** touch driving scheme, user choice from the menus (see touchDrive.ts) */
   driveControls: DriveScheme = 'direction';
   private driveState = newDriveState();
@@ -127,6 +131,19 @@ export class Game {
   private hudCanvas: HTMLCanvasElement | null = null;
   private hudCtx: CanvasRenderingContext2D | null = null;
   dpr = 1;
+  /** where the HUD goes (src/ui/layout.ts): the thumbs' corners and the safe area on a touch screen */
+  layout!: HudLayout;
+  /** touch: the next free y in the layout's feature stack this frame (Hud.draw resets it) */
+  stackY = 0;
+  /** A spot `h` px tall in the touch layout's feature stack, or null on desktop (keep your corner). */
+  stackSpot(h: number): { x: number; y: number } | null {
+    const s = this.layout.stack;
+    if (!s) return null;
+    const y = this.stackY;
+    this.stackY += h + 8;
+    return { x: s.x, y };
+  }
+  private insetProbe: HTMLElement | null = null;
   viewW = 0;
   viewH = 0;
   cam = { x: 0, y: 0, scale: 8 };
@@ -191,6 +208,15 @@ export class Game {
     this.cam.y = this.player.y;
     this.resize();
     addEventListener('resize', () => this.resize());
+    // on a phone the safe-area insets come late after a rotation (and the notch changes sides):
+    // measure again once the browser has settled
+    let settle = 0;
+    const later = () => {
+      clearTimeout(settle);
+      settle = window.setTimeout(() => this.resize(), 300);
+    };
+    addEventListener('resize', later);
+    window.visualViewport?.addEventListener('resize', later);
     // a lift gate's boom snapping: splinters and a crack
     this.world.gates.onSnap = (_i, x, y, speed) => {
       const f = this.focus();
@@ -339,6 +365,22 @@ export class Game {
     }
     this.postFx?.resize(w, h);
     this.vignette = null; // rebuilt lazily at the new size
+    this.layout = hudLayout(this.viewW, this.viewH, this.touch, this.touch ? this.safeInsets() : NO_INSETS);
+  }
+
+  /** the notch / home-indicator safe area (CSS env(safe-area-inset-*), via a hidden probe element) */
+  private safeInsets(): Insets {
+    if (typeof document === 'undefined') return NO_INSETS;
+    if (!this.insetProbe) {
+      const el = document.createElement('div');
+      el.style.cssText =
+        'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+      document.body.appendChild(el);
+      this.insetProbe = el;
+    }
+    const cs = getComputedStyle(this.insetProbe);
+    const px = (v: string) => parseFloat(v) || 0;
+    return { t: px(cs.paddingTop), r: px(cs.paddingRight), b: px(cs.paddingBottom), l: px(cs.paddingLeft) };
   }
 
   /** CSS-pixel screen position of a world coordinate; multiply by `dpr` before passing to `postFx.shockwave`. */
@@ -349,7 +391,7 @@ export class Game {
 
   /** the nearest car the player could get into */
   /** a touch screen: prompts show the on-screen button */
-  readonly touch = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  readonly touch = isTouchDevice();
   /** seconds left showing the gamepad's button legend (on picking up the pad, or getting in or out) */
   padHints = 0;
   private padWas = false;
@@ -524,7 +566,10 @@ export class Game {
       // drive-by: shoot sideways with the mouse, or with the gamepad's right stick pushed hard, or
       // touch: the aim drag, else the best target all around (threats first), else straight ahead
       const padAim = this.padAim(0.7);
-      const touchShoot = this.touchShooting(dt) && p.weapon !== 'fist';
+      let touchShoot = this.touchShooting(dt);
+      // touch fire with the fists out: take the best gun there is for a drive-by
+      if (touchShoot && p.weapon === 'fist') p.weapon = (['uzi', 'pistol', 'shotgun'] as WeaponId[]).find((w) => this.ammo[w] > 0) ?? 'fist';
+      touchShoot &&= p.weapon !== 'fist';
       const touchAim = touchShoot ? this.touchAim(v, v.angle, v.level, p.weapon, true) : ((this.aimTarget = null), null);
       if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null || touchShoot) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
         const a = padAim ?? (touchShoot ? (touchAim ?? v.angle) : this.aimAngle(v.x, v.y));
@@ -936,7 +981,7 @@ export class Game {
       this.hudCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       this.hud.draw(this.hudCtx);
       for (const f of this.features) f.drawHud?.(this.hudCtx);
-      this.banners.draw(this.hudCtx, this.viewW, this.viewH);
+      this.banners.draw(this.hudCtx, this.layout);
       if (this.showMap) this.mapView.drawFull(this.hudCtx);
     }
   }
@@ -1286,3 +1331,12 @@ const PICKUP_GLOW: Record<PickupKind, string> = {
   goldenCumil: '#ffc400',
 };
 
+/** a touch screen: the touch controls and layout. `?touch=1` forces them (development, the mobile
+ *  smoke test), `?touch=0` turns them off. */
+export function isTouchDevice(): boolean {
+  if (typeof location !== 'undefined') {
+    const q = new URLSearchParams(location.search).get('touch');
+    if (q === '1' || q === '0') return q === '1';
+  }
+  return typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+}

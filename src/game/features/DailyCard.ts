@@ -21,6 +21,8 @@ export class DailyCard implements ClientFeature {
   private card = new ImageCard();
   private lastImg: string | null = null;
   private expanded = false;
+  /** where the small card was last drawn (the touch controls put a tap target on it), null when hidden */
+  cardRect: { x: number; y: number; w: number; h: number } | null = null;
   /** yesterday's revealed spot (dailyAnswer), shown on the map for ANSWER_MARKER_MS then dropped */
   private answer: { x: number; y: number; until: number } | null = null;
 
@@ -37,6 +39,7 @@ export class DailyCard implements ClientFeature {
   }
 
   drawHud(ctx: CanvasRenderingContext2D) {
+    this.cardRect = null;
     const live = this.g.host.live;
     const daily = live.daily;
     if (!daily) return;
@@ -46,16 +49,19 @@ export class DailyCard implements ClientFeature {
     }
     const subtitle = daily.solvedBy ? `Vyriešil ${daily.solvedBy} ✓` : daily.hints.length ? daily.hints.join(' · ') : 'Nájdi to miesto!';
     if (this.expanded) {
+      // blown up: a tap anywhere puts it away
+      this.cardRect = { x: 0, y: 0, w: this.g.viewW, h: this.g.viewH };
       this.card.drawLarge(ctx, this.g.viewW, this.g.viewH, 'Kde to je?', subtitle);
       return;
     }
     // stacked directly above the minimap (bottom-left corner): the minimap itself already touches
     // the bottom edge (Hud.ts: cy = H - pad - mr), so there is no room to put this card under it on
     // screen — "under" here means the next item in that corner's stack, not further down the page
-    const small = this.g.viewW < 700;
-    const pad = small ? 10 : 16;
-    const mr = small ? 60 : 88;
-    const x = pad, y = this.g.viewH - pad - mr * 2 - 8 - CARD_H;
+    // on a touch screen: in the feature stack under the street name (the minimap is top-left there)
+    const L = this.g.layout;
+    const spot = this.g.stackSpot(CARD_H);
+    const x = spot ? spot.x : L.padL, y = spot ? spot.y : L.mini.cy - L.mini.r - 8 - CARD_H;
+    this.cardRect = { x, y, w: CARD_W, h: CARD_H };
     this.card.draw(ctx, x, y, CARD_W, CARD_H, 'Kde to je?', subtitle);
   }
 

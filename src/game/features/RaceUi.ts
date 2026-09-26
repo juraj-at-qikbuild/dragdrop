@@ -126,7 +126,7 @@ export class RaceUi implements ClientFeature {
   drawHud(ctx: CanvasRenderingContext2D) {
     const g = this.g;
     const W = g.viewW, H = g.viewH;
-    const small = W < 700;
+    const small = g.layout.small;
     const challenge = g.host.live.challenge;
     if (challenge) this.drawChallengePanel(ctx, challenge, W, small);
     const race = g.host.live.race;
@@ -134,11 +134,12 @@ export class RaceUi implements ClientFeature {
   }
 
   private drawChallengePanel(ctx: CanvasRenderingContext2D, c: ChallengeState, W: number, small: boolean) {
-    const w = Math.min(W - 32, small ? 300 : 380);
+    const cx = this.g.layout.band.cx;
+    const w = Math.min(W - 32, small ? 300 : 380, this.g.layout.band.w);
     const h = small ? 92 : 108;
     // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
     // never overlaps either
-    const x = W / 2 - w / 2, y = bandBottom(small);
+    const x = cx - w / 2, y = bandBottom(this.g.layout);
     ctx.save();
     ctx.fillStyle = 'rgba(10,12,18,0.84)';
     roundRect(ctx, x, y, w, h, 14);
@@ -151,12 +152,12 @@ export class RaceUi implements ClientFeature {
     ctx.textBaseline = 'top';
     const stakeText = c.stake > 0 ? formatMoney(c.stake) : 'zadarmo – mestská odmena';
     ctx.font = `700 ${small ? 14 : 17}px ${HEAD}`;
-    outlined(ctx, `ZÁVOD? ${c.nick} ťa vyzýva`, W / 2, y + 8, '#ffd740', 3);
-    outlined(ctx, `do cieľa ${c.dest} o ${stakeText}`, W / 2, y + 8 + (small ? 18 : 21), '#ffd740', 3);
+    outlined(ctx, `ZÁVOD? ${c.nick} ťa vyzýva`, cx, y + 8, '#ffd740', 3);
+    outlined(ctx, `do cieľa ${c.dest} o ${stakeText}`, cx, y + 8 + (small ? 18 : 21), '#ffd740', 3);
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
-    outlined(ctx, `Podrž [H] = prijať · ${Math.max(0, Math.ceil(c.left))} s`, W / 2, y + (small ? 48 : 56), '#e8eaed', 2.5);
+    outlined(ctx, `Podrž ${this.g.touch ? '📣' : '[H]'} = prijať · ${Math.max(0, Math.ceil(c.left))} s`, cx, y + (small ? 48 : 56), '#e8eaed', 2.5);
     const frac = this.acceptFrom === c.from ? Math.max(0, this.acceptT) / ACCEPT_TIME : 0;
-    drawHoldRing(ctx, W / 2, y + h - (small ? 16 : 19), small ? 12 : 15, frac, '#69f0ae');
+    drawHoldRing(ctx, cx, y + h - (small ? 16 : 19), small ? 12 : 15, frac, '#69f0ae');
     ctx.restore();
   }
 
@@ -176,11 +177,12 @@ export class RaceUi implements ClientFeature {
     const myD = Math.round(dist(f.x, f.y, r.x, r.y));
     const oppRow = g.online?.roster.find((row) => row[0] === r.opponent);
     const oppD = oppRow ? Math.round(dist(oppRow[2], oppRow[3], r.x, r.y)) : null;
-    const w = Math.min(W - 32, small ? 280 : 360);
+    const cx = this.g.layout.band.cx;
+    const w = Math.min(W - 32, small ? 280 : 360, this.g.layout.band.w);
     const h = small ? 46 : 56;
     // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
     // never overlaps either
-    const x = W / 2 - w / 2, y = bandBottom(small);
+    const x = cx - w / 2, y = bandBottom(this.g.layout);
     ctx.save();
     ctx.fillStyle = 'rgba(10,12,18,0.7)';
     roundRect(ctx, x, y, w, h, h / 2);
@@ -189,9 +191,9 @@ export class RaceUi implements ClientFeature {
     ctx.textBaseline = 'middle';
     const mm = Math.floor(r.left / 60), ss = Math.floor(r.left % 60);
     ctx.font = `700 ${small ? 11 : 13}px ${BODY}`;
-    outlined(ctx, `ZÁVOD · cieľ ${r.dest} · ${mm}:${String(ss).padStart(2, '0')}`, W / 2, y + h * 0.32, '#ffd740', 3);
+    outlined(ctx, `ZÁVOD · cieľ ${r.dest} · ${mm}:${String(ss).padStart(2, '0')}`, cx, y + h * 0.32, '#ffd740', 3);
     const oppText = oppD !== null ? `${r.opponentNick} ${oppD} m` : r.opponentNick;
-    outlined(ctx, `Ty ${myD} m   ·   ${oppText}`, W / 2, y + h * 0.72, '#e8eaed', 2.5);
+    outlined(ctx, `Ty ${myD} m   ·   ${oppText}`, cx, y + h * 0.72, '#e8eaed', 2.5);
     ctx.restore();
   }
 

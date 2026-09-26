@@ -7,6 +7,8 @@ import { mapMarker, type MapIcon } from '../MapView';
 
 const BODY = `'Inter', system-ui, sans-serif`;
 const ROW_H = 22;
+/** a row's height, for callers that reserve room for the list */
+export const EVENT_ROW_H = ROW_H;
 const ICON_R = 8;
 const GAP = 6;
 

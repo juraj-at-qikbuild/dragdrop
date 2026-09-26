@@ -5,6 +5,7 @@
 import { roundRect } from '../../render/shapes';
 import { outlined } from '../Hud';
 import { mapMarker, type MapIcon } from '../MapView';
+import { bandHeight, type HudLayout } from '../layout';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -36,16 +37,16 @@ interface Item {
 type Phase = 'in' | 'hold' | 'out';
 
 /** y just below the top-right HUD panel (Hud.ts's money/stars/clock box): where this banner slot
- *  starts, so it never overlaps that panel. */
-export function bandTop(small: boolean): number {
-  return small ? 92 : 116;
+ *  starts, so it never overlaps that panel (on a touch screen: the gap beside it, see layout.ts). */
+export function bandTop(L: HudLayout): number {
+  return L.band.top;
 }
 
 /** bottom of the banner slot at a banner's tallest (title + up to two lines of body text): where
  *  other persistent top-centre panels (Jobs objective, Race challenge/timer) should start instead,
  *  so they stack below a banner rather than fighting it for the same band. */
-export function bandBottom(small: boolean): number {
-  return bandTop(small) + (small ? 30 : 36) + 2 * (small ? 15 : 17) + (small ? 10 : 12);
+export function bandBottom(L: HudLayout): number {
+  return bandTop(L) + bandHeight(L.small);
 }
 
 export class Banners {
@@ -90,24 +91,25 @@ export class Banners {
     else if (this.phase === 'out' && this.t >= SLIDE) this.advance();
   }
 
-  draw(ctx: CanvasRenderingContext2D, viewW: number, viewH: number) {
+  draw(ctx: CanvasRenderingContext2D, L: HudLayout) {
     const b = this.cur;
     if (!b) return;
     const k = this.phase === 'in' ? ease(this.t / SLIDE) : this.phase === 'out' ? 1 - ease(this.t / SLIDE) : 1;
     if (k <= 0) return;
-    const small = viewW < 700;
+    const viewW = L.W;
+    const small = L.small;
     ctx.save();
     ctx.font = `700 ${small ? 15 : 18}px ${HEAD}`;
     const bodyFont = `600 ${small ? 12 : 13}px ${BODY}`;
     ctx.font = bodyFont;
-    const w = Math.min(viewW - 32, small ? 300 : 440);
+    const w = Math.min(viewW - 32, small ? 300 : 440, L.band.w);
     const iconSize = b.icon ? (small ? 16 : 20) : 0;
     const textW = w - 28 - (iconSize ? iconSize * 2 + 8 : 0);
     const lines = b.text ? wrap(ctx, b.text, textW) : [];
     const h = (small ? 30 : 36) + lines.length * (small ? 15 : 17);
-    const x = viewW / 2 - w / 2;
+    const x = L.band.cx - w / 2;
     // below the top HUD panel (Hud.ts's money/stars/clock box), so it never overlaps it
-    const y0 = bandTop(small);
+    const y0 = bandTop(L);
     const y = y0 - (1 - k) * (h + 24);
     ctx.globalAlpha = k;
     roundRect(ctx, x, y, w, h, Math.min(12, h / 2));

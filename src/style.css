@@ -206,47 +206,226 @@ button.primary:hover {
   color: #90a4ae;
   margin: 14px 0 0;
 }
+/* ----------------------------------------------------------------- touch controls (TouchControls.ts)
+   Positions come from src/ui/layout.ts (set inline); sizes scale with --ts. Every control is hidden
+   (.off) unless the current context (#touch[data-ctx]) wants it. */
 #touch {
   position: fixed;
   inset: 0;
   pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  --ts: 1;
 }
-#stick {
+#touch .off {
+  display: none !important;
+}
+.t-zone {
   position: absolute;
-  left: 24px;
-  bottom: 190px;
-  width: 130px;
-  height: 130px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.t-idle,
+.t-stick {
+  position: absolute;
+  left: 0;
+  top: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+.t-idle {
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+}
+.t-stick {
+  display: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.32);
+}
+#touch.sticking .t-stick {
+  display: block;
+}
+#touch.sticking .t-idle,
+#touch:is([data-ctx='off'], [data-ctx='map']) :is(.t-zone, .t-idle, .t-stick) {
+  display: none;
+}
+/* classic driving: the stick only steers, so it reads as a left-right track */
+#touch[data-ctx='car-c'] .t-stick::before {
+  content: '';
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: calc(50% - 3px);
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.t-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(52px * var(--ts));
+  height: calc(52px * var(--ts));
+  margin: calc(-26px * var(--ts)) 0 0 calc(-26px * var(--ts));
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s;
+}
+.t-knob.run {
+  background: rgba(255, 214, 0, 0.85);
+}
+.t-btn {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(10, 12, 18, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font: 700 calc(13px * var(--ts)) var(--font-head);
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: transform 0.08s, background 0.1s;
+}
+.t-btn.down {
+  transform: scale(0.93);
+  background: rgba(255, 214, 0, 0.4);
+  border-color: var(--gold);
+}
+/* the pause sign, drawn (emoji fonts don't always have ⏸) */
+.t-pause::before,
+.t-pause::after {
+  content: '';
+  width: calc(5px * var(--ts));
+  height: calc(16px * var(--ts));
+  margin: 0 calc(2px * var(--ts));
+  border-radius: 2px;
+  background: #fff;
+}
+.t-util,
+.t-small {
+  font-size: calc(19px * var(--ts));
+}
+/* invisible tap targets over things the HUD draws (the minimap, the daily card) */
+.t-btn.t-hit {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.t-btn.t-hit.down {
+  background: rgba(255, 255, 255, 0.12);
+}
+.t-fire {
+  background: rgba(215, 20, 26, 0.55);
+  border-color: rgba(255, 138, 128, 0.8);
+  font-size: calc(30px * var(--ts));
+}
+.t-weapon {
+  flex-direction: column;
+  gap: 1px;
+}
+.t-weapon-icon canvas {
+  display: block;
+}
+.t-weapon-ammo {
+  font: 700 calc(11px * var(--ts)) var(--font-body);
+}
+.t-use {
+  border-radius: 999px;
+  padding: 0 calc(18px * var(--ts));
+  max-width: calc(240px * var(--ts));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: calc(46px * var(--ts));
+  background: rgba(255, 214, 0, 0.92);
+  border-color: rgba(255, 255, 255, 0.8);
+  color: #15161a;
+  text-shadow: none;
+  font: 700 calc(15px * var(--ts)) var(--font-body);
+  animation: t-pulse 1.4s ease-in-out infinite;
+}
+@keyframes t-pulse {
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 214, 0, 0.25), 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+}
+.t-brake {
+  background: rgba(229, 57, 53, 0.5);
+}
+.t-nitro {
+  background: conic-gradient(rgba(124, 77, 255, 0.8) calc(var(--charge, 1) * 360deg), rgba(10, 12, 18, 0.5) 0);
+}
+.t-pedal {
+  border: none;
+  border-radius: 16px;
+  background: none;
+  box-shadow: none;
+  gap: calc(8px * var(--ts));
+}
+.t-pedal span {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(10, 12, 18, 0.5);
+}
+.t-pedal .t-pedal-gas {
+  background: rgba(46, 125, 50, 0.55);
+}
+.t-pedal .t-pedal-brake {
+  background: rgba(229, 57, 53, 0.45);
+}
+.t-pedal.down {
+  transform: none;
+  background: none;
+}
+.t-pedal.gas .t-pedal-gas,
+.t-pedal.brake .t-pedal-brake {
+  border-color: var(--gold);
+  filter: brightness(1.5);
+}
+.t-mapbtn {
+  border-radius: 12px;
+  background: rgba(10, 12, 18, 0.85);
+  font-size: calc(24px * var(--ts));
+}
+.t-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: min(260px, 70vw);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 214, 0, 0.96);
+  color: #15161a;
+  font: 600 13px/1.35 var(--font-body);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
 }
-#knob {
+.t-rotate {
   position: absolute;
-  left: 40px;
-  top: 40px;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.35);
-}
-.tbtns {
-  position: absolute;
-  right: 16px;
-  bottom: 60px;
-  display: grid;
-  grid-template-columns: repeat(2, 64px);
-  gap: 10px;
+  left: 50%;
+  top: 58%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(10, 12, 18, 0.85);
+  border: 1px solid rgba(255, 214, 0, 0.6);
+  color: #fff;
+  font: 600 13px var(--font-body);
+  white-space: nowrap;
   pointer-events: auto;
-}
-.tbtns button {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  font-size: 26px;
-  padding: 0;
-  background: rgba(0, 0, 0, 0.35);
 }
 button.online {
   background: linear-gradient(180deg, #5e35b1, #4527a0);

@@ -136,6 +136,20 @@ export class MapView {
     return { x: this.cx + (sx - f.x - f.w / 2) / this.zoom, y: this.cy + (sy - f.y - f.h / 2) / this.zoom };
   }
 
+  /** zoom the open map by `k` about the middle of its frame (the touch screen's + and − buttons) */
+  zoomBy(k: number) {
+    const f = this.frame();
+    this.zoomAt(k, f.x + f.w / 2, f.y + f.h / 2);
+  }
+
+  /** centre the open map on the player (the touch screen's ⌖ button) */
+  centerOnPlayer() {
+    const f = this.g.focus();
+    this.cx = f.x;
+    this.cy = f.y;
+    this.clampView();
+  }
+
   /** zoom by `k` keeping the world point under (sx, sy) where it is */
   private zoomAt(k: number, sx: number, sy: number) {
     const before = this.toWorld(sx, sy);

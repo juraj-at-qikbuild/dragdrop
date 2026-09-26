@@ -2,6 +2,7 @@ import type { Game } from '../game/Game';
 import { WEAPONS } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { formatMoney } from '../shared/util/math';
+import { edgePoint, inPlay, type HudLayout } from './layout';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -38,8 +39,10 @@ export class Hud {
   draw(ctx: CanvasRenderingContext2D) {
     const g = this.g;
     const W = g.viewW, H = g.viewH;
-    const small = W < 700;
+    const L = g.layout;
+    const small = L.small;
     const dt = 1 / 60;
+    if (L.stack) g.stackY = L.stack.y;
     if (this.hurt > 0) {
       ctx.fillStyle = `rgba(200,0,0,${this.hurt * 0.5})`;
       ctx.fillRect(0, 0, W, H);
@@ -53,26 +56,27 @@ export class Hud {
     this.drawHitIndicators(ctx, W, H, dt);
     this.drawTouchAim(ctx);
 
-    const pad = small ? 10 : 16;
-    const topW = small ? 168 : 214;
+    // the top-right panel: `right` and `top` stand where the screen edge and padding used to
+    const right = L.panel.right, top = L.panel.y;
+    const topW = L.panel.w;
     let topH = small ? 74 : 92;
     const car = g.player.vehicle;
     const armor = g.player.armor;
     if (armor > 0) topH += small ? 12 : 14;
-    panel(ctx, W - pad - topW, pad, topW, topH);
+    panel(ctx, right - topW, top, topW, topH);
 
     // money
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.font = `700 ${small ? 22 : 28}px ${HEAD}`;
-    glowText(ctx, formatMoney(this.shownMoney), W - pad - 10, pad + 6, '#8bdc6b', 'rgba(139,220,107,0.5)');
+    glowText(ctx, formatMoney(this.shownMoney), right - 10, top + 6, '#8bdc6b', 'rgba(139,220,107,0.5)');
 
     // wanted stars
     const stars = Math.ceil(g.wanted - 0.001);
-    const sy = pad + (small ? 30 : 38);
+    const sy = top + (small ? 30 : 38);
     const flash = (this.flashStars > 0 || this.searching) && Math.floor(g.time * 8) % 2 === 0;
     for (let i = 0; i < 5; i++) {
-      const x = W - pad - 20 - (4 - i) * (small ? 20 : 25);
+      const x = right - 20 - (4 - i) * (small ? 20 : 25);
       const on = i < stars;
       const scale = on ? 1 + this.starPulse * 0.35 * (1 - i / 5) : 1;
       drawStar(ctx, x, sy + 10, (small ? 8 : 11) * scale, on ? (flash ? '#fff' : GOLD) : 'rgba(255,255,255,0.14)', on);
@@ -80,12 +84,12 @@ export class Hud {
 
     // clock + weather glyph
     const cy = sy + (small ? 24 : 30);
-    this.drawClock(ctx, W - pad - 10, cy, small);
+    this.drawClock(ctx, right - 10, cy, small);
 
     // health + armour
     const hy = cy + (small ? 18 : 22);
     const bw = topW - 20;
-    const bx = W - pad - 10 - bw;
+    const bx = right - 10 - bw;
     let by = hy;
     drawBar(ctx, bx, by, bw, 9, Math.max(0, g.player.health / 100), g.player.health > 30 ? '#e53935' : Math.floor(g.time * 4) % 2 ? '#ff8a80' : '#b71c1c', 'rgba(0,0,0,0.5)', '❤', small);
     by += 13;
@@ -95,47 +99,49 @@ export class Hud {
     }
 
     // weapon panel (bottom-left of the top panel)
-    this.drawWeaponPanel(ctx, W - pad - topW + 8, pad + topH - (small ? 20 : 24), small);
+    this.drawWeaponPanel(ctx, right - topW + 8, top + topH - (small ? 20 : 24), small);
 
     // combo meter, if the combat system is driving one
     const combo = (g as unknown as { combo?: ComboState }).combo;
-    if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, W, pad, topH, small);
+    // under the top panel: the online badge, then the combo meter
+    const netH = g.online ? (small ? 18 : 22) + (small ? 6 : 8) : 0;
+    if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, right - topW + 8, top + topH + (small ? 6 : 8) + (L.touch ? netH + 8 : 0), small);
 
     // speedometer (only while driving)
-    if (car) this.drawSpeedo(ctx, W, H, car, small);
+    if (car) this.drawSpeedo(ctx, L.speedo.cx, L.speedo.cy, L.speedo.r, car, small);
 
     // minimap
-    const mr = small ? 60 : 88;
-    g.mapView.drawMini(ctx, pad + mr, H - pad - mr, mr);
+    g.mapView.drawMini(ctx, L.mini.cx, L.mini.cy, L.mini.r);
 
-    // what the player can do right here (above the speedometer when driving), and the pad's buttons
-    const promptY = car ? H - (small ? 138 : 176) : H - pad - (small ? 44 : 56);
+    // what the player can do right here (above the speedometer when driving), and the pad's buttons.
+    // On a touch screen the use button itself says what it does (TouchControls), so only hints here.
+    const promptY = car ? L.prompt.car : L.prompt.foot;
     const pr = g.prompt();
-    if (pr) this.drawPrompt(ctx, pr.use, pr.text, W / 2, promptY, small);
-    if (g.padHints > 0) this.drawPadLegend(ctx, W / 2, promptY - (small ? 34 : 42), !!car, Math.min(1, g.padHints), small);
+    if (pr && !(L.touch && pr.use && !g.input.pad.active)) this.drawPrompt(ctx, pr.use, pr.text, L.prompt.cx, promptY, small, L.prompt.w);
+    if (g.padHints > 0) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), !!car, Math.min(1, g.padHints), small);
 
     // street and district name
-    ctx.textAlign = 'right';
+    ctx.textAlign = L.place.align;
     ctx.textBaseline = 'bottom';
     if (g.street.timer > 0 && g.street.name) {
       ctx.globalAlpha = Math.min(1, g.street.timer);
       ctx.font = `600 ${small ? 15 : 20}px ${HEAD}`;
-      outlined(ctx, g.street.name, W - pad, H - pad - (small ? 20 : 26), '#fff');
+      outlined(ctx, g.street.name, L.place.x, L.place.y - L.place.lineH, '#fff');
       ctx.globalAlpha = 1;
     }
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
-    shadowed(ctx, g.quarter ? `${g.quarter} · ${g.district}` : `${g.district} · Bratislava`, W - pad, H - pad, '#cfd8dc');
+    shadowed(ctx, g.quarter ? `${g.quarter} · ${g.district}` : `${g.district} · Bratislava`, L.place.x, L.place.y, '#cfd8dc');
 
     // mission objective banner
     const m = g.missions;
     if (m.active) {
       const t = m.text();
-      if (t) this.drawObjective(ctx, t, W, pad, small);
+      if (t) this.drawObjective(ctx, t, L);
       if (m.timeLeft > 0) {
         ctx.textAlign = 'center';
         ctx.font = `700 ${small ? 20 : 26}px ${HEAD}`;
         const s = Math.ceil(m.timeLeft);
-        outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, W / 2, pad + (small ? 78 : 60), s < 20 ? '#ff5252' : '#fff');
+        outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, L.band.cx, L.objective.timerY, s < 20 ? '#ff5252' : '#fff');
       }
       const tgt = m.target();
       if (tgt) this.drawArrow(ctx, tgt.x, tgt.y);
@@ -151,14 +157,15 @@ export class Hud {
       ctx.globalAlpha = a;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      let y = H * 0.28;
+      let y = L.msgY;
       if (msg.title) {
         ctx.font = `700 ${small ? 24 : 36}px ${HEAD}`;
         outlined(ctx, msg.title, W / 2, y, msg.color);
         y += small ? 30 : 40;
       }
       ctx.font = `700 ${small ? 14 : 18}px ${BODY}`;
-      wrapOutlined(ctx, msg.text, W / 2, y, Math.min(W * 0.8, 680), small ? 18 : 24, '#fff');
+      // on a phone at most two lines, so a long message doesn't cover the player
+      wrapOutlined(ctx, msg.text, W / 2, y, Math.min(W * 0.8, 680), small ? 18 : 24, '#fff', false, L.touch ? 2 : 0);
       ctx.globalAlpha = 1;
     }
 
@@ -168,7 +175,7 @@ export class Hud {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.font = `700 ${small ? 12 : 15}px ${BODY}`;
-      wrapOutlined(ctx, g.radioText.text, W / 2, H - pad - (small ? 40 : 10), Math.min(W * 0.6, 700), 20, '#f8bbd0', true);
+      wrapOutlined(ctx, g.radioText.text, L.prompt.cx, L.radio.y, L.radio.w, 20, '#f8bbd0', true, L.touch ? 2 : 0);
       ctx.globalAlpha = 1;
     }
 
@@ -181,7 +188,7 @@ export class Hud {
       ctx.font = `700 ${small ? 44 : 84}px ${HEAD}`;
       outlined(ctx, g.state === 'busted' ? 'ZATKNUTÝ' : 'ZOŠROTOVANÝ', W / 2, H / 2, g.state === 'busted' ? '#448aff' : '#ff1744', 6);
     }
-    if (g.online) this.drawNet(ctx, W - pad, pad + topH + (small ? 6 : 8), small);
+    if (g.online) this.drawNet(ctx, right, top + topH + (small ? 6 : 8), small);
     if (g.paused) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(0, 0, W, H);
@@ -190,10 +197,13 @@ export class Hud {
 
   /** "[F] Nastúpiť": the use button as the player's input shows it (a key cap, the pad's Y, the
    *  touch 🚗) and what it does here; without the button, a plain hint */
-  private drawPrompt(ctx: CanvasRenderingContext2D, use: boolean, text: string, cx: number, cy: number, small: boolean) {
+  private drawPrompt(ctx: CanvasRenderingContext2D, use: boolean, text: string, cx: number, cy: number, small: boolean, maxW = Infinity) {
     const g = this.g;
     ctx.save();
-    ctx.font = `700 ${small ? 13 : 16}px ${BODY}`;
+    // a long hint shrinks to fit between the thumbs (down to 10 px)
+    let fs = small ? 13 : 16;
+    ctx.font = `700 ${fs}px ${BODY}`;
+    while (fs > 10 && ctx.measureText(text).width + (use ? 50 : 18) > maxW) ctx.font = `700 ${--fs}px ${BODY}`;
     ctx.textBaseline = 'middle';
     const h = small ? 28 : 34, gw = use ? h - 6 : 0, tw = ctx.measureText(text).width;
     const w = tw + gw + (use ? 22 : 18);
@@ -270,22 +280,23 @@ export class Hud {
     }
   }
 
-  private drawObjective(ctx: CanvasRenderingContext2D, text: string, W: number, pad: number, small: boolean) {
+  private drawObjective(ctx: CanvasRenderingContext2D, text: string, L: HudLayout) {
+    const W = L.W, small = L.small;
     const fs = small ? 13 : 16;
     ctx.font = `700 ${fs}px ${BODY}`;
-    const maxW = Math.min(W * 0.6, 560);
+    const maxW = L.touch ? Math.min(L.band.w - fs * 2, 560) : Math.min(W * 0.6, 560);
     const lines = wrapLines(ctx, text, maxW);
     const lh = small ? 17 : 21;
-    const bw = Math.min(maxW + fs * 2, W - pad * 2);
+    const bw = L.touch ? Math.min(maxW + fs * 2, L.band.w) : Math.min(maxW + fs * 2, W - L.padL * 2);
     const bh = lines.length * lh + fs * 1.1;
-    const bx = W / 2 - bw / 2;
-    const by = pad + (small ? 40 : 4);
+    const bx = L.band.cx - bw / 2;
+    const by = L.objective.y;
     panel(ctx, bx, by, bw, bh, bh / 2 > 20 ? 12 : bh / 2);
     ctx.fillStyle = GOLD;
     ctx.fillRect(bx, by, 3, bh);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    lines.forEach((l, i) => outlined(ctx, l, W / 2, by + fs * 0.55 + i * lh, '#fff59d'));
+    lines.forEach((l, i) => outlined(ctx, l, L.band.cx, by + fs * 0.55 + i * lh, '#fff59d'));
   }
 
   private drawWeaponPanel(ctx: CanvasRenderingContext2D, x: number, y: number, small: boolean) {
@@ -300,9 +311,7 @@ export class Hud {
     outlined(ctx, WEAPONS[w].name + ammo, x + size + 6, y + size / 2, '#fff', 3);
   }
 
-  private drawCombo(ctx: CanvasRenderingContext2D, combo: ComboState, W: number, pad: number, topH: number, small: boolean) {
-    const x = W - pad - (small ? 168 : 214) + 8;
-    const y = pad + topH + (small ? 6 : 8);
+  private drawCombo(ctx: CanvasRenderingContext2D, combo: ComboState, x: number, y: number, small: boolean) {
     const t = Math.min(1, combo.timer);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -318,10 +327,7 @@ export class Hud {
   }
 
   /** arc speed gauge, bottom-centre, plus a nitro bar under it if `vehicle.nitro` is defined. */
-  private drawSpeedo(ctx: CanvasRenderingContext2D, W: number, H: number, car: NonNullable<Game['player']['vehicle']>, small: boolean) {
-    const r = small ? 42 : 54;
-    const bottomMargin = small ? 26 : 32;
-    const cx = W / 2, cy = H - bottomMargin - r - 14;
+  private drawSpeedo(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, car: NonNullable<Game['player']['vehicle']>, small: boolean) {
     const kmh = Math.round(car.speed * 3.6);
     const top = 200;
     const frac = Math.min(1, kmh / top);
@@ -451,14 +457,14 @@ export class Hud {
     const d = Math.hypot(tx - f.x, ty - f.y);
     const cx = g.viewW / 2 + (tx - g.cam.x) * g.cam.scale;
     const cy = g.viewH / 2 + (ty - g.cam.y) * g.cam.scale;
-    const onScreen = cx > 40 && cx < g.viewW - 40 && cy > 40 && cy < g.viewH - 40;
+    const onScreen = inPlay(g.layout, cx, cy);
     ctx.save();
     if (onScreen) {
       ctx.translate(cx, cy - 26 + Math.sin(g.time * 5) * 5);
       ctx.rotate(Math.PI / 2);
     } else {
-      const r = Math.min(g.viewW, g.viewH) * 0.38;
-      ctx.translate(g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r);
+      const e = edgePoint(g.layout, a);
+      ctx.translate(e.x, e.y);
       ctx.rotate(a);
     }
     ctx.fillStyle = color;
@@ -474,11 +480,11 @@ export class Hud {
     ctx.stroke();
     ctx.restore();
     if (!onScreen) {
-      const r = Math.min(g.viewW, g.viewH) * 0.38 - 28;
+      const e = edgePoint(g.layout, a, 28);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `700 12px ${BODY}`;
-      outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, color);
+      outlined(ctx, `${Math.round(d)} m`, e.x, e.y, color);
     }
   }
 }
@@ -608,7 +614,7 @@ function drawBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
 }
 
 /** simple silhouette icons for the weapon panel, drawn as canvas paths (no images). */
-function drawWeaponIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, cx: number, cy: number, s: number) {
+export function drawWeaponIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, cx: number, cy: number, s: number) {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.fillStyle = '#eceff1';
@@ -740,8 +746,13 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): s
   return lines;
 }
 
-function wrapOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, color: string, up = false) {
+/** `maxLines` (0 = any) cuts a long text off with an ellipsis */
+function wrapOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, color: string, up = false, maxLines = 0) {
   const lines = wrapLines(ctx, text, maxW);
+  if (maxLines && lines.length > maxLines) {
+    lines.length = maxLines;
+    lines[maxLines - 1] += '…';
+  }
   const y0 = up ? y - (lines.length - 1) * lh : y;
   lines.forEach((l, i) => outlined(ctx, l, x, y0 + i * lh, color, 3.5));
 }
