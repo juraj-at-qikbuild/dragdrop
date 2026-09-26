@@ -51,6 +51,7 @@ export class Hud {
     else this.starPulse = Math.max(0, this.starPulse - dt * 2);
 
     this.drawHitIndicators(ctx, W, H, dt);
+    this.drawTouchAim(ctx);
 
     const pad = small ? 10 : 16;
     const topW = small ? 168 : 214;
@@ -363,6 +364,47 @@ export class Hud {
       roundRect(ctx, cx - bw / 2, by, bw, 6, 3);
       ctx.stroke();
     }
+  }
+
+  /** touch aiming: a line out of the player while dragging from the fire button, and brackets on
+   *  the target the fire button is locked onto */
+  private drawTouchAim(ctx: CanvasRenderingContext2D) {
+    const g = this.g;
+    const t = g.input.touch;
+    if (g.state !== 'play') return;
+    const f = g.focus();
+    const me = g.worldToScreen(f.x, f.y);
+    if (t.aim.on) {
+      const len = Math.min(g.viewW, g.viewH) * 0.22;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(me.x + t.aim.x * 18, me.y + t.aim.y * 18);
+      ctx.lineTo(me.x + t.aim.x * len, me.y + t.aim.y * len);
+      ctx.stroke();
+      ctx.restore();
+    }
+    const tg = g.aimTarget;
+    if (!tg) return;
+    const p = g.worldToScreen(tg.x, tg.y);
+    const r = Math.max(12, g.cam.scale * 0.9);
+    const spin = g.time * 2;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.lineCap = 'round';
+    for (const [w, color] of [[5, 'rgba(0,0,0,0.6)'], [2.5, '#ff5252']] as const) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      for (let i = 0; i < 4; i++) {
+        const a = spin + (i * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, a - 0.35, a + 0.35);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   private drawHitIndicators(ctx: CanvasRenderingContext2D, W: number, H: number, dt: number) {

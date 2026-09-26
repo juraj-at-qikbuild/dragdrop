@@ -463,6 +463,9 @@ export class NetSimHost implements SimHost, NetView {
   }
 
   punch(target: number) {
+    // the server checks the punch against the facing it last heard: send the current one first
+    // (touch aim assist may have just turned the player toward the target)
+    this.sendState();
     this.conn.send({ t: 'punch', target, rt: Math.round(this.renderTime()) });
   }
 

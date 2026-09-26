@@ -34,6 +34,7 @@ import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
 import { newDriveState, touchDrive, type DriveScheme } from './touchDrive';
+import { aimKey, magnet, pickTarget, type AimCandidate } from './aimAssist';
 import { FURNITURE, F_HYDRANT } from '../shared/world/Street';
 import { EntityFx } from './EntityFx';
 import { ClientEvents } from './ClientEvents';
@@ -45,6 +46,8 @@ import { createClientFeatures, type ClientFeature } from './features';
 export type SaveData = Profile;
 
 const SAVE_KEY = 'blava-city-save-v1';
+/** a plain hold of the touch fire button shoots after this long (s), see `touchShooting` */
+const TOUCH_FIRE_DELAY = 0.1;
 /** camera zoom: metres across the short side of the screen on foot */
 const CAM_FOOT_M = 38;
 /** in a vehicle, zoomed out by this factor at a standstill... */
@@ -98,6 +101,12 @@ export class Game {
   facades = true;
   /** on-foot WASD, user choice from the menus: 'screen' = W is up the screen, 'cursor' = W walks towards the mouse */
   footControls: 'screen' | 'cursor' = 'screen';
+  /** what touch aiming is locked onto (the HUD's reticle), null when not aiming at anyone */
+  aimTarget: { x: number; y: number } | null = null;
+  /** its aimAssist key, to keep the lock (0 = none) */
+  private aimKey = 0;
+  /** seconds the touch fire button has been held without dragging */
+  private touchFireHeld = 0;
   /** touch driving scheme, user choice from the menus (see touchDrive.ts) */
   driveControls: DriveScheme = 'direction';
   private driveState = newDriveState();
@@ -512,10 +521,13 @@ export class Game {
         this.showRadio();
       }
       this.audio.engine(v.speed, Math.abs(throttle), true);
-      // drive-by: shoot sideways with the mouse, or with the gamepad's right stick pushed hard
+      // drive-by: shoot sideways with the mouse, or with the gamepad's right stick pushed hard, or
+      // touch: the aim drag, else the best target all around (threats first), else straight ahead
       const padAim = this.padAim(0.7);
-      if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
-        const a = padAim ?? this.aimAngle(v.x, v.y);
+      const touchShoot = this.touchShooting(dt) && p.weapon !== 'fist';
+      const touchAim = touchShoot ? this.touchAim(v, v.angle, v.level, p.weapon, true) : ((this.aimTarget = null), null);
+      if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null || touchShoot) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
+        const a = padAim ?? (touchShoot ? (touchAim ?? v.angle) : this.aimAngle(v.x, v.y));
         p.cooldown = WEAPONS[p.weapon].cd;
         this.ammo[p.weapon]--;
         this.fireFrom(v.x + Math.cos(a) * (v.spec.width / 2 + 0.6), v.y + Math.sin(a) * (v.spec.width / 2 + 0.6), a);
@@ -539,17 +551,24 @@ export class Game {
       ax.y = fy * fwd + fx * side;
     }
     const len = Math.hypot(ax.x, ax.y);
-    const run = inp.down('ShiftLeft', 'ShiftRight') ? 7.2 : 4.6;
-    const vx = len ? (ax.x / len) * run * Math.min(1, len) : 0;
-    const vy = len ? (ax.y / len) * run * Math.min(1, len) : 0;
+    // touch: the stick walks up to 85% of its throw and runs past it
+    const stick = inp.touch.move.on;
+    const run = inp.down('ShiftLeft', 'ShiftRight') || (stick && len > 0.85) ? 7.2 : 4.6;
+    const push = stick ? Math.min(1, len / 0.85) : Math.min(1, len);
+    const vx = len ? (ax.x / len) * run * push : 0;
+    const vy = len ? (ax.y / len) * run * push : 0;
     p.move(dt, this.world, vx, vy);
-    // facing: the gamepad's right stick (twin-stick), the cursor, or where they walk
+    // facing: the gamepad's right stick (twin-stick), touch aiming (the drag, or the locked target
+    // while firing), the cursor, or where they walk
     const padAim = this.padAim(0.35);
+    const touchShoot = this.touchShooting(dt);
+    const touchAim = this.touchAim(p, p.angle, p.level, p.weapon, false);
     if (padAim !== null) p.angle = padAim;
+    else if (touchAim !== null) p.angle = touchAim;
     else if (cursorMode) p.angle = heading;
     else if (!inp.pad.active && !inp.touch.active && (this.time - this.lastMouseMove < 3 || inp.mouseDown)) p.angle = this.aimAngle(p.x, p.y);
     if (p.cooldown > 0) p.cooldown -= dt;
-    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touch.fire || (inp.pad.active && inp.pad.rt > 0.5);
+    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || touchShoot || (inp.pad.active && inp.pad.rt > 0.5);
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon === 'fist') this.host.punch(traceMelee(this.host.peds, p, p.angle)?.id ?? 0);
@@ -558,6 +577,71 @@ export class Game {
         this.fireFrom(p.x, p.y, p.angle);
       }
     }
+  }
+
+  /** Touch fire: the aim drag shoots at once, a plain hold of the fire button after a moment, so a
+   *  drag that's just starting doesn't first fire at the auto-picked target. */
+  private touchShooting(dt: number) {
+    const t = this.input.touch;
+    if (!t.fire) this.touchFireHeld = 0;
+    else if (!t.aim.on) this.touchFireHeld += dt;
+    return t.aim.on || (t.fire && this.touchFireHeld >= TOUCH_FIRE_DELAY);
+  }
+
+  /** Where touch aiming points from `from`: the aim drag (pulled onto a target right beside it),
+   *  or while the fire button is held the target aimAssist.ts picks (ahead of `facing`, or all
+   *  around for a drive-by); null when not aiming or nothing to lock onto. Sets `aimTarget`. */
+  private touchAim(from: { x: number; y: number }, facing: number, level: Level, weapon: WeaponId, allAround: boolean): number | null {
+    const t = this.input.touch;
+    this.aimTarget = null;
+    if (!t.fire && !t.aim.on) return null;
+    const w = WEAPONS[weapon];
+    const melee = weapon === 'fist';
+    const range = melee ? w.range + 0.34 : w.range;
+    const cands = this.aimCandidates(level);
+    const los = (x: number, y: number) => this.world.raycast(from.x, from.y, x, y, level) >= 1;
+    let target: AimCandidate | null;
+    let angle: number | null;
+    if (t.aim.on) {
+      const m = magnet(from, Math.atan2(t.aim.y, t.aim.x), cands, range, los, melee ? 0 : 0.2);
+      (target = m.target), (angle = m.angle);
+    } else {
+      // a punch only lands within 0.9 rad of the facing (traceMelee), and the server checks it
+      // against the facing it was last sent (NetSimHost.punch sends it first)
+      const o = melee
+        ? { range, cone: 0.9, threatCone: 0.9, playerCone: 0.9 }
+        : { range, cone: allAround ? Math.PI : 0.8, threatCone: allAround ? Math.PI : 1.3, playerCone: 0.4 };
+      target = pickTarget(from, facing, cands, o, los, this.aimKey);
+      angle = target ? Math.atan2(target.y - from.y, target.x - from.x) : null;
+    }
+    this.aimKey = target?.key ?? 0;
+    if (target) this.aimTarget = { x: target.x, y: target.y };
+    return angle;
+  }
+
+  /** who touch aiming can lock onto: people on foot on this level nearby, and police cars while
+   *  wanted. Threats: cops while wanted, and civilians fighting the player or phoning the police
+   *  about them (online those details aren't sent, so anyone fighting or phoning close by). */
+  private aimCandidates(level: Level): AimCandidate[] {
+    const out: AimCandidate[] = [];
+    const me = this.player, myId = this.host.me.id, wanted = this.wanted > 0;
+    const local = this.host instanceof LocalSimHost;
+    const R = 50;
+    for (const q of this.host.peds) {
+      if (q === me || q.dead || q.downed || q.vehicle || q.level !== level) continue;
+      const dx = q.x - me.x, dy = q.y - me.y;
+      if (Math.abs(dx) > R || Math.abs(dy) > R) continue;
+      const busy = q.state === 'fight' || q.state === 'phone';
+      const onMe = local ? (q.state === 'fight' && q.targetPid === myId) || (q.state === 'phone' && q.callPid === myId) : busy && Math.hypot(dx, dy) < 25;
+      out.push({ key: aimKey(q.id, false), x: q.x, y: q.y, threat: (q.kind === 'cop' && wanted) || onMe, player: q.kind === 'player' });
+    }
+    if (wanted)
+      for (const v of this.host.vehicles) {
+        if (v.kind !== 'police' || v.wrecked || v === me.vehicle || v.level !== level) continue;
+        if (Math.abs(v.x - me.x) > R || Math.abs(v.y - me.y) > R) continue;
+        out.push({ key: aimKey(v.id, true), x: v.x, y: v.y, threat: true, player: false });
+      }
+    return out;
   }
 
   /** online with a menu open: the player stands still / brakes, but the world keeps going */
