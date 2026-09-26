@@ -221,6 +221,7 @@ async function shootAt(shooterPage, targetId, shots = 4) {
  *  while downed is a finishing blow (Sim.hurtPlayer), which would defeat the revive scenario */
 async function downPlayer(shooterPage, targetId, getVictimState, maxShots = 14) {
   let fired = 0;
+  let blocked = 0;
   for (let i = 0; fired < maxShots && i < 40; i++) {
     if ((await getVictimState()) !== 'play') break;
     const pos = await shooterPage.evaluate((id) => {
@@ -243,17 +244,24 @@ async function downPlayer(shooterPage, targetId, getVictimState, maxShots = 14) 
       return g.worldToScreen(t.x, t.y);
     }, targetId);
     if (pos === 'blocked') {
+      blocked++;
       await sleep(300); // let the crowd shuffle, then try again (doesn't count against maxShots)
       continue;
     }
-    if (!pos) break;
+    if (!pos) return `${fired} fired, ${blocked} blocked, target not mirrored`;
     fired++;
     await shooterPage.mouse.move(pos.x, pos.y);
     await shooterPage.mouse.down();
     await sleep(60);
     await shooterPage.mouse.up();
-    await sleep(450);
+    // give a hit time to come back as a state change before the next shot: firing again while the
+    // down is still in flight lands a finishing blow on an already-downed victim
+    for (let t = 0; t < 1200; t += 100) {
+      await sleep(100);
+      if ((await getVictimState()) !== 'play') return `${fired} fired, ${blocked} blocked`;
+    }
   }
+  return `${fired} fired, ${blocked} blocked, loop ended`;
 }
 
 /** two distinct parked, undamaged, level-0 vehicles at most maxD apart, for the race challenge */
@@ -388,8 +396,13 @@ async function scenarioRevive({ A, B, C }) {
   await walkTo(A, spot.x, spot.y);
   await sleep(500); // let the camera settle after walking: the click angle is derived from it
 
-  await downPlayer(A, cId, () => C.evaluate(() => window.game.state));
+  const shots = await downPlayer(A, cId, () => C.evaluate(() => window.game.state));
   const downed = await waitFor(C, () => window.game.state === 'downed', null, 4000, 'C to be downed by A');
+  if (!downed) {
+    const diag = await C.evaluate(() => ({ state: window.game.state, hp: window.game.player.health, x: window.game.player.x, y: window.game.player.y }));
+    const aDiag = await A.evaluate(() => ({ x: window.game.player.x, y: window.game.player.y, weapon: window.game.player.weapon, ammo: window.game.host.me.ammo?.pistol }));
+    log(`revive diag: shots=${shots} C=${JSON.stringify(diag)} A=${JSON.stringify(aDiag)}`);
+  }
   check(downed, 'a lethal hit downed C instead of killing them');
   if (!downed) return;
 
