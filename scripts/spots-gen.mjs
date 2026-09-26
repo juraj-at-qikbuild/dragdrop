@@ -26,7 +26,7 @@ import { chromium } from 'playwright-core';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.SPOTS_GEN_PORT) || 4195;
 const DRY_DIR = path.join(ROOT, '.cache', 'spots');
-const SPOT_KINDS = ['courtyard', 'crossing', 'passage', 'square', 'river', 'roof']; // src/shared/world/spots.ts's SPOT_KINDS
+const SPOT_KINDS = ['courtyard', 'crossing', 'square', 'river', 'roof']; // src/shared/world/spots.ts's SPOT_KINDS ('passage' was dropped: see that file)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // -------------------------------------------------------------------------------------------- args

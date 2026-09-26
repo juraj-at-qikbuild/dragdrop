@@ -14,8 +14,11 @@ import { candidateSpots, type Spot } from '../../shared/world/spots';
 /** fixed midday, dry: a puzzle photo should look like an ordinary day, not any particular one, and
  *  never leak which day it was shot on */
 const PHOTO_HOUR = 13;
-/** how wide the shot is, in metres (about a courtyard or a street crossing, not a whole block) */
-const VIEW_METRES = 45;
+/** how wide the shot is, in metres: a little wider than a single courtyard/crossing (was 45 m), so
+ *  there's enough context to place it once you're on the right street — the hint schedule narrows
+ *  district -> quarter -> street, and the extra few metres of surroundings is what a local actually
+ *  recognises (docs/plans/social-events.md review) */
+const VIEW_METRES = 58;
 const DEFAULT_W = 960;
 const DEFAULT_H = 640;
 

@@ -4,17 +4,23 @@
 // scripts/spots-gen.mjs can pick a day's spot without either side guessing at the other's logic.
 //
 // A spot is deliberately unremarkable up close (no landmark, no name in view) but recognisable once
-// you know the kind: a courtyard ringed by buildings, a marked crossing, a gateway passage, a square,
-// a riverside path, or a spot beside a distinctive roof. Every kind is sourced so its raw coordinate
-// is already expected to be walkable (ped-graph nodes for courtyard/square/river; the map's own
-// crossing/passage coordinates; a building's nearest walkable point for roof); `tryAccept` below just
-// confirms it and applies the shared distance rules.
+// you know the kind: a courtyard ringed by buildings, a marked crossing, a square, a riverside path,
+// or a spot beside a distinctive roof. Every kind is sourced so its raw coordinate is already
+// expected to be walkable (ped-graph nodes for courtyard/square/river; the map's own crossing
+// coordinates; a building's nearest walkable point for roof); `tryAccept` below just confirms it and
+// applies the shared distance, roof-clearance and visual-interest rules.
+//
+// There used to be a sixth kind, 'passage' (a gateway or covered corridor through a building). It's
+// gone: a passage is architecturally *under* the building that spans it, so a real one is invisible
+// from directly above no matter how it's framed — underAnyRoof() below rejects every one of them, by
+// design, the same way it rejects a target actually inside a building (confirmed against the real
+// map: 0 of ~130 passage candidates survived that check).
 import type { World } from './World';
 import { placePickups } from '../sim/Pickups';
 import { Rng } from '../util/Rng';
-import { dist, segDist2 } from '../util/math';
+import { dist, pointInRings, segDist2 } from '../util/math';
 
-export type SpotKind = 'courtyard' | 'crossing' | 'passage' | 'square' | 'river' | 'roof';
+export type SpotKind = 'courtyard' | 'crossing' | 'square' | 'river' | 'roof';
 
 export interface Spot {
   x: number;
@@ -31,37 +37,43 @@ export interface Spot {
 
 const MIN_LANDMARK_DIST = 80;
 const MIN_SPOT_SPACING = 150;
-const COURTYARD_RADIUS = 30;
+/** the courtyard-enclosure ray fan: this far out, this many rays, evenly spaced */
+const COURTYARD_RADIUS = 25;
 const COURTYARD_DIRECTIONS = 12;
 const COURTYARD_MIN_HITS = 9;
+/** the widest gap (in ray steps) a courtyard's "opening" may be: 2 steps = 60° of open sky, about a
+ *  gateway's width, not a whole street frontage */
+const COURTYARD_MAX_OPEN_RUN = 2;
+/** a courtyard must be this far from any drivable road, or it's just a pavement beside one
+ *  (docs/plans/social-events.md review: 2026-10-21 put the ✕ on a kerb, not a yard) */
+const COURTYARD_ROAD_CLEARANCE = 12;
 const RIVER_RADIUS = 15;
 const WALKABLE_SLACK = 1.5;
 const GRAPH_REACH = 15;
 const STREET_HINT_RADIUS = 40;
-/** shorter passages are just a single archway with little either side to frame (see passageCandidates) */
-const MIN_PASSAGE_LEN = 8;
-/** a passage needs at least this many of the courtyard test's 12 rays to hit a building nearby, or
- *  the 45 m photo mostly shows the open plaza it opens onto instead of the gateway itself */
-const MIN_PASSAGE_ENCLOSURE = 4;
+/** how far around a spot counts for the "is there anything to look at here" score below */
+const INTEREST_RADIUS = 25;
+/** raw candidates scoring below this are rejected as too plain (tuned on real dry-run output: see
+ *  visualInterestScore's doc comment) */
+export const MIN_INTEREST_SCORE = 3;
 /** the order candidates are round-robined in; also the mix `spots-gen.mjs` rotates through */
-export const SPOT_KINDS: SpotKind[] = ['courtyard', 'crossing', 'passage', 'square', 'river', 'roof'];
+export const SPOT_KINDS: SpotKind[] = ['courtyard', 'crossing', 'square', 'river', 'roof'];
 /** roofShape values (World.Building.roofShape, from BuildingJSON.rs) distinctive enough to spot from
  *  street level: pyramidal, dome, round, cone, an inverted pyramid. Flat/gabled/hipped/skillion and
  *  unset are far too common in Bratislava (skillion alone is 61 buildings) to read as "that one
- *  building" from a tight 45 m photo. */
+ *  building" from a close-up photo. */
 const DISTINCTIVE_ROOFS = new Set([4, 5, 7, 9, 10]);
 
 /** Deterministic candidate spots, mixed across kinds and the three boroughs. Never uses Math.random. */
 export function candidateSpots(world: World, n: number, seed: number): Spot[] {
   const rng = new Rng(seed);
   const exclude = exclusionPoints(world);
-  const waterSegs = waterSegments(world);
-  const nodes = nodePools(world, waterSegs);
+  const ctx = buildFeatureCtx(world);
+  const nodes = nodePools(world, ctx.waterSegs);
 
   const pools: Record<SpotKind, { x: number; y: number }[]> = {
     courtyard: nodes.courtyards,
-    crossing: crossingCandidates(world),
-    passage: passageCandidates(world),
+    crossing: ctx.crossings,
     square: nodes.squares,
     river: nodes.rivers,
     roof: roofCandidates(world),
@@ -81,7 +93,7 @@ export function candidateSpots(world: World, n: number, seed: number): Spot[] {
       // one accepted spot per kind per pass (round-robin): try candidates until one sticks or the queue empties
       let c: { x: number; y: number } | undefined;
       while ((c = q.shift())) {
-        const spot = tryAccept(world, kind, c, exclude, accepted);
+        const spot = tryAccept(world, ctx, kind, c, exclude, accepted);
         if (spot) {
           accepted.push(spot);
           break;
@@ -92,14 +104,18 @@ export function candidateSpots(world: World, n: number, seed: number): Spot[] {
   return accepted;
 }
 
-/** the shared per-candidate gate: on walkable ground, reachable on the ped graph, and far enough from
- *  every landmark/fixed Čumil and every spot already accepted; null when any check fails */
-function tryAccept(world: World, kind: SpotKind, c: { x: number; y: number }, exclude: { x: number; y: number }[], accepted: Spot[]): Spot | null {
+/** the shared per-candidate gate, cheapest checks first: on walkable ground, reachable on the ped
+ *  graph, far enough from every landmark/fixed Čumil and every spot already accepted, never under a
+ *  roof (a building really does hide its own footprint from directly above — that includes a passage
+ *  tunnelled under one), and not too plain a scene once framed; null when any check fails */
+function tryAccept(world: World, ctx: FeatureCtx, kind: SpotKind, c: { x: number; y: number }, exclude: { x: number; y: number }[], accepted: Spot[]): Spot | null {
   const w = world.walkableNear(c.x, c.y);
   if (dist(w.x, w.y, c.x, c.y) > WALKABLE_SLACK) return null;
   if (world.ped.nearest(c.x, c.y, GRAPH_REACH) < 0) return null;
   for (const e of exclude) if (dist(e.x, e.y, c.x, c.y) < MIN_LANDMARK_DIST) return null;
   for (const s of accepted) if (dist(s.x, s.y, c.x, c.y) < MIN_SPOT_SPACING) return null;
+  if (underAnyRoof(world, c.x, c.y)) return null;
+  if (visualInterestScore(world, ctx, c.x, c.y) < MIN_INTEREST_SCORE) return null;
   return {
     x: c.x,
     y: c.y,
@@ -109,6 +125,79 @@ function tryAccept(world: World, kind: SpotKind, c: { x: number; y: number }, ex
     quarter: world.quarter(c.x, c.y),
     street: nearestStreetName(world, c.x, c.y, STREET_HINT_RADIUS),
   };
+}
+
+/** Every building the renderer actually draws as a roofed volume — `kind === 5` is the Most SNP
+ *  pylon/UFO, drawn specially by Game.drawLandmarks, which photo mode never calls; a `hidden`
+ *  outline draws its parts instead, which are their own separate building entries — covering
+ *  (x, y) with its own footprint polygon. A real building really does block the view straight down
+ *  no matter the camera height (unlike its *shifted* roof silhouette, which — because photo mode's
+ *  camera is centred exactly on the candidate point — is a pure dilation of the footprint about
+ *  that same point, and so can never sweep over it: see the review notes for why that first,
+ *  more elaborate theory for the "✕ on a roof" reports turned out not to be the cause). A passage
+ *  tunnelled under a building is exactly this case: its footprint still covers the tunnel below. */
+export function underAnyRoof(world: World, x: number, y: number): boolean {
+  let found = false;
+  world.forBuildingsNear(x - 0.5, y - 0.5, x + 0.5, y + 0.5, (b) => {
+    if (found || b.kind === 5 || b.hidden) return;
+    if (pointInRings(x, y, b.rings)) found = true;
+  });
+  return found;
+}
+
+export interface FeatureCtx {
+  waterSegs: Float32Array;
+  tramSegs: Float32Array;
+  crossings: { x: number; y: number }[];
+}
+
+/** builds the context visualInterestScore needs; exported so tests (and this module's own tuning)
+ *  can call that scorer directly without re-running the whole candidate search */
+export function buildFeatureCtx(world: World): FeatureCtx {
+  return { waterSegs: waterSegments(world), tramSegs: tramSegments(world), crossings: crossingCandidates(world) };
+}
+
+/** Counts distinct "something to look at here" categories within INTEREST_RADIUS, each worth at most
+ *  one point: two or more distinct buildings and at least one visually distinctive one (a hand-set
+ *  colour, an uncommon roof shape, or a church/castle), trees, water, tram tracks, a marked crossing,
+ *  street furniture, a named square. Rejects a spot that's just plain paving or a lone wall — found
+ *  by looking at real dry-run photos (docs/plans/social-events.md's review), e.g. 2026-10-23's bare
+ *  plaza. MIN_INTEREST_SCORE was tuned against a 60-candidate sample of the real map so that roughly
+ *  one in three raw candidates fails it, per that review. */
+export function visualInterestScore(world: World, ctx: FeatureCtx, x: number, y: number): number {
+  let score = 0;
+  let buildings = 0, distinctive = false;
+  const shapes = new Set<number>();
+  world.forBuildingsNear(x - INTEREST_RADIUS, y - INTEREST_RADIUS, x + INTEREST_RADIUS, y + INTEREST_RADIUS, (b) => {
+    if (b.kind === 5 || b.hidden) return;
+    buildings++;
+    shapes.add(b.roofShape);
+    if (b.color || b.wallColor || (b.roofShape && b.roofShape !== 0) || b.kind === 1 || b.kind === 2) distinctive = true;
+  });
+  if (buildings >= 2) score++;
+  if (distinctive || shapes.size >= 2) score++;
+  if (treesNear(world, x, y, INTEREST_RADIUS)) score++;
+  if (distToSegs(ctx.waterSegs, x, y) <= INTEREST_RADIUS) score++;
+  if (ctx.tramSegs.length && distToSegs(ctx.tramSegs, x, y) <= INTEREST_RADIUS) score++;
+  if (ctx.crossings.some((cr) => dist(cr.x, cr.y, x, y) <= INTEREST_RADIUS)) score++;
+  let furniture = false;
+  world.forFurnitureNear(x, y, INTEREST_RADIUS, () => (furniture = true));
+  if (furniture) score++;
+  if (world.squareAt(x, y)) score++;
+  return score;
+}
+
+function treesNear(world: World, x: number, y: number, r: number): boolean {
+  const t = world.trees, r2 = r * r;
+  for (let i = 0; i < t.length; i += 4) if ((t[i] - x) ** 2 + (t[i + 1] - y) ** 2 <= r2) return true;
+  return false;
+}
+
+/** every tram track edge, flat [ax, ay, bx, by, ...], for the interest score above */
+function tramSegments(world: World): Float32Array {
+  const out: number[] = [];
+  for (const line of world.data.trams) for (let i = 0; i < line.length - 2; i += 2) out.push(line[i], line[i + 1], line[i + 2], line[i + 3]);
+  return Float32Array.from(out);
 }
 
 /** landmarks and the ten fixed (collectible) Čumil statues: everything a spot must stay 80 m from */
@@ -141,20 +230,36 @@ function nodePools(world: World, waterSegs: Float32Array) {
   return { squares, courtyards, rivers };
 }
 
-/** how many of `dirs` evenly-spaced rays out to `radius` hit a building first (a cheap "how enclosed
- *  is this point" reading, shared by the courtyard test and the passage one below) */
-function buildingRayHits(world: World, x: number, y: number, radius: number, dirs: number): number {
-  let hits = 0;
+/** `dirs` evenly-spaced rays out to `radius`: true where one hits a building first (a cheap "how
+ *  enclosed is this point" reading, for the courtyard test below) */
+function rayHitPattern(world: World, x: number, y: number, radius: number, dirs: number): boolean[] {
+  const hits: boolean[] = [];
   for (let k = 0; k < dirs; k++) {
     const a = (k / dirs) * Math.PI * 2;
-    if (world.raycast(x, y, x + Math.cos(a) * radius, y + Math.sin(a) * radius, 0) < 1) hits++;
+    hits.push(world.raycast(x, y, x + Math.cos(a) * radius, y + Math.sin(a) * radius, 0) < 1);
   }
   return hits;
 }
 
-/** buildings within COURTYARD_RADIUS in at least COURTYARD_MIN_HITS of COURTYARD_DIRECTIONS rays */
-function isCourtyard(world: World, x: number, y: number): boolean {
-  return buildingRayHits(world, x, y, COURTYARD_RADIUS, COURTYARD_DIRECTIONS) >= COURTYARD_MIN_HITS;
+/** longest run of consecutive `false` in a circular boolean list (the widest gap in the ray fan) */
+function longestGap(hits: boolean[]): number {
+  const start = hits.findIndex((h) => h);
+  if (start < 0) return hits.length; // no hit at all: wide open on every side
+  let longest = 0, run = 0;
+  for (let i = 0; i < hits.length; i++) {
+    if (hits[(start + i) % hits.length]) run = 0;
+    else longest = Math.max(longest, ++run);
+  }
+  return longest;
+}
+
+/** A real, enclosed yard: away from any drivable road (not just a pavement beside one), with
+ *  buildings hitting most of the ray fan and no gap wider than a gateway (COURTYARD_MAX_OPEN_RUN) —
+ *  not one open side onto a street or a plaza. */
+export function isCourtyard(world: World, x: number, y: number): boolean {
+  if (world.onCarriageway(x, y, COURTYARD_ROAD_CLEARANCE)) return false;
+  const hits = rayHitPattern(world, x, y, COURTYARD_RADIUS, COURTYARD_DIRECTIONS);
+  return hits.filter(Boolean).length >= COURTYARD_MIN_HITS && longestGap(hits) <= COURTYARD_MAX_OPEN_RUN;
 }
 
 // ------------------------------------------------------------------------------------------ river
@@ -198,41 +303,6 @@ function crossingCandidates(world: World): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   for (let i = 0; i < c.length; i += 4) out.push({ x: c[i], y: c[i + 1] });
   return out;
-}
-
-/** the arc-length midpoint of every passage corridor long enough to actually read as a gateway once
- *  framed (a photo centred on one of the ~130 under MIN_PASSAGE_LEN, most just a couple of metres
- *  where a footway ducks under a single archway, is mostly bare wall either side: unrecognisable),
- *  and with enough building mass around it that the photo doesn't mostly show open plaza instead */
-function passageCandidates(world: World): { x: number; y: number }[] {
-  const out: { x: number; y: number }[] = [];
-  for (const p of world.data.passages ?? []) {
-    const len = polylineLen(p.p);
-    if (len < MIN_PASSAGE_LEN) continue;
-    const mid = midpointAlong(p.p, len);
-    if (buildingRayHits(world, mid.x, mid.y, COURTYARD_RADIUS, COURTYARD_DIRECTIONS) >= MIN_PASSAGE_ENCLOSURE) out.push(mid);
-  }
-  return out;
-}
-
-function polylineLen(p: number[]): number {
-  let total = 0;
-  for (let i = 0; i < p.length - 2; i += 2) total += dist(p[i], p[i + 1], p[i + 2], p[i + 3]);
-  return total;
-}
-
-function midpointAlong(p: number[], total: number): { x: number; y: number } {
-  const half = total / 2;
-  let acc = 0;
-  for (let i = 0; i < p.length - 2; i += 2) {
-    const segLen = dist(p[i], p[i + 1], p[i + 2], p[i + 3]);
-    if (acc + segLen >= half || i + 4 >= p.length) {
-      const t = segLen > 1e-6 ? (half - acc) / segLen : 0;
-      return { x: p[i] + (p[i + 2] - p[i]) * t, y: p[i + 1] + (p[i + 3] - p[i + 1]) * t };
-    }
-    acc += segLen;
-  }
-  return { x: p[0], y: p[1] };
 }
 
 /** buildings mapped in parts (a tower, a spire) or with a distinctive roof shape: the target is the
