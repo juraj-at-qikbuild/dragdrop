@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { Room, type RoomOptions } from '../src/Room';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import { Ent } from '../../src/shared/net/codec';
-import { LIVERY_KOFOLKA } from '../../src/shared/entities/Vehicle';
+import { LIVERY_DERBY, LIVERY_KOFOLKA } from '../../src/shared/entities/Vehicle';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, loadWorld, stateMsg } from './helpers';
 
 function setup(extra: Partial<RoomOptions> = {}) {
@@ -55,6 +55,24 @@ describe('Horúca Kofolka through the Room', () => {
     tick(100); // 5 more seconds live
     expect(p.profile.money).toBeGreaterThan(before);
     expect(p.profile.money - before).toBe(50); // 5 s at $10/s
+  });
+});
+
+describe('Derby na parkovisku through the Room', () => {
+  it('debug{event:"derby"} starts it, and wev lists it with its arena zone', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', event: 'derby' }));
+    tick(5); // the debounced wev broadcast fires within ~150 ms of a version bump
+    const wev = a.link.last('wev');
+    expect(wev).toBeTruthy();
+    const derby = wev.ev.find((e) => e.kind === 'derby');
+    expect(derby).toBeTruthy();
+    expect(derby!.phase).toBe('announce');
+    expect(derby!.zone).toBeDefined();
+    expect(derby!.zone!.length).toBeGreaterThanOrEqual(6); // >= 3 points
+    expect(room.sim.vehicles.filter((v) => v.livery === LIVERY_DERBY).length).toBe(6);
   });
 });
 

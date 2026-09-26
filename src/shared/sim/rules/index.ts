@@ -8,6 +8,7 @@ import { Race } from './Race';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
+import { DERBY_DEF } from './events/Derby';
 
 export type { RulesMode };
 
@@ -16,6 +17,7 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   director.register(KOFOLKA_DEF);
   director.register(CUMIL_HUNT_DEF);
   director.register(MOST_WANTED_DEF);
+  director.register(DERBY_DEF);
   const rules: SimRule[] = [director];
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), and races need two players
