@@ -8,10 +8,12 @@
 // road and tram tunnels, walls/fences/hedges with their real gaps, piers over the water, and
 // real trees, street lamps, zebra crossings, traffic lights, tram stops, railways and speed limits.
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BBOX } from './bbox.mjs';
 
 const SRC = new URL('../.cache/osm/', import.meta.url);
-const OUT = process.env.MAP_OUT ? new URL(process.env.MAP_OUT, `file://${process.cwd()}/`) : new URL('../public/data/bratislava.json', import.meta.url);
+const OUT = process.env.MAP_OUT ? pathToFileURL(resolve(process.env.MAP_OUT)) : new URL('../public/data/bratislava.json', import.meta.url);
 
 // ---------------------------------------------------------------- parsing
 const nodes = new Map(); // id -> {lat, lon, tags}
@@ -1308,7 +1310,7 @@ const map = {
 // finished map and store the offsets that differ from the defaults.
 {
   const { build } = await import('esbuild');
-  const out = await build({ entryPoints: [new URL('../src/shared/world/World.ts', import.meta.url).pathname], bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'warning' });
+  const out = await build({ entryPoints: [fileURLToPath(new URL('../src/shared/world/World.ts', import.meta.url))], bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'warning' });
   const { World } = await import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64'));
   const t = performance.now();
   new World(map).bakeFits(map);
