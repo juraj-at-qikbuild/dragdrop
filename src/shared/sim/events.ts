@@ -3,6 +3,35 @@
 // the server batches them into network messages for clients in range (NetEvents).
 import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
+import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
+
+/** News everyone in the city hears about, wherever they are: world events, the most wanted, race
+ *  results, the daily puzzle. The radio (Rádio Kecy) and the HUD turn them into lines; `x, y` is
+ *  where it happened, for the place name. */
+export type GlobalEvent =
+  | { k: 'eventAnnounce'; kind: EventKind; x: number; y: number; secs: number }
+  | { k: 'eventStart'; kind: EventKind; x: number; y: number }
+  | {
+      k: 'eventEnd';
+      kind: EventKind;
+      how: 'won' | 'expired' | 'wrecked' | 'robbed' | 'delivered' | 'cancelled';
+      winner?: string;
+      amount?: number;
+      x: number;
+      y: number;
+    }
+  /** someone took the van (or the lead) */
+  | { k: 'holder'; kind: EventKind; nick: string; x: number; y: number }
+  | { k: 'mostWanted'; nick: string; x: number; y: number; bounty: number }
+  | { k: 'mostWantedEnd'; nick: string; how: 'taken' | 'busted' | 'escaped' | 'died' | 'left'; by?: string; amount: number; x: number; y: number }
+  | { k: 'raceStart'; a: string; b: string; dest: string; stake: number }
+  | { k: 'raceResult'; winner: string; loser: string; dest: string; amount: number }
+  | { k: 'derbyResult'; winners: string[]; place: string }
+  | { k: 'dailyReveal'; img: string }
+  | { k: 'dailyHint'; level: number; text: string }
+  | { k: 'dailySolved'; nick: string }
+  | { k: 'dailyAnswer'; x: number; y: number }
+  | { k: 'revived'; by: string; who: string; x: number; y: number };
 
 /** Messages meant for one player only (HUD, sounds, their own car). */
 export type PrivateEvent =
@@ -19,7 +48,8 @@ export type PrivateEvent =
   /** discovered a landmark (+ reward); the client formats the text */
   | { k: 'found'; id: string; reward: number }
   | { k: 'cumil'; id: number; count: number; reward: number }
-  | { k: 'down'; state: 'wasted' | 'busted' }
+  /** downed: lying on the ground, waiting for a revive (online), see Revive */
+  | { k: 'down'; state: 'wasted' | 'busted' | 'downed' }
   | { k: 'respawn'; x: number; y: number; busted: boolean; poi: string; fee: number; epoch: number }
   /** answer to an enter-vehicle request */
   | { k: 'enter'; vehicle: number; ok: boolean }
@@ -32,7 +62,19 @@ export type PrivateEvent =
   /** spikes burst your tyres */
   | { k: 'tyres'; vehicle: number }
   /** a car/tram knocked you over: shove your figure */
-  | { k: 'knock'; dx: number; dy: number };
+  | { k: 'knock'; dx: number; dy: number }
+  // ---- social features (docs/plans/social-events.md); `null` state = none any more
+  | { k: 'party'; s: PartyState | null }
+  /** a fresh invite code for the party link */
+  | { k: 'invite'; code: string }
+  | { k: 'job'; s: JobState | null }
+  | { k: 'race'; s: RaceState | null }
+  | { k: 'challenge'; s: ChallengeState | null }
+  | { k: 'revive'; s: ReviveState | null }
+  /** money from an event, a job, a bounty… (floating text + HUD counter) */
+  | { k: 'payout'; amount: number; reason: string; x: number; y: number }
+  /** the server moved this player (party join): snap there and tag reports with the new epoch */
+  | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number };
 
 export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 
@@ -71,6 +113,8 @@ export interface SimEvents {
   /** someone says something (a speech bubble): `line` from phrases.ts `pickLine` */
   say(pedId: number, x: number, y: number, line: number): void;
   toPlayer(pid: number, e: PrivateEvent): void;
+  /** news for every player, wherever they are */
+  global(e: GlobalEvent): void;
 }
 
 /** Discards everything (tests, headless benchmarks). */
@@ -87,4 +131,5 @@ export const nullEvents: SimEvents = {
   horn() {},
   say() {},
   toPlayer() {},
+  global() {},
 };

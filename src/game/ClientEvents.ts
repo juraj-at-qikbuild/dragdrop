@@ -2,7 +2,7 @@
 // HUD flashes and messages. Offline the Sim calls this directly; online NetSimHost replays the server's
 // events here once the entities they refer to have been interpolated to the same moment.
 import type { Game } from './Game';
-import type { KillCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
+import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
 import { WEAPONS } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { LANDMARK_INFO, RADIO } from '../data/brands';
@@ -99,6 +99,11 @@ export class ClientEvents implements SimEvents {
     if (this.distTo(x, y) < 50) this.g.bubbles.add(pedId, x, y, line);
   }
 
+  /** city-wide news: the features (radio, HUD, map) take it from here */
+  global(e: GlobalEvent) {
+    for (const f of this.g.features) f.onGlobal?.(e);
+  }
+
   toPlayer(pid: number, e: PrivateEvent) {
     if (pid !== this.meId) return;
     const g = this.g;
@@ -147,7 +152,8 @@ export class ClientEvents implements SimEvents {
         break;
       case 'down':
         g.rumble(1, 1, 650);
-        g.missions.onPlayerDown(e.state);
+        // missions are offline only, where nobody is ever just downed
+        if (e.state !== 'downed') g.missions.onPlayerDown(e.state);
         g.audio.jingle(false);
         break;
       case 'respawn':
@@ -173,5 +179,6 @@ export class ClientEvents implements SimEvents {
         g.audio.cash();
         break;
     }
+    for (const f of g.features) f.onPrivate?.(e);
   }
 }

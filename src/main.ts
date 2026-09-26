@@ -5,6 +5,7 @@ import { NetSimHost } from './net/NetSimHost';
 import { loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
 import { randomNick } from './net/nicknames';
 import { cleanNick } from './shared/net/protocol';
+import { parseBootLinks } from './boot/links';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -54,10 +55,12 @@ async function boot() {
     $('loading-text').textContent = 'Nepodarilo sa načítať mapu Bratislavy. Skús obnoviť stránku.';
     throw e;
   }
-  // Online play boots through a reload with #online, so the page starts from a clean world and
-  // the offline save is never touched (the online profile is separate).
-  const onlineBoot = location.hash === '#online' && !!SERVER_URL && !!loadIdentity();
-  if (location.hash === '#online') history.replaceState(null, '', location.pathname + location.search);
+  // What the URL asks for (src/boot/links.ts): online play, a party invite, photo mode, an account
+  // e-mail coming back. Online play boots through a reload with #online, so the page starts from a
+  // clean world and the offline save is never touched (the online profile is separate).
+  const links = parseBootLinks(location.hash, location.search);
+  const onlineBoot = links.online && !!SERVER_URL && !!loadIdentity();
+  if (links.online) history.replaceState(null, '', location.pathname + location.search);
   const game = new Game(canvas, data, { online: onlineBoot });
   (window as unknown as { game: Game }).game = game;
   try {

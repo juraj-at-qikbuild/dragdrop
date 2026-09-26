@@ -86,6 +86,8 @@ export class Ped {
   deadTime = 0;
   /** true while surrendering / being arrested-at-gunpoint */
   handsUp = false;
+  /** a player lying wounded, waiting to be revived (online) */
+  downed = false;
   /** seconds remaining of a white hit-flash; decayed by the renderer */
   hitFlash = 0;
   // navigation on the pedestrian graph

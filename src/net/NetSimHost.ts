@@ -2,7 +2,7 @@
 // ~100 ms in the past), simulates only the local player's own figure and car (colliding with the
 // mirrors), uploads that state 20× a second, and sends requests (enter a car, fire, …) the server grants.
 import type { Game } from '../game/Game';
-import type { MeView, NetView, SimHost } from '../game/SimHost';
+import { applyLive, emptyLive, type MeView, type NetView, type SimHost } from '../game/SimHost';
 import { Ped, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
 import { Vehicle } from '../shared/entities/Vehicle';
 import type { Observer } from '../shared/sim/SimPlayer';
@@ -15,7 +15,7 @@ import {
   INTERP_DELAY_MS, PROTOCOL_VERSION, STATE_HZ,
   type RosterRow, type ServerMsg, type VehFull, type WelcomeMsg, type WorldEvent,
 } from '../shared/net/protocol';
-import { Connection, type NetStatus } from './Connection';
+import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
 import type { Identity } from './identity';
 
@@ -24,6 +24,7 @@ export class NetSimHost implements SimHost, NetView {
   readonly allowsPause = false;
   readonly allowsTimeScale = false;
   readonly missionsEnabled = false;
+  readonly live = emptyLive();
   me: MeView;
   conn: Connection;
   roster: RosterRow[] = [];
@@ -111,9 +112,15 @@ export class NetSimHost implements SimHost, NetView {
     if (reconnect) this.game.message('', 'Znovu pripojený k serveru.', 2, '#69f0ae');
   }
 
-  private onFatal(r: 'version' | 'replaced' | 'bad-hello' | 'full') {
+  private onFatal(r: FatalReason) {
     const text =
-      r === 'version' ? 'Nová verzia hry – obnov stránku.' : r === 'replaced' ? 'Tvoj profil hrá v inom okne.' : r === 'full' ? 'Server je plný.' : 'Server odmietol pripojenie.';
+      r === 'version' ? 'Nová verzia hry – obnov stránku.'
+      : r === 'replaced' ? 'Tvoj profil hrá v inom okne.'
+      : r === 'full' ? 'Server je plný.'
+      : r === 'auth' ? 'Prihlásenie vypršalo – prihlás sa znova.'
+      : r === 'auth-unavailable' ? 'Prihlásenie je teraz nedostupné.'
+      : r === 'nick-taken' ? 'Táto prezývka je už obsadená.'
+      : 'Server odmietol pripojenie.';
     this.game.message('Odpojený', text, 8, '#ff8a80');
   }
 
@@ -157,9 +164,21 @@ export class NetSimHost implements SimHost, NetView {
       case 'ev':
         for (const e of m.p) this.game.events.toPlayer(this.me.id, e);
         for (const e of m.e) this.queue.push({ st: m.st, e });
+        if (m.g) for (const e of m.g) this.game.events.global(e);
         break;
       case 'roster':
         this.roster = m.ps;
+        this.live.partyTags = new Map((m.pt ?? []).map(([id, tag, color]) => [id, { tag, color }]));
+        break;
+      case 'wev':
+        this.live.events = m.ev;
+        this.live.eventsAt = performance.now();
+        this.live.daily = m.daily;
+        break;
+      case 'voicePeers':
+      case 'voiceIce':
+      case 'voiceSig':
+        for (const f of this.game.features) f.onMessage?.(m);
         break;
       case 'clock':
         this.game.atmos.clock.sync(m.c);
@@ -421,6 +440,7 @@ export class NetSimHost implements SimHost, NetView {
 
   onPrivate(e: PrivateEvent) {
     const p = this.me.ped;
+    applyLive(this.live, e);
     switch (e.k) {
       case 'enter': {
         this.entering = 0;
@@ -479,6 +499,18 @@ export class NetSimHost implements SimHost, NetView {
       case 'down':
         this.me.state = e.state;
         break;
+      case 'teleport':
+        // the server moved us (joining a party): drop the car, snap there, new epoch
+        this.releaseCar();
+        p.x = e.x;
+        p.y = e.y;
+        p.vx = p.vy = 0;
+        p.level = e.lvl;
+        p.levelInit = true;
+        this.epoch = e.epoch;
+        this.game.cam.x = e.x;
+        this.game.cam.y = e.y;
+        break;
     }
   }
 
@@ -494,7 +526,7 @@ export class NetSimHost implements SimHost, NetView {
 
   tagFor(playerId: number) {
     const r = this.roster.find((q) => q[0] === playerId);
-    return r ? { nick: r[1], wanted: r[4] } : null;
+    return r ? { nick: r[1], wanted: r[4], partyId: r[7] ?? 0, flags: r[8] ?? 0 } : null;
   }
 
   dispose() {

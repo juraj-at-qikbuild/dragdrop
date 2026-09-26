@@ -24,6 +24,8 @@ import { IdPool } from './IdPool';
 import { nullEvents, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
 import { SimPlayer, type Profile } from './SimPlayer';
+import { createRules, type RulesMode } from './rules';
+import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
 
 export type Crime =
   | 'shoot' | 'killPed' | 'killCop' | 'shootCop' | 'carjack' | 'hitCop' | 'stealCop' | 'destroy'
@@ -39,6 +41,10 @@ export interface SimOptions {
   caps?: Caps;
   /** server: players' cars coast along their last reported velocity between reports */
   extrapolatePlayers?: boolean;
+  /** run the social/world-event rules (docs/plans/social-events.md) for this host */
+  rules?: RulesMode;
+  /** lethal damage downs a player (revivable) instead of killing them outright (online) */
+  downed?: boolean;
 }
 
 const SPRAY_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#263238'];
@@ -88,6 +94,12 @@ export class Sim {
   anyWanted = false;
   /** integrate traffic far from every camera at half rate (server) */
   coarsePhysics = false;
+  /** pluggable rules: world events, revive, races, jobs… (rules/index.ts) */
+  rules: SimRule[] = [];
+  /** who shares a payout (the server's parties); none: the earner gets it all */
+  payoutPolicy?: PayoutPolicy;
+  /** lethal damage downs players instead of killing them (SimOptions.downed) */
+  downed: boolean;
 
   constructor(world: World, opts: SimOptions = {}) {
     this.world = world;
@@ -102,6 +114,13 @@ export class Sim {
     this.police = new Police(this);
     this.combat = new CombatRules(this);
     for (const p of placePickups(world)) this.pickups.push({ ...p, id: this.ids.alloc(0) });
+    this.downed = !!opts.downed;
+    if (opts.rules) this.rules.push(...createRules(this, opts.rules));
+  }
+
+  /** a rule by id (e.g. 'worldEvents') */
+  rule<T extends SimRule>(id: string): T | undefined {
+    return this.rules.find((r) => r.id === id) as T | undefined;
   }
 
   // ---------------------------------------------------------------- entities
@@ -282,6 +301,7 @@ export class Sim {
       this.hazards(p, dt);
       this.discover(p);
     }
+    for (const r of this.rules) r.step?.(dt);
     this.sweepTimer -= dt;
     if (this.sweepTimer <= 0) {
       this.sweepTimer = 1;
@@ -724,6 +744,40 @@ export class Sim {
   addMoney(p: SimPlayer, v: number, x?: number, y?: number) {
     p.profile.money = Math.max(0, p.profile.money + v);
     if (v > 0 && x !== undefined && y !== undefined) this.events.toPlayer(p.id, { k: 'cash', amount: v, x, y });
+  }
+
+  /** Pay a reward (world events, jobs, bounties…): shared out by the payout policy (parties), shown to
+   *  each recipient, and saved within seconds (addMoney alone waits for the periodic full save). */
+  payout(p: SimPlayer, amount: number, reason: PayoutReason, x?: number, y?: number) {
+    amount = Math.round(amount);
+    if (!(amount > 0)) return;
+    const shares = this.payoutPolicy?.(p, amount, reason) ?? [{ p, amount }];
+    for (const s of shares) {
+      const n = Math.round(s.amount);
+      if (!(n > 0)) continue;
+      this.addMoney(s.p, n);
+      const f = s.p.focus();
+      const here = s.p === p && x !== undefined && y !== undefined;
+      this.events.toPlayer(s.p.id, { k: 'payout', amount: n, reason, x: here ? x : f.x, y: here ? y! : f.y });
+      this.onProfileChange?.(s.p);
+    }
+  }
+
+  /** Move a player somewhere else (joining a party): out of any car, onto a clear spot, with a new
+   *  epoch so their client's reports from the old place are ignored. */
+  teleport(p: SimPlayer, x: number, y: number, lvl: Level = 0) {
+    if (p.ped.vehicle) this.exitVehicle(p, true);
+    const pos = this.world.clearSpot(x, y);
+    const ped = p.ped;
+    ped.x = pos.x;
+    ped.y = pos.y;
+    ped.vx = ped.vy = 0;
+    ped.level = lvl;
+    ped.levelInit = true;
+    p.epoch = (p.epoch + 1) & 0xff;
+    p.observer.fx = p.observer.cx = pos.x;
+    p.observer.fy = p.observer.cy = pos.y;
+    this.events.toPlayer(p.id, { k: 'teleport', x: pos.x, y: pos.y, lvl, epoch: p.epoch });
   }
 
   dropCash(x: number, y: number, amount: number) {

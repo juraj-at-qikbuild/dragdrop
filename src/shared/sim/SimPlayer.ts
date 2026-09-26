@@ -6,7 +6,8 @@ import type { Helicopter } from '../entities/Helicopter';
 import type { Prop } from '../entities/Props';
 import type { Level } from '../world/World';
 
-export type PlayerState = 'play' | 'wasted' | 'busted';
+/** downed: lying wounded, revivable by another player until they bleed out (online; see Revive) */
+export type PlayerState = 'play' | 'wasted' | 'busted' | 'downed';
 
 /** Persistent progress. Offline this is the localStorage save; online the server's profile. */
 export interface Profile {
@@ -19,6 +20,8 @@ export interface Profile {
   cumils: number[];
   /** time of day in hours (offline save only) */
   clock?: number;
+  /** counters for the social features (golden Čumils, deliveries, fares, races and daily puzzles won…) */
+  stats?: Record<string, number>;
 }
 
 /** A player's view of the world: focus (their ped/car) and camera rectangle, in metres. */
@@ -77,6 +80,12 @@ export class SimPlayer {
   connected = true;
   /** server: no state reports for a while (tab in the background): not an observer */
   afk = false;
+  /** party this player is in (0 = none); set by the server's Party feature */
+  partyId = 0;
+  /** opted in to voice chat; set by the server's Voice feature */
+  voiceOn = false;
+  /** playing as a Supabase account rather than a guest */
+  account = false;
 
   constructor(
     public id: number,

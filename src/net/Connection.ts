@@ -1,6 +1,9 @@
 // WebSocket connection to the game server: handshake, automatic reconnect with backoff,
 // RTT and server-clock estimation. Knows nothing about game state; NetSimHost/OnlineSession do.
-import type { ClientMsg, HelloMsg, ServerMsg, WelcomeMsg } from '../shared/net/protocol';
+import type { ClientMsg, ErrorCode, HelloMsg, ServerMsg, WelcomeMsg } from '../shared/net/protocol';
+
+/** why the server won't have this client: refused on hello (ErrorCode) or replaced by another tab */
+export type FatalReason = ErrorCode | 'replaced';
 
 export type NetState = 'connecting' | 'online' | 'reconnecting' | 'failed' | 'closed';
 
@@ -20,7 +23,7 @@ export interface ConnectionHandlers {
   message(m: ServerMsg): void;
   binary?(data: ArrayBuffer): void;
   /** the server said the client is outdated, or took the identity over in another tab */
-  fatal?(reason: 'version' | 'replaced' | 'bad-hello' | 'full'): void;
+  fatal?(reason: FatalReason): void;
 }
 
 const PING_MS = 2000;
@@ -69,7 +72,7 @@ export class Connection {
     return true;
   }
 
-  private fatal(reason: 'version' | 'replaced' | 'bad-hello' | 'full') {
+  private fatal(reason: FatalReason) {
     this.stop();
     this.status.state = 'failed';
     if (!this.settleFirst(new Error(reason))) this.h.fatal?.(reason);

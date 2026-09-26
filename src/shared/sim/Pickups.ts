@@ -3,8 +3,10 @@
 import type { World } from '../world/World';
 import { dist, rng } from '../util/math';
 
-export type PickupKind = 'cash' | 'health' | 'armor' | 'pistol' | 'uzi' | 'shotgun' | 'cumil';
-export const PICKUP_KINDS: PickupKind[] = ['cash', 'health', 'armor', 'pistol', 'uzi', 'shotgun', 'cumil'];
+/** goldenCumil: the Hon na Čumila world event's statue (first to touch it wins; not a collectible) */
+export type PickupKind = 'cash' | 'health' | 'armor' | 'pistol' | 'uzi' | 'shotgun' | 'cumil' | 'goldenCumil';
+/** index-encoded on the wire: append only */
+export const PICKUP_KINDS: PickupKind[] = ['cash', 'health', 'armor', 'pistol', 'uzi', 'shotgun', 'cumil', 'goldenCumil'];
 
 export interface Pickup {
   /** network id */
@@ -19,6 +21,8 @@ export interface Pickup {
   hidden: number;
   /** Čumil statue index 0..9, or -1 */
   cumil: number;
+  /** where it came from, for rules that care (e.g. 'van' for the armoured van's spilled cash); not sent */
+  tag?: string;
 }
 
 /** reward for each Čumil statue */

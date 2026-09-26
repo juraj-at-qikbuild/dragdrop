@@ -8,6 +8,13 @@ import type { Ped } from './Ped';
 
 export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic';
 
+/** world-event paint jobs (2 bits on the wire): the Horúca Kofolka van, the armoured cash van, derby cars */
+export type Livery = 0 | 1 | 2 | 3;
+export const LIVERY_NONE = 0;
+export const LIVERY_KOFOLKA = 1;
+export const LIVERY_ARMORED = 2;
+export const LIVERY_DERBY = 3;
+
 export interface CarSpec {
   kind: VehicleKind;
   name: string;
@@ -112,6 +119,8 @@ export class Vehicle {
   siren = false;
   parked = false;
   mission = false;
+  /** paint job for world events (LIVERY_*), sent with the static block */
+  livery: Livery = LIVERY_NONE;
   skid = 0;
   lastHit = 0;
   horn = 0;

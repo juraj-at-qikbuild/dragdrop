@@ -3,10 +3,11 @@ import type { World } from '../shared/world/World';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import type { Clock } from '../shared/sim/Clock';
 import type { ShotReport } from '../shared/sim/Combat';
-import type { SimEvents } from '../shared/sim/events';
+import type { PrivateEvent, SimEvents } from '../shared/sim/events';
 import type { Observer, Profile, SimPlayer } from '../shared/sim/SimPlayer';
 import { Sim } from '../shared/sim/Sim';
-import type { SimHost } from './SimHost';
+import type { WorldEvents } from '../shared/sim/rules/WorldEvents';
+import { applyLive, emptyLive, type SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
   readonly mode = 'local';
@@ -16,9 +17,10 @@ export class LocalSimHost implements SimHost {
   readonly allowsPause = true;
   readonly allowsTimeScale = true;
   readonly missionsEnabled = true;
+  readonly live = emptyLive();
 
   constructor(world: World, events: SimEvents, profile: Profile, clock: Clock, private save: () => void) {
-    this.sim = new Sim(world, { events, clock, driveClock: false });
+    this.sim = new Sim(world, { events, clock, driveClock: false, rules: 'offline' });
     this.me = this.sim.addPlayer({ nick: 'Ty', profile, kinematic: false });
     this.sim.onProfileChange = () => this.save();
   }
@@ -56,6 +58,9 @@ export class LocalSimHost implements SimHost {
 
   update(dt: number) {
     this.sim.step(dt);
+    // the rules run right here, so the world events are always current
+    this.live.events = this.sim.rule<WorldEvents>('worldEvents')?.entries() ?? [];
+    this.live.eventsAt = performance.now();
   }
 
   fire(shot: ShotReport) {
@@ -84,7 +89,9 @@ export class LocalSimHost implements SimHost {
     this.sim.addMoney(this.me, n);
   }
 
-  onPrivate() {}
+  onPrivate(e: PrivateEvent) {
+    applyLive(this.live, e);
+  }
 
   persist() {
     this.save();

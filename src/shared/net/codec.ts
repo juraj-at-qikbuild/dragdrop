@@ -2,7 +2,7 @@
 // server's SNAPSHOT (private player state + every nearby entity that changed, every tick).
 // Little-endian, quantised: positions 1/16 m in i16 (±2 km covers the map), angles u16 (or u8 for
 // peds), velocities cm/s. See docs/multiplayer.md for the byte budget.
-import { SPECS, type Vehicle, type VehicleKind } from '../entities/Vehicle';
+import { SPECS, type Livery, type Vehicle, type VehicleKind } from '../entities/Vehicle';
 import type { Ped, PedState, WeaponId } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Prop, PropKind } from '../entities/Props';
@@ -275,7 +275,7 @@ export interface PrivateState {
   health: number;
   armor: number;
   wanted: number;
-  state: 'play' | 'wasted' | 'busted';
+  state: 'play' | 'wasted' | 'busted' | 'downed';
   stateTimer: number;
   searching: boolean;
   shotCops: boolean;
@@ -286,7 +286,8 @@ export interface PrivateState {
   zone: { x: number; y: number; r: number } | null;
 }
 
-const PSTATES = ['play', 'wasted', 'busted'] as const;
+/** index-encoded in 2 bits: append only (v7 added 'downed') */
+const PSTATES = ['play', 'wasted', 'busted', 'downed'] as const;
 
 export function encodeSnapshotHeader(w: Writer, tick: number, serverMs: number, ack: number, me: PrivateState) {
   w.u8(MSG_SNAPSHOT);
@@ -321,7 +322,7 @@ export function vehicleStatic(w: Writer, v: Vehicle, swat: boolean) {
   w.u8((c >> 16) & 255);
   w.u8((c >> 8) & 255);
   w.u8(c & 255);
-  w.u8((v.mission ? 1 : 0) | (swat ? 2 : 0));
+  w.u8((v.mission ? 1 : 0) | (swat ? 2 : 0) | ((v.livery & 3) << 2));
   w.u16(v.owner);
 }
 
@@ -356,7 +357,9 @@ export function pedDynamic(w: Writer, p: Ped, stars: number) {
   w.pos(p.x);
   w.pos(p.y);
   w.ang8(p.angle);
-  w.u8(Math.max(0, PED_STATES.indexOf(p.state)) | (p.handsUp ? 8 : 0) | (Math.max(0, WEAPON_LIST.indexOf(p.weapon)) << 4) | (p.playerId ? 64 : 0));
+  w.u8(
+    Math.max(0, PED_STATES.indexOf(p.state)) | (p.handsUp ? 8 : 0) | (Math.max(0, WEAPON_LIST.indexOf(p.weapon)) << 4) | (p.playerId ? 64 : 0) | (p.downed ? 128 : 0),
+  );
   if (p.playerId) {
     w.u16(p.vehicle?.id ?? 0);
     w.u8(stars);
@@ -412,6 +415,7 @@ export interface VehicleRec {
   color?: string;
   mission?: boolean;
   swat?: boolean;
+  livery?: Livery;
   owner?: number;
   x: number;
   y: number;
@@ -446,6 +450,8 @@ export interface PedRec {
   a: number;
   state: PedState;
   handsUp: boolean;
+  /** a player lying wounded, waiting for a revive */
+  downed: boolean;
   weapon: WeaponId;
   vehicle: number;
   stars: number;
@@ -530,6 +536,7 @@ function decodeEntity(r: Reader): EntityRec {
         const b = r.u8();
         v.mission = !!(b & 1);
         v.swat = !!(b & 2);
+        v.livery = ((b >> 2) & 3) as Livery;
         v.owner = r.u16();
       }
       v.x = r.pos();
@@ -570,6 +577,7 @@ function decodeEntity(r: Reader): EntityRec {
       const b = r.u8();
       v.state = PED_STATES[b & 7] ?? 'walk';
       v.handsUp = !!(b & 8);
+      v.downed = !!(b & 128);
       v.weapon = WEAPON_LIST[(b >> 4) & 3];
       v.vehicle = b & 64 ? r.u16() : 0;
       v.stars = b & 64 ? r.u8() : 0;

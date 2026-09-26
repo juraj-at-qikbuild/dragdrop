@@ -12,6 +12,7 @@ import type { PrivateEvent } from '../shared/sim/events';
 import type { Observer, PlayerState, Profile } from '../shared/sim/SimPlayer';
 import type { NetStatus } from '../net/Connection';
 import type { RosterRow } from '../shared/net/protocol';
+import type { ChallengeState, DailyState, EventEntry, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
 export interface MeView {
@@ -32,8 +33,56 @@ export interface NetView {
   roster: RosterRow[];
   nick: string;
   setNick(n: string): void;
-  /** name + wanted level for a player's figure, for name tags */
-  tagFor(playerId: number): { nick: string; wanted: number } | null;
+  /** name + wanted level for a player's figure, for name tags; partyId/flags from the roster (ROSTER_*) */
+  tagFor(playerId: number): { nick: string; wanted: number; partyId: number; flags: number } | null;
+}
+
+/** What the social features show, kept the same way by both hosts: offline straight from the rules,
+ *  online from the server's `wev` message and private events. HUD and map code read only this. */
+export interface LiveState {
+  /** active world events */
+  events: EventEntry[];
+  /** when `events` arrived (performance.now() ms): each entry's `left` counts down from then */
+  eventsAt: number;
+  daily: DailyState | null;
+  party: PartyState | null;
+  job: JobState | null;
+  race: RaceState | null;
+  /** someone challenged this player to a race */
+  challenge: ChallengeState | null;
+  revive: ReviveState | null;
+  /** party tags of everyone online (from the roster): partyId → tag + colour */
+  partyTags: Map<number, { tag: string; color: string }>;
+}
+
+export function emptyLive(): LiveState {
+  return { events: [], eventsAt: 0, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map() };
+}
+
+/** seconds left in a world event's phase, now */
+export function eventLeft(live: LiveState, e: EventEntry, now = performance.now()) {
+  return Math.max(0, e.left - (now - live.eventsAt) / 1000);
+}
+
+/** keep LiveState in step with the private events that carry feature state (both hosts call this) */
+export function applyLive(live: LiveState, e: PrivateEvent) {
+  switch (e.k) {
+    case 'party':
+      live.party = e.s;
+      break;
+    case 'job':
+      live.job = e.s;
+      break;
+    case 'race':
+      live.race = e.s;
+      break;
+    case 'challenge':
+      live.challenge = e.s;
+      break;
+    case 'revive':
+      live.revive = e.s;
+      break;
+  }
 }
 
 export interface SimHost {
@@ -51,6 +100,8 @@ export interface SimHost {
   readonly allowsPause: boolean;
   readonly allowsTimeScale: boolean;
   readonly missionsEnabled: boolean;
+  /** state of the social features (world events, party, job, race…) */
+  readonly live: LiveState;
 
   vehicleById(id: number): Vehicle | null;
   pedById(id: number): Ped | null;

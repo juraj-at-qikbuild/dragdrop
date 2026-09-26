@@ -37,6 +37,7 @@ import { EntityFx } from './EntityFx';
 import { ClientEvents } from './ClientEvents';
 import { LocalSimHost } from './LocalSimHost';
 import type { SimHost } from './SimHost';
+import { createClientFeatures, type ClientFeature } from './features';
 
 /** the offline save: the local player's profile plus the time of day */
 export type SaveData = Profile;
@@ -81,6 +82,8 @@ export class Game {
   weather = new Weather();
   /** the world: offline simulation or online server */
   host: SimHost;
+  /** plug-in features: world events, party, revive, races, jobs, daily puzzle, news, voice (features/index.ts) */
+  features: ClientFeature[] = [];
   /** 1 = full quality, 0 = low (kept for old call sites: true whenever qualityTier > 0) */
   quality = 1;
   /** 2 = high, 1 = medium, 0 = low — drives PostFX detail and quality (see `trackFrameTime`) */
@@ -175,6 +178,7 @@ export class Game {
       this.audio.snap(dist(x, y, f.x, f.y));
       if (this.player.vehicle && dist(x, y, f.x, f.y) < 8) this.juice.addTrauma(Math.min(0.25, speed / 60));
     };
+    this.features = createClientFeatures(this);
   }
 
   /** fill the streets around the player right away (start of play) */
@@ -187,6 +191,7 @@ export class Game {
     this.host.dispose();
     this.host = h;
     this.missions.cleanupAll();
+    for (const f of this.features) f.reset?.();
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
   }
@@ -413,6 +418,7 @@ export class Game {
     if (this.padHints > 0) this.padHints = pad ? this.padHints - dtReal : 0;
     host.setObserver(this.observer());
     host.update(dt);
+    for (const f of this.features) f.update?.(dt);
     this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus());
     this.updateStreet(dt);
     this.fx.update(dt);
@@ -791,6 +797,7 @@ export class Game {
     this.juice.drawTexts(ctx);
     if (hud) this.bubbles.draw(ctx, v);
     if (host.net && hud) drawNametags(ctx, host.net, host.peds, v, host.me.id, underground);
+    if (hud) for (const f of this.features) f.drawWorld?.(ctx, v);
     if (hud) this.drawPlayerMarker(ctx);
 
     // screen-space post: rain, wet sheen, vignette — also shown behind the menu (attract mode)
@@ -819,6 +826,7 @@ export class Game {
     if (this.hudCtx) {
       this.hudCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       this.hud.draw(this.hudCtx);
+      for (const f of this.features) f.drawHud?.(this.hudCtx);
       if (this.showMap) this.mapView.drawFull(this.hudCtx);
     }
   }
@@ -1122,5 +1130,6 @@ const PICKUP_GLOW: Record<PickupKind, string> = {
   uzi: '#ffd600',
   shotgun: '#ffd600',
   cumil: '#ffd600',
+  goldenCumil: '#ffc400',
 };
 

@@ -376,6 +376,8 @@ export class MapView {
           outlined(ctx, nick, x, y - size - 2, '#e1bee7', 3);
         }
       }
+    // the social features' markers (world events, party members…)
+    for (const ft of g.features) ft.drawMap?.(ctx, toScreen, full, size);
     // player arrow
     const f = g.focus();
     const a = g.player.vehicle ? g.player.vehicle.angle : g.player.angle;

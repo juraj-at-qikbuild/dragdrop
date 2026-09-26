@@ -155,6 +155,7 @@ export class Mirrors {
     if (full) {
       m.obj.color = r.color ?? m.obj.color;
       m.obj.mission = !!r.mission;
+      m.obj.livery = r.livery ?? 0;
       m.obj.owner = r.owner ?? 0;
     }
     m.rec = r;
@@ -281,6 +282,7 @@ export class Mirrors {
       p.level = m.level;
       p.weapon = r.weapon;
       p.handsUp = r.handsUp;
+      p.downed = r.downed;
       const car = r.vehicle ? (this.veh.get(r.vehicle)?.obj ?? null) : null;
       if (r.state === 'dead' && !p.dead) {
         p.state = 'dead';

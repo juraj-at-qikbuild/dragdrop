@@ -5,15 +5,18 @@
 //  - Hot path in binary (see codec.ts): the client's STATE at 20 Hz, the server's SNAPSHOT every tick.
 //  - Everything else is JSON text frames: handshake, requests (enter/exit/fire…), events, roster, clock.
 import type { WeaponId } from '../entities/Ped';
-import type { PrivateEvent } from '../sim/events';
+import type { GlobalEvent, PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
+import type { DailyState, EventEntry, EventKind, JobKind } from '../sim/rules/types';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
  *  v4: levels include -1 (in a tunnel).
  *  v5: levels include 2 (an upper bridge deck), and the city's colliders changed (fountains,
- *  monuments and bollards; lanes fitted to the streets), which client and server must agree on. */
-export const PROTOCOL_VERSION = 6;
+ *  monuments and bollards; lanes fitted to the streets), which client and server must agree on.
+ *  v7: world events, parties, accounts, revive, races, jobs, the daily puzzle and voice chat
+ *  (docs/plans/social-events.md): new messages, a downed player state, liveries, the golden Čumil. */
+export const PROTOCOL_VERSION = 7;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;
@@ -49,6 +52,24 @@ export interface HelloMsg {
   nick: string;
   /** reconnecting: where this client is, and the car it's driving (0 = on foot) */
   resume?: { x: number; y: number; lvl: Level; car: number };
+  /** a party invite code from a `#join=` link: put me next to whoever invited me */
+  join?: string;
+  /** a Supabase access token: play as that account instead of the guest `token` */
+  auth?: string;
+  /** with `auth`: move this device's guest progress (`token`) into the account (once, into an empty one) */
+  claim?: boolean;
+}
+
+/** WebRTC signalling relayed between two paired players (the server only checks who may talk to whom) */
+export interface VoiceSignal {
+  sdp?: { type: 'offer' | 'answer' | 'pranswer' | 'rollback'; sdp?: string };
+  ice?: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null } | null;
+}
+
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
 }
 
 /** a shot as traced by the shooter's client */
@@ -76,8 +97,37 @@ export type ClientMsg =
   | { t: 'nick'; nick: string }
   | { t: 'ping'; ct: number }
   | { t: 'leave' }
+  // ---- social features (docs/plans/social-events.md)
+  /** mint (or re-send) this player's party invite code */
+  | { t: 'partyInvite' }
+  | { t: 'partyLeave' }
+  /** leader only */
+  | { t: 'partyKick'; id: number }
+  /** challenge the player whose car is next to mine to a race */
+  | { t: 'challenge'; target: number }
+  | { t: 'challengeAnswer'; from: number; ok: boolean }
+  | { t: 'job'; op: 'start' | 'stop'; kind?: JobKind }
+  /** downed: skip the wait and go to hospital */
+  | { t: 'giveUp' }
+  /** voice chat opt-in/out (accounts only) */
+  | { t: 'voice'; on: boolean }
+  | { t: 'voiceSig'; to: number; data: VoiceSignal }
+  | { t: 'report'; target: number; reason: string }
+  /** delete this account and its progress (GDPR) */
+  | { t: 'accountDelete' }
   /** tests only (server started with E2E=1) */
-  | { t: 'debug'; give?: WeaponId; money?: number; wanted?: number; hp?: number };
+  | {
+      t: 'debug';
+      give?: WeaponId;
+      money?: number;
+      wanted?: number;
+      hp?: number;
+      /** start a world event now */
+      event?: EventKind;
+      teleport?: [number, number];
+      /** make today's puzzle a spot here (tests) */
+      daily?: { x: number; y: number; r: number };
+    };
 
 // ------------------------------------------------------------ server → client (JSON)
 export interface WelcomeMsg {
@@ -99,6 +149,10 @@ export interface WelcomeMsg {
   /** server clock, ms */
   st: number;
   clock: ClockSync;
+  /** playing as a Supabase account (not a guest) */
+  account: boolean;
+  /** hello.claim was honoured: the guest progress moved into the account */
+  claimed?: boolean;
 }
 
 export interface ClockSync {
@@ -122,20 +176,41 @@ export type WorldEvent =
   | { k: 'horn'; vid: number; x: number; y: number }
   | { k: 'say'; id: number; l: number };
 
-/** roster row: [id, nick, x, y, wanted, inCar, pedId] */
-export type RosterRow = [number, string, number, number, number, 0 | 1, number];
+/** roster row: [id, nick, x, y, wanted, inCar, pedId, partyId (0 = none), flags (ROSTER_*)] */
+export type RosterRow = [number, string, number, number, number, 0 | 1, number, number, number];
+/** roster flags */
+export const ROSTER_DOWNED = 1;
+export const ROSTER_VOICE = 2;
+export const ROSTER_ACCOUNT = 4;
+/** a party's name tag: [partyId, tag, colour] */
+export type PartyTag = [number, string, string];
+
+/** The city-wide state: active world events and today's puzzle. Sent whole (1 Hz, on change, on hello). */
+export interface WevMsg {
+  t: 'wev';
+  ev: EventEntry[];
+  daily: DailyState | null;
+}
+
+export type ErrorCode = 'version' | 'bad-hello' | 'full' | 'auth' | 'auth-unavailable' | 'nick-taken';
 
 export type ServerMsg =
   | WelcomeMsg
-  | { t: 'ev'; st: number; e: WorldEvent[]; p: PrivateEvent[] }
-  | { t: 'roster'; ps: RosterRow[] }
+  /** g: city-wide news (GlobalEvent), sent to everyone */
+  | { t: 'ev'; st: number; e: WorldEvent[]; p: PrivateEvent[]; g?: GlobalEvent[] }
+  | { t: 'roster'; ps: RosterRow[]; pt?: PartyTag[] }
   | { t: 'clock'; c: ClockSync }
-  | { t: 'profile'; money: number; found: string[]; cumils: number[] }
+  | { t: 'profile'; money: number; found: string[]; cumils: number[]; stats?: Record<string, number> }
   | { t: 'pong'; ct: number; st: number }
   /** the server rejected an impossible move: go back to this position */
   | { t: 'correct'; x: number; y: number }
-  | { t: 'error'; code: 'version' | 'bad-hello' | 'full' }
-  | { t: 'bye'; reason: 'restart' | 'replaced' | 'kicked' };
+  | { t: 'error'; code: ErrorCode }
+  | { t: 'bye'; reason: 'restart' | 'replaced' | 'kicked' | 'deleted' }
+  | WevMsg
+  // ---- voice chat: who to connect to (polite: yield on offer collisions), ICE servers, relayed signals
+  | { t: 'voicePeers'; add: { id: number; polite: boolean }[]; del: number[] }
+  | { t: 'voiceIce'; ice: IceServer[] }
+  | { t: 'voiceSig'; from: number; data: VoiceSignal };
 
 // ------------------------------------------------------------------ helpers
 export const NICK_MIN = 2;

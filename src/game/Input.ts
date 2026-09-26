@@ -147,8 +147,22 @@ export class Input {
   }
 }
 
+/** Keys of the social features (docs/plans/social-events.md). The horn doubles as the race challenge:
+ *  hold it next to another player's car. */
+export const KEYS = {
+  /** push-to-talk (voice chat) */
+  talk: 'KeyV',
+  party: 'KeyN',
+  jobs: 'KeyJ',
+  /** the "Kde to je?" photo card */
+  daily: 'KeyK',
+  /** downed: give up and go to hospital */
+  giveUp: 'KeyG',
+  horn: 'KeyH',
+} as const;
+
 /** Standard-mapping pad buttons that press a key once: Y enter/exit, X horn, B next weapon, Start
- *  pause, Back map, d-pad up radio, d-pad down map, d-pad right next weapon. */
-const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: 'KeyM', 15: 'KeyQ' };
-/** ...and ones held like a key: A sprint (nitro in a car), RB handbrake, LB nitro */
-const PAD_HELD: Record<number, string> = { 0: 'ShiftLeft', 4: 'ShiftLeft', 5: 'Space' };
+ *  pause, Back map, d-pad up radio, d-pad down map, d-pad right next weapon, d-pad left jobs. */
+const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: 'KeyM', 14: KEYS.jobs, 15: 'KeyQ' };
+/** ...and ones held like a key: A sprint (nitro in a car), RB handbrake, LB nitro, L3 push-to-talk */
+const PAD_HELD: Record<number, string> = { 0: 'ShiftLeft', 4: 'ShiftLeft', 5: 'Space', 10: KEYS.talk };

@@ -1,6 +1,6 @@
 // SimEvents sink on the server: collects world events (with their position, for interest filtering)
 // and per-player private events during a tick; Room sends them out after building snapshots.
-import type { KillCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
+import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
 import type { WorldEvent } from '../../src/shared/net/protocol';
 
 export interface PlacedEvent {
@@ -15,6 +15,8 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 
 export class NetEvents implements SimEvents {
   world: PlacedEvent[] = [];
+  /** city-wide news this tick: goes to everyone */
+  globals: GlobalEvent[] = [];
   private priv = new Map<number, PrivateEvent[]>();
 
   private add(x: number, y: number, e: WorldEvent, skip = 0) {
@@ -54,6 +56,9 @@ export class NetEvents implements SimEvents {
   say(id: number, x: number, y: number, line: number) {
     this.add(x, y, { k: 'say', id, l: line });
   }
+  global(e: GlobalEvent) {
+    this.globals.push(e);
+  }
   toPlayer(pid: number, e: PrivateEvent) {
     let q = this.priv.get(pid);
     if (!q) this.priv.set(pid, (q = []));
@@ -71,6 +76,7 @@ export class NetEvents implements SimEvents {
   /** end of tick: drop world events and private events nobody picked up */
   clear() {
     this.world.length = 0;
+    this.globals.length = 0;
     this.priv.clear();
   }
 }

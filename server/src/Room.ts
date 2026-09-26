@@ -2,8 +2,8 @@
 // index.ts wraps each WebSocket in a ClientLink and forwards join/message/leave; Room never touches
 // `ws` directly (docs/multiplayer.md), so tests drive it with in-memory links.
 import {
-  PROTOCOL_VERSION, TICK_HZ, cleanNick, isToken,
-  type ClientMsg, type FireMsg, type HelloMsg, type RosterRow, type ServerMsg, type VehFull,
+  PROTOCOL_VERSION, ROSTER_ACCOUNT, ROSTER_DOWNED, ROSTER_VOICE, TICK_HZ, cleanNick, isToken,
+  type ClientMsg, type FireMsg, type HelloMsg, type RosterRow, type ServerMsg, type VehFull, type WevMsg,
 } from '../../src/shared/net/protocol';
 import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
 import type { Level, World } from '../../src/shared/world/World';
@@ -19,6 +19,8 @@ import { ClientView, SnapshotBuilder } from './snapshot';
 import { History } from './history';
 import type { Store } from './db';
 import { Bucket, checkMove, plausibleHit, rewindTime, type Bounds } from './validate';
+import type { WorldEvents } from '../../src/shared/sim/rules/WorldEvents';
+import { createFeatures, type RoomFeature } from './features';
 
 export interface ClientLink {
   send(data: string | Uint8Array): void;
@@ -100,14 +102,21 @@ export class Room {
   private clockTimer = 0;
   private budget: number;
   private tickAvg = 0;
-  private store: Store | null;
-  private debug: boolean;
+  /** SQLite persistence (features keep their own tables there too) */
+  readonly store: Store | null;
+  /** test-only `debug` messages are accepted */
+  readonly debug: boolean;
   private nextLook = 0;
   private history = new History();
   private wall: () => number;
   private dirty = new Set<Session>();
   private flushTimer = 0;
   private saveTimer = 0;
+  /** plug-in features (parties, voice, the daily puzzle…), see features/index.ts */
+  features: RoomFeature[] = [];
+  private handlers = new Map<string, (s: Session, msg: ClientMsg) => void>();
+  private wevTimer = 0;
+  private wevVersion = -1;
   /** set by shutdown(): everyone is already saved and the store is about to close */
   private closing = false;
   counters = { bytesOut: 0, msgsIn: 0, rejected: 0, teleports: 0, shots: 0, badHits: 0 };
@@ -122,7 +131,7 @@ export class Room {
     this.store = opts.store ?? null;
     this.debug = !!opts.debug;
     this.wall = opts.wallClock ?? (() => Date.now());
-    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true });
+    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server' });
     // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
     // watching closely even less
     this.sim.physics.step_ = 1 / 60;
@@ -139,6 +148,14 @@ export class Room {
       this.sim.clock.wet = c.wet;
       this.sim.clock.rainTarget = c.target;
     }
+    this.features = createFeatures(this);
+    for (const f of this.features)
+      for (const [t, h] of Object.entries(f.messages ?? {})) this.handlers.set(t, h as (s: Session, msg: ClientMsg) => void);
+  }
+
+  /** the world-event director */
+  get director() {
+    return this.sim.rule<WorldEvents>('worldEvents');
   }
 
   private sessionOf(p: SimPlayer) {
@@ -165,6 +182,7 @@ export class Room {
     const v = s.player.ped.vehicle;
     if (v) (v.vx = 0), (v.vy = 0), (v.av = 0);
     this.save([s]);
+    for (const f of this.features) f.onLeave?.(s);
   }
 
   onMessage(c: Conn, data: string | ArrayBuffer | Uint8Array) {
@@ -227,8 +245,11 @@ export class Room {
       case 'debug':
         if (this.debug) this.onDebug(p, msg);
         return;
-      default:
+      default: {
+        const h = this.handlers.get(msg.t);
+        if (h) return h(s, msg);
         return this.strike(c);
+      }
     }
   }
 
@@ -255,6 +276,7 @@ export class Room {
       return;
     }
     let s = this.sessions.get(msg.token);
+    const isNew = !s;
     const r = msg.resume;
     const resumeOk = !!r && Number.isFinite(r.x) && Number.isFinite(r.y) && checkMove(null, r, 0, false, this.bounds) === 'ok';
     if (s) {
@@ -322,9 +344,18 @@ export class Room {
     const p = s.player;
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
-      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(),
+      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account,
     });
-    this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils });
+    this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats });
+    for (const f of this.features) f.onHello?.(s, isNew, msg);
+    this.send(c, this.wevMsg());
+  }
+
+  /** the city-wide state: world events (the director) + whatever features add (the daily puzzle) */
+  wevMsg(): WevMsg {
+    const out: WevMsg = { t: 'wev', ev: this.director?.entries() ?? [], daily: null };
+    for (const f of this.features) f.wev?.(out);
+    return out;
   }
 
   // ---------------------------------------------------------- player reports
@@ -538,6 +569,7 @@ export class Room {
   /** remove a player for good (quit, or grace expired) */
   private drop(s: Session) {
     this.save([s]);
+    for (const f of this.features) f.onDrop?.(s);
     this.sim.removePlayer(s.player);
     this.sessions.delete(s.token);
     this.dirty.delete(s);
@@ -601,9 +633,22 @@ export class Room {
       const e = [];
       for (const ev of this.events.world) if (ev.skip !== p.id && Math.abs(ev.x - f.x) < 320 && Math.abs(ev.y - f.y) < 320) e.push(ev.e);
       const priv = this.events.takePrivate(p.id);
-      if (e.length || priv.length) this.send(c, { t: 'ev', st, e, p: priv });
+      const g = this.events.globals;
+      if (e.length || priv.length || g.length) this.send(c, g.length ? { t: 'ev', st, e, p: priv, g } : { t: 'ev', st, e, p: priv });
     }
     this.events.clear();
+    for (const f of this.features) f.tick?.(dtMs);
+    // the city-wide state: every second while something is on, and soon after a change
+    const dir = this.director;
+    if (dir && dir.version !== this.wevVersion) this.wevTimer = Math.min(this.wevTimer, 150);
+    this.wevTimer -= dtMs;
+    if (this.wevTimer <= 0) {
+      this.wevTimer = 1000;
+      const msg = this.wevMsg();
+      const changed = !!dir && dir.version !== this.wevVersion;
+      if (dir) this.wevVersion = dir.version;
+      if (changed || msg.ev.length || msg.daily) this.broadcast(msg);
+    }
 
     this.rosterTimer -= dtMs;
     if (this.rosterTimer <= 0) {
@@ -612,7 +657,8 @@ export class Room {
       for (const s of this.sessions.values()) {
         const p = s.player;
         const f = p.focus();
-        rows.push([p.id, p.nick, Math.round(f.x), Math.round(f.y), p.stars, p.ped.vehicle ? 1 : 0, p.ped.id]);
+        const flags = (p.state === 'downed' ? ROSTER_DOWNED : 0) | (p.voiceOn ? ROSTER_VOICE : 0) | (p.account ? ROSTER_ACCOUNT : 0);
+        rows.push([p.id, p.nick, Math.round(f.x), Math.round(f.y), p.stars, p.ped.vehicle ? 1 : 0, p.ped.id, p.partyId, flags]);
       }
       this.broadcast({ t: 'roster', ps: rows });
     }
@@ -658,6 +704,7 @@ export class Room {
 
   /** graceful shutdown (deploy): save everyone, tell every client to reconnect shortly */
   shutdown() {
+    for (const f of this.features) f.shutdown?.();
     this.flush();
     this.closing = true;
     for (const c of this.conns) {
@@ -672,12 +719,30 @@ export class Room {
       players: this.sessions.size, connected: this.connectedCount(), tickMs: +this.tickMs.toFixed(2), tickAvg: +this.tickAvg.toFixed(2),
       governor: +sim.governor.toFixed(2), vehicles: sim.vehicles.length, peds: sim.peds.length, trams: sim.trams.length, ids: sim.ids.size,
       snapshotBytes: this.snaps.bytes, ...this.counters,
+      ...Object.assign({}, ...this.features.map((f) => f.stats?.() ?? {})),
     };
   }
 
-  private broadcast(msg: ServerMsg) {
+  /** to every connected player */
+  broadcast(msg: ServerMsg) {
     const s = JSON.stringify(msg);
     for (const c of this.conns) if (c.session) this.sendRaw(c, s);
+  }
+
+  /** to one player's client, if connected (features) */
+  sendTo(s: Session, msg: ServerMsg) {
+    if (s.conn) this.send(s.conn, msg);
+  }
+
+  /** wall clock, ms (timestamps, daily rollover) */
+  wallNow() {
+    return this.wall();
+  }
+
+  /** the session of a player, by player id */
+  sessionById(id: number): Session | undefined {
+    for (const s of this.sessions.values()) if (s.player.id === id) return s;
+    return undefined;
   }
 
   private send(c: Conn, msg: ServerMsg) {
