@@ -88,6 +88,12 @@ describe('Supa: direct calls', () => {
     const supa = new Supa('https://proj.supabase.co', 'sb_secret_abc123', { fetch: fn });
     await expect(supa.select('activity', 'select=*')).rejects.toMatchObject({ status: 403, code: '42501' });
   });
+
+  it('select rejects when a 200 response body is not a JSON array, so callers never `for…of` it', async () => {
+    const { fn } = fakeFetch({ status: 200, body: { message: 'not an array' } });
+    const supa = new Supa('https://proj.supabase.co', 'sb_secret_abc123', { fetch: fn });
+    await expect(supa.select('game_config', 'select=key,value')).rejects.toThrow(/expected an array/);
+  });
 });
 
 describe('Supa: the batched queue', () => {

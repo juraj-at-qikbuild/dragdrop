@@ -89,6 +89,23 @@ describe('RemoteConfig', () => {
     errSpy.mockRestore();
   });
 
+  it('a non-array response body (a 200 with the wrong shape) does not crash and keeps the last known values', async () => {
+    const fn = vi.fn(async () => new Response(JSON.stringify({ not: 'an array' }), { status: 200 }));
+    const supa = new Supa('https://x.example', 'k', { fetch: fn as unknown as typeof fetch });
+    const rc = new RemoteConfig(testRoom(), supa);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    await flushLoad();
+    process.off('unhandledRejection', onUnhandled);
+    expect(unhandled).toHaveLength(0); // Supa.select() rejects, load() catches it — no "rows is not iterable" escaping
+    expect(rc.get('voice_enabled')).toBe(true); // defaults kept
+    expect(rc.get('voice_blocklist')).toEqual([]);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   it('applies known events fields to the director, validating each one', async () => {
     const room = testRoom();
     const { supa } = fakeSupa([{ key: 'events', value: { gap: [100, 200], retry: 15, enabled: false, bogus: 'x', offlineGap: 'nope' } }]);

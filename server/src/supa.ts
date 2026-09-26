@@ -78,9 +78,17 @@ export class Supa {
   }
 
   // --------------------------------------------------------------------------------- direct calls
-  select<T>(table: string, query: string): Promise<T[]> {
-    if (!this.enabled) return Promise.resolve([]);
-    return this.json<T[]>('select', table, `/rest/v1/${table}?${query}`, { method: 'GET', headers: this.headers(false) });
+  /** rejects (never resolves with something a caller would `for…of` blindly) when the parsed body
+   *  isn't a JSON array — PostgREST always returns one for a `select`, so anything else means a proxy,
+   *  an error page or a misconfigured endpoint answered instead, and every caller (RemoteConfig, Daily)
+   *  should treat that exactly like a failed fetch, not crash iterating it. */
+  async select<T>(table: string, query: string): Promise<T[]> {
+    if (!this.enabled) return [];
+    const res = await this.request(`/rest/v1/${table}?${query}`, { method: 'GET', headers: this.headers(false) });
+    if (!res.ok) throw await this.errorFor('select', table, res);
+    const body: unknown = await res.json();
+    if (!Array.isArray(body)) throw new SupaError(res.status, undefined, `supa.select(${table}): expected an array, got ${typeof body}`);
+    return body as T[];
   }
 
   async patch(table: string, match: string, values: object): Promise<void> {

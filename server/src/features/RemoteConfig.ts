@@ -43,9 +43,9 @@ export class RemoteConfig implements RoomFeature {
     opts: { e2e?: boolean } = {},
   ) {
     if (opts.e2e) this.voiceAccountOverride = false;
-    void this.load(); // fire-and-forget: boot never waits on Supabase
+    void this.load().catch(logLoadFailure); // fire-and-forget: boot never waits on Supabase
     if (supa.enabled) {
-      this.timer = setInterval(() => void this.load(), REFRESH_MS);
+      this.timer = setInterval(() => void this.load().catch(logLoadFailure), REFRESH_MS);
       this.timer.unref?.();
     }
   }
@@ -69,34 +69,35 @@ export class RemoteConfig implements RoomFeature {
 
   private async load() {
     if (!this.supa.enabled) return;
-    let rows: Row[];
+    // everything that touches `rows` stays inside the try: a 200 with a non-array body (Supa.select()
+    // normally rejects on that itself, but this is the second line of defence) must be treated the
+    // same as a failed fetch, never thrown past this function as an unhandled rejection.
     try {
-      rows = await this.supa.select<Row>('game_config', 'select=key,value');
+      const rows = await this.supa.select<Row>('game_config', 'select=key,value');
+      const next: Config = { ...this.values };
+      for (const r of rows) {
+        const v = r.value;
+        switch (r.key) {
+          case 'voice_enabled':
+            if (typeof v === 'boolean') next.voice_enabled = v;
+            break;
+          case 'voice_requires_account':
+            if (typeof v === 'boolean') next.voice_requires_account = v;
+            break;
+          case 'voice_blocklist':
+            if (Array.isArray(v) && v.every((x) => typeof x === 'string')) next.voice_blocklist = v;
+            break;
+          case 'events':
+            if (v && typeof v === 'object' && !Array.isArray(v)) next.events = v as EventsTuning;
+            break;
+        }
+      }
+      this.values = next;
+      this.applyEvents(next.events);
+      for (const fn of this.listeners) fn(next);
     } catch (e) {
       console.error('remote config: fetch failed, keeping the last known values:', e instanceof Error ? e.message : e);
-      return;
     }
-    const next: Config = { ...this.values };
-    for (const r of rows) {
-      const v = r.value;
-      switch (r.key) {
-        case 'voice_enabled':
-          if (typeof v === 'boolean') next.voice_enabled = v;
-          break;
-        case 'voice_requires_account':
-          if (typeof v === 'boolean') next.voice_requires_account = v;
-          break;
-        case 'voice_blocklist':
-          if (Array.isArray(v) && v.every((x) => typeof x === 'string')) next.voice_blocklist = v;
-          break;
-        case 'events':
-          if (v && typeof v === 'object' && !Array.isArray(v)) next.events = v as EventsTuning;
-          break;
-      }
-    }
-    this.values = next;
-    this.applyEvents(next.events);
-    for (const fn of this.listeners) fn(next);
   }
 
   /** copy the validated tunables onto the director, one field at a time, so a partly-bad `events`
@@ -119,4 +120,11 @@ export class RemoteConfig implements RoomFeature {
 
 function isRange(v: unknown): v is [number, number] {
   return Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+/** load() already catches and logs its own failures; this only guards the fire-and-forget call sites
+ *  against a future change there ever throwing past it (docs/plans/social-events.md: fire-and-forget
+ *  I/O always carries a `.catch`) */
+function logLoadFailure(e: unknown) {
+  console.error('remote config: unexpected load failure:', e instanceof Error ? e.message : e);
 }
