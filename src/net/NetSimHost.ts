@@ -163,7 +163,11 @@ export class NetSimHost implements SimHost, NetView {
         saveIdentity(this.identity);
       }
     }
-    if (reconnect) this.game.message('', 'Znovu pripojený k serveru.', 2, '#69f0ae');
+    if (reconnect) {
+      this.game.message('', 'Znovu pripojený k serveru.', 2, '#69f0ae');
+      // features with per-connection server state (voice links) start that over
+      for (const f of this.game.features) f.onMessage?.(w);
+    }
   }
 
   private onFatal(r: FatalReason) {

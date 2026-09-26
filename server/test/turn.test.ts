@@ -1,7 +1,7 @@
 // turn.ts: parses Cloudflare's response, falls back to STUN on any failure, caches per session, and
 // never logs anything secret. A fake fetch stands in for the network throughout.
 import { describe, expect, it, vi } from 'vitest';
-import { mintIceServers, STUN_SERVERS, type TurnCacheEntry } from '../src/turn';
+import { mintIceServers, STUN_SERVERS, withoutPort53, type TurnCacheEntry } from '../src/turn';
 
 const CF_URL = 'https://rtc.live.cloudflare.com/v1/turn/keys/kid-1/credentials/generate-ice-servers';
 
@@ -85,5 +85,19 @@ describe('mintIceServers', () => {
     expect(logged).not.toContain(secretToken);
     expect(logged).not.toContain('contains-a-secret-should-not-leak');
     errSpy.mockRestore();
+  });
+});
+
+describe('withoutPort53', () => {
+  it('drops the alternate port-53 URLs browsers block, and any server left with none', () => {
+    const out = withoutPort53([
+      { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.cloudflare.com:53'] },
+      { urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turn:turn.cloudflare.com:53?transport=udp'], username: 'u', credential: 'c' },
+      { urls: 'turn:turn.cloudflare.com:53?transport=tcp' },
+    ]);
+    expect(out).toEqual([
+      { urls: ['stun:stun.cloudflare.com:3478'] },
+      { urls: ['turn:turn.cloudflare.com:3478?transport=udp'], username: 'u', credential: 'c' },
+    ]);
   });
 });

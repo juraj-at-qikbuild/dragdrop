@@ -122,6 +122,14 @@ export class VoiceFeature implements ClientFeature {
 
   onMessage(m: ServerMsg) {
     switch (m.t) {
+      case 'welcome':
+        // reconnected (NetSimHost forwards only a reconnect's welcome): the server turned voice off
+        // and dropped our links, so drop the dead peer connections and opt in again with the open mic
+        this.client.closePeers();
+        this.speaking.clear();
+        this.peerDist.clear();
+        if (this.active) this.net()?.sendVoice({ t: 'voice', on: true });
+        break;
       case 'voicePeers':
         this.client.handlePeers(m.add, m.del);
         break;

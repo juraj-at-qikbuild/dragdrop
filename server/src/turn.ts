@@ -27,6 +27,21 @@ function isIceServer(v: unknown): v is IceServer {
     && (o.credential === undefined || typeof o.credential === 'string');
 }
 
+/** Cloudflare also returns alternate-port-53 URLs, which browsers block (they only time out): drop them */
+export function withoutPort53(servers: IceServer[]): IceServer[] {
+  const ok = (u: string) => !/:53(\?|$)/.test(u);
+  const out: IceServer[] = [];
+  for (const s of servers) {
+    if (!Array.isArray(s.urls)) {
+      if (ok(s.urls)) out.push(s);
+      continue;
+    }
+    const urls = s.urls.filter(ok);
+    if (urls.length) out.push({ ...s, urls });
+  }
+  return out;
+}
+
 /**
  * Mints (or reuses a cached) ICE server list for one session. `cache` is owned by the caller — the
  * Voice feature keeps one Map per Room, so cached credentials never leak between Rooms/tests — and
@@ -54,8 +69,10 @@ export async function mintIceServers(
     if (!res.ok) throw new Error(`cloudflare turn: HTTP ${res.status}`);
     const body = (await res.json()) as CfIceResponse;
     if (!Array.isArray(body.iceServers) || !body.iceServers.length || !body.iceServers.every(isIceServer)) throw new Error('cloudflare turn: unexpected response shape');
-    cache.set(sessionKey, { servers: body.iceServers, at: now });
-    return body.iceServers;
+    const servers = withoutPort53(body.iceServers);
+    if (!servers.length) throw new Error('cloudflare turn: no usable ice servers');
+    cache.set(sessionKey, { servers, at: now });
+    return servers;
   } catch (e) {
     console.error('cloudflare turn: mint failed, falling back to STUN-only:', e instanceof Error ? e.message : String(e));
     return STUN_SERVERS;

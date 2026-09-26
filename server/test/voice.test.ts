@@ -203,6 +203,38 @@ describe('Voice (wired into a Room)', () => {
     expect(b.link.last('voicePeers')?.del).toEqual([a.id]);
   });
 
+  it('a reconnect starts with voice off: the player opts in again and the peer is told the link dropped', async () => {
+    const { room, joinAuth, voice, tick } = setup();
+    const a = await joinAuth(TOKEN_A, 'Aa', 'tok-a');
+    const b = await joinAuth(TOKEN_B, 'Bb', 'tok-b');
+    voice(a.conn, true);
+    voice(b.conn, true);
+    await flush();
+    tick();
+    expect(b.link.last('voicePeers')?.add).toEqual([{ id: a.id, polite: b.id > a.id }]);
+    b.link.clear();
+    room.onLeave(a.conn);
+    expect(room.sessionById(a.id)!.player.voiceOn).toBe(false);
+    const again = await joinAuth(TOKEN_A, 'Aa', 'tok-a'); // same account, within the grace period
+    expect(again.id).toBe(a.id);
+    tick(25); // a few pairing passes: no link until the client opts in again
+    expect(again.link.json('voicePeers')).toHaveLength(0);
+    voice(again.conn, true);
+    await flush();
+    tick(25);
+    expect(again.link.last('voicePeers')?.add).toEqual([{ id: b.id, polite: a.id > b.id }]);
+  });
+
+  it('a new connection taking over a live session also turns voice off', async () => {
+    const { room, joinAuth, voice } = setup();
+    const a = await joinAuth(TOKEN_A, 'Aa', 'tok-a');
+    voice(a.conn, true);
+    await flush();
+    expect(room.sessionById(a.id)!.player.voiceOn).toBe(true);
+    await joinAuth(TOKEN_A, 'Aa', 'tok-a'); // e.g. a reloaded tab, before the old socket closed
+    expect(room.sessionById(a.id)!.player.voiceOn).toBe(false);
+  });
+
   it('turning voice_enabled off through RemoteConfig drops everyone', async () => {
     const rows: { key: string; value: unknown }[] = [];
     const supa = fakeSupa(rows);

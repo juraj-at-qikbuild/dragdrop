@@ -114,12 +114,19 @@ export class Voice implements RoomFeature {
     });
   }
 
+  /** every (re)connect starts with voice off: a reloaded page has no mic open and the old connection's
+   *  WebRTC links are dead, so the client opts in again (VoiceFeature does, on a reconnect) */
+  onHello(s: Session) {
+    if (s.player.voiceOn) this.turnOff(s);
+  }
+
   onLeave(s: Session) {
-    this.removeAllLinksFor(s.player.id);
+    this.turnOff(s);
   }
 
   onDrop(s: Session) {
-    this.removeAllLinksFor(s.player.id);
+    this.turnOff(s);
+    this.turnCache.delete(s.key);
   }
 
   tick(dtMs: number) {

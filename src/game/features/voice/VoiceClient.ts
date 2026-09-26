@@ -197,6 +197,11 @@ export class VoiceClient {
 
   dispose() {
     this.closeMic();
+    this.closePeers();
+  }
+
+  /** drop every peer connection but keep the mic open (a reconnect: the server re-pairs from scratch) */
+  closePeers() {
     for (const id of [...this.peers.keys()]) this.closePeer(id);
     this.backoff.clear();
   }
