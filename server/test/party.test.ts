@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GRACE_MS, Room } from '../src/Room';
-import { Store } from '../src/db';
+import { Store, hashToken } from '../src/db';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import type { PartyState } from '../../src/shared/sim/rules/types';
 import { dist } from '../../src/shared/util/math';
@@ -75,7 +75,7 @@ function msgTexts(link: FakeLink): string[] {
 }
 
 describe('Party', () => {
-  it('mints a 6-char base32 invite code, rate-limited to one per 10 s', () => {
+  it('mints a 10-char base32 invite code (50 bits), rate-limited to one per 10 s', () => {
     withDb((file) => {
       const { join, invite, tick, clock } = setup(file);
       const a = join(TOKEN_A, 'Fero');
@@ -83,7 +83,7 @@ describe('Party', () => {
       invite(a.conn);
       tick();
       const code1 = lastInvite(a.link);
-      expect(code1).toMatch(/^[a-z2-7]{6}$/);
+      expect(code1).toMatch(/^[a-z2-7]{10}$/);
 
       a.link.clear();
       invite(a.conn); // far too soon
@@ -94,8 +94,22 @@ describe('Party', () => {
       invite(a.conn);
       tick();
       const code2 = lastInvite(a.link);
-      expect(code2).toMatch(/^[a-z2-7]{6}$/);
+      expect(code2).toMatch(/^[a-z2-7]{10}$/);
       expect(code2).not.toBe(code1);
+    });
+  });
+
+  it('a 6-char code minted before the length increase still joins fine (getInvite has no length check)', () => {
+    withDb((file) => {
+      const { room, store, join, tick } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      store.createInvite('ab23cd', hashToken(TOKEN_A), room.wallNow(), 24 * 60 * 60 * 1000); // a legacy 6-char code
+      const b = join(TOKEN_B, 'Boris', { join: 'ab23cd' });
+      tick();
+      const pa = room.sim.players.get(a.id!)!;
+      const pb = room.sim.players.get(b.id!)!;
+      expect(pb.partyId).toBe(pa.partyId);
+      expect(pa.partyId).toBeGreaterThan(0);
     });
   });
 
@@ -345,6 +359,60 @@ describe('Party', () => {
       expect(pd.partyId).toBe(0);
       expect(lastParty(d.link)).toBeNull();
       expect(store.getInvite(dCode, room.wallNow())).toBeNull();
+    });
+  });
+
+  it("a member's own invite is deleted when they leave, even though the party lives on without them", () => {
+    withDb((file) => {
+      const { room, store, join, invite, leave, tick } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      invite(a.conn);
+      tick();
+      const codeA = lastInvite(a.link)!;
+      const b = join(TOKEN_B, 'Boris', { join: codeA }); // Boris joins Fero's party
+      tick();
+      invite(b.conn); // Boris mints his own invite too
+      tick();
+      const codeB = lastInvite(b.link)!;
+      expect(store.getInvite(codeB, room.wallNow())).not.toBeNull();
+
+      leave(b.conn); // Boris leaves voluntarily; Fero (and the party) carries on without him
+      tick();
+      expect(room.sim.players.get(a.id!)!.partyId).toBeGreaterThan(0);
+      expect(store.getInvite(codeB, room.wallNow())).toBeNull(); // Boris's own invite must not outlive him
+    });
+  });
+
+  it("a kicked player is refused when rejoining via another member's invite, until the 30-minute ban expires", () => {
+    withDb((file) => {
+      const { room, join, invite, kick, tick, clock } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      invite(a.conn);
+      tick();
+      const code = lastInvite(a.link)!;
+      const b = join(TOKEN_B, 'Boris', { join: code });
+      const c = join(TOKEN_C, 'Cyril', { join: code });
+      tick();
+      const pa = room.sim.players.get(a.id!)!;
+      const pb = room.sim.players.get(b.id!)!;
+
+      kick(a.conn, pb.id); // Fero (leader) kicks Boris
+      tick();
+      expect(pb.partyId).toBe(0);
+
+      invite(c.conn); // a different member's invite, not the kicker's own
+      tick();
+      const codeC = lastInvite(c.link)!;
+
+      const b2 = join(TOKEN_B, 'Boris', { join: codeC }); // Boris clicks it right away (a fresh connection)
+      tick();
+      expect(pb.partyId).toBe(0); // still refused
+      expect(msgTexts(b2.link)).toContain('Z tejto partie ťa vyhodili.');
+
+      clock.advance(30 * 60_000 + 1000); // the 30-minute ban has now expired
+      join(TOKEN_B, 'Boris', { join: codeC });
+      tick();
+      expect(pb.partyId).toBe(pa.partyId); // now allowed back in
     });
   });
 

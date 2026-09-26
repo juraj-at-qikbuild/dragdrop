@@ -13,20 +13,26 @@ import type { FeatureHandlers, RoomFeature } from './RoomFeature';
 
 const MAX_MEMBERS = 4;
 const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+/** a kicked player can't rejoin the same party (through anyone's invite) for this long */
+const KICK_BAN_MS = 30 * 60 * 1000;
 /** round-robin, read well on the dark map and nametags */
 const PARTY_COLORS = ['#ff5252', '#4fc3f7', '#ffca28', '#66bb6a', '#ba68c8', '#ff8a65', '#4dd0e1', '#f06292'];
 /** reasons a party splits (docs/plans/social-events.md); everything else pays only the earner */
 const SPLIT_REASONS = new Set<PayoutReason>(['kofolka', 'bounty', 'cumil', 'armored', 'derby', 'courier', 'taxi', 'tip']);
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+/** 50 bits of entropy (guessing through hello.join isn't rate-limited); src/boot/links.ts's parser
+ *  accepts [a-z0-9]{4,12}, so this fits with room to spare. A 6-char code minted before this change
+ *  keeps working: `getInvite` just looks up whatever string it's given, with no length check. */
+const CODE_LEN = 10;
 
-/** a 6-char lowercase base32 code from 4 random bytes (32 bits, enough for 6 * 5 = 30) */
+/** a CODE_LEN-char lowercase base32 code (CODE_LEN * 5 bits of entropy) */
 function mintCode(): string {
-  const buf = randomBytes(4);
+  const buf = randomBytes(Math.ceil((CODE_LEN * 5) / 8));
   let bits = 0, value = 0, out = '';
   for (const byte of buf) {
     value = (value << 8) | byte;
     bits += 8;
-    while (bits >= 5 && out.length < 6) {
+    while (bits >= 5 && out.length < CODE_LEN) {
       out += BASE32[(value >>> (bits - 5)) & 31];
       bits -= 5;
     }
@@ -52,6 +58,10 @@ export class Party implements RoomFeature {
   private nextId = 1;
   /** partyInvite rate limit, per session (a Session survives reconnects within the grace period) */
   private inviteBucket = new WeakMap<Session, Bucket>();
+  /** partyId -> (player key -> ban expiry, wallNow ms): who was kicked from that party and can't rejoin
+   *  it yet. Keyed by the numeric party id, which is never reused, so a dissolved party's bans never
+   *  apply to a later, unrelated party even if it happens to form around the same players. */
+  private kicked = new Map<number, Map<string, number>>();
 
   constructor(private room: Room) {
     // same nonzero party: no damage, no car-jacking (Sim.hurtPlayer / Sim.enterVehicle already consult this)
@@ -128,6 +138,10 @@ export class Party implements RoomFeature {
     }
     if (inviter.key === s.key) return false; // your own link: nothing to do
     const party = this.getOrCreateParty(inviter);
+    if (this.isBanned(party.id, s.key)) {
+      this.msg(s.player.id, 'Z tejto partie ťa vyhodili.', false);
+      return false;
+    }
     if (party.members.has(s.key)) return false; // already there
     if (party.members.size >= MAX_MEMBERS) {
       this.msg(s.player.id, 'Partia je plná.', false);
@@ -159,13 +173,33 @@ export class Party implements RoomFeature {
     if (!party || party.leaderKey !== s.key) return; // leader only
     const target = this.room.sessionById(targetId);
     if (!target || target.key === s.key || !party.members.has(target.key)) return;
+    this.ban(party.id, target.key);
     this.removeMember(party, target.key, true);
   }
 
+  /** a kicked player can't rejoin this same party (through anyone's invite) for KICK_BAN_MS */
+  private ban(partyId: number, key: string) {
+    let m = this.kicked.get(partyId);
+    if (!m) this.kicked.set(partyId, (m = new Map()));
+    m.set(key, this.room.wallNow() + KICK_BAN_MS);
+  }
+
+  private isBanned(partyId: number, key: string): boolean {
+    const m = this.kicked.get(partyId);
+    const exp = m?.get(key);
+    if (exp === undefined) return false;
+    if (exp > this.room.wallNow()) return true;
+    m!.delete(key); // expired: forget it, so the map doesn't grow forever
+    if (!m!.size) this.kicked.delete(partyId);
+    return false;
+  }
+
   /** remove `key` from `party`: passes leadership on, dissolves it if nobody's left connected, and
-   *  tells the leaver (their party state clears; kicked also gets a toast). */
+   *  tells the leaver (their party state clears; kicked also gets a toast). Always drops `key`'s own
+   *  outstanding invite too — it must not outlive their membership, whatever reason they left by. */
   private removeMember(party: PartyRec, key: string, kicked = false) {
     if (!party.members.has(key)) return;
+    this.room.store?.deleteInvitesOf(key);
     const leaving = this.room.sessions.get(key);
     if (leaving) {
       leaving.player.partyId = 0;
@@ -174,9 +208,9 @@ export class Party implements RoomFeature {
     }
     if (party.members.size === 1) {
       // `key` was the last one: dissolve here (rather than falling into the general dissolve()
-      // below, which reads party.members) so the just-removed member's own code is still cleaned up
+      // below, which reads party.members)
       this.parties.delete(party.id);
-      this.room.store?.deleteInvitesOf(key);
+      this.kicked.delete(party.id);
       return;
     }
     party.members.delete(key);
@@ -191,6 +225,7 @@ export class Party implements RoomFeature {
 
   private dissolve(party: PartyRec) {
     this.parties.delete(party.id);
+    this.kicked.delete(party.id);
     for (const key of party.members) {
       this.room.store?.deleteInvitesOf(key); // whoever minted a code out of this party, it's dead now
       const s = this.room.sessions.get(key);
