@@ -3,6 +3,7 @@ import { Room, type RoomOptions } from '../src/Room';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import { Supa } from '../src/supa';
 import { addDays, bratislavaDay, bratislavaReveal18 } from '../src/features/dailyTime';
+import type { Daily } from '../src/features/Daily';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, disabledSupa, flush, loadWorld } from './helpers';
 
 interface Row {
@@ -17,10 +18,11 @@ interface PatchCall {
 /** a fake Supabase: an in-memory table store, `select` filtered by `day=eq.<...>`, `patch` recorded
  *  (and applied back to the store, so a later select sees it) — server/test/supa.test.ts has the
  *  underlying fakeFetch pattern this borrows. */
-function fakeSupa(tables: { daily_spots?: Row[]; daily_spot_secrets?: Row[] } = {}) {
+function fakeSupa(tables: { daily_spots?: Row[]; daily_spot_secrets?: Row[] } = {}, fail: () => boolean = () => false) {
   const db: Record<string, Row[]> = { daily_spots: [], daily_spot_secrets: [], ...tables };
   const patches: PatchCall[] = [];
   const fetchFn = (async (url: string | URL, init: RequestInit = {}) => {
+    if (fail()) return new Response('{"message":"unavailable"}', { status: 503 });
     const u = new URL(String(url));
     const table = u.pathname.split('/').pop()!;
     const day = /day=eq\.([^&]+)/.exec(u.search)?.[1] ?? '';
@@ -141,6 +143,49 @@ describe('Daily: reveal', () => {
     clock.t = REVEAL_MS + 500;
     tick(1);
     expect(a.link.json('ev').flatMap((m) => m.g ?? []).some((e) => e.k === 'dailyAnswer')).toBe(false);
+  });
+});
+
+describe('Daily: loading', () => {
+  it('a restart 45 min after the reveal keeps the reveal and the hints due so far, without re-announcing them', async () => {
+    const { supa } = fakeSupa({ daily_spots: [spotsRow()], daily_spot_secrets: [secretRow()] });
+    const { room, join, tick } = setup({ supa }, REVEAL_MS + 45 * 60_000);
+    await flush();
+    const a = join(TOKEN_A, 'Anna');
+    tick(3);
+    expect(room.wevMsg().daily!.hints).toEqual(['Mestská časť: Staré Mesto', 'Štvrť: Vydrica']);
+    const g = a.link.json('ev').flatMap((m) => m.g ?? []);
+    expect(g.some((e) => e.k === 'dailyReveal' || e.k === 'dailyHint')).toBe(false);
+  });
+
+  it('a failed load is retried on the next poll instead of skipping the day', async () => {
+    let fail = true;
+    const { supa } = fakeSupa({ daily_spots: [spotsRow()], daily_spot_secrets: [secretRow()] }, () => fail);
+    const { room, tick } = setup({ supa }, REVEAL_MS + 1000);
+    await flush();
+    tick(1);
+    expect(room.wevMsg().daily).toBeNull();
+    fail = false;
+    await (room.feature<Daily>('daily') as unknown as { poll(): Promise<void> }).poll();
+    tick(1);
+    expect(room.wevMsg().daily?.img).toContain('abc123.webp');
+  });
+
+  it("a missing row is looked for again later, not only at tomorrow's rollover", async () => {
+    const { supa, db } = fakeSupa();
+    const { room, tick, clock } = setup({ supa }, REVEAL_MS + 1000);
+    await flush();
+    tick(1);
+    expect(room.wevMsg().daily).toBeNull();
+    db.daily_spots.push(spotsRow());
+    db.daily_spot_secrets.push(secretRow());
+    const daily = room.feature<Daily>('daily') as unknown as { poll(): Promise<void> };
+    await daily.poll(); // a minute later: still inside the retry wait
+    expect(room.wevMsg().daily).toBeNull();
+    clock.t += 16 * 60_000;
+    await daily.poll();
+    tick(1);
+    expect(room.wevMsg().daily?.img).toContain('abc123.webp');
   });
 });
 
