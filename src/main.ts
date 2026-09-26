@@ -63,7 +63,18 @@ async function boot() {
   const links = parseBootLinks(location.hash, location.search);
   const onlineBoot = links.online && !!SERVER_URL && !!loadIdentity();
   if (links.online) history.replaceState(null, '', location.pathname + location.search);
-  const game = new Game(canvas, data, { online: onlineBoot });
+  // #join=nick-code (A3: party invite link): stash the code for NetSimHost.hello() to pick up and
+  // clean the hash right away, before anything else touches location.hash.
+  const joinCode = links.join && SERVER_URL ? links.join : null;
+  if (joinCode) {
+    try {
+      sessionStorage.setItem('blava-city-join', joinCode);
+    } catch {
+      /* ignore: NetSimHost.hello() just won't find a code to send */
+    }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  const game = new Game(canvas, data, { online: onlineBoot || !!joinCode });
   (window as unknown as { game: Game }).game = game;
   // an account e-mail link coming back (confirm sign-up, or a password reset — reset=1 always also
   // carries the same ?code=, so both exchange it the same way). Fire-and-forget: it's a quick local
@@ -332,6 +343,25 @@ async function boot() {
     showMenu();
     $('menu').classList.add('hidden');
     void startOnline(loadIdentity()!);
+    return;
+  }
+  if (joinCode) {
+    // the page just loaded for this, so no reload is needed (unlike the #online button); a guest
+    // with no identity yet gets asked for a nickname first (the code stays in sessionStorage either way)
+    showMenu();
+    $('menu').classList.add('hidden');
+    void (async () => {
+      let id = loadIdentity();
+      if (!id) {
+        const nick = await askNick(randomNick(), 'Hrať online');
+        if (nick) {
+          id = { token: newToken(), nick };
+          saveIdentity(id);
+        }
+      }
+      if (id) return startOnline(id);
+      showMenu(); // cancelled: back to the normal menu (the join link still works from there via #online)
+    })();
     return;
   }
   $('loading').classList.add('hidden');

@@ -461,7 +461,7 @@ describe('features and debug', () => {
     room.onMessage(a.conn, JSON.stringify({ t: 'partyLeave' }));
     expect(got).toBe('Anna');
     const before = room.counters.rejected;
-    room.onMessage(a.conn, JSON.stringify({ t: 'partyKick', id: 999 })); // no feature handles this one
+    room.onMessage(a.conn, JSON.stringify({ t: 'bogusType' })); // no feature (nor Room itself) handles this
     expect(room.counters.rejected).toBe(before + 1);
   });
 

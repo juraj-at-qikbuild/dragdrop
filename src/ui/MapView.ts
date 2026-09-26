@@ -800,7 +800,7 @@ export function pulsingCircle(ctx: CanvasRenderingContext2D, x: number, y: numbe
  *  under it — shown only on the full map (`opts.full`), like the roster's nick labels in `blips()`. */
 export function mapMarker(
   ctx: CanvasRenderingContext2D, x: number, y: number, size: number, icon: MapIcon,
-  opts: { ring?: string; pulse?: number; label?: string; full?: boolean } = {},
+  opts: { ring?: string; pulse?: number; label?: string; full?: boolean; color?: string } = {},
 ) {
   if (opts.ring) {
     if (opts.pulse !== undefined) pulsingCircle(ctx, x, y, size * 1.7, opts.ring, opts.pulse, false);
@@ -814,7 +814,7 @@ export function mapMarker(
       ctx.restore();
     }
   }
-  badge(ctx, x, y, size, icon);
+  badge(ctx, x, y, size, icon, opts.color);
   if (opts.label && opts.full) {
     ctx.font = `700 11px ${BODY}`;
     ctx.textAlign = 'center';
@@ -823,10 +823,11 @@ export function mapMarker(
   }
 }
 
-/** A round map badge with a little glyph for a kind of place. */
-function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, kind: string) {
+/** A round map badge with a little glyph for a kind of place. `color` overrides the fill (a party's
+ *  colour for the 'party' icon; icons keep their fixed ICON_BG otherwise). */
+function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, kind: string, color?: string) {
   const star = kind === 'star' || kind === 'starFound';
-  ctx.fillStyle = kind === 'starFound' ? '#29b6f6' : ICON_BG[kind] ?? '#546e7a';
+  ctx.fillStyle = color ?? (kind === 'starFound' ? '#29b6f6' : ICON_BG[kind] ?? '#546e7a');
   ctx.strokeStyle = 'rgba(0,0,0,0.85)';
   ctx.lineWidth = 1.3;
   ctx.beginPath();

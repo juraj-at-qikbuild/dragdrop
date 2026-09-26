@@ -3,7 +3,7 @@
 // `ws` directly (docs/multiplayer.md), so tests drive it with in-memory links.
 import {
   PROTOCOL_VERSION, ROSTER_ACCOUNT, ROSTER_DOWNED, ROSTER_VOICE, TICK_HZ, cleanNick, isToken,
-  type ClientMsg, type FireMsg, type HelloMsg, type RosterRow, type ServerMsg, type VehFull, type WevMsg,
+  type ClientMsg, type FireMsg, type HelloMsg, type PartyTag, type RosterRow, type ServerMsg, type VehFull, type WevMsg,
 } from '../../src/shared/net/protocol';
 import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
 import type { Level, World } from '../../src/shared/world/World';
@@ -792,7 +792,11 @@ export class Room {
         const flags = (p.state === 'downed' ? ROSTER_DOWNED : 0) | (p.voiceOn ? ROSTER_VOICE : 0) | (p.account ? ROSTER_ACCOUNT : 0);
         rows.push([p.id, p.nick, Math.round(f.x), Math.round(f.y), p.stars, p.ped.vehicle ? 1 : 0, p.ped.id, p.partyId, flags]);
       }
-      this.broadcast({ t: 'roster', ps: rows });
+      // active parties' name tags, from whichever feature tracks them (Party.ts), kept out of Room
+      // itself: a feature that wants a roster tag just exposes a partyTags() method like this one.
+      let pt: PartyTag[] | undefined;
+      for (const f of this.features) pt = (f as { partyTags?(): PartyTag[] }).partyTags?.() ?? pt;
+      this.broadcast(pt ? { t: 'roster', ps: rows, pt } : { t: 'roster', ps: rows });
     }
     this.clockTimer -= dtMs;
     if (this.clockTimer <= 0) {

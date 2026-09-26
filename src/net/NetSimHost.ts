@@ -24,6 +24,9 @@ import { accessToken, signOut } from './auth';
  *  the cache synchronously, so it can't just await accessToken() itself) */
 const TOKEN_REFRESH_MS = 10 * 60 * 1000;
 
+/** sessionStorage key for a pending party invite code (src/boot/links.ts, src/main.ts) */
+const JOIN_KEY = 'blava-city-join';
+
 export class NetSimHost implements SimHost, NetView {
   readonly mode = 'net';
   readonly allowsPause = false;
@@ -98,15 +101,30 @@ export class NetSimHost implements SimHost, NetView {
     const p = this.me.ped;
     const f = this.ownCar ?? p;
     const account = !!this.identity.account;
+    // a pending #join code (src/main.ts / src/boot/links.ts): consumed once the welcome arrives
+    let join: string | undefined;
+    try {
+      join = sessionStorage.getItem(JOIN_KEY) ?? undefined;
+    } catch {
+      /* ignore: no code to send */
+    }
     return {
       t: 'hello' as const, v: PROTOCOL_VERSION, token: this.identity.token, nick: this.nick,
       resume: this.started ? { x: f.x, y: f.y, lvl: p.level, car: this.ownCar?.id ?? 0 } : undefined,
       auth: account ? (this.authToken ?? undefined) : undefined,
       claim: account && this.claimPending ? true : undefined,
+      join,
     };
   }
 
   private onWelcome(w: WelcomeMsg, reconnect: boolean) {
+    // whether or not the server acted on it (see server/src/features/Party.ts): don't resend a join
+    // code on the next reconnect
+    try {
+      sessionStorage.removeItem(JOIN_KEY);
+    } catch {
+      /* ignore */
+    }
     const me = this.me;
     me.id = w.id;
     this.nick = w.nick;

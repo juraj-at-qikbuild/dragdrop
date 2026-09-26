@@ -4,6 +4,7 @@ import type { Room } from '../Room';
 import { Supa } from '../supa';
 import { Account } from './Account';
 import { Activity } from './Activity';
+import { Party } from './Party';
 import { RemoteConfig } from './RemoteConfig';
 import type { RoomFeature } from './RoomFeature';
 import { Revive } from './Revive';
@@ -19,6 +20,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   const out: RoomFeature[] = [new RemoteConfig(room, supa, { e2e: config.e2e || room.debug }), new Activity(supa)];
   out.push(new Account(room));
   out.push(new Revive(room));
-  // each feature adds its line here: out.push(new Party(room)) …
+  out.push(new Party(room));
+  // each feature adds its line here: out.push(new Voice(room)) …
   return out;
 }
