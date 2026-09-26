@@ -654,6 +654,9 @@ describe('accounts: nicknames, claiming, deletion (store-backed)', () => {
       expect(b.link.closed).toBeNull();
       expect(room.sim.players.get(b.w.id)!.nick).toBe('Jozef'); // kept
     });
+  });
+});
+
 describe('Revive (downed online)', () => {
   it('downing is on for online play', () => {
     const { room } = setup();
