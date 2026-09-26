@@ -5,6 +5,11 @@ import type { ServerMsg } from '../../src/shared/net/protocol';
 import { World } from '../../src/shared/world/World';
 import type { MapJSON } from '../../src/shared/types';
 import { Reader, Writer, decodeSnapshot, encodeState, type Snapshot, type StateReport } from '../../src/shared/net/codec';
+import { Supa } from '../src/supa';
+
+/** a Supa with no URL/key: every method is a no-op, so a Room built with it never touches the network
+ *  even if this machine happens to have real Supabase env vars set (server/src/config.ts reads them) */
+export const disabledSupa = () => new Supa('', '');
 
 let world: World | null = null;
 /** the real Bratislava map, loaded once per test file */

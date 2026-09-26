@@ -127,6 +127,7 @@ async function shutdown(sig: string) {
   } catch (e) {
     console.error('shutdown failed', e);
   }
+  await room.supa?.shutdown(3000); // let queued activity/report rows reach Supabase before we exit
   setTimeout(() => process.exit(0), 300);
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

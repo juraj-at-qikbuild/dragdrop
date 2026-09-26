@@ -7,7 +7,7 @@ import { Room } from '../src/Room';
 import { MIGRATIONS, Store, hashToken } from '../src/db';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
-import { FakeClock, FakeLink, TOKEN_A, loadWorld, stateMsg } from './helpers';
+import { FakeClock, FakeLink, TOKEN_A, disabledSupa, loadWorld, stateMsg } from './helpers';
 
 /** the minimal shape Store.savePlayers reads off a player; a real SimPlayer needs a whole Sim/World */
 function fakePlayer(over: { money?: number; stats?: Record<string, number> } = {}): SimPlayer {
@@ -33,7 +33,7 @@ function withDb(fn: (file: string) => void) {
 function boot(file: string) {
   const clock = new FakeClock();
   const store = new Store(file);
-  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 1, store, debug: true });
+  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 1, store, debug: true, supa: disabledSupa() });
   const join = (nick: string) => {
     const link = new FakeLink();
     const conn = room.onJoin(link);

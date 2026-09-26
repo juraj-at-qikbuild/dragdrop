@@ -20,7 +20,7 @@ import { History } from './history';
 import { hashToken, type Store } from './db';
 import { Bucket, checkMove, plausibleHit, rewindTime, type Bounds } from './validate';
 import type { WorldEvents } from '../../src/shared/sim/rules/WorldEvents';
-import { createFeatures, type RoomFeature } from './features';
+import { createFeatures, type Activity, type RemoteConfig, type RoomFeature, type Supa } from './features';
 import type { AuthVerifier } from './auth-types';
 
 export interface ClientLink {
@@ -95,6 +95,9 @@ export interface RoomOptions {
   debug?: boolean;
   /** verifies a Supabase access token from hello.auth; unset: account hellos get 'auth-unavailable' */
   auth?: AuthVerifier;
+  /** the shared Supabase client (server/src/supa.ts); tests inject a disabled or fake-fetch one so
+   *  createFeatures() never builds its own and never touches the network */
+  supa?: Supa;
 }
 
 export class Room {
@@ -160,7 +163,7 @@ export class Room {
       this.sim.clock.wet = c.wet;
       this.sim.clock.rainTarget = c.target;
     }
-    for (const f of createFeatures(this)) this.addFeature(f);
+    for (const f of createFeatures(this, { supa: opts.supa })) this.addFeature(f);
   }
 
   /** the world-event director */
@@ -172,6 +175,24 @@ export class Room {
   addFeature(f: RoomFeature) {
     this.features.push(f);
     for (const [t, h] of Object.entries(f.messages ?? {})) this.handlers.set(t, h as (s: Session, msg: ClientMsg) => void);
+  }
+
+  /** find a registered feature by id, typed (the accessors below are the common case) */
+  feature<T extends RoomFeature>(id: string): T | undefined {
+    return this.features.find((f) => f.id === id) as T | undefined;
+  }
+
+  get activity(): Activity | undefined {
+    return this.feature<Activity>('activity');
+  }
+
+  get remoteConfig(): RemoteConfig | undefined {
+    return this.feature<RemoteConfig>('remoteConfig');
+  }
+
+  /** the shared Supabase client (Activity and RemoteConfig hold the same instance) */
+  get supa(): Supa | undefined {
+    return this.activity?.supa ?? this.remoteConfig?.supa;
   }
 
   private sessionOf(p: SimPlayer) {

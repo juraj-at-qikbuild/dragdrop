@@ -3,7 +3,7 @@ import { Room, GRACE_MS, type RoomOptions } from '../src/Room';
 import { PROTOCOL_VERSION, ROSTER_ACCOUNT } from '../../src/shared/net/protocol';
 import { Ent } from '../../src/shared/net/codec';
 import { HitKind } from '../../src/shared/sim/Combat';
-import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, flush, loadWorld, stateMsg } from './helpers';
+import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, flush, loadWorld, stateMsg } from './helpers';
 import type { Ped } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import type { AuthVerifier } from '../src/auth-types';
@@ -12,7 +12,7 @@ import type { EventEntry } from '../../src/shared/sim/rules/types';
 
 function setup(extra: Partial<RoomOptions> = {}) {
   const clock = new FakeClock();
-  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 42, debug: true, ...extra });
+  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 42, debug: true, supa: disabledSupa(), ...extra });
   const join = (token: string, nick: string, resume?: { x: number; y: number }) => {
     const link = new FakeLink();
     const conn = room.onJoin(link);
@@ -333,7 +333,7 @@ class DebugTestEvent extends TimedEvent {
 describe('Room respawn', () => {
   it('accepts reports from the hospital after a respawn instead of snapping the player back', () => {
     const clock = new FakeClock();
-    const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 9 });
+    const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 9, supa: disabledSupa() });
     const link = new FakeLink();
     const conn = room.onJoin(link);
     room.onMessage(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token: TOKEN_A, nick: 'Anna' }));
