@@ -326,4 +326,18 @@ export class Audio {
       if (s === 8 && bar === 2) this.tone(midi(55), sd * 60, 'sine', 0.04, t, m);
     }
   }
+
+  // ------------------------------------------------------------- news (Rádio Kecy breaking news;
+  // kept as its own hunk, separate from the radio/station code above and from the voice bus another
+  // agent is adding to this class — see docs/plans/social-events.md)
+  /** a short two-tone "breaking news" chime before a Rádio Kecy bulletin, on the sfx bus */
+  newsSting() {
+    [880, 1318].forEach((f, i) => this.tone(f, 0.14, 'sine', 0.18, this.ctx ? this.now() + i * 0.1 : 0));
+  }
+
+  /** duck the music bus while the DJ reads a bulletin aloud (News.ts), then restore it */
+  duckMusic(on: boolean) {
+    if (!this.ctx || !this.music) return;
+    this.music.gain.setTargetAtTime(on ? 0.08 : 0.32, this.now(), 0.25);
+  }
 }

@@ -5,10 +5,10 @@
 import type { World } from '../../world/World';
 import { dist } from '../../util/math';
 
-/** Locative phrases for the landmarks most likely to come up in radio lines and event locations.
- *  Seeded with the ones a first pass could be confident about; every other landmark (and every point
- *  that isn't near one) falls through to the square/street/quarter/district chain below.
- *  Extend freely: `id -> "<preposition> <locative phrase>"`. */
+/** Locative phrases for all 52 landmarks in the real map (see World.landmarks / public/data/
+ *  bratislava.json), with the preposition a local would actually use: "pri" near a building or
+ *  statue, "na" on a bridge or square, "v" inside a park/gallery/museum. Every point that isn't near
+ *  one of these falls through to the square/street/quarter/district chain below. */
 export const LANDMARK_LOCATIVE: Record<string, string> = {
   snp: 'na Moste SNP',
   eurovea: 'pri Eurovei',
@@ -29,18 +29,70 @@ export const LANDMARK_LOCATIVE: Record<string, string> = {
   slavin: 'na Slavíne',
   radio: 'pri Slovenskom rozhlase',
   sng: 'v Slovenskej národnej galérii',
+  reduta: 'v Redute',
+  blue: 'pri Modrom kostolíku',
+  snd: 'pri Slovenskom národnom divadle',
+  kamenne: 'na Kamennom námestí',
+  radnica: 'pri Starej radnici',
+  jesuit: 'pri Jezuitskom kostole',
+  franciscan: 'pri Františkánskom kostole',
+  klarisky: 'pri Kostole Klarisiek',
+  mirbach: 'pri Mirbachovom paláci',
+  palffy: 'pri Pálffyho paláci',
+  ganymede: 'pri Ganymedovej fontáne',
+  vodnaveza: 'pri Vodnej veži',
+  mikulas: 'pri Kostole sv. Mikuláša',
+  chatam: 'pri Mauzóleu Chatama Sofera',
+  snm: 'v Slovenskom národnom múzeu',
+  uk: 'na Univerzite Komenského',
+  snpsquare: 'na Námestí SNP',
+  manderlak: 'pri Manderláku',
+  kyjev: 'pri Hoteli Kyjev',
+  synagogue: 'pri Synagóge',
+  trinity: 'pri Trinitárskom kostole',
+  capuchin: 'pri Kapucínskom kostole',
+  lutheran: 'pri Veľkom evanjelickom kostole',
+  hodzovo: 'na Hodžovom námestí',
+  medicka: 'v Medickej záhrade',
+  blumental: 'pri Blumentálskom kostole',
+  nbs: 'pri Národnej banke Slovenska',
+  newsnd: 'pri Novom SND',
+  euroveatower: 'pri Eurovea Tower',
+  panorama: 'pri Panorama City',
+  skypark: 'pri Sky Parku',
+  nivytower: 'pri Nivy Tower',
+  incheba: 'pri Inchebe',
 };
 
 /** a landmark only counts within this range; farther away, the square/street chain takes over */
 const LANDMARK_RANGE = 120;
 
-/** The plan's small locative rule for named squares: "X námestie" -> "na X námestí", and the
- *  "Námestie X" shape (X a name that doesn't decline: a person's name in the genitive, or an
- *  abbreviation) -> "na Námestí X". Not full Slovak declension (the leading adjective in the first
- *  form keeps its nominative ending), but close enough for a HUD label or a radio aside. */
-function squarePhrase(name: string): string {
+/** Nominative-singular-neuter adjective -> locative singular, the two shapes that actually occur in
+ *  Bratislava's square names: a possessive adjective from a surname ("Hurbanovo" -> "Hurbanovom",
+ *  "Šafárikovo" -> "Šafárikovom") and a quality adjective ("Hlavné" -> "Hlavnom", "Rybné" ->
+ *  "Rybnom", short-e forms from rhythmic shortening included: "Františkánske" -> "Františkánskom").
+ *  A fixed genitive attribute from a surname ("Komenského", already genitive) never declines further
+ *  and is returned unchanged. Falls back to the input for anything else — better an indeclinable name
+ *  than a confidently wrong ending. */
+function locativeNeuterAdj(word: string): string {
+  if (word.endsWith('ého')) return word; // "Komenského námestie" -> "na Komenského námestí"
+  if (word.endsWith('ovo')) return word + 'm'; // "Hurbanovo" -> "Hurbanovom"
+  if (word.endsWith('é') || word.endsWith('e')) return word.slice(0, -1) + 'om'; // "Hlavné" -> "Hlavnom"
+  return word;
+}
+
+/** The plan's locative rule for named squares: "X námestie" -> "na X-locative námestí" (declining
+ *  the leading adjective, see above), and the "Námestie X" shape (X a name that doesn't decline: a
+ *  person's name in the genitive, or an abbreviation) -> "na Námestí X". Not full Slovak declension,
+ *  but grammatically correct for every square on the real map (see placeName.test.ts). */
+// exported so tests can check every named square's grammar directly, without needing to find a
+// point that lands inside each one's polygon
+export function squarePhrase(name: string): string {
   if (name.startsWith('Námestie ')) return 'na Námestí ' + name.slice('Námestie '.length);
-  if (/námestie$/i.test(name)) return 'na ' + name.slice(0, -'námestie'.length) + 'námestí';
+  if (/námestie$/i.test(name)) {
+    const adj = name.slice(0, -'námestie'.length).trim();
+    return 'na ' + locativeNeuterAdj(adj) + ' námestí';
+  }
   return 'na ' + name;
 }
 

@@ -122,6 +122,9 @@ export class Game {
   messages: Msg[] = [];
   radio = 0;
   radioText = { text: '', time: 0 };
+  /** while `time` is below this, updateInfo's random DJ chatter leaves radioText alone (News.ts
+   *  sets it after showing a breaking-news line, so the two don't stomp each other) */
+  newsUntil = 0;
   shake = 0;
   time = 0;
   street = { name: '', timer: 0 };
@@ -700,8 +703,10 @@ export class Game {
       this.radioLineTimer -= dt;
       if (this.radioLineTimer <= 0) {
         this.radioLineTimer = rand(14, 24);
-        const st = RADIO[this.radio];
-        this.radioText = { text: `📻 ${st.name}: „${st.lines[(Math.random() * st.lines.length) | 0]}“`, time: 6 };
+        if (this.time >= this.newsUntil) {
+          const st = RADIO[this.radio];
+          this.radioText = { text: `📻 ${st.name}: „${st.lines[(Math.random() * st.lines.length) | 0]}“`, time: 6 };
+        }
       }
     }
   }
