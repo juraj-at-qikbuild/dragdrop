@@ -156,6 +156,11 @@ export class Room {
       const s = this.sessionOf(p);
       if (s) this.dirty.add(s);
     };
+    // every reward lands in the activity log (the weekly leaderboard), whichever feature paid it
+    this.sim.onPayout = (p, amount, reason) => {
+      const s = this.sessionOf(p);
+      if (s) this.activity?.log(reason, s, amount);
+    };
     const c = this.store?.loadClock();
     if (c) {
       this.sim.clock.setTime(c.time);

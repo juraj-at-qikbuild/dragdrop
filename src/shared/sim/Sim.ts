@@ -82,6 +82,8 @@ export class Sim {
   driveClock: boolean;
   /** called when a player's persistent progress changed (save it) */
   onProfileChange?: (p: SimPlayer) => void;
+  /** every share of every payout (the server logs them to Supabase `activity` for the leaderboards) */
+  onPayout?: (p: SimPlayer, amount: number, reason: PayoutReason) => void;
   private pedHash = new SpatialHash<Ped>(16);
   /** vehicles for AI neighbourhood queries (coarser cells than the physics broad phase) */
   private vehHash = new SpatialHash<Vehicle>(25);
@@ -826,6 +828,7 @@ export class Sim {
       const here = s.p === p && x !== undefined && y !== undefined;
       this.events.toPlayer(s.p.id, { k: 'payout', amount: n, reason, x: here ? x : f.x, y: here ? y! : f.y });
       this.onProfileChange?.(s.p);
+      this.onPayout?.(s.p, n, reason);
     }
   }
 

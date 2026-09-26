@@ -161,3 +161,16 @@ describe('boot links', () => {
     expect(parseBootLinks('', '?reset=1').reset).toBe(true);
   });
 });
+
+describe('payout log hook', () => {
+  it('reports every share of a payout with its reason', () => {
+    const sim = new Sim(loadWorld(), { rng: new Rng(21) });
+    const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: true });
+    const b = sim.addPlayer({ nick: 'B', profile: profile(), kinematic: true });
+    const seen: string[] = [];
+    sim.onPayout = (p, amount, reason) => seen.push(`${p.nick}:${amount}:${reason}`);
+    sim.payoutPolicy = (p, amount) => [{ p, amount: amount - 30 }, { p: b, amount: 30 }];
+    sim.payout(a, 100, 'bounty');
+    expect(seen).toEqual(['A:70:bounty', 'B:30:bounty']);
+  });
+});
