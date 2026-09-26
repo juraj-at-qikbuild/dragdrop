@@ -813,3 +813,37 @@ Where this section and the text above disagree, this section wins.
   - The `goldenCumil` pickup kind.
   - `Pickup.tag` is never sent.
 - **Tests:** `test/shared/contracts.test.ts` covers these contracts.
+
+## Implementation notes: what the Wave 0b/1 merges settled
+
+These notes also win over the text above.
+
+- **Payouts are logged once, centrally.** `Sim.onPayout(p, amount, reason)` fires for every share of
+  every payout, and `Room` logs it to Supabase `activity`. A feature must not log a payout to
+  `activity` again.
+- **World-event placement.** `rules/events/placement.ts` has `centroidOf(sim)` and
+  `clearOfPlayers(sim, x, y, minD)`; use them rather than a local copy.
+- **Hidden positions stay on the server.** An event whose point is secret (the golden Čumil) never puts
+  that point in `entry()`, `eventAnnounce`, `eventStart` or a place name; it uses a jittered hint
+  circle instead. The pickup itself goes out in snapshots only within 40 m (`server/src/snapshot.ts`).
+- **Timing of GlobalEvents from features.** `Room.tick()` clears the event buffers before
+  `features[].tick()`, so a `GlobalEvent` emitted from a feature's `tick()` reaches clients on the next
+  tick. Tests tick once more before reading `ev.g`.
+- **Features are constructed before they're registered.** `createFeatures()` builds every feature
+  before `Room` adds them to `room.features`, so a feature must not look up other features
+  (`room.remoteConfig`, `room.activity`) in its constructor. Pass them in (as `Voice` does), or look
+  them up lazily.
+- **Fire-and-forget I/O always carries a `.catch`.** An unhandled rejection takes the whole server
+  down.
+- **Accounts on the client.** `NetSimHost.account` comes from `welcome.account`, the server's answer.
+  - `resolveOnlineIdentity()` (`src/ui/AccountUi.ts`) picks the account when a Supabase session is
+    stored, otherwise the guest. Every online entry uses it: `#online`, `#join` and a reload.
+  - `askNick` lives in `src/ui/askNick.ts`.
+  - `window.openAccountModal` opens the account chooser (the voice feature calls it for guests).
+- **Reconnects.** On a reconnect, `NetSimHost` forwards the new `welcome` to every feature's
+  `onMessage`. Features with per-connection server state start over there. Voice is one: the server
+  turns a player's voice off on every hello and every lost connection, and `VoiceFeature` closes its
+  peers and opts in again.
+- **Kde to je? content** is generated with `npm run spots:gen`. It drives `?photo`, which is loaded on
+  demand and draws no signs, ads or tram-stop names (`Renderer.labels`/`StreetDetail.labels` are off
+  there).
