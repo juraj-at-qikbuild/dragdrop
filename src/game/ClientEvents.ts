@@ -59,7 +59,9 @@ export class ClientEvents implements SimEvents {
 
   explode(x: number, y: number, vehicleId: number, color: string | null) {
     const g = this.g;
-    g.audio.explosion(this.distTo(x, y));
+    const d = this.distTo(x, y);
+    if (d < 45) g.rumble(1 - d / 45, (1 - d / 45) * 0.8, 380);
+    g.audio.explosion(d);
     g.juice.explosionNearPlayer(x, y);
     g.fx.explosion(x, y, color, vehicleId ? g.host.vehicleById(vehicleId) : null);
   }
@@ -69,6 +71,7 @@ export class ClientEvents implements SimEvents {
     const v = g.host.vehicleById(vehicleId);
     const mine = !!v && v === g.player.vehicle;
     if (mine || this.distTo(x, y) < 40) g.audio.crash(sev);
+    if (mine) g.rumble(Math.min(1, sev / 22), Math.min(1, sev / 14), 110 + Math.min(300, sev * 12));
     if (kick > 0 && v) g.juice.crashImpact(v, kick, nx, ny, mine);
   }
 
@@ -106,6 +109,7 @@ export class ClientEvents implements SimEvents {
         break;
       case 'hurt': {
         const p = g.player;
+        g.rumble(Math.min(1, 0.25 + e.dmg / 50), 0.3, 150);
         g.hud.hurt = 0.5;
         g.hud.hitFrom(Math.atan2(e.fy - p.y, e.fx - p.x));
         g.postFx?.pulse({ aberration: clamp(e.dmg / 55, 0, 1), flash: [0.9, 0.05, 0.05, clamp(e.dmg / 60, 0, 0.5)] });
@@ -142,6 +146,7 @@ export class ClientEvents implements SimEvents {
         g.message('ČUMIL NÁJDENÝ!', `${e.count}/10  +${formatMoney(e.reward)}`, 3.5, '#ffd740');
         break;
       case 'down':
+        g.rumble(1, 1, 650);
         g.missions.onPlayerDown(e.state);
         g.audio.jingle(false);
         break;

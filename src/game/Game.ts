@@ -318,6 +318,38 @@ export class Game {
 
 
   /** the nearest car the player could get into */
+  /** a touch screen: prompts show the on-screen button */
+  readonly touch = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  /** seconds left showing the gamepad's button legend (on picking up the pad, or getting in or out) */
+  padHints = 0;
+  private padWas = false;
+  private carWas = false;
+
+  /** What the player can do right here, for the HUD: `use` is the enter/exit button (F, the pad's
+   *  Y, the touch 🚗), without it it's a hint (walk up to the phone booth, stop at the spray shop). */
+  prompt(): { use: boolean; text: string } | null {
+    const p = this.player;
+    if (this.state !== 'play' || this.showMap || this.paused) return null;
+    const v = p.vehicle;
+    if (v) {
+      // a spray shop just ahead
+      if (v.speed > 3)
+        for (const f of this.world.pois('fuel'))
+          if (dist(f.x, f.y, v.x, v.y) < 26) return { use: false, text: this.wanted > 0 ? 'Zastav v striekarni: nový lak, polícia ťa stratí (€250)' : 'Zastav v striekarni: nový lak a oprava (€250)' };
+      return v.speed < 1 ? { use: true, text: 'Vystúpiť' } : null;
+    }
+    const car = this.findEnterable();
+    if (car) {
+      // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)
+      const occupied = car.driver ? car.driver !== p : !car.parked && !car.owner && !car.wrecked;
+      const text = car.owner && car.owner !== this.host.me.id ? 'Vyhodiť vodiča' : occupied ? (car.kind === 'police' ? 'Vytiahnuť policajta' : 'Vytiahnuť vodiča') : car.kind === 'police' ? 'Ukradnúť policajné auto' : 'Nastúpiť';
+      return { use: true, text };
+    }
+    if (this.missions.enabled && !this.missions.active)
+      for (const b of this.missions.available()) if (dist(b.x, b.y, p.x, p.y) < 8) return { use: false, text: `☎ Podíď k búdke: ${b.def.title}` };
+    return null;
+  }
+
   private findEnterable(): Vehicle | null {
     const p = this.player;
     let best: Vehicle | null = null, bd = 4.2;
@@ -373,6 +405,12 @@ export class Game {
       if (frozen) this.idlePlayer(dt);
       else this.updatePlayer(dt);
     }
+    // the pad's button legend: when it's picked up, and on getting in or out of a car
+    const pad = inp.pad.active, inCar = !!this.player.vehicle;
+    if (pad && (!this.padWas || inCar !== this.carWas)) this.padHints = this.padWas ? 5 : 9;
+    this.padWas = pad;
+    this.carWas = inCar;
+    if (this.padHints > 0) this.padHints = pad ? this.padHints - dtReal : 0;
     host.setObserver(this.observer());
     host.update(dt);
     this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus());
@@ -519,6 +557,7 @@ export class Game {
   /** trace a shot from (x, y) against what this client sees, and hand it to the world */
   private fireFrom(x: number, y: number, angle: number) {
     const p = this.player;
+    this.rumble(p.weapon === 'shotgun' ? 0.7 : p.weapon === 'pistol' ? 0.25 : 0.12, p.weapon === 'shotgun' ? 0.5 : 0.3, p.weapon === 'shotgun' ? 160 : 60);
     const shot = traceShot(this.world, this.host.peds, this.host.vehicles, { id: p.id, x, y, level: p.level, vehicle: p.vehicle }, angle, p.weapon, Math.random);
     this.host.fire(shot);
   }

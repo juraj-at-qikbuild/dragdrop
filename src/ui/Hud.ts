@@ -107,6 +107,12 @@ export class Hud {
     const mr = small ? 60 : 88;
     g.mapView.drawMini(ctx, pad + mr, H - pad - mr, mr);
 
+    // what the player can do right here (above the speedometer when driving), and the pad's buttons
+    const promptY = car ? H - (small ? 138 : 176) : H - pad - (small ? 44 : 56);
+    const pr = g.prompt();
+    if (pr) this.drawPrompt(ctx, pr.use, pr.text, W / 2, promptY, small);
+    if (g.padHints > 0) this.drawPadLegend(ctx, W / 2, promptY - (small ? 34 : 42), !!car, Math.min(1, g.padHints), small);
+
     // street and district name
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
@@ -179,6 +185,57 @@ export class Hud {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(0, 0, W, H);
     }
+  }
+
+  /** "[F] Nastúpiť": the use button as the player's input shows it (a key cap, the pad's Y, the
+   *  touch 🚗) and what it does here; without the button, a plain hint */
+  private drawPrompt(ctx: CanvasRenderingContext2D, use: boolean, text: string, cx: number, cy: number, small: boolean) {
+    const g = this.g;
+    ctx.save();
+    ctx.font = `700 ${small ? 13 : 16}px ${BODY}`;
+    ctx.textBaseline = 'middle';
+    const h = small ? 28 : 34, gw = use ? h - 6 : 0, tw = ctx.measureText(text).width;
+    const w = tw + gw + (use ? 22 : 18);
+    const x = cx - w / 2, y = cy - h / 2;
+    // pulse gently so it catches the eye
+    const pulse = 0.5 + 0.5 * Math.sin(g.time * 4);
+    ctx.fillStyle = 'rgba(10,12,18,0.72)';
+    roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.strokeStyle = use ? `rgba(255,214,0,${0.45 + pulse * 0.4})` : 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    if (use) buttonGlyph(ctx, g.input.pad.active ? 'Y' : g.touch ? '🚗' : 'F', x + 4 + gw / 2, cy, gw / 2, g.input.pad.active ? 'pad' : g.touch ? 'touch' : 'key');
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, x + (use ? gw + 12 : 9), cy + 1);
+    ctx.restore();
+  }
+
+  /** the gamepad's buttons for what the player is doing (on foot / driving), for a few seconds */
+  private drawPadLegend(ctx: CanvasRenderingContext2D, cx: number, cy: number, car: boolean, alpha: number, small: boolean) {
+    const items = car ? PAD_CAR : PAD_FOOT;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
+    ctx.textBaseline = 'middle';
+    const r = small ? 9 : 11, gap = small ? 10 : 14;
+    const widths = items.map(([b, t]) => glyphW(b, r) + 5 + ctx.measureText(t).width);
+    const total = widths.reduce((a, b) => a + b, 0) + gap * (items.length - 1) + 20;
+    let x = cx - total / 2;
+    ctx.fillStyle = 'rgba(10,12,18,0.62)';
+    roundRect(ctx, x, cy - r - 6, total, r * 2 + 12, r + 6);
+    ctx.fill();
+    x += 10;
+    items.forEach(([b, t], i) => {
+      const gw = glyphW(b, r);
+      buttonGlyph(ctx, b, x + gw / 2, cy, r, 'pad');
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#e8eaed';
+      ctx.fillText(t, x + gw + 5, cy + 1);
+      x += widths[i] + gap;
+    });
+    ctx.restore();
   }
 
   /** online status badge under the top-right panel: "● ONLINE · 12 hráčov · 38 ms" */
@@ -382,6 +439,56 @@ export class Hud {
       outlined(ctx, `${Math.round(d)} m`, g.viewW / 2 + Math.cos(a) * r, g.viewH / 2 + Math.sin(a) * r, color);
     }
   }
+}
+
+/** the pad's buttons (standard mapping, Xbox face-button colours) and what they do */
+const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa']];
+const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'streľba'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
+const FACE: Record<string, string> = { A: '#2e9e44', B: '#d83a2e', X: '#2f6fd6', Y: '#e0b100' };
+
+function glyphW(label: string, r: number) {
+  return label.length > 1 && !FACE[label] ? r * 2.6 : r * 2;
+}
+
+/** A button as the player's input shows it: the pad's round face buttons (coloured) and pill
+ *  shoulders and sticks, a keyboard key cap, or the touch screen's button. */
+function buttonGlyph(ctx: CanvasRenderingContext2D, label: string, cx: number, cy: number, r: number, kind: 'pad' | 'key' | 'touch') {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (kind === 'key') {
+    ctx.fillStyle = '#eceff1';
+    roundRect(ctx, cx - r, cy - r, r * 2, r * 2, r * 0.35);
+    ctx.fill();
+    ctx.fillStyle = '#b0bec5';
+    ctx.fillRect(cx - r + 2, cy + r - 3, r * 2 - 4, 2);
+    ctx.fillStyle = '#20242a';
+    ctx.font = `800 ${r * 1.15}px ${BODY}`;
+    ctx.fillText(label, cx, cy);
+  } else if (kind === 'touch') {
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `${r * 1.2}px system-ui, sans-serif`;
+    ctx.fillText(label, cx, cy + 1);
+  } else {
+    const face = FACE[label];
+    const w = glyphW(label, r);
+    ctx.fillStyle = face ?? '#3c4148';
+    if (face) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      roundRect(ctx, cx - w / 2, cy - r * 0.8, w, r * 1.6, r * 0.8);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${face ? r * 1.1 : r * 0.85}px ${BODY}`;
+    ctx.fillText(label, cx, cy + 0.5);
+  }
+  ctx.restore();
 }
 
 export function outlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, width = 4) {
