@@ -24,12 +24,17 @@ npm run preview    # serve the production build
 | Shift | run (nitro in a car) |
 | Q, 1–4 | switch weapon |
 | R | next radio station |
-| H | horn |
+| H | horn · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
+| V | push-to-talk voice chat (online, signed-in accounts only) |
+| N | party panel (**Partia**, online) |
+| J | jobs: **Vlk courier / Hopík taxi** |
+| K | **"Kde to je?"** daily photo card (online) |
+| G | give up while downed (online) |
 | M / Tab | city map (see below) |
 | Mouse wheel | zoom in / out |
 | Esc / P | pause |
 
-**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map.
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map. Online: the left stick click (L3) is push-to-talk, and d-pad left opens jobs.
 
 A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key, the pad's Y or the touch screen's car button. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
 
@@ -156,9 +161,38 @@ into each other, shoot each other (it's a crime: the police come after you), and
 level and pursuit. Online progress (money, Čumils, landmarks) is kept on the server, separately from the
 single-player save. Missions are single-player only.
 
-The button only shows when the client was built with `VITE_SERVER_URL`. See `docs/multiplayer.md` for the
-design and `docs/deploy.md` for running the server. The client and the server must speak the same protocol
-version (now 6): deploy the server (`fly deploy`) together with the client, or older clients are refused.
+On top of that shared world, there's a set of social features (protocol 7):
+
+- **World events**, announced on the map and by Rádio Kecy: **Horúca Kofolka** (a delivery van full of
+  cash — whoever drives it earns from the pot until it's drained, wrecked or time runs out),
+  **Najhľadanejší** (the first player to hit 5★ gets a bounty that grows every minute, paid to whoever
+  takes them down), **Hon na Čumila** (a golden Čumil hides somewhere in the city behind a shrinking,
+  jittered hint circle), **Obrnené auto** (an armoured cash van drives bank to bank — shoot out its
+  rear doors before it delivers) and **Derby na parkovisku** (a demolition derby in a parking lot,
+  alternating between Aupark and Eurovea).
+- **Partia**: invite a friend with a share-able link and they spawn right next to you. Members share
+  event/job payouts, can't hurt or jack each other's cars, and show a `[TAG]` on nametags and the map.
+- **Revive**: downed rather than killed outright, another player standing close by can revive you for
+  a "Dobrý samaritán" bonus, or give up to go straight to hospital.
+- **Kde to je?**: a daily close-up photo of somewhere in the city; the first player to stand on the
+  spot wins $1,000.
+- **Závod?**: pull up next to another player and hold the horn to challenge them to a race to a
+  landmark 1–2 km away, for a stake.
+- **Vlk courier / Hopík taxi**: city jobs — deliver food or drive a fare — that work solo, online or off.
+- **Rádio Kecy** breaks in with news of whatever's happening around the city.
+- **Proximity voice chat**, for signed-in accounts only: nearby players hear each other over WebRTC,
+  with mute, report and a kill switch.
+- **Guest or account play**: guests keep today's local-nickname flow; a Supabase account (e-mail +
+  password) keeps progress across every device and unlocks voice chat. A guest can claim their
+  progress into a fresh account once.
+
+Hon na Čumila, Obrnené auto and the Vlk/Hopík jobs also run solo, offline. Everything else above —
+Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je? and voice chat — is
+online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
+
+The button only shows when the client was built with `VITE_SERVER_URL`. The client and the server must
+speak the same protocol version (now 7): deploy the server (`fly deploy`) together with the client, or
+older clients are refused.
 
 ```bash
 npm --prefix server install

@@ -178,3 +178,212 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - `npm run smoke` runs the offline game in headless Chromium.
 - `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart.
 - `npm run loadtest` and `npm --prefix server run bench` measure capacity.
+
+## Social features: protocol v7
+
+World events, parties, accounts, revive, races, jobs, the daily puzzle, radio news and proximity voice
+(`docs/plans/social-events.md`). Where this section and that plan disagree, this section (and the plan's
+own "Implementation notes" addenda) win — they're what actually got built.
+
+### Protocol v7
+`PROTOCOL_VERSION` (`src/shared/net/protocol.ts`) is now 7. Exactly as with every earlier bump, an
+older client gets `error.code: 'version'` and the "Nová verzia hry" refusal; client and server ship
+together (see `docs/deploy.md`).
+
+- **New `ClientMsg`s**: `partyInvite`, `partyLeave`, `partyKick{id}`, `challenge{target}`,
+  `challengeAnswer{from, ok}`, `job{op: 'start'|'stop', kind?}`, `giveUp`, `voice{on}`,
+  `voiceSig{to, data}`, `report{target, reason}`, `accountDelete`. `hello` gains `join?` (a party invite
+  code), `auth?` (a Supabase access token) and `claim?`; `debug` (E2E only) gains `event`, `teleport`
+  and `daily`.
+- **New `ServerMsg`s**: `wev{ev: EventEntry[], daily: DailyState | null}` — the city-wide state, sent on
+  hello, within about 150 ms of a change (see below) and every second while anything is on; `voicePeers{add, del}`,
+  `voiceIce{ice}` and `voiceSig{from, data}` for the voice mesh. `welcome` gains `account` and
+  `claimed?`; `error.code` gains `'auth' | 'auth-unavailable' | 'nick-taken'`.
+- **`ev.g`**: the existing `ev` message (world effects `e`, private events `p`) gains an optional
+  `g?: GlobalEvent[]` — news every player hears regardless of where they are: an event starting or
+  ending, a most-wanted chase, a race or derby result, the daily puzzle being revealed, hinted or
+  solved. `Room.tick()` clears the event buffers before `features[].tick()` runs, so a `GlobalEvent`
+  raised from a feature's own `tick()` reaches clients on the *next* tick, not the one it fired in.
+- **The `wev` state.** `WorldEvents.version` (the director) bumps whenever an event starts, ends or
+  changes phase worth telling the map about; `Room` compares it every tick and, if it's moved on,
+  shortens the next `wev` send to within 150 ms instead of waiting for the 1 Hz timer. A feature (only
+  `Daily` today) can add its own bit to the same message through the `wev()` `RoomFeature` hook.
+- **The 9-field roster.** `RosterRow` grew from 7 fields to
+  `[id, nick, x, y, wanted, inCar, pedId, partyId, flags]`. `flags` is `ROSTER_DOWNED` (bit 0),
+  `ROSTER_VOICE` (bit 1) and `ROSTER_ACCOUNT` (bit 2). The `roster` message also carries an optional
+  `pt: [partyId, tag, colour][]` — every active party's nametag tag, contributed by whichever feature
+  tracks parties (`Party.partyTags()`) rather than known to `Room` itself.
+- **Binary wire (`src/shared/net/codec.ts`).** `PSTATES` gained `'downed'` (a ped's state bit and the
+  local player's own 2-bit state field); `pedDynamic` bit 7 is the downed flag; `vehicleStatic` bits
+  2–3 encode `Vehicle.livery` (`LIVERY_NONE`/`KOFOLKA`/`ARMORED`/`DERBY`); `PICKUP_KINDS` gained
+  `'goldenCumil'`. A vehicle's dynamic health byte is still `health / spec.health` — see "Anti-abuse
+  and known gaps" below for what that means for the armoured van.
+
+### The plug-in architecture
+Every social feature is a plug-in, registered once in a small number of files, so five to six
+Sonnet agents could build most of this in parallel without touching each other's code
+(`docs/plans/social-events.md`'s orchestration table).
+
+- **`SimRule`** (`src/shared/sim/rules/SimRule.ts`): the shared, DOM-free rule interface. `Sim.rules:
+  SimRule[]` calls every rule's hooks at fixed points in `step()` and elsewhere —
+  `allowPvp`/`allowCrime` (gate an action), `onState` (a play/downed/wasted/busted transition — this
+  single hook replaces an earlier `onDown`, and also covers respawns and revives), `onKill`,
+  `onEnter`/`onExit`, `onVehicleHit`, `onPickup`, `onAdd`/`onRemove`. A rule only ever reaches players
+  through `sim.events` and `sim.payout`, never DOM/audio/`Math.random`, so identical code runs offline
+  and on the server. `createRules(sim, mode)` (`rules/index.ts`) builds the list per host: `Jobs` and
+  the armoured van's spilled-cash rule (`VanLoot`) run in both modes; `Revive`, `MostWantedWatch` and
+  `Race` are server-only, because they need `SimOptions.downed` or another connected player.
+- **`WorldEvents`** (`rules/WorldEvents.ts`): the director, itself a `SimRule` that forwards every hook
+  to whichever event instances are currently active. `register(def)` adds a `WorldEventDef` (`kind`,
+  `minPlayers`, `offline`, `scheduled`, `weight`, `cooldown`, `create()`); a scheduled event starts
+  every 7–11 minutes online (12–18 offline) among the ready, weight-drawn candidates, while the
+  most-wanted chase only ever starts through `trigger()`. `TimedEvent` is the shared base for an
+  announce phase then a live one, each with its own countdown (`onLive()`/`onTimeout()`); an
+  instance's `entry()` is exactly what the map and HUD are shown (`EventEntry`).
+- **`RoomFeature`** (`server/src/features/RoomFeature.ts`): a server-side plug-in with its own
+  client-message handlers (`messages`), `onHello`/`onLeave`/`onDrop`, `tick()`, a `wev()` contribution,
+  `shutdown()` and `stats()`. `Room.features[]` (`createFeatures()`, `server/src/features/index.ts`)
+  is where parties, voice, accounts, the daily puzzle and the Supabase sinks (`RemoteConfig`,
+  `Activity`) all live; unknown JSON message types fall through to whichever feature declared a
+  handler for them. Features are *constructed* before any of them is added to `room.features`, so a
+  feature must not look up another feature in its constructor — it takes it as a parameter instead
+  (`Voice` takes `RemoteConfig` and `Activity`) or looks it up lazily later.
+- **`ClientFeature`** (`src/game/features/ClientFeature.ts`): the client-side mirror —
+  `update`/`drawWorld`/`drawHud`/`drawMap`/`onGlobal`/`onPrivate`/`onMessage`/`reset`. `Game.features[]`
+  (`createClientFeatures()`, `src/game/features/index.ts`) holds the event overlay, the party/revive/
+  race/jobs HUDs, the daily card, Rádio Kecy's news ticker and voice chat.
+- **`LiveState`** (`src/game/SimHost.ts`): the one place HUD and map code read social-feature state —
+  active events, the daily puzzle, this player's party/job/race/challenge/revive — filled identically
+  by both hosts: `LocalSimHost` straight from the shared rules, `NetSimHost` from the server's `wev`
+  message and private events (`applyLive()`). Neither the HUD nor the map ever branches on which host
+  it's talking to.
+
+### Identity
+Every player is keyed by a **player key** (`Session.key` in `server/src/Room.ts`), not the raw token —
+the existing SQLite `players.token_hash` column keeps its name but now holds this key either way:
+
+- **Guests**: `sha256(guestToken)` (`hashToken()`, `server/src/db.ts`), from the same anonymous UUID
+  `hello.token` has always carried. A guest never touches Supabase at all.
+- **Accounts**: `'acct:' + userId`. `hello.auth` carries a Supabase access token; `Room.hello()` awaits
+  `AuthVerifier.verify()` (`server/src/auth.ts`, ES256 against the project's JWKS, cached and mirrored
+  into SQLite so a restart mid-outage can still verify) before accepting — every other message on that
+  connection is *held*, not struck, while it's pending.
+- **Nicknames.** An account's nickname is reserved case-insensitively unique in SQLite `accounts`
+  (`nick_lower`). A brand-new account reserves whatever its first hello sent, or gets `nick-taken` if
+  it's gone; an existing account always keeps its stored nickname regardless of what a later hello
+  sends (the `nick` message renames it, checking uniqueness again). Guest nicknames stay free-form, as
+  before.
+- **Claiming.** `hello.claim` (with the device's still-present guest `token`) moves that guest's
+  `players`/`sessions` rows into the account (`Store.movePlayer`), only once, and only into an account
+  with no progress of its own yet (`store.hasPlayer(acctKey)` must be false). A live guest session
+  under that key is sent `bye: 'replaced'` and dropped first, so it can't resurrect the row the move is
+  about to overwrite. `src/ui/AccountUi.ts` offers this right after sign-up when local guest progress
+  exists, via a flag stashed in `localStorage` across the reload that actually connects online.
+- **Deleting an account** (`accountDelete`, GDPR): the SQLite `players`/`accounts` rows are deleted
+  synchronously (`Room` never awaits I/O in a tick); the Supabase auth user and that player's
+  `activity` rows are removed fire-and-forget through the shared `Supa` client.
+
+### Voice signalling
+Voice is a WebRTC mesh — audio is peer-to-peer; the server (`server/src/features/Voice.ts`) only ever
+decides *who* may signal *whom*, and relays that signalling over the existing game WebSocket.
+
+- **Pairing** runs once a second (`pairVoice()`, pure and unit-tested against plain fixtures): a
+  spatial, greedy match over every opted-in, connected, non-AFK player. A pair **links** below 45 m
+  (`VOICE_LINK_M`) and stays linked until it drifts past 60 m (`VOICE_UNLINK_M`) — hysteresis, so
+  hovering at the edge doesn't flap the connection open and closed. Candidates are sorted nearest-first
+  and accepted greedily under a cap of 8 links per player (`VOICE_MAX_LINKS`), so the cap naturally
+  keeps each player's *nearest* peers. A tunnel and the surface never link.
+- Every add/remove is diffed against the previous link set and sent as one `voicePeers{add, del}` per
+  affected player. Each `add` entry carries `polite: id > peerId`, so both ends derive the same
+  Perfect-Negotiation role without asking the server which one they are.
+- `voiceSig` is relayed only between *currently* linked pairs (checked again at signal time, since a
+  link can drop between two messages) and shape-checked (`validSignalShape()`) before forwarding — the
+  server confirms a payload looks like SDP/ICE but never otherwise parses it, and it has its own rate
+  limit, separate from the connection's general one.
+- `voiceIce` sends two public STUN servers (Cloudflare's and Google's, always, no setup needed), plus —
+  when `CF_TURN_KEY_ID`/`CF_TURN_API_TOKEN` are set — Cloudflare Realtime TURN credentials minted
+  server-side (24 h TTL, cached per session, refreshed a little early). Unset, it's STUN-only, which
+  still connects most NAT pairs but not symmetric NAT/CGNAT pairs (see `docs/deploy.md` for setup and
+  cost).
+- **Reconnects reset voice.** `Voice.onHello` turns a player's voice off on *every* hello, fresh or
+  reconnect, and drops their links: a reloaded page has no mic open and the previous
+  `RTCPeerConnection`s are dead either way. The client's `VoiceFeature` notices the fresh `welcome`,
+  closes its own dead peer connections, and opts back in (fresh signalling, fresh links) if it was on.
+- **Client-side** (`src/game/features/voice/`): one `RTCPeerConnection` per peer following the MDN
+  Perfect Negotiation pattern; Opus tuned for voice (`usedtx=1;useinbandfec=1`, a 24 kbps cap); a muted
+  `<audio>` element per remote track (a Chrome playback workaround) feeding
+  `MediaStreamSource → Gain → StereoPanner → voiceBus` (`src/audio/Audio.ts`). Gain is
+  `clamp((45 − d) / 40, 0, 1) ^ 1.5` (distance to the peer's mirrored ped), ×0.15 on a level mismatch
+  (one player underground, one not), recomputed every frame with `setTargetAtTime`; pan comes from the
+  peer's lateral offset. The impolite side restarts ICE once when a connection goes `failed`; if it's
+  still not connected 10 s after starting, `poll()` tears the peer connection down and rebuilds it from
+  scratch after a 60 s back-off.
+- **Moderation.** Push-to-talk is the default mode, any player can mute a peer locally, and "Nahlásiť"
+  sends reporter/target/positions/voice-state to Supabase `reports`. Because the audio itself never
+  reaches the server, it can't be recorded or reviewed after the fact — moderation leans on accounts
+  (bans stick), the `voice_blocklist` and the `voice_enabled`/`voice_requires_account` kill switches
+  instead (`docs/deploy.md`).
+
+### Supabase, and why hot state stays in SQLite
+Supabase holds **Auth** and **cold, shared** data; every hot per-player value — money, position,
+sessions, invite codes, account nicknames, `players.stats` — stays exactly where it always was, in the
+server's own SQLite, so a join or a tick never waits on the network.
+
+- `server/src/supa.ts`'s `Supa` client is a thin wrapper over `fetch` against PostgREST/GoTrue/Storage
+  — no `supabase-js` on the server. It sends the secret key as `apikey` only (PostgREST treats that as
+  `service_role`, bypassing RLS); the one exception is GoTrue's admin API (account deletion), which
+  also checks `Authorization`, so that call alone repeats the same secret key there too.
+- **Reads and one-shot writes** (`select`/`patch`/`insert`/`rpc`/`deleteRows`/`adminDeleteUser`) are
+  plain, awaited calls, for the few things that need a fresh answer right away (the daily puzzle's
+  poll, `RemoteConfig`'s reload, account deletion).
+- **High-volume writes** (`activity`, `reports`) go through `enqueue()`, a per-table batched queue
+  flushed every 5 s and never awaited from a tick or a message handler. A table that starts failing
+  (network error, 429, 5xx) backs off exponentially (1 s doubling to a 60 s cap) on its own timer; a
+  non-retryable 4xx just drops that one batch and logs why (never the key or the response body). The
+  queue is capped at 5,000 rows, oldest dropped first, so a long outage can't grow it without bound. On
+  SIGTERM, `shutdown()` abandons any backoff wait and makes one last attempt, bounded to 3 s.
+- Every Supabase-backed feature degrades to "off" rather than erroring when it's unset or unreachable:
+  `RemoteConfig` keeps its hardcoded defaults, `Daily` shows no puzzle, `Activity`/reporting are
+  no-ops. Nothing in the tick ever blocks waiting for any of it.
+- What lives where: **Auth** (`auth.users`, Supabase's own schema) for accounts — there's no
+  `profiles` table, since nicknames live in SQLite `accounts` next to the rest of the hot profile;
+  **`daily_spots`/`daily_spot_secrets`** for "Kde to je?" (the coordinates are in the second table,
+  behind RLS with no policies at all, so only the server's secret key can ever read them);
+  **`activity`**, an append-only log of every payout share and milestone, for the weekly leaderboard;
+  **`reports`** for moderation; **`game_config`** for remote tunables and kill switches; and the
+  `spots` Storage bucket for the daily puzzle's photos. Details and day-to-day operation are in
+  `docs/deploy.md`.
+
+### Anti-abuse and known gaps
+- **Pair cooldowns.** Revive: at most one paid "Dobrý samaritán" bonus per (reviver, victim) pair per
+  10 minutes, and 10 per reviver per rolling hour; none at all if the reviver hurt the victim in the
+  last 60 s. Závod?: 2 minutes between races for the same pair. Najhľadanejší: a 60-minute cooldown per
+  (taker, target) pair on the bounty itself, a separate 5-minute cooldown before the same player can be
+  re-triggered as a target at all, and the target must have spent at least 60 s (accumulated) at 5★
+  before any takedown or escape pays out anything — tapping 5★ and hiding immediately earns nothing.
+- **Party exclusions.** `allowPvp` refuses damage and car-jacking between same-party members; the
+  most-wanted bounty never pays a party-mate of the target; a party's payout split (event and job
+  money — not race stakes, pickups or the samaritan bonus) only reaches connected members within 300 m
+  who are playing or downed.
+- **Escrowed stakes are refunded on shutdown.** A Závod? stake leaves both players' accounts the
+  moment they accept, before the countdown even starts. It comes back if the race times out after
+  5 minutes with nobody finishing, and — on a graceful shutdown (`fly deploy` sends `SIGTERM`) — every
+  race still in progress is refunded rather than left to resolve as a deploy-timed forfeit
+  (`Race.refundAll()`, run before `Room`'s final save). A race that actually finishes, or that one
+  player forfeits by leaving, still pays the stake (doubled) to whoever's left.
+- **The golden Čumil's 40 m interest radius.** The `goldenCumil` pickup is only ever included in a
+  snapshot within 40 m of a player (`GOLDEN_CUMIL_R`, `server/src/snapshot.ts`) — far tighter than the
+  usual entity interest radius — so its exact coordinates can never be read off the wire from across
+  the map. Only the hint circle is broadcast at range.
+- **The jittered hint circle.** Hon na Čumila's circle shrinks from 450 m to 30 m over six steps across
+  five minutes, but its centre is re-randomised within 0.6× the *new* radius at every step
+  (`CIRCLE_JITTER`) rather than staying centred on the real target — the circle always contains the
+  statue, but its centre alone never gives away exactly where.
+- Every reward is decided server-side and paid through `sim.payout`; the daily puzzle's coordinates
+  never reach a client (only the image and the hints do); a guest's claim into an account is one-shot
+  and only into an empty one, so progress can't be duplicated.
+- **Known gaps, not yet closed** (see `docs/roadmap.md`): the armoured van's raised health pool
+  (`Vehicle.maxHealth`) isn't sent over the wire, so a spectator's damage visuals are scaled to the
+  base `van` kind's 150 HP rather than its true 600; and derby eliminations and the courier/taxi crash
+  check both trust the driving client's *reported* `vehicle.health`, the same way collision damage
+  always has online — nothing new validates it server-side.
