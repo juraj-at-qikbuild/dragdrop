@@ -170,6 +170,37 @@ describe('Voice (wired into a Room)', () => {
     }
   });
 
+  it('never pairs a player before their voiceIce has gone out (a slow TURN mint)', async () => {
+    const savedKeyId = config.cfTurnKeyId, savedToken = config.cfTurnApiToken;
+    config.cfTurnKeyId = 'kid-test';
+    config.cfTurnApiToken = 'tok-test';
+    const pending: ((r: Response) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((r) => pending.push(r))));
+    try {
+      const { joinAuth, voice, tick } = setup();
+      const a = await joinAuth(TOKEN_A, 'Aa', 'tok-a');
+      const b = await joinAuth(TOKEN_B, 'Bb', 'tok-b');
+      voice(a.conn, true);
+      voice(b.conn, true);
+      tick(25); // over a second of pairing passes while both mints hang
+      expect(a.link.json('voicePeers')).toHaveLength(0);
+      expect(b.link.json('voicePeers')).toHaveLength(0);
+      const ok = () => new Response(JSON.stringify({ iceServers: [{ urls: 'turn:turn.cloudflare.com:3478', username: 'u', credential: 'c' }] }), { status: 200 });
+      for (const r of pending) r(ok());
+      await flush();
+      tick(25);
+      for (const l of [a.link, b.link]) {
+        const kinds = l.json().map((m) => m.t).filter((t) => t === 'voiceIce' || t === 'voicePeers');
+        expect(kinds[0]).toBe('voiceIce'); // ICE first, then the peers
+        expect(kinds).toContain('voicePeers');
+      }
+    } finally {
+      config.cfTurnKeyId = savedKeyId;
+      config.cfTurnApiToken = savedToken;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('a guest is refused while voice_requires_account is on, and accepted once the override turns it off', () => {
     const { room, join, voice, tick } = setup({ debug: false }); // debug:false: no e2e override in play
     const g = join(TOKEN_A, 'Guest');

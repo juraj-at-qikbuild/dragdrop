@@ -105,6 +105,9 @@ export class Voice implements RoomFeature {
   /** a mint already in flight for a session key, so a burst of `voice{on:true}` (or an off/on flip
    *  while the first mint hasn't landed yet) never fires more than one concurrent Cloudflare request */
   private inFlight = new Map<string, Promise<IceServer[]>>();
+  /** players whose voiceIce has gone out: only they get paired, so a client never builds a peer
+   *  connection before it has its ICE servers (an empty list can't cross a NAT) */
+  private iceSent = new Set<number>();
   private unsubConfig: () => void;
 
   messages: FeatureHandlers = {
@@ -167,7 +170,7 @@ export class Voice implements RoomFeature {
       return;
     }
     s.player.voiceOn = true;
-    this.mintAndSendIce(s);
+    this.mintAndSendIce(s).catch((e: Error) => console.error('voice: sending ICE servers failed:', e.message));
   }
 
   private refusalReason(s: Session): string | null {
@@ -179,6 +182,7 @@ export class Voice implements RoomFeature {
 
   private turnOff(s: Session) {
     s.player.voiceOn = false;
+    this.iceSent.delete(s.player.id);
     this.removeAllLinksFor(s.player.id);
   }
 
@@ -186,6 +190,7 @@ export class Voice implements RoomFeature {
    *  everyone's flag in one diff, so ROSTER_VOICE and the next voicePeers/roster reflect it at once */
   private disableAll() {
     for (const p of this.room.sim.players.values()) if (p.voiceOn) p.voiceOn = false;
+    this.iceSent.clear();
     this.applyDiff(new Set());
   }
 
@@ -198,6 +203,7 @@ export class Voice implements RoomFeature {
     const ice = await p;
     if (!s.player.voiceOn) return; // turned off (or left) while the mint was in flight
     this.room.sendTo(s, { t: 'voiceIce', ice });
+    this.iceSent.add(s.player.id); // pairable from the next repair() on
   }
 
   // ------------------------------------------------------------------------------------- signalling
@@ -229,7 +235,7 @@ export class Voice implements RoomFeature {
   private repair() {
     const list: { id: number; x: number; y: number; underground: boolean }[] = [];
     for (const p of this.room.sim.players.values()) {
-      if (!p.voiceOn || !p.connected || p.afk) continue;
+      if (!p.voiceOn || !this.iceSent.has(p.id) || !p.connected || p.afk) continue;
       const f = p.focus();
       list.push({ id: p.id, x: f.x, y: f.y, underground: p.focusLevel() === -1 });
     }
