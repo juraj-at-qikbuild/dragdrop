@@ -6,7 +6,7 @@
 // last one standing — or the healthiest car at the 3-minute mark — takes the pot.
 // Plan: docs/plans/social-events.md
 import type { Sim } from '../../Sim';
-import type { SimPlayer } from '../../SimPlayer';
+import type { PlayerState, SimPlayer } from '../../SimPlayer';
 import { LIVERY_DERBY, LIVERY_NONE, SPECS, Vehicle } from '../../../entities/Vehicle';
 import { bboxOf, dist, pointInRings, segDist2 } from '../../../util/math';
 import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents';
@@ -36,6 +36,9 @@ const HEALTH_ELIM_FRAC = 0.1;
 const POT_PER_PLAYER = 300;
 const POT_MAX = 2400;
 const SPLIT = [0.6, 0.25, 0.15];
+/** seconds into the live phase before the pot and the payable field are locked in: a decoy who
+ *  drives straight back out doesn't get to inflate the pot or steal a paid place */
+const GRACE_S = 10;
 
 /** the last site used, per Sim, so consecutive derbies alternate (module-level: the Sim keeps no
  *  memory of its own between one event instance and the next) */
@@ -102,6 +105,8 @@ class Derby extends TimedEvent {
   /** knocked-out participants, oldest first (reversed for the final order and the payout) */
   private eliminated: Participant[] = [];
   private pot = 0;
+  /** counts down GRACE_S once live; null once the grace period has resolved (locked or cancelled) */
+  private graceLeft: number | null = null;
   private pollTimer = CHECK_INTERVAL;
   private cancelled = false;
   private done = false;
@@ -142,7 +147,9 @@ class Derby extends TimedEvent {
     return !this.inArena(f.x, f.y);
   }
 
-  /** the announce is over: whoever's driving inside the arena right now is in the derby */
+  /** the announce is over: whoever's driving inside the arena right now is a candidate (found.length
+   *  >= 2 or there's nothing to run); the pot and the field itself aren't decided until GRACE_S later
+   *  (onLive/lockPot), so a pile of decoys who bail the instant it goes live never counts */
   protected onLive() {
     const sim = this.sim;
     const found: Participant[] = [];
@@ -156,7 +163,7 @@ class Derby extends TimedEvent {
       return;
     }
     this.participants = found;
-    this.pot = Math.min(POT_MAX, POT_PER_PLAYER * found.length);
+    this.graceLeft = GRACE_S;
     sim.events.global({ k: 'eventStart', kind: 'derby', x: this.cx, y: this.cy });
     this.pollAmnesty();
   }
@@ -167,10 +174,19 @@ class Derby extends TimedEvent {
     if (this.done) return false;
     if (this.phase !== 'live') return true;
     this.pollTimer -= dt;
-    if (this.pollTimer > 0) return true;
-    this.pollTimer = CHECK_INTERVAL;
-    this.pollAmnesty();
-    this.pollEliminations();
+    if (this.pollTimer <= 0) {
+      this.pollTimer = CHECK_INTERVAL;
+      this.pollAmnesty();
+      this.pollEliminations();
+    }
+    if (!this.done && this.graceLeft !== null) {
+      this.graceLeft -= dt;
+      if (this.graceLeft <= 0) {
+        this.graceLeft = null;
+        this.lockPot();
+        if (this.cancelled) return this.endCancelled();
+      }
+    }
     return !this.done;
   }
 
@@ -181,13 +197,16 @@ class Derby extends TimedEvent {
 
   /** any player (not just a participant, but never the most wanted target) whose focus is inside the
    *  arena has their wanted level put on loan for as long as they stay; the moment they're no longer
-   *  inside, it comes back */
+   *  inside, it comes back. Skips anyone not currently 'play': a wrecked participant can sit "inside"
+   *  (by position) while wasted/busted, and onState already dropped their entry without restoring the
+   *  instant they left play, so re-deriving "inside" from a stale position here would just undo that. */
   private pollAmnesty() {
     const sim = this.sim;
     // the most wanted player gets no amnesty: the whole city is after them, and zeroed stars would
     // let them sit out the escape countdown in here (rules/events/MostWanted.ts)
     const hunted = this.director.get('wanted')?.entry().holder;
     for (const p of sim.players.values()) {
+      if (p.state !== 'play') continue;
       const f = p.focus();
       const inside = this.inArena(f.x, f.y) && p.id !== hunted;
       if (inside && !this.amnesty.has(p.id)) {
@@ -199,6 +218,15 @@ class Derby extends TimedEvent {
         sim.setWanted(p, wanted);
       }
     }
+  }
+
+  /** a player's state changed (Sim.setState, forwarded via WorldEvents): the moment anyone on amnesty
+   *  leaves 'play' (wrecked to wasted/busted, or downed), forget their entry without restoring it.
+   *  wasted()/bust()/respawn() already leave their wanted level where it should be (0, mid-respawn);
+   *  restoring whatever they had on entry on top of that is exactly the stale-stars bug this guards
+   *  against, since a wrecked car can still read as "inside" the arena for a few seconds after. */
+  onState(p: SimPlayer, from: PlayerState, to: PlayerState) {
+    if (from === 'play' && to !== 'play') this.amnesty.delete(p.id);
   }
 
   private pollEliminations() {
@@ -223,7 +251,10 @@ class Derby extends TimedEvent {
       else if (pt.outsideSince === null) pt.outsideSince = sim.time;
       else if (sim.time - pt.outsideSince > OUTSIDE_LIMIT_S) this.eliminate(pt);
     }
-    if (this.participants.filter((p) => p.active).length <= 1) this.finishRound();
+    // still inside the grace period: elimination keeps being tracked, but nobody wins by default just
+    // because the herd of decoys thinned out early — lockPot() is the one that decides that, once the
+    // grace period itself is over
+    if (this.graceLeft === null && this.participants.filter((p) => p.active).length <= 1) this.finishRound();
   }
 
   private eliminate(pt: Participant) {
@@ -239,7 +270,23 @@ class Derby extends TimedEvent {
     const pt = this.participants.find((x) => x.id === p.id && x.active);
     if (!pt) return;
     this.eliminate(pt);
-    if (this.phase === 'live' && !this.done && this.participants.filter((x) => x.active).length <= 1) this.finishRound();
+    if (this.phase === 'live' && !this.done && this.graceLeft === null && this.participants.filter((x) => x.active).length <= 1) this.finishRound();
+  }
+
+  /** the grace period is over: anyone who bailed inside it (a decoy driving straight back out, a real
+   *  racer who backed out early) is already eliminated and is dropped for good, not merely pushed down
+   *  the order, since even the last decoy out must never inherit a paid place. Whoever's still active
+   *  becomes the whole field, and the pot is sized (and frozen) from them alone; fewer than 2 left and
+   *  there's no derby to run. */
+  private lockPot() {
+    this.participants = this.participants.filter((p) => p.active);
+    this.eliminated = [];
+    if (this.participants.length < 2) {
+      this.cancelled = true;
+      return;
+    }
+    this.pot = Math.min(POT_MAX, POT_PER_PLAYER * this.participants.length);
+    this.director.changed(); // the HUD's pot just settled
   }
 
   private healthFrac(pt: Participant): number {
@@ -302,11 +349,15 @@ class Derby extends TimedEvent {
 
   entry(): EventEntry {
     const live = this.phase === 'live';
+    const activeN = this.participants.filter((p) => p.active).length;
+    // during the grace period the pot is only a preview of what it'll lock to if everyone currently
+    // active survives the rest of it — it shrinks live as decoys bail, same as `alive` already does
+    const pot = this.graceLeft !== null ? Math.min(POT_MAX, POT_PER_PLAYER * activeN) : this.pot;
     return {
       id: this.id, kind: 'derby', phase: this.phase, left: Math.max(0, this.left),
       x: this.cx, y: this.cy, zone: this.ring,
-      alive: live ? this.participants.filter((p) => p.active).length : this.cars.length,
-      pot: live ? this.pot : POT_PER_PLAYER * 3,
+      alive: live ? activeN : this.cars.length,
+      pot: live ? pot : POT_PER_PLAYER * 3,
       place: this.place,
     };
   }

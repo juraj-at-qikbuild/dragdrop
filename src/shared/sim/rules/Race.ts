@@ -82,8 +82,10 @@ export class Race implements SimRule {
   private races: ActiveRace[] = [];
   /** "loId:hiId" -> sim.time a race between them last ended */
   private pairCooldown = new Map<string, number>();
-  /** nick -> friendly prizes paid on `day` (days of sim.time), for the daily cap */
-  private friendlyToday = new Map<string, { day: number; n: number }>();
+  /** winner.id -> friendly prizes paid on `day` (days of sim.time), for the daily cap: keyed by id
+   *  like every other anti-farm cooldown here, since a guest can rename instantly and for free and a
+   *  nick-keyed cap would cost nothing to dodge */
+  private friendlyToday = new Map<number, { day: number; n: number }>();
   private nextId = 1;
 
   constructor(private sim: Sim) {}
@@ -197,7 +199,12 @@ export class Race implements SimRule {
   // ----------------------------------------------------------------- destination
   /** Midpoint of the two cars -> its nearest car-graph node -> a landmark 1-2 km away by road.
    *  Candidates are landmarks 700-1800 m away straight-line, closest to 1300 m first; the first of
-   *  up to 12 whose A* route is 1000-2000 m long wins, or 800-2500 m on a wider retry. */
+   *  up to 12 whose A* route is 1000-2000 m long wins, or 800-2500 m on a wider retry.
+   *
+   *  A* is the expensive part, so candidates are pathed one at a time and this returns as soon as one
+   *  clears the primary band, instead of routing all 12 up front every time two players challenge each
+   *  other. The wider retry band is a second pass only, over the routes this first pass already
+   *  computed — nothing gets pathed twice. */
   private pickDestination(mx: number, my: number): Destination | null {
     const graph = this.sim.world.car;
     const start = graph.nearest(mx, my, 400);
@@ -216,11 +223,12 @@ export class Race implements SimRule {
       if (!links) continue;
       let len = 0;
       for (const lk of links) len += lk.edge.len;
-      routed.push({ x: graph.nx(node), y: graph.ny(node), label: c.l.name, len });
+      const hit = { x: graph.nx(node), y: graph.ny(node), label: c.l.name, len };
+      if (len >= ROUTE_MIN && len <= ROUTE_MAX) return { x: hit.x, y: hit.y, label: hit.label };
+      routed.push(hit);
     }
-    const pick = (lo: number, hi: number) => routed.find((r) => r.len >= lo && r.len <= hi);
-    const hit = pick(ROUTE_MIN, ROUTE_MAX) ?? pick(ROUTE_MIN_RETRY, ROUTE_MAX_RETRY);
-    return hit ? { x: hit.x, y: hit.y, label: hit.label } : null;
+    const wide = routed.find((r) => r.len >= ROUTE_MIN_RETRY && r.len <= ROUTE_MAX_RETRY);
+    return wide ? { x: wide.x, y: wide.y, label: wide.label } : null;
   }
 
   // ----------------------------------------------------------------------- race
@@ -271,7 +279,7 @@ export class Race implements SimRule {
     winner.profile.stats.racesWon = (winner.profile.stats.racesWon ?? 0) + 1;
     let amount = race.friendly ? FRIENDLY_PRIZE : race.stake * 2;
     if (race.friendly) {
-      if (this.friendlyAllowed(winner.nick)) this.markFriendly(winner.nick);
+      if (this.friendlyAllowed(winner.id)) this.markFriendly(winner.id);
       else amount = 0;
     }
     if (amount > 0) {
@@ -341,13 +349,13 @@ export class Race implements SimRule {
     if (i >= 0) this.races.splice(i, 1);
   }
 
-  private friendlyAllowed(nick: string): boolean {
-    const e = this.friendlyToday.get(nick);
+  private friendlyAllowed(id: number): boolean {
+    const e = this.friendlyToday.get(id);
     return !e || e.day !== this.day() || e.n < FRIENDLY_DAILY_CAP;
   }
-  private markFriendly(nick: string) {
-    const day = this.day(), e = this.friendlyToday.get(nick);
-    this.friendlyToday.set(nick, { day, n: e && e.day === day ? e.n + 1 : 1 });
+  private markFriendly(id: number) {
+    const day = this.day(), e = this.friendlyToday.get(id);
+    this.friendlyToday.set(id, { day, n: e && e.day === day ? e.n + 1 : 1 });
   }
   private day(): number {
     return Math.floor(this.sim.time / DAY_S);

@@ -159,6 +159,31 @@ describe('Derby na parkovisku', () => {
     expect(a.wanted).toBe(3); // restored on leaving, before the 3 s grace even matters
   });
 
+  it('does not restore a wrecked participant\'s pre-arena wanted level after they respawn', () => {
+    const sim = makeSim(319);
+    const dir = sim.rule<WorldEvents>('worldEvents')!;
+    dir.start('derby')!;
+    const arena = bestParkingNear(sim.world, 'aupark', 250)!;
+    const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: arena.cx, y: arena.cy });
+    const carA = putInCar(sim, a, arena.cx, arena.cy);
+    const b = sim.addPlayer({ nick: 'B', profile: profile(), kinematic: false, x: arena.cx + 5, y: arena.cy });
+    putInCar(sim, b, arena.cx + 5, arena.cy);
+    a.wanted = 3;
+    toLive(sim);
+    expect(a.wanted).toBe(0); // amnesty grabbed it right away
+
+    carA.wrecked = true; // the car's wrecked, and so is A (a real explosion would take them both down)
+    sim.wasted(a); // A's ped/state dies without moving: still reads as "inside" the arena by position
+    expect(a.state).toBe('wasted');
+    expect(a.wanted).toBe(0); // onState already dropped A's amnesty entry — nothing left to restore
+
+    sim.respawn(a); // teleported to a hospital, far outside the arena; respawn() zeroes wanted itself
+    expect(a.wanted).toBe(0);
+
+    sim.step(1); // the next amnesty poll notices A now reads as outside
+    expect(a.wanted).toBe(0); // still 0: the stale pre-arena level (3) must never come back
+  });
+
   it('the most wanted target gets no amnesty inside the arena (no sitting out the escape countdown there)', () => {
     const sim = makeSim(309);
     const dir = sim.rule<WorldEvents>('worldEvents')!;
@@ -297,6 +322,46 @@ describe('Derby na parkovisku', () => {
     expect(dir.active.length).toBe(1);
   });
 
+  it('a pile of decoys bailing during the 10 s grace period pays like an honest 1v1: no inflated pot, ' +
+    'no phantom 3rd place for the last one out', () => {
+    const globals: GlobalEvent[] = [];
+    const sim = new Sim(loadWorld(), { rng: new Rng(320), rules: 'server', caps: NO_NPCS, events: { ...nullEvents, global: (e) => globals.push(e) } });
+    const dir = sim.rule<WorldEvents>('worldEvents')!;
+    const ev = dir.start('derby')!;
+    const arena = bestParkingNear(sim.world, 'aupark', 250)!;
+    const mk = (nick: string, dx: number, dy: number) => {
+      const p = sim.addPlayer({ nick, profile: profile(), kinematic: false, x: arena.cx + dx, y: arena.cy + dy });
+      const car = putInCar(sim, p, arena.cx + dx, arena.cy + dy);
+      return { p, car };
+    };
+    const a = mk('A', 0, 0), b = mk('B', 8, 0);
+    // 6 decoys, all driving inside the arena at the instant it goes live, alongside the real 1v1
+    const decoys = [mk('D1', -8, 0), mk('D2', 16, 0), mk('D3', -16, 0), mk('D4', 0, 8), mk('D5', 0, -8), mk('D6', 8, 8)];
+    toLive(sim);
+    expect(ev.entry().alive).toBe(8); // all 8 are candidates the instant it goes live
+
+    for (const d of decoys) {
+      d.car.x = arena.cx + 2000; // every decoy drives straight back out, immediately
+      d.car.y = arena.cy;
+    }
+    for (let i = 0; i < 5; i++) sim.step(1); // > 3 s outside: all 6 auto-eliminate, well inside the 10 s grace
+    expect(ev.entry().alive).toBe(2); // only the real pair left
+
+    for (let i = 0; i < 6; i++) sim.step(1); // clear the rest of the 10 s grace period (11 s live elapsed)
+    expect(ev.entry().pot).toBe(600); // min(2400, 300*2): the honest 1v1 pot, never inflated to 2400 by the decoys
+
+    b.car.wrecked = true; // B loses the real fight
+    sim.step(1);
+
+    expect(dir.active.length).toBe(0); // A is the sole survivor: ends right away
+    expect(a.p.profile.money).toBe(360); // 60% of 600
+    expect(b.p.profile.money).toBe(150); // 25% of 600 — 2nd place, exactly as an honest 1v1 would pay
+    for (const d of decoys) expect(d.p.profile.money).toBe(0); // no decoy is ever paid, not even the last one out
+    const result = globals.find((e) => e.k === 'derbyResult') as Extract<GlobalEvent, { k: 'derbyResult' }> | undefined;
+    expect(result).toBeTruthy();
+    expect(result!.winners).toEqual(['A', 'B']); // exactly 2 winners: no decoy inherits a phantom 3rd place
+  });
+
   it('the last car standing wins, paid 60/25/15 in reverse elimination order, with derbyResult and stats.derbyWins', () => {
     const globals: GlobalEvent[] = [];
     const sim = new Sim(loadWorld(), { rng: new Rng(311), rules: 'server', caps: NO_NPCS, events: { ...nullEvents, global: (e) => globals.push(e) } });
@@ -314,7 +379,8 @@ describe('Derby na parkovisku', () => {
     d.wanted = 2;
     toLive(sim);
     expect(ev.entry().alive).toBe(3);
-    expect(ev.entry().pot).toBe(900); // min(2400, 300*3)
+    for (let i = 0; i < 10; i++) sim.step(1); // clear the 10 s grace period; all 3 survive it untouched
+    expect(ev.entry().pot).toBe(900); // min(2400, 300*3), locked now that the grace period is over
     expect(d.wanted).toBe(0); // bystander amnesty too
 
     carB.wrecked = true; // Boris eliminated first

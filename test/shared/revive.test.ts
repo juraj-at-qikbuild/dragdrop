@@ -150,4 +150,23 @@ describe('Revive', () => {
     expect(a.ped.downed).toBe(false);
     expect(a.stateTimer).toBe(4);
   });
+
+  it('tells the reviver too when the revive in progress is cut short, not just the downed player', () => {
+    // both a bust and a finishing blow (sim.wasted — the same call bleeding out makes on its own
+    // timeout) end the downed period without going through Revive's own success path in step(), which
+    // is the only place that used to send the reviver their own final {s: null}
+    for (const end of ['bust', 'wasted'] as const) {
+      const { sim, priv } = setup(end === 'bust' ? 309 : 310);
+      const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: true });
+      const b = sim.addPlayer({ nick: 'B', profile: profile(), kinematic: true });
+      sim.down(a);
+      place(a, b, 1.5);
+      sim.step(0.05); // one tick: b is now mid-revive on a
+      expect(priv.some(([pid, e]) => pid === b.id && e.k === 'revive' && e.s !== null), end).toBe(true); // sanity: in progress
+
+      if (end === 'bust') sim.bust(a);
+      else sim.wasted(a); // a finishing blow (bleeding out reaches sim.wasted the same way, on its own timer)
+      expect(priv.some(([pid, e]) => pid === b.id && e.k === 'revive' && e.s === null), end).toBe(true);
+    }
+  });
 });

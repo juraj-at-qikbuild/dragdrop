@@ -261,6 +261,31 @@ describe('Race: running it to the finish', () => {
     sim.step(0.1);
     expect(w.profile.money).toBe(10 + 50 * 4);
   });
+
+  it('the friendly cap is keyed by player id, not nick: renaming between wins does not reset it', () => {
+    const { sim, priv, rule } = setup(803);
+    const [bx, by] = MAIN;
+    const w = sim.addPlayer({ nick: 'Winner', profile: profile(10), kinematic: true, x: bx, y: by });
+    const wCar = sim.addVehicle(new Vehicle('sedan', bx, by, 0, '#fff'));
+    expect(sim.enterVehicle(w, wCar)).toBe(true);
+    for (let i = 0; i < 4; i++) {
+      wCar.x = bx;
+      wCar.y = by; // back on the start line for the next challenge
+      w.nick = `Guest${i}`; // a fresh nick before every single win: a nick-keyed cap would never repeat a key
+      const o = sim.addPlayer({ nick: `Opp${i}`, profile: profile(10), kinematic: true, x: bx + 3, y: by });
+      const oCar = sim.addVehicle(new Vehicle('sedan', bx + 3, by, 0, '#fff'));
+      expect(sim.enterVehicle(o, oCar)).toBe(true);
+      expect(rule.challenge(w, o)).toBeNull();
+      rule.answer(o, w.id, true);
+      for (let t = 0; t < 31; t++) sim.step(0.1);
+      const race = lastEvent(priv, w.id, 'race')!.s!;
+      wCar.x = race.x;
+      wCar.y = race.y;
+      sim.step(0.1);
+    }
+    expect(w.profile.money).toBe(10 + 50 * 3); // still capped at 3, despite 4 wins under 4 different nicks
+    expect(w.profile.stats?.racesWon).toBe(4); // every win still counts
+  });
 });
 
 describe('Race: countdown, forfeits, timeout and the pair cooldown', () => {

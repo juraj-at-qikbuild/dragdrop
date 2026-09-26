@@ -47,6 +47,11 @@ export class Revive implements SimRule {
     if (to === 'downed') this.sim.events.toPlayer(p.id, { k: 'revive', s: { bleed: DOWNED_BLEED } });
     else if (from === 'downed') {
       this.sim.events.toPlayer(p.id, { k: 'revive', s: null });
+      // a revive in progress being cut short (busted, finished off, or bled out) never gets its own
+      // success message below (step()'s own `s: null` to the reviver only fires on that path), so tell
+      // the reviver here too, before dropping the entry — otherwise their HUD is stuck mid-revive
+      const prog = this.progress.get(p);
+      if (prog) this.sim.events.toPlayer(prog.by.id, { k: 'revive', s: null });
       this.progress.delete(p);
     }
   }

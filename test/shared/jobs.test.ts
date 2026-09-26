@@ -317,3 +317,61 @@ describe('Jobs: rules mode', () => {
     expect(lastJob(priv, p.id)).toBeNull();
   });
 });
+
+describe('Jobs: downed', () => {
+  it('a mere down does not fail the job, and a revive within the window keeps it running', () => {
+    const { sim, priv, jobs } = setup(50);
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
+    jobs.start(p, 'courier');
+    const offer = lastJob(priv, p.id)!;
+    standAt(p, offer.x, offer.y);
+    for (let i = 0; i < 21; i++) sim.step(0.05); // picked up: now on the delivery leg
+    const delivering = lastJob(priv, p.id)!;
+    expect(delivering.stage).toBe('deliver');
+
+    sim.down(p); // downed mid-delivery: a mere down is not a hard end to the shift
+    expect(p.state).toBe('downed');
+    expect(lastJob(priv, p.id)).not.toBeNull(); // still there, not chained to null like a real failure
+    expect(messages(priv, p.id)).not.toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+
+    sim.step(1); // time passes while downed; step() just doesn't tick the job meanwhile
+    sim.revive(p); // revived well within the 25 s bleed-out window
+    expect(p.state).toBe('play');
+    expect(lastJob(priv, p.id)).not.toBeNull(); // the same job, still waiting to be finished
+
+    const before = p.profile.money;
+    standAt(p, delivering.x, delivering.y);
+    for (let i = 0; i < 21; i++) sim.step(0.05);
+    expect(lastJob(priv, p.id)).toBeNull(); // completed normally: chaining to the next offer
+    expect(p.profile.money).toBeGreaterThan(before); // paid: the job survived the down/revive
+    expect(p.profile.stats?.deliveries).toBe(1);
+  });
+
+  it('wasted (bleeding out, or any other hard death) does fail the job, with the hospital message', () => {
+    const { sim, priv, jobs } = setup(51);
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
+    jobs.start(p, 'courier');
+    const offer = lastJob(priv, p.id)!;
+    standAt(p, offer.x, offer.y);
+    for (let i = 0; i < 21; i++) sim.step(0.05);
+    expect(lastJob(priv, p.id)!.stage).toBe('deliver');
+
+    sim.wasted(p); // a hard death (crash, drowning, gunned down — never mind which)
+    expect(lastJob(priv, p.id)).toBeNull();
+    expect(messages(priv, p.id)).toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+  });
+
+  it('busted also fails the job, with the same hospital message', () => {
+    const { sim, priv, jobs } = setup(52);
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
+    jobs.start(p, 'courier');
+    const offer = lastJob(priv, p.id)!;
+    standAt(p, offer.x, offer.y);
+    for (let i = 0; i < 21; i++) sim.step(0.05);
+    expect(lastJob(priv, p.id)!.stage).toBe('deliver');
+
+    sim.bust(p);
+    expect(lastJob(priv, p.id)).toBeNull();
+    expect(messages(priv, p.id)).toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+  });
+});

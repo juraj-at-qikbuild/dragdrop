@@ -86,9 +86,24 @@ function kerbSpotAtStart(sim: Sim, link: Link): Spot | null {
 
 const legLength = (links: Link[]) => links.reduce((s, l) => s + l.edge.len, 0);
 
+/** Any bank at least this close and no further than `LEG_MAX` from `from`, as the crow flies, other
+ *  than the ones in `exclude`: a cheap pre-filter before A* ever runs. The road route can only be
+ *  longer than the straight line, so anything already past `LEG_MAX` by air is hopeless, and the
+ *  floor is half of `LEG_MIN` to leave room for a route that has to detour around whatever's between
+ *  them (a river, a park, one-way streets). */
+function legCandidates(sim: Sim, from: Bank, exclude: Bank[]): Bank[] {
+  return sim.world.places('bank').filter((b) => {
+    if (exclude.includes(b)) return false;
+    const d = dist(from.x, from.y, b.x, b.y);
+    return d >= LEG_MIN * 0.5 && d <= LEG_MAX;
+  });
+}
+
 /** Bank A: 300-1500 m from the players, clear of them, at level 0, snapped to the car graph. Banks B
  *  and C: any other two banks whose legs (by road, A -> B and B -> C) are each 1.0-2.0 km. Tries a
- *  bounded number of random combinations; null when nothing fits. */
+ *  bounded number of random combinations, picking B and C only from candidates already close enough
+ *  by straight-line distance to have a chance, so A* never runs on a pair that can't possibly work;
+ *  null when nothing fits. */
 function findRoute(sim: Sim, cx: number, cy: number): Route | null {
   const w = sim.world;
   const banks = w.places('bank');
@@ -102,15 +117,17 @@ function findRoute(sim: Sim, cx: number, cy: number): Route | null {
     const a = sim.rng.pick(starts);
     const nodeA = w.car.nearest(a.x, a.y, SNAP_MAX);
     if (nodeA < 0) continue;
-    const b = sim.rng.pick(banks);
-    if (b === a) continue;
+    const bCandidates = legCandidates(sim, a, [a]);
+    if (!bCandidates.length) continue;
+    const b = sim.rng.pick(bCandidates);
     const nodeB = w.car.nearest(b.x, b.y, SNAP_MAX);
     if (nodeB < 0) continue;
     const legAB = w.car.path(nodeA, nodeB);
     if (!legAB || !legAB.length) continue;
     if (legLength(legAB) < LEG_MIN || legLength(legAB) > LEG_MAX) continue;
-    const c = sim.rng.pick(banks);
-    if (c === a || c === b) continue;
+    const cCandidates = legCandidates(sim, b, [a, b]);
+    if (!cCandidates.length) continue;
+    const c = sim.rng.pick(cCandidates);
     const nodeC = w.car.nearest(c.x, c.y, SNAP_MAX);
     if (nodeC < 0) continue;
     const legBC = w.car.path(nodeB, nodeC);

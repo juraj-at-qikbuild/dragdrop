@@ -111,8 +111,13 @@ export class Jobs implements SimRule {
     this.sim.events.toPlayer(p.id, { k: 'job', s: null });
   }
 
+  /** only a hard end to the shift fails the job outright: wasted (crashed/drowned/shot dead) or busted.
+   *  A mere `downed` can end in a revive (Revive.ts), so it leaves the job alone: step() just doesn't
+   *  tick it while the player isn't 'play', but `job.deadline` is a fixed sim.time, so the clock keeps
+   *  counting down the whole time regardless — going down isn't free, it just isn't instantly fatal to
+   *  the job the way wasted/busted are. */
   onState(p: SimPlayer, _from: PlayerState, to: PlayerState) {
-    if (to === 'play') return;
+    if (to !== 'wasted' && to !== 'busted') return;
     const job = this.jobs.get(p.id);
     if (!job || job.waitUntil > 0) return; // nothing in flight to interrupt
     this.failJob(p, job, INTERRUPT_TEXT[job.kind]);
