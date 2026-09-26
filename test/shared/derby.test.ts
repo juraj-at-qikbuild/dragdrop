@@ -159,6 +159,28 @@ describe('Derby na parkovisku', () => {
     expect(a.wanted).toBe(3); // restored on leaving, before the 3 s grace even matters
   });
 
+  it('the most wanted target gets no amnesty inside the arena (no sitting out the escape countdown there)', () => {
+    const sim = makeSim(309);
+    const dir = sim.rule<WorldEvents>('worldEvents')!;
+    dir.start('derby')!;
+    const arena = bestParkingNear(sim.world, 'aupark', 250)!;
+    const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: arena.cx, y: arena.cy });
+    putInCar(sim, a, arena.cx, arena.cy);
+    const b = sim.addPlayer({ nick: 'B', profile: profile(), kinematic: false, x: arena.cx + 5, y: arena.cy });
+    putInCar(sim, b, arena.cx + 5, arena.cy);
+    sim.setWanted(a, 5);
+    expect(dir.trigger('wanted', a)).not.toBeNull();
+    for (let i = 0; i < 92; i++) {
+      sim.setWanted(a, 5); // keep the chase on through the announce (no police here to keep it up)
+      if (i === 88) b.wanted = 2; // just before it goes live at 90 s
+      sim.step(1);
+    }
+    expect(dir.get('derby')!.entry().phase).toBe('live');
+    expect(dir.get('wanted')?.entry().holder).toBe(a.id);
+    expect(b.wanted).toBe(0); // everyone else inside still gets the amnesty
+    expect(Math.ceil(a.wanted)).toBe(5); // the target keeps their stars
+  });
+
   it('allowCrime is false for any player inside the live arena, and normal again outside it', () => {
     const sim = makeSim(306);
     const dir = sim.rule<WorldEvents>('worldEvents')!;

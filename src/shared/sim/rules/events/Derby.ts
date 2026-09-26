@@ -179,13 +179,17 @@ class Derby extends TimedEvent {
     this.finishRound();
   }
 
-  /** any player (not just a participant) whose focus is inside the arena has their wanted level put
-   *  on loan for as long as they stay; the moment they're no longer inside, it comes back */
+  /** any player (not just a participant, but never the most wanted target) whose focus is inside the
+   *  arena has their wanted level put on loan for as long as they stay; the moment they're no longer
+   *  inside, it comes back */
   private pollAmnesty() {
     const sim = this.sim;
+    // the most wanted player gets no amnesty: the whole city is after them, and zeroed stars would
+    // let them sit out the escape countdown in here (rules/events/MostWanted.ts)
+    const hunted = this.director.get('wanted')?.entry().holder;
     for (const p of sim.players.values()) {
       const f = p.focus();
-      const inside = this.inArena(f.x, f.y);
+      const inside = this.inArena(f.x, f.y) && p.id !== hunted;
       if (inside && !this.amnesty.has(p.id)) {
         this.amnesty.set(p.id, p.wanted);
         sim.setWanted(p, 0);
