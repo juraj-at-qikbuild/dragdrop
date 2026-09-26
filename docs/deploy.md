@@ -39,6 +39,8 @@ Tests:
 npm test              # unit tests (vitest): protocol, server room, persistence, simulation
 npm run smoke         # offline single-player in headless Chromium (no server)
 npm run e2e           # builds the client, starts a server, drives headless Chromium pages
+E2E_PHASE=social npm run e2e     # parties/invite link, revive, Kofolka, a race, voice, the daily puzzle
+E2E_PHASE=accounts npm run e2e   # sign-in, claim and cross-device progress against the real Supabase project
 npm run loadtest -- --bots 100 --spread city --duration 60   # bot clients against a running server
 npm --prefix server run bench -- --players 30 --spread city  # simulation only, no networking
 ```
@@ -46,6 +48,16 @@ npm --prefix server run bench -- --players 30 --spread city  # simulation only, 
 `npm run e2e` covers two players seeing each other, shared NPC deaths, PvP damage and wanted stars, a
 server restart that both clients survive with their money intact, and an offline game that opens no
 connection. Start the server with `E2E=1` for the load test, so bots can be handed a pistol.
+
+`E2E_PHASE=social` (`scripts/e2e-social.mjs`) runs three pages against one local server through the social
+features: an invite link placing a friend next to the inviter with friendly fire off, a revive, a forced
+Horúca Kofolka paying its driver, a race to the finish, two pages' voice reaching `connected` (fake media),
+and a daily spot solved. `E2E_PHASE=accounts` (`scripts/e2e-accounts.mjs`) needs
+`GTA_BRATISKA_SUPABASE_SECRET_KEY` and `GTA_BRATISKA_SUPABASE_PUBLISHABLE_KEY` in the environment: it creates
+one confirmed throwaway user through the admin API (no e-mail is sent), checks a guest's one-time claim,
+progress following the account to another device and voice being refused to a guest, and always deletes
+the user again. Both phases run their server with `SUPABASE_SECRET_KEY` empty, so no test rows ever reach
+the real `activity` or `reports` tables.
 
 ## Game server on Fly.io
 

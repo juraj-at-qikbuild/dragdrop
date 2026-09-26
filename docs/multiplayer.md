@@ -176,7 +176,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 ### Tests and tools
 - `npm test` runs the codec, simulation, room and persistence tests, `test/shared/traffic.test.ts` (stop signs, bus stops, pulling out round a parked car, and a two-minute soak that no car is stuck in), `test/shared/crowd.test.ts` (bodies, guns, seats, tram stops, fights, witnesses, the new states on the wire), `test/shared/street.test.ts` (islands, bumps, gates), plus `test/shared/world.test.ts`, which drives cars, walks figures and runs trams through the real map with the shared collision code (the UFO, passages, both tunnels, walls and fences, fountains, bollards, both decks of Most SNP, piers and traffic lights, lanes and walking lines clear of walls, cul-de-sacs), and `test/shared/vehicle.test.ts`, which measures the car physics on a test track (top speeds, braking distances, cornering grip, stability).
 - `npm run smoke` runs the offline game in headless Chromium.
-- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart.
+- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart. `E2E_PHASE=social` and `E2E_PHASE=accounts` cover the social features and Supabase accounts (see `docs/deploy.md`).
 - `npm run loadtest` and `npm --prefix server run bench` measure capacity.
 
 ## Social features: protocol v7
