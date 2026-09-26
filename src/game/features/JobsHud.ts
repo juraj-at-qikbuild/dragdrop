@@ -11,6 +11,7 @@ import type { PrivateEvent } from '../../shared/sim/events';
 import type { JobKind, JobState } from '../../shared/sim/rules/types';
 import { formatMoney } from '../../shared/util/math';
 import { outlined } from '../../ui/Hud';
+import { bandBottom } from '../../ui/kit/Banners';
 import { mapMarker } from '../../ui/MapView';
 import { roundRect } from '../../render/shapes';
 import { openModal, isModalOpen, toast } from '../../ui/kit/dom';
@@ -81,6 +82,9 @@ export class JobsHud implements ClientFeature {
     const W = g.viewW;
     const small = W < 700;
     const pad = small ? 10 : 16;
+    // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
+    // objective/countdown/status stack never overlaps either
+    const top = bandBottom(small);
     const color = COLOR[job.kind];
 
     this.drawObjective(ctx, OBJECTIVE[job.kind][job.stage](job.label), W, pad, small, color);
@@ -90,10 +94,10 @@ export class JobsHud implements ClientFeature {
       ctx.textBaseline = 'top';
       ctx.font = `700 ${small ? 18 : 24}px ${HEAD}`;
       const s = Math.ceil(job.left);
-      outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, W / 2, pad + (small ? 66 : 50), s < 20 ? '#ff5252' : '#fff');
+      outlined(ctx, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, W / 2, top + (small ? 26 : 46), s < 20 ? '#ff5252' : '#fff');
     }
 
-    this.drawStatus(ctx, job, W, pad, small);
+    this.drawStatus(ctx, job, W, small);
     this.drawArrowTo(ctx, job.x, job.y, color);
   }
 
@@ -107,7 +111,7 @@ export class JobsHud implements ClientFeature {
     const lh = small ? 17 : 21;
     const bw = Math.min(maxW + fs * 2, W - pad * 2);
     const bh = lines.length * lh + fs * 1.1;
-    const bx = W / 2 - bw / 2, by = pad + (small ? 40 : 4);
+    const bx = W / 2 - bw / 2, by = bandBottom(small);
     roundRect(ctx, bx, by, bw, bh, Math.min(12, bh / 2));
     const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
     grad.addColorStop(0, 'rgba(32,34,42,0.68)');
@@ -125,8 +129,8 @@ export class JobsHud implements ClientFeature {
   }
 
   /** the condition/mood bar and the running pay, one compact row under the countdown */
-  private drawStatus(ctx: CanvasRenderingContext2D, job: JobState, W: number, pad: number, small: boolean) {
-    const y = pad + (small ? 92 : 82);
+  private drawStatus(ctx: CanvasRenderingContext2D, job: JobState, W: number, small: boolean) {
+    const y = bandBottom(small) + (small ? 52 : 78);
     const bw = small ? 130 : 170, bh = small ? 9 : 11;
     const bx = W / 2 - bw - (small ? 6 : 10);
     roundRect(ctx, bx, y, bw, bh, bh / 2);

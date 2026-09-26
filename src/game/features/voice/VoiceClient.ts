@@ -51,6 +51,17 @@ export class VoiceClient {
 
   setIceServers(ice: IceServer[]) {
     this.iceServers = ice;
+    // also push it to every peer already connecting/connected: without this, only peers created
+    // afterwards would ever see it, and a peer paired just before this arrives would be stuck with
+    // no ICE servers at all
+    for (const peer of this.peers.values()) {
+      try {
+        peer.pc.setConfiguration({ iceServers: ice as RTCIceServer[] });
+      } catch {
+        /* some browsers/states reject a mid-connection config change: harmless, this peer keeps
+         *  whatever it started with, and a fresh peer still gets the new list from createPeer() */
+      }
+    }
   }
 
   get micOpen() {

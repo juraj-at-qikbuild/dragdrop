@@ -35,6 +35,19 @@ interface Item {
 
 type Phase = 'in' | 'hold' | 'out';
 
+/** y just below the top-right HUD panel (Hud.ts's money/stars/clock box): where this banner slot
+ *  starts, so it never overlaps that panel. */
+export function bandTop(small: boolean): number {
+  return small ? 92 : 116;
+}
+
+/** bottom of the banner slot at a banner's tallest (title + up to two lines of body text): where
+ *  other persistent top-centre panels (Jobs objective, Race challenge/timer) should start instead,
+ *  so they stack below a banner rather than fighting it for the same band. */
+export function bandBottom(small: boolean): number {
+  return bandTop(small) + (small ? 30 : 36) + 2 * (small ? 15 : 17) + (small ? 10 : 12);
+}
+
 export class Banners {
   private queue: Item[] = [];
   private cur: Item | null = null;
@@ -94,7 +107,7 @@ export class Banners {
     const h = (small ? 30 : 36) + lines.length * (small ? 15 : 17);
     const x = viewW / 2 - w / 2;
     // below the top HUD panel (Hud.ts's money/stars/clock box), so it never overlaps it
-    const y0 = small ? 92 : 116;
+    const y0 = bandTop(small);
     const y = y0 - (1 - k) * (h + 24);
     ctx.globalAlpha = k;
     roundRect(ctx, x, y, w, h, Math.min(12, h / 2));

@@ -123,8 +123,13 @@ function startLines(kind: EventKind, at: string): string[] {
  *  kind-specific line below doesn't cover the `how` it actually got) */
 function genericEnd(name: string, at: string, how: EndHow, winner: string | undefined, cash: string): string[] {
   switch (how) {
-    case 'won':
-      return [`Akcia ${name} sa skončila víťazstvom hráča ${winnerOr(winner, 'záhadný hráč')} (${cash}) ${at}.`, `${winnerOr(winner, 'Niekto šikovný')} vyhral akciu ${name} ${at} a berie ${cash}!`];
+    case 'won': {
+      // "hráča" already governs the genitive here: a nick stays as-is (indeclinable), but the
+      // fallback needs its own genitive form ("záhadného hráča"), not the nominative "záhadný hráč"
+      // winnerOr() elsewhere always supplies (there it's the sentence's subject, so nominative is right)
+      const who = winner ? `hráča ${winner}` : 'záhadného hráča';
+      return [`Akcia ${name} sa skončila víťazstvom ${who} (${cash}) ${at}.`, `${winnerOr(winner, 'Niekto šikovný')} vyhral akciu ${name} ${at} a berie ${cash}!`];
+    }
     case 'expired':
       return [`Akcia ${name} ${at} doznela, čas vypršal.`, `Nikto to nestihol – akcia ${name} ${at} sa skončila časom.`];
     case 'cancelled':
@@ -180,7 +185,7 @@ function mostWantedEndLines(nick: string, how: MostWantedHow, by: string | undef
     case 'escaped':
       return [`${nick} unikol polícii aj naháňačom ${at} a berie polovicu odmeny (${cash})!`, `Nedostali ho! ${nick} sa vytratil ${at} a berie ${cash} za trápenie.`];
     default: // 'left'
-      return [`${nick} odpojil od hry a Najhľadanejší tak skončil bez víťaza.`, `Naháňačka na ${nick} sa skončila, keď zmizol zo servera.`, `${nick} nechal odmenu ${cash} bez majiteľa a odišiel z hry.`];
+      return [`${nick} sa odpojil od hry a Najhľadanejší tak skončil bez víťaza.`, `Naháňačka na ${nick} sa skončila, keď zmizol zo servera.`, `${nick} nechal odmenu ${cash} bez majiteľa a odišiel z hry.`];
   }
 }
 

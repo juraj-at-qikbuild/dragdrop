@@ -52,10 +52,14 @@ export class PartyUi implements ClientFeature {
   }
 
   update(dt: number) {
-    if (!isModalOpen() && this.g.input.hit(KEYS.party)) this.openPanel();
+    const g = this.g;
+    // online, Game.update doesn't freeze features (NetSimHost.allowsPause is false): each one has to
+    // check for itself, the way JobsHud/ReviveUi/RaceUi do, so N doesn't open the panel while paused
+    if (g.paused || g.showMap) return;
+    if (!isModalOpen() && g.input.hit(KEYS.party)) this.openPanel();
     if (!this.panel) return;
     this.refreshT -= dt;
-    const party = this.g.host.live.party;
+    const party = g.host.live.party;
     if (party !== this.shown || this.refreshT <= 0) {
       this.refreshT = PANEL_REFRESH_S;
       this.renderPanel();

@@ -13,6 +13,7 @@ import { dist, formatMoney } from '../../shared/util/math';
 import { CHALLENGE_RANGE } from '../../shared/sim/rules/Race';
 import { worldRing, drawHoldRing } from '../../ui/kit/HoldRing';
 import { outlined } from '../../ui/Hud';
+import { bandBottom } from '../../ui/kit/Banners';
 import { roundRect } from '../../render/shapes';
 import { mapMarker, pulsingCircle } from '../../ui/MapView';
 import { KEYS } from '../Input';
@@ -135,7 +136,9 @@ export class RaceUi implements ClientFeature {
   private drawChallengePanel(ctx: CanvasRenderingContext2D, c: ChallengeState, W: number, small: boolean) {
     const w = Math.min(W - 32, small ? 300 : 380);
     const h = small ? 92 : 108;
-    const x = W / 2 - w / 2, y = small ? 54 : 76;
+    // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
+    // never overlaps either
+    const x = W / 2 - w / 2, y = bandBottom(small);
     ctx.save();
     ctx.fillStyle = 'rgba(10,12,18,0.84)';
     roundRect(ctx, x, y, w, h, 14);
@@ -175,7 +178,9 @@ export class RaceUi implements ClientFeature {
     const oppD = oppRow ? Math.round(dist(oppRow[2], oppRow[3], r.x, r.y)) : null;
     const w = Math.min(W - 32, small ? 280 : 360);
     const h = small ? 46 : 56;
-    const x = W / 2 - w / 2, y = small ? 8 : 12;
+    // below both the top-right HUD panel and the Banners slot (src/ui/kit/Banners.ts), so this
+    // never overlaps either
+    const x = W / 2 - w / 2, y = bandBottom(small);
     ctx.save();
     ctx.fillStyle = 'rgba(10,12,18,0.7)';
     roundRect(ctx, x, y, w, h, h / 2);

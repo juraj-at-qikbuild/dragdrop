@@ -28,6 +28,9 @@ export class NewsQueue {
     const last = this.seen.get(item.text);
     if (last !== undefined && now - last < DEDUP_MS) return;
     this.seen.set(item.text, now);
+    // entries past the dedupe window can never affect the check above again: drop them so a long
+    // session (many distinct texts, e.g. amounts/nicks baked in) doesn't grow this forever
+    for (const [text, at] of this.seen) if (now - at >= DEDUP_MS) this.seen.delete(text);
     this.items.push({ ...item, at: now });
     this.dropOld(now);
     while (this.items.length > MAX_ITEMS) {

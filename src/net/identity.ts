@@ -44,6 +44,23 @@ export function clearIdentity() {
   }
 }
 
+/** sessionStorage key for a pending `#join` code (src/boot/links.ts parses the link, src/main.ts
+ *  stores it): read once by NetSimHost.hello() and cleared there as soon as a session actually
+ *  starts (onWelcome) — whether or not the server acted on it. */
+export const JOIN_KEY = 'blava-city-join';
+
+/** Clears a pending #join code when the join flow is abandoned before a session ever starts (the
+ *  boot chooser closing without proceeding, or startOnline's final failure paths — see
+ *  src/ui/AccountUi.ts and src/main.ts), so it isn't silently resent on some later, unrelated online
+ *  session in the same tab. */
+export function clearPendingJoin() {
+  try {
+    sessionStorage.removeItem(JOIN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function newToken(): string {
   // randomUUID needs a secure context; fall back for plain-http LAN testing
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();

@@ -18,15 +18,12 @@ import {
 } from '../shared/net/protocol';
 import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
-import { clearIdentity, newToken, saveIdentity, type Identity } from './identity';
+import { clearIdentity, JOIN_KEY, newToken, saveIdentity, type Identity } from './identity';
 import { accessToken, signOut } from './auth';
 
 /** how often an account's cached access token is refreshed while online (Connection.hello() reads
  *  the cache synchronously, so it can't just await accessToken() itself) */
 const TOKEN_REFRESH_MS = 10 * 60 * 1000;
-
-/** sessionStorage key for a pending party invite code (src/boot/links.ts, src/main.ts) */
-const JOIN_KEY = 'blava-city-join';
 
 export class NetSimHost implements SimHost, NetView {
   readonly mode = 'net';
@@ -82,11 +79,11 @@ export class NetSimHost implements SimHost, NetView {
 
   /** resolves once connected; rejects if the server can't be reached */
   async start() {
-    if (this.identity.account) {
-      await this.refreshAuthToken();
-      this.authTimer = window.setInterval(() => void this.refreshAuthToken(), TOKEN_REFRESH_MS);
-    }
+    if (this.identity.account) await this.refreshAuthToken();
     await this.conn.start();
+    // only once the connection is actually up: started any earlier, a rejected conn.start() would
+    // leak this interval forever if the caller didn't also dispose() us (see main.ts's startOnline)
+    if (this.identity.account) this.authTimer = window.setInterval(() => void this.refreshAuthToken(), TOKEN_REFRESH_MS);
     this.game.events.skipOwnShots = true;
   }
 

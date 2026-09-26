@@ -27,8 +27,12 @@ export class DailyCard implements ClientFeature {
   constructor(private g: Game) {}
 
   update() {
-    const live = this.g.host.live;
-    if (live.daily && this.g.input.hit(KEYS.daily)) this.expanded = !this.expanded;
+    const g = this.g;
+    // online, Game.update doesn't freeze features (NetSimHost.allowsPause is false): each one has to
+    // check for itself, the way JobsHud/ReviveUi/RaceUi do, so K doesn't toggle the card while paused
+    if (g.paused || g.showMap) return;
+    const live = g.host.live;
+    if (live.daily && g.input.hit(KEYS.daily)) this.expanded = !this.expanded;
     if (this.answer && performance.now() > this.answer.until) this.answer = null;
   }
 

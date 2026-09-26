@@ -7,7 +7,7 @@ import type { Game } from '../game/Game';
 import { addPauseControl, field, openModal, toast, type ModalButton } from './kit/dom';
 import { cleanNick, NICK_MAX, NICK_MIN } from '../shared/net/protocol';
 import { authAvailable, clearPendingPasswordReset, hasStoredSession, resetPassword, signIn, signOut, signUp, updatePassword, user } from '../net/auth';
-import { loadIdentity, newToken, saveIdentity, type Identity } from '../net/identity';
+import { clearPendingJoin, loadIdentity, newToken, saveIdentity, type Identity } from '../net/identity';
 import { randomNick } from '../net/nicknames';
 import { askNick } from './askNick';
 
@@ -231,12 +231,25 @@ function showChooserModal(mode: ChooserMode) {
   intro.className = 'hint';
   intro.textContent = mode === 'boot' ? 'Všetci hráči sú v jednej Bratislave. Ako chceš hrať?' : 'Vytvor si účet: postup na všetkých zariadeniach a hlasový chat.';
   body.appendChild(intro);
+  // every button below leads onward (guest/sign-in/sign-up); only an outright close (Escape) without
+  // picking one abandons the flow — see the boot chooser's onClose below
+  let proceeded = false;
   const buttons: ModalButton[] = [];
-  if (mode === 'boot') buttons.push({ label: 'Hrať ako hosť', primary: true, onClick: () => void guestFlow() });
-  buttons.push({ label: 'Prihlásiť sa', primary: mode === 'account', onClick: () => showSignIn(mode) });
-  buttons.push({ label: 'Vytvoriť účet', onClick: () => showSignUp(mode) });
+  if (mode === 'boot') buttons.push({ label: 'Hrať ako hosť', primary: true, onClick: () => { proceeded = true; void guestFlow(); } });
+  buttons.push({ label: 'Prihlásiť sa', primary: mode === 'account', onClick: () => { proceeded = true; showSignIn(mode); } });
+  buttons.push({ label: 'Vytvoriť účet', onClick: () => { proceeded = true; showSignUp(mode); } });
   if (mode === 'account') buttons.push({ label: 'Zrušiť', onClick: () => {} });
-  openModal({ title: 'Ako chceš hrať?', body, buttons });
+  openModal({
+    title: 'Ako chceš hrať?',
+    body,
+    buttons,
+    onClose: () => {
+      // a pending #join code (src/boot/links.ts) waits in sessionStorage for this device's identity
+      // to resolve; if the boot chooser closes without picking a way to proceed, that join is
+      // abandoned — clear it so it isn't silently resent on some later, unrelated online session
+      if (mode === 'boot' && !proceeded) clearPendingJoin();
+    },
+  });
 }
 
 /** Opens the account chooser. 'boot' (default): the full picker, guest first — but only when there's

@@ -204,6 +204,8 @@ export class Game {
     for (const f of this.features) f.reset?.();
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
+    // ids from the old host's pickups mean nothing on the new one
+    this.goldenPopAt.clear();
   }
 
   // ------------------------------------------------------------ the player
@@ -898,7 +900,12 @@ export class Game {
         // the Hon na Čumila statue: a gold head peeking out of a dark manhole, popping out the first
         // time it's drawn (a fresh sighting online, or right when the event goes live offline)
         let born = this.goldenPopAt.get(p.id);
-        if (born === undefined) this.goldenPopAt.set(p.id, (born = this.time));
+        if (born === undefined) {
+          this.goldenPopAt.set(p.id, (born = this.time));
+          // bounded (there's realistically at most one of these live at a time — see CumilHunt.ts)
+          // so ids from long-gone sightings don't accumulate over a long session
+          if (this.goldenPopAt.size > 16) this.goldenPopAt.delete(this.goldenPopAt.keys().next().value!);
+        }
         const t = clamp((this.time - born) / 0.6, 0, 1);
         const pop = t >= 1 ? 1 : popScale(t);
         ctx.scale(pop, pop);

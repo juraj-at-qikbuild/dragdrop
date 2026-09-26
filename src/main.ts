@@ -2,7 +2,7 @@ import './style.css';
 import { Game } from './game/Game';
 import type { MapJSON } from './shared/types';
 import { NetSimHost } from './net/NetSimHost';
-import { loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
+import { clearPendingJoin, JOIN_KEY, loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
 import { randomNick } from './net/nicknames';
 import { parseBootLinks } from './boot/links';
 import { askNick } from './ui/askNick';
@@ -50,7 +50,7 @@ async function boot() {
   const joinCode = links.join && SERVER_URL ? links.join : null;
   if (joinCode) {
     try {
-      sessionStorage.setItem('blava-city-join', joinCode);
+      sessionStorage.setItem(JOIN_KEY, joinCode);
     } catch {
       /* ignore: NetSimHost.hello() just won't find a code to send */
     }
@@ -212,15 +212,20 @@ async function boot() {
     try {
       await session.start();
     } catch (e) {
+      // every failure path abandons this session: dispose it (closes the socket, clears its auth
+      // refresh timer) so a failed attempt never leaks it
+      session.dispose();
       const why = (e as Error).message;
       if (why === 'nick-taken') {
-        // only a brand-new account's hello gets this (its chosen nickname is already taken)
+        // only a brand-new account's hello gets this (its chosen nickname is already taken): still
+        // trying to join, so the pending #join code (if any) is left alone for the retry
         const nick = await askNick(id.nick, 'Skúsiť znova');
         if (nick) return startOnline({ ...id, nick }, claim);
         showMenu();
         return;
       }
       if (why === 'auth' || why === 'auth-unavailable') {
+        clearPendingJoin();
         $('loading').classList.add('hidden');
         openModal({
           title: 'Odpojený',
@@ -239,6 +244,7 @@ async function boot() {
         });
         return;
       }
+      clearPendingJoin();
       $('loading-text').textContent =
         why === 'version' ? 'Nová verzia hry – obnov stránku.' : why === 'full' ? 'Server je plný. Skús to neskôr.' : 'Server je nedostupný. Skús to neskôr.';
       const back = document.createElement('button');
@@ -336,7 +342,10 @@ async function boot() {
         showMenu();
         return;
       }
-      void startOnline(id, !!id.account && consumeClaimPending());
+      // consumed unconditionally: a guest identity must still clear it, or it could fire later
+      // (without the prompt) once this device resolves to an account
+      const claim = consumeClaimPending();
+      void startOnline(id, !!id.account && claim);
     })();
     return;
   }

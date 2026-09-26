@@ -132,6 +132,12 @@ export class VoiceFeature implements ClientFeature {
         break;
       case 'voicePeers':
         this.client.handlePeers(m.add, m.del);
+        // a gone peer's id is meaningless from here on: drop it so a long session with many
+        // come-and-go peers doesn't grow these forever
+        for (const id of m.del) {
+          this.speaking.delete(id);
+          this.peerDist.delete(id);
+        }
         break;
       case 'voiceIce':
         this.client.setIceServers(m.ice);
@@ -193,6 +199,9 @@ export class VoiceFeature implements ClientFeature {
     void this.refreshDeviceList();
     this.active = true;
     this.mode.set('ptt'); // always lands on push-to-talk first, regardless of what it was last time
+    // a freshly opened track starts enabled: apply push-to-talk/open right away rather than leaving
+    // the mic hot until the next frame's update() gets to it
+    this.client.setTrackEnabled(this.mode.get() === 'open' || this.game.input.down(KEYS.talk));
     net.sendVoice({ t: 'voice', on: true });
     this.refreshModeLabel();
   }
@@ -244,7 +253,11 @@ export class VoiceFeature implements ClientFeature {
     this.micSelect.appendChild(new Option('Mikrofón: predvolený', ''));
     this.micSelect.onchange = () => {
       this.device.set(this.micSelect.value);
-      if (this.client.micOpen) void this.client.openMic(this.micSelect.value || undefined);
+      if (this.client.micOpen)
+        void this.client.openMic(this.micSelect.value || undefined).then(() => {
+          // the switch opens a fresh track (enabled by default): apply push-to-talk/open right away
+          this.client.setTrackEnabled(this.mode.get() === 'open' || this.game.input.down(KEYS.talk));
+        });
     };
     addPauseControl(this.micSelect, { onlineOnly: true });
 
