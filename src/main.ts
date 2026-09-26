@@ -6,8 +6,9 @@ import { loadIdentity, newToken, saveIdentity, type Identity } from './net/ident
 import { randomNick } from './net/nicknames';
 import { cleanNick } from './shared/net/protocol';
 import { parseBootLinks } from './boot/links';
-import { setPauseOnline } from './ui/kit/dom';
-import { handleAuthCallback, markPasswordResetPending } from './net/auth';
+import { openModal, setPauseOnline, toast } from './ui/kit/dom';
+import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
+import { completePasswordReset, consumeClaimPending, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls } from './ui/AccountUi';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -18,8 +19,9 @@ const FOOT_LABEL: Record<Game['footControls'], string> = { screen: 'podľa obraz
 /** game server; unset = single-player only (no Online button) */
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
-/** Nickname prompt. Resolves with a valid nickname, or null when cancelled. */
-function askNick(initial: string, okLabel: string): Promise<string | null> {
+/** Nickname prompt. Resolves with a valid nickname, or null when cancelled. Exported: src/ui/AccountUi.ts
+ *  reuses it for the chooser's guest path ("today's askNick flow"). */
+export function askNick(initial: string, okLabel: string): Promise<string | null> {
   const box = $('nick'), input = $('nick-input') as HTMLInputElement, err = $('nick-error');
   ($('nick-ok') as HTMLButtonElement).textContent = okLabel;
   input.value = initial;
@@ -61,7 +63,9 @@ async function boot() {
   // e-mail coming back. Online play boots through a reload with #online, so the page starts from a
   // clean world and the offline save is never touched (the online profile is separate).
   const links = parseBootLinks(location.hash, location.search);
-  const onlineBoot = links.online && !!SERVER_URL && !!loadIdentity();
+  // a stored session counts as an identity too: a returning signed-in account skips straight to
+  // loading, the same as a returning guest (resolveOnlineIdentity/AccountUi figures out which once it runs)
+  const onlineBoot = links.online && !!SERVER_URL && (!!loadIdentity() || hasStoredSession());
   if (links.online) history.replaceState(null, '', location.pathname + location.search);
   // #join=nick-code (A3: party invite link): stash the code for NetSimHost.hello() to pick up and
   // clean the hash right away, before anything else touches location.hash.
@@ -78,15 +82,18 @@ async function boot() {
   (window as unknown as { game: Game }).game = game;
   // an account e-mail link coming back (confirm sign-up, or a password reset — reset=1 always also
   // carries the same ?code=, so both exchange it the same way). Fire-and-forget: it's a quick local
-  // round trip and shouldn't hold up the first frame. No modal yet (part 2); just tell the player.
+  // round trip and shouldn't hold up the first frame.
   if (links.authCallback || links.reset) {
     void (async () => {
       const { signedIn } = await handleAuthCallback();
       if (links.reset) {
-        markPasswordResetPending(); // part 2's new-password modal will read and clear this
-        console.log('password reset: code exchanged, signedIn =', signedIn, '– the new-password modal lands in part 2');
+        markPasswordResetPending();
+        if (signedIn) await completePasswordReset();
+        else toast('Odkaz na obnovenie hesla je neplatný alebo vypršal.', '#ff8a80');
+      } else if (signedIn) {
+        await offerClaimAndGoOnline(); // tells the player, offers the claim, reloads into #online
       } else {
-        game.message('', signedIn ? 'Prihlásenie prebehlo automaticky.' : 'Účet potvrdený, môžeš sa prihlásiť.', 6, '#69f0ae');
+        toast('Účet potvrdený, môžeš sa prihlásiť.');
       }
     })();
   }
@@ -204,17 +211,9 @@ async function boot() {
   // --------------------------------------------------------------- online
   const btnOnline = $('btn-online');
   if (SERVER_URL) btnOnline.classList.remove('hidden');
-  btnOnline.onclick = async () => {
+  btnOnline.onclick = () => {
     game.audio.init();
-    let id = loadIdentity();
-    if (!id) {
-      const nick = await askNick(randomNick(), 'Hrať online');
-      if (!nick) return;
-      id = { token: newToken(), nick };
-      saveIdentity(id);
-    }
-    location.hash = 'online';
-    location.reload();
+    openChooser(); // guest is the default/only option when accounts are off or already resolved
   };
   const btnNick = $('btn-nick');
   btnNick.onclick = async () => {
@@ -244,15 +243,22 @@ async function boot() {
         return;
       }
       if (why === 'auth' || why === 'auth-unavailable') {
-        $('loading-text').textContent = why === 'auth' ? 'Prihlásenie vypršalo – prihlás sa znova.' : 'Prihlásenie je teraz nedostupné.';
-        const guest = document.createElement('button');
-        guest.textContent = 'Hrať ako hosť';
-        guest.onclick = () => {
-          const g = loadIdentity() ?? { token: newToken(), nick: randomNick() };
-          saveIdentity(g);
-          void startOnline(g);
-        };
-        $('loading').appendChild(guest);
+        $('loading').classList.add('hidden');
+        openModal({
+          title: 'Odpojený',
+          body: why === 'auth' ? 'Prihlásenie vypršalo – prihlás sa znova.' : 'Prihlásenie je teraz nedostupné.',
+          buttons: [
+            {
+              label: 'Hrať ako hosť',
+              primary: true,
+              onClick: () => {
+                const g = loadIdentity() ?? { token: newToken(), nick: randomNick() };
+                saveIdentity(g);
+                void startOnline(g);
+              },
+            },
+          ],
+        });
         return;
       }
       $('loading-text').textContent =
@@ -266,6 +272,7 @@ async function boot() {
     game.setHost(session);
     btnNick.classList.remove('hidden');
     setPauseOnline(true);
+    void wireAccountPauseControls(game);
     $('loading').classList.add('hidden');
     startGame(false);
   };
@@ -342,7 +349,17 @@ async function boot() {
   if (onlineBoot) {
     showMenu();
     $('menu').classList.add('hidden');
-    void startOnline(loadIdentity()!);
+    void (async () => {
+      // rebuilt fresh each boot (guest, or an account when a Supabase session is stored — see
+      // src/net/identity.ts): the reload that got us here is the one place account-ness is decided
+      const id = await resolveOnlineIdentity();
+      if (!id) {
+        $('loading').classList.add('hidden');
+        showMenu();
+        return;
+      }
+      void startOnline(id, !!id.account && consumeClaimPending());
+    })();
     return;
   }
   if (joinCode) {

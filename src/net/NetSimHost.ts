@@ -613,6 +613,16 @@ export class NetSimHost implements SimHost, NetView {
     return r ? { nick: r[1], wanted: r[4], partyId: r[7] ?? 0, flags: r[8] ?? 0 } : null;
   }
 
+  /** playing as a signed-in Supabase account, not a guest (src/ui/AccountUi.ts's pause-menu controls) */
+  get account(): boolean {
+    return !!this.identity.account;
+  }
+
+  /** GDPR self-delete (src/ui/AccountUi.ts); the server answers with bye 'deleted' (see onFatal) */
+  deleteAccount() {
+    this.conn.send({ t: 'accountDelete' });
+  }
+
   dispose() {
     clearInterval(this.authTimer);
     this.conn.close();

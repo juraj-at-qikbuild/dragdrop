@@ -35,6 +35,10 @@ export interface NetView {
   setNick(n: string): void;
   /** name + wanted level for a player's figure, for name tags; partyId/flags from the roster (ROSTER_*) */
   tagFor(playerId: number): { nick: string; wanted: number; partyId: number; flags: number } | null;
+  /** playing as a signed-in Supabase account rather than a guest (src/ui/AccountUi.ts) */
+  account: boolean;
+  /** GDPR self-delete; the server answers with `bye: 'deleted'` */
+  deleteAccount(): void;
 }
 
 /** What the social features show, kept the same way by both hosts: offline straight from the rules,
