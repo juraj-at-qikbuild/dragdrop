@@ -809,6 +809,19 @@ describe('Race (online)', () => {
     expect(started).toBe(true);
   });
 
+  it('a server shutdown mid-race hands both held stakes back before the final save', () => {
+    const { room, a, b, pa, pb, tick } = setupRacers();
+    room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));
+    tick();
+    room.onMessage(b.conn, JSON.stringify({ t: 'challengeAnswer', from: pa.id, ok: true }));
+    tick();
+    expect(pa.profile.money).toBe(250);
+    expect(pb.profile.money).toBe(250);
+    room.shutdown();
+    expect(pa.profile.money).toBe(500);
+    expect(pb.profile.money).toBe(500);
+  });
+
   it('rate-limits challenge to one per 5 s per challenger', () => {
     const { room, a, b, pa, pb, tick } = setupRacers();
     room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));

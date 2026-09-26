@@ -37,6 +37,15 @@ export class Race implements RoomFeature {
     },
   };
 
+  onDrop(s: Session) {
+    this.lastChallengeAt.delete(s.player.id);
+  }
+
+  /** Room.shutdown() runs this before its final save: stakes held for a race in progress go back */
+  shutdown() {
+    this.rule()?.refundAll();
+  }
+
   private rule() {
     return this.room.sim.rule<RaceRule>('race');
   }

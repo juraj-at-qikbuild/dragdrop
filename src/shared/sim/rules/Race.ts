@@ -301,6 +301,12 @@ export class Race implements SimRule {
     this.pairCooldown.set(pairKey(race.a.p.id, race.b.p.id), sim.time);
   }
 
+  /** the server is shutting down: every stake held for a race in progress goes back to its owner
+   *  (server/src/features/Race.ts calls this before Room's final save) */
+  refundAll() {
+    for (const race of [...this.races]) this.timeoutRefund(race);
+  }
+
   // --------------------------------------------------------------------- misc
   private sendChallengeState(pend: Pending) {
     this.sim.events.toPlayer(pend.to.id, {
