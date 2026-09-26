@@ -343,6 +343,34 @@ export class AI {
     return v;
   }
 
+  /** Give a vehicle already in the world (a world event's mission van) an NPC driver that follows
+   *  this route to the end, reusing the ordinary traffic driving machinery (lights, signs,
+   *  lane-keeping, `chooseNext`'s queued route) — the same way police pursuit sets `d.route` from
+   *  `policeGraph.path()`. The vehicle keeps its own position (it should already sit at/near
+   *  `route[0]`'s start, e.g. parked at a kerb there); its existing driver, if any, keeps driving,
+   *  so it's safe to call again on the same vehicle for its next leg. A no-op when `route` is empty. */
+  driveRoute(v: Vehicle, route: Link[]) {
+    if (!route.length) return;
+    const sim = this.sim;
+    const link = route[0];
+    if (!v.driver) {
+      const driver = new Ped('civ', v.x, v.y, sim.rng.seed());
+      driver.vehicle = v;
+      v.driver = driver;
+      sim.addPed(driver);
+    }
+    const d: Driver = {
+      mode: 'traffic', link, pts: linkPoints(link, laneFor(link, 0)), idx: 1, route: route.slice(1),
+      repath: 0, stuck: 0, reverse: 0, direct: false, best: Infinity, noProgress: 0,
+      searchTarget: null, searchTimer: 0, target: 0, retarget: 2, stops: [...sim.world.lights.forLink(link)],
+      marks: this.marksFor(link, v.kind), waitAt: null, waited: 0, lane: 0,
+      nudge: 0, nudgeTo: 0, passing: null, waitFor: null, waitedFor: 0, passCheck: 0,
+      blocker: null, blockedT: 0, yieldTo: null, squeeze: null, standoff: 0, pedWait: 0,
+      wedged: 0, px: v.x, py: v.y,
+    };
+    this.drivers.set(v, d);
+  }
+
   private spawnTraffic(x: number, y: number, rMin: number, rMax: number) {
     const sim = this.sim;
     const w = sim.world;

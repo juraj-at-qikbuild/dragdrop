@@ -30,7 +30,9 @@ import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
 export type Crime =
   | 'shoot' | 'killPed' | 'killCop' | 'shootCop' | 'carjack' | 'hitCop' | 'stealCop' | 'destroy'
   /** hurting / killing another player (online) */
-  | 'hitPlayer' | 'killPlayer';
+  | 'hitPlayer' | 'killPlayer'
+  /** the armoured van (ArmoredVan.ts): bursting its rear doors, then taking its spilled cash */
+  | 'robbery' | 'loot';
 
 export interface SimOptions {
   rng?: Rng;
@@ -493,7 +495,7 @@ export class Sim {
   /** Get `p` into `v` (carjacking whoever drives it). Returns false if not allowed. */
   enterVehicle(p: SimPlayer, v: Vehicle | null, slack = 0): boolean {
     const ped = p.ped;
-    if (!v || p.state !== 'play' || ped.vehicle || v.wrecked || v.sinking || v.level !== ped.level) return false;
+    if (!v || p.state !== 'play' || ped.vehicle || v.wrecked || v.sinking || v.level !== ped.level || v.locked) return false;
     if (dist(v.x, v.y, ped.x, ped.y) - v.spec.width / 2 > 4.2 + slack) return false;
     if (v.owner && v.owner !== p.id) {
       // another player's car: only when it's (nearly) standing still
@@ -624,6 +626,12 @@ export class Sim {
       case 'killPlayer':
         this.police.danger(f.x, f.y, 25);
         this.raise(p, 1, kind, 0.5);
+        break;
+      case 'robbery':
+        this.raise(p, 2, kind, 10);
+        break;
+      case 'loot':
+        if (now > cd) this.raise(p, 1, kind, 10);
         break;
     }
   }
@@ -849,8 +857,9 @@ export class Sim {
     this.events.toPlayer(p.id, { k: 'teleport', x: pos.x, y: pos.y, lvl, epoch: p.epoch });
   }
 
-  dropCash(x: number, y: number, amount: number) {
-    this.pickups.push({ id: this.ids.alloc(this.time), x, y, kind: 'cash', amount, respawn: 0, hidden: 0, cumil: -1 });
+  /** `tag`: where it came from, for rules that care (e.g. 'van' for the armoured van's spilled cash) */
+  dropCash(x: number, y: number, amount: number, tag?: string) {
+    this.pickups.push({ id: this.ids.alloc(this.time), x, y, kind: 'cash', amount, respawn: 0, hidden: 0, cumil: -1, tag });
   }
 
   // ------------------------------------------------------------------ pickups

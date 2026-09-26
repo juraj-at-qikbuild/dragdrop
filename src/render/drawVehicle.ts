@@ -290,8 +290,9 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     }
     mirrors(ctx, L, W, s.kind === 'sport' ? shade(body, -0.2) : body);
   }
-  // damage: scuffs from lost health, cracked windscreen when badly hurt
-  const dmgFrac = clamp(1 - v.health / s.health, 0, 1);
+  // damage: scuffs from lost health, cracked windscreen when badly hurt (maxHealth overrides
+  // spec.health for a raised-health mission vehicle, e.g. the armoured van)
+  const dmgFrac = clamp(1 - v.health / (v.maxHealth || s.health), 0, 1);
   if (v.wrecked) {
     ctx.fillStyle = 'rgba(20,16,14,0.45)';
     for (let i = 0; i < 6; i++) {

@@ -8,6 +8,9 @@ import type { Ped } from './Ped';
 
 export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic';
 
+/** a located-damage zone: front/rear/left/right of the car's local frame */
+export type DamageZone = 'front' | 'rear' | 'left' | 'right';
+
 /** world-event paint jobs (2 bits on the wire): the Horúca Kofolka van, the armoured cash van, derby cars */
 export type Livery = 0 | 1 | 2 | 3;
 export const LIVERY_NONE = 0;
@@ -121,6 +124,13 @@ export class Vehicle {
   mission = false;
   /** paint job for world events (LIVERY_*), sent with the static block */
   livery: Livery = LIVERY_NONE;
+  /** can't be entered at all (the armoured van: rob it by shooting the rear doors instead) */
+  locked = false;
+  /** bullet-damage multiplier (Combat.applyShot's car branch); 1 = normal, the armoured van is 0.2 */
+  armor = 1;
+  /** overrides spec.health for this one vehicle's damage-fraction visuals (0 = use spec.health): the
+   *  armoured van's raised health pool would otherwise look undamaged until spec.health itself ran out */
+  maxHealth = 0;
   skid = 0;
   lastHit = 0;
   horn = 0;
@@ -408,14 +418,20 @@ export class Vehicle {
     if (this.health <= 0 && this.fire < 0) this.fire = 3.5;
   }
 
-  /** Convert a world-space impact point to a local damage zone (front/rear/left/right) and accumulate. */
-  applyDamageAt(px: number, py: number, amount: number) {
-    if (amount <= 0) return;
+  /** Which local zone (front/rear/left/right) a world-space point falls into (e.g. the armoured
+   *  van's rear doors: `v.damageZoneAt(hx, hy) === 'rear'`). */
+  damageZoneAt(px: number, py: number): DamageZone {
     const fx = Math.cos(this.angle), fy = Math.sin(this.angle);
     const rx = -fy, ry = fx;
     const dx = px - this.x, dy = py - this.y;
     const lx = dx * fx + dy * fy, ly = dx * rx + dy * ry;
-    const zone = Math.abs(lx) > Math.abs(ly) ? (lx > 0 ? 'front' : 'rear') : ly > 0 ? 'right' : 'left';
+    return Math.abs(lx) > Math.abs(ly) ? (lx > 0 ? 'front' : 'rear') : ly > 0 ? 'right' : 'left';
+  }
+
+  /** Convert a world-space impact point to a local damage zone and accumulate. */
+  applyDamageAt(px: number, py: number, amount: number) {
+    if (amount <= 0) return;
+    const zone = this.damageZoneAt(px, py);
     this.dmg[zone] = clamp(this.dmg[zone] + amount, 0, 1);
   }
 

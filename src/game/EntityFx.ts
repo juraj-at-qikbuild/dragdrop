@@ -21,7 +21,7 @@ export class EntityFx {
       }
       if (v.skid && v.speed > 4 && !v.sinking) fx.skid(v);
       else fx.noSkid(v);
-      if (!v.wrecked && v.health < s.health * 0.35 && Math.random() < dt * 8) fx.smoke(v.x + c * s.length * 0.35, v.y + sn * s.length * 0.35);
+      if (!v.wrecked && v.health < (v.maxHealth || s.health) * 0.35 && Math.random() < dt * 8) fx.smoke(v.x + c * s.length * 0.35, v.y + sn * s.length * 0.35);
       if (!v.wrecked && v.speed > 3 && dist(v.x, v.y, focus.x, focus.y) < 45) {
         if (world.surfaceAt(v.x, v.y) === 'offroad' && Math.random() < dt * v.speed * 0.2) fx.dust(v.x - c * s.length * 0.4, v.y - sn * s.length * 0.4);
         if (v.ctrl.throttle > 0.5 && Math.random() < dt * 3) fx.exhaustPuff(v.x - c * s.length * 0.5, v.y - sn * s.length * 0.5, v.angle);

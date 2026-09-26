@@ -160,7 +160,7 @@ export class CombatRules {
         sparks |= 1 << i;
         const car = sim.vehicleById(pl.hit);
         if (!car || car.wrecked) return;
-        const carDmg = w.dmg * 0.35;
+        const carDmg = w.dmg * 0.35 * car.armor;
         sim.damageVehicle(car, carDmg, pid);
         for (const r of sim.rules) r.onVehicleHit?.(car, carDmg, pid, pl.hx, pl.hy);
         // a pellet near a wheel bursts the tyres, for any car (Horúca Kofolka's box-in-and-ram dynamic)

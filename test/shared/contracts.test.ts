@@ -68,6 +68,13 @@ const testDef = (over: Partial<WorldEventDef> = {}): WorldEventDef => ({
   ...over,
 });
 
+/** overwrite a real offline-schedulable kind so it never comes up, keeping these director tests'
+ *  single registered `testDef()` the only offline-ready candidate (armored's real def is also
+ *  `offline: true`, so without this it would sometimes win the weighted draw instead of the stub) */
+const disable = (kind: WorldEventDef['kind']): WorldEventDef => ({
+  kind, minPlayers: 1, offline: false, scheduled: true, weight: 1, cooldown: 60, create: () => null,
+});
+
 describe('world-event director', () => {
   it('schedules an event, runs its phases and ends it', () => {
     const sim = new Sim(loadWorld(), { rng: new Rng(3), rules: 'offline' });
@@ -75,6 +82,7 @@ describe('world-event director', () => {
     const dir = sim.rule<WorldEvents>('worldEvents')!;
     expect(dir).toBeDefined();
     dir.register(testDef());
+    dir.register(disable('armored'));
     dir.config.first = [1, 1];
     (dir as unknown as { timer: number }).timer = 1;
     const v0 = dir.version;
@@ -99,6 +107,7 @@ describe('world-event director', () => {
     off.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
     const d2 = off.rule<WorldEvents>('worldEvents')!;
     d2.register(testDef({ offline: false }));
+    d2.register(disable('armored'));
     (d2 as unknown as { timer: number }).timer = 0;
     d2.step(0.05);
     expect(d2.active.length).toBe(0);

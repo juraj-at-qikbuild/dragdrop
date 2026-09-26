@@ -1,11 +1,12 @@
-// Horúca Kofolka and Hon na Čumila through the Room: the debug-started event reaches clients via
-// `wev`, money accrues to whoever drives the van, and the golden Čumil is snapshotted only within 40 m.
+// Horúca Kofolka, Hon na Čumila and Obrnené auto through the Room: the debug-started event reaches
+// clients via `wev`, money accrues to whoever drives the Kofolka van, the golden Čumil is snapshotted
+// only within 40 m, and the armoured van's livery reaches the snapshot too.
 // Plan: docs/plans/social-events.md
 import { describe, expect, it } from 'vitest';
 import { Room, type RoomOptions } from '../src/Room';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import { Ent } from '../../src/shared/net/codec';
-import { LIVERY_DERBY, LIVERY_KOFOLKA } from '../../src/shared/entities/Vehicle';
+import { LIVERY_ARMORED, LIVERY_DERBY, LIVERY_KOFOLKA } from '../../src/shared/entities/Vehicle';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, loadWorld, stateMsg } from './helpers';
 
 function setup(extra: Partial<RoomOptions> = {}) {
@@ -73,6 +74,40 @@ describe('Derby na parkovisku through the Room', () => {
     expect(derby!.zone).toBeDefined();
     expect(derby!.zone!.length).toBeGreaterThanOrEqual(6); // >= 3 points
     expect(room.sim.vehicles.filter((v) => v.livery === LIVERY_DERBY).length).toBe(6);
+  });
+});
+
+describe('Obrnené auto through the Room', () => {
+  it('debug{event:"armored"} with 2 players puts an armored entry with a van id in wev', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', event: 'armored' }));
+    tick(5); // the debounced wev broadcast fires within ~150 ms of a version bump
+    const wev = a.link.last('wev');
+    expect(wev).toBeTruthy();
+    const entry = wev.ev.find((e) => e.kind === 'armored');
+    expect(entry).toBeTruthy();
+    expect(entry!.vid).toBeGreaterThan(0);
+    expect(room.sim.vehicles.some((v) => v.livery === LIVERY_ARMORED && v.id === entry!.vid)).toBe(true);
+  });
+
+  it('the van reaches the snapshot with the armoured livery', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', event: 'armored' }));
+    const van = room.sim.vehicles.find((v) => v.livery === LIVERY_ARMORED)!;
+    expect(van).toBeTruthy();
+    // the route's start bank is 300-1500 m out (beyond INTEREST_R): teleport Anna's figure right next
+    // to the van (a stateMsg report of a jump that size would fail the server's anti-cheat move check)
+    const p = room.sim.players.get(a.id!)!;
+    p.ped.x = van.x;
+    p.ped.y = van.y;
+    tick(4); // an unchanged, already-known entity isn't resent every tick, so look across all of them
+    let seenLivery: number | undefined;
+    for (const s of a.link.snapshots())
+      for (const e of s.ents) if (e.type === Ent.Vehicle && e.id === van.id && e.full) seenLivery = e.v.livery;
+    expect(seenLivery).toBe(LIVERY_ARMORED);
   });
 });
 

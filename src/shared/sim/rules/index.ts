@@ -10,6 +10,7 @@ import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
 import { DERBY_DEF } from './events/Derby';
+import { ARMORED_DEF, VanLoot } from './events/ArmoredVan';
 
 export type { RulesMode };
 
@@ -19,9 +20,11 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   director.register(CUMIL_HUNT_DEF);
   director.register(MOST_WANTED_DEF);
   director.register(DERBY_DEF);
+  director.register(ARMORED_DEF);
   const rules: SimRule[] = [director];
-  // courier and taxi jobs run offline and online alike
+  // both modes: courier and taxi jobs; the armoured van's spilled cash (it outlives the event)
   rules.push(new Jobs(sim));
+  rules.push(new VanLoot(sim));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), and races need two players
   if (mode === 'server') {
