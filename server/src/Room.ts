@@ -358,7 +358,18 @@ export class Room {
         this.send(c, { t: 'error', code: 'auth-unavailable' });
         c.link.close(4004, 'auth-unavailable');
       },
-    );
+    ).catch((e) => {
+      // an exception inside either handler above (accountIdentity()'s store calls, accept(), a
+      // feature's onHello) would otherwise be an unhandled rejection and take the whole process down
+      // (docs/plans/social-events.md: fire-and-forget I/O always carries a .catch). The guest hello
+      // survives the same fault because index.ts wraps onMessage in try/catch; this mirrors that here.
+      c.pending = false;
+      console.error('account hello failed:', e instanceof Error ? e.message : e);
+      if (this.conns.has(c)) {
+        this.send(c, { t: 'error', code: 'auth-unavailable' });
+        c.link.close(4004, 'auth-unavailable');
+      }
+    });
   }
 
   /** An account's nickname and claimed guest progress. Null: the hello nickname is already taken by
@@ -393,6 +404,7 @@ export class Room {
         this.drop(guest);
       }
       claimed = store.movePlayer(guestKey, acctKey);
+      store.deleteInvitesOf(guestKey); // the guest identity is gone either way: its invites must not outlive it
     }
     return { nick, claimed };
   }

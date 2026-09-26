@@ -416,6 +416,29 @@ describe('accounts (hello.auth)', () => {
     expect(room.sim.players.get(b.w.id)!.profile.money).toBe(777);
     expect(room.sessions.size).toBe(1); // one session under the account key, not two
   });
+
+  it('a feature whose onHello throws for an account hello never becomes an unhandled rejection, and the client gets auth-unavailable', async () => {
+    const { room, joinAuth } = setup({ auth: fakeAuth });
+    room.addFeature({
+      id: 'boom',
+      onHello(_s, _isNew, msg) {
+        if (msg.auth) throw new Error('boom: feature onHello blew up');
+      },
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      expect(a.link.last('error')?.code).toBe('auth-unavailable');
+      expect(a.link.closed?.code).toBe(4004);
+      room.onLeave(a.conn); // FakeLink.close() doesn't itself cascade like a real socket's 'close' event
+      expect(room.connectedCount()).toBe(0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(unhandled).toHaveLength(0); // the trailing .catch() handled it: nothing escaped the promise chain
+  });
 });
 
 describe('roster and wev', () => {
@@ -570,6 +593,19 @@ describe('accounts: nicknames, claiming, deletion (store-backed)', () => {
       expect(room.sim.players.get(a.w.id)!.profile.money).toBe(500);
       expect(room.sim.players.get(a.w.id)!.profile.found).toContain('castle');
       expect(store.hasPlayer(hashToken(TOKEN_A))).toBe(false); // the old guest row is gone
+    });
+  });
+
+  it("claiming a guest also deletes that guest key's outstanding party invite", async () => {
+    await withDb(async (file) => {
+      const { room, store, join, joinAuth } = setupStore(file);
+      const g = join(TOKEN_A, 'Hosť');
+      store.createInvite('gstinv1', hashToken(TOKEN_A), room.wallNow(), 24 * 60 * 60 * 1000);
+      expect(store.getInvite('gstinv1', room.wallNow())).not.toBeNull();
+      room.onLeave(g.conn);
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true);
+      expect(a.w.claimed).toBe(true);
+      expect(store.getInvite('gstinv1', room.wallNow())).toBeNull(); // the claimed guest key's invite is gone too
     });
   });
 

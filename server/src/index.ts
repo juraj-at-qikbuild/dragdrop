@@ -137,3 +137,10 @@ async function shutdown(sig: string) {
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
+
+// defence in depth: every fire-and-forget I/O path is meant to carry its own `.catch`
+// (docs/plans/social-events.md), but a missed one must never take the whole process down — log the
+// message only (never a value that might carry a secret) and keep running.
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandled rejection:', reason instanceof Error ? reason.message : reason);
+});
