@@ -4,8 +4,8 @@
 // (docs/plans/social-events.md). Run after `supabase db push`: node scripts/supa-check.mjs
 // Never prints key values — only the URL, table/column names, HTTP statuses and PostgREST error codes.
 const URL = (process.env.SUPABASE_URL ?? process.env.GTA_BRATISKA_SUPABASE_URL ?? process.env.GTA_BRATISKA_SUPABASE_PROJECT_URL ?? '').replace(/\/+$/, '');
-const SECRET = process.env.GTA_BRATISKA_SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SECRET_KEY ?? '';
-const PUBLISHABLE = process.env.GTA_BRATISKA_SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY ?? '';
+const SECRET = process.env.SUPABASE_SECRET_KEY ?? process.env.GTA_BRATISKA_SUPABASE_SECRET_KEY ?? '';
+const PUBLISHABLE = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.GTA_BRATISKA_SUPABASE_PUBLISHABLE_KEY ?? '';
 const TIMEOUT_MS = 10_000;
 
 let failures = 0;
