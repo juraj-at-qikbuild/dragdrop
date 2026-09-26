@@ -167,11 +167,12 @@ export class CombatRules {
 
   applyMelee(shooter: Shooter, pid: number, target: Ped | null) {
     this.sim.events.melee(shooter.x, shooter.y, !!target);
-    if (target && !target.dead) this.hurtPed(target, WEAPONS.fist.dmg, shooter, pid);
+    if (target && !target.dead) this.hurtPed(target, WEAPONS.fist.dmg, shooter, pid, true);
   }
 
-  /** Damage a ped. `by` is who did it (for knock-back direction), `pid` the player responsible (0 = NPC). */
-  hurtPed(p: Ped, dmg: number, by: { x: number; y: number } | null, pid: number) {
+  /** Damage a ped. `by` is who did it (for knock-back direction), `pid` the player responsible (0 =
+   *  NPC); `melee`: a punch (which the odd civilian answers in kind). */
+  hurtPed(p: Ped, dmg: number, by: { x: number; y: number } | null, pid: number, melee = false) {
     const sim = this.sim;
     if (p.dead) return;
     if (p.playerId) {
@@ -192,15 +193,19 @@ export class CombatRules {
         sim.dropCash(p.x, p.y, p.money);
         sim.events.toPlayer(player.id, { k: 'style', label: 'KILL', cash: p.kind === 'cop' ? 40 : 15, x: p.x, y: p.y - 1.5 });
       }
-    } else if (p.kind === 'civ' && by) this.scare(p, by.x, by.y);
+    } else if (p.kind === 'civ' && by) sim.crowd.hurt(p, player, by, melee);
     if (p.kind === 'cop' && player) sim.crime(player, 'shootCop');
   }
 
   scare(p: Ped, fx: number, fy: number) {
+    // someone who got away and is on the phone to the police keeps talking, unless it's right by them
+    if (p.state === 'phone' && dist(p.x, p.y, fx, fy) > 8) return;
     p.state = 'flee';
     p.timer = this.sim.rng.range(4, 7);
     p.fleeFrom.x = fx;
     p.fleeFrom.y = fy;
+    p.goal = null;
+    p.waitStop = -1;
   }
 
   /** A car blows up (or anything else explodes) at (x, y). `pid` is the player responsible, if any. */

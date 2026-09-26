@@ -325,6 +325,11 @@ export class NetSimHost implements SimHost, NetView {
       case 'horn':
         ev.horn(e.vid, e.x, e.y);
         break;
+      case 'say': {
+        const p = this.pedById(e.id);
+        if (p) ev.say(e.id, p.x, p.y, e.l);
+        break;
+      }
     }
   }
 

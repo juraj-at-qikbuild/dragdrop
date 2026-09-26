@@ -92,6 +92,10 @@ export class ClientEvents implements SimEvents {
     if (this.distTo(x, y) < 60) this.g.audio.horn();
   }
 
+  say(pedId: number, x: number, y: number, line: number) {
+    if (this.distTo(x, y) < 50) this.g.bubbles.add(pedId, x, y, line);
+  }
+
   toPlayer(pid: number, e: PrivateEvent) {
     if (pid !== this.meId) return;
     const g = this.g;

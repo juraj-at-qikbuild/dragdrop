@@ -1317,6 +1317,15 @@ export class World {
     return bestCls === 10 && bestD < 0.3 ? 'steps' : bestCls >= 8 || bestPave === 1 ? 'cobble' : 'asphalt';
   }
 
+  /** Is (x, y) on a street cars drive on (or within `margin` of its edge)? */
+  onCarriageway(x: number, y: number, margin = 0): boolean {
+    const c = this.surfGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (!c) return false;
+    const s = this.surfSegs;
+    for (const i of c) if (s[i + 5] <= 7 && Math.sqrt(segDist2(x, y, s[i], s[i + 1], s[i + 2], s[i + 3])) - s[i + 4] < margin) return true;
+    return false;
+  }
+
   /** The borough (mestská časť) a point is in, from the real boundaries; the nearest one for points
    *  outside all of them (the river between them). */
   district(x: number, y: number): string {

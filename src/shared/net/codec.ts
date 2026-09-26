@@ -24,7 +24,7 @@ export const enum Ent {
 
 export const VEHICLE_KINDS = Object.keys(SPECS) as VehicleKind[];
 export const WEAPON_LIST: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
-const PED_STATES: PedState[] = ['walk', 'flee', 'dead', 'chase', 'idle'];
+const PED_STATES: PedState[] = ['walk', 'flee', 'dead', 'chase', 'idle', 'sit', 'phone', 'fight'];
 const PED_KINDS = ['civ', 'cop', 'player'] as const;
 const PROP_KINDS: PropKind[] = ['barrier', 'cone', 'spike'];
 const TWO_PI = Math.PI * 2;

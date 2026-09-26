@@ -13,7 +13,7 @@ import type { Level } from '../world/World';
  *  v4: levels include -1 (in a tunnel).
  *  v5: levels include 2 (an upper bridge deck), and the city's colliders changed (fountains,
  *  monuments and bollards; lanes fitted to the streets), which client and server must agree on. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;
@@ -119,7 +119,8 @@ export type WorldEvent =
   | { k: 'killed'; id: number; x: number; y: number; by: number; cause: 'shot' | 'melee' | 'road' | 'tram' | 'blast' }
   | { k: 'scream'; x: number; y: number }
   | { k: 'bell'; x: number; y: number }
-  | { k: 'horn'; vid: number; x: number; y: number };
+  | { k: 'horn'; vid: number; x: number; y: number }
+  | { k: 'say'; id: number; l: number };
 
 /** roster row: [id, nick, x, y, wanted, inCar, pedId] */
 export type RosterRow = [number, string, number, number, number, 0 | 1, number];

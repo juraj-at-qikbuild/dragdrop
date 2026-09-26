@@ -6,7 +6,6 @@ import type { ShotReport } from '../shared/sim/Combat';
 import type { SimEvents } from '../shared/sim/events';
 import type { Observer, Profile, SimPlayer } from '../shared/sim/SimPlayer';
 import { Sim } from '../shared/sim/Sim';
-import { dist } from '../shared/util/math';
 import type { SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
@@ -75,11 +74,10 @@ export class LocalSimHost implements SimHost {
     this.sim.exitVehicle(this.me);
   }
 
-  /** honking scares pedestrians out of the way */
+  /** honking: people in the way step aside (and someone may shout back) */
   horn() {
     const v = this.me.ped.vehicle;
-    if (!v) return;
-    for (const q of this.sim.pedsNear(v.x, v.y, 12)) if (q.kind === 'civ' && !q.vehicle && dist(q.x, q.y, v.x, v.y) < 12) this.sim.combat.scare(q, v.x, v.y);
+    if (v) this.sim.honk(v);
   }
 
   styleCash(n: number) {

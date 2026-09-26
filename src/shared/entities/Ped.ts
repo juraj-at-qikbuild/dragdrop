@@ -8,7 +8,9 @@ import { Rng } from '../util/Rng';
 import { shade } from '../util/color';
 
 export type PedKind = 'player' | 'civ' | 'cop';
-export type PedState = 'walk' | 'flee' | 'dead' | 'chase' | 'idle';
+/** 'sit' on a bench or a café chair, 'phone' calling the police about a player, 'fight' squaring up
+ *  to a player who went for them */
+export type PedState = 'walk' | 'flee' | 'dead' | 'chase' | 'idle' | 'sit' | 'phone' | 'fight';
 export type Archetype = 'player' | 'cop' | 'suit' | 'tourist' | 'jogger' | 'elderly' | 'student' | 'worker' | 'casual' | 'dress';
 export type HairStyle = 'short' | 'long' | 'bun' | 'bald' | 'cap' | 'hat' | 'scarf' | 'helmet';
 
@@ -25,6 +27,18 @@ const ARCHETYPES: Archetype[] = ['casual', 'casual', 'casual', 'dress', 'dress',
 const HAIRSTYLES: HairStyle[] = ['short', 'short', 'long', 'bun', 'bald', 'cap'];
 
 export type WeaponId = 'fist' | 'pistol' | 'uzi' | 'shotgun';
+
+/** where someone is heading that isn't along the footpaths: a seat (facing `a`), a tram's door, a
+ *  spot at a tram stop. `ref`: the furniture index of the seat / the tram stop index */
+export interface PedGoal {
+  x: number;
+  y: number;
+  a: number;
+  kind: 'seat' | 'board' | 'stop';
+  ref: number;
+}
+
+const FIGHTERS = new Set<Archetype>(['casual', 'worker', 'student', 'jogger']);
 
 /** stable per-seed pseudo-random in [0, 1) (dead pose, build) */
 export function hashRand(seed: number, salt: number) {
@@ -91,8 +105,21 @@ export class Ped {
   look = 0;
   /** posed from outside the local simulation (a mirror, or a player on the server): never moved by AI */
   kinematic = false;
-  /** cops: the player they are after (0 = whoever is nearest and wanted) */
+  /** cops: the player they are after (0 = whoever is nearest and wanted); a civilian in a fight:
+   *  who they're fighting */
   targetPid = 0;
+  // --- the crowd (Crowd.ts), simulation only: clients see the state and the pose
+  /** a seat, a tram door or a spot at a tram stop they're walking to */
+  goal: PedGoal | null = null;
+  /** the tram stop (index into World.tramStops) they're waiting at, -1 none */
+  waitStop = -1;
+  /** the player they're phoning the police about (0 = nobody) */
+  callPid = 0;
+  /** seconds left with their hands up at a gun pointed at them */
+  surrender = 0;
+  /** sim time they last said something, and until when they won't sit down again */
+  saidAt = -1e9;
+  restless = 0;
 
   constructor(kind: PedKind, x: number, y: number, seed: number) {
     this.kind = kind;
@@ -104,6 +131,11 @@ export class Ped {
 
   get dead() {
     return this.state === 'dead';
+  }
+
+  /** one in seven of the able-bodied: goes for a player who picks a fight, instead of running */
+  get fighter() {
+    return this.kind === 'civ' && FIGHTERS.has(this.archetype) && hashRand(this.seed, 13) < 0.14;
   }
 
   /** Move with velocity and resolve collisions against buildings, walls and fences (on a bridge

@@ -14,6 +14,7 @@ import { SpatialHash } from '../util/SpatialHash';
 import { Rng } from '../util/Rng';
 import { clamp, dist } from '../util/math';
 import { AI } from './AI';
+import { Crowd } from './Crowd';
 import { Police } from './Police';
 import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
@@ -60,6 +61,7 @@ export class Sim {
   pickups: Pickup[] = [];
   players = new Map<number, SimPlayer>();
   ai: AI;
+  crowd: Crowd;
   police: Police;
   combat: CombatRules;
   physics = new VehiclePhysics();
@@ -96,6 +98,7 @@ export class Sim {
     this.caps = opts.caps ?? NO_CAPS;
     this.physics.extrapolateKinematic = !!opts.extrapolatePlayers;
     this.ai = new AI(this);
+    this.crowd = new Crowd(this);
     this.police = new Police(this);
     this.combat = new CombatRules(this);
     for (const p of placePickups(world)) this.pickups.push({ ...p, id: this.ids.alloc(0) });
@@ -156,6 +159,10 @@ export class Sim {
   /** visit vehicles near (x, y) (AI queries; hash rebuilt once per step) */
   forVehiclesNear(x: number, y: number, r: number, fn: (v: Vehicle) => void) {
     this.vehHash.query(x, y, r, fn);
+  }
+  /** visit peds near (x, y) (as `pedsNear`, without the array) */
+  forPedsNear(x: number, y: number, r: number, fn: (p: Ped) => void) {
+    this.pedHash.query(x, y, r, fn);
   }
 
   private rehash() {
@@ -262,6 +269,7 @@ export class Sim {
     }
     this.rehash();
     this.ai.update(dt);
+    this.crowd.update(dt);
     this.police.update(dt);
     this.updateVehicles(dt);
     this.world.gates.sweep(this.vehicles, dt);
@@ -470,9 +478,11 @@ export class Sim {
       d.vehicle = null;
       d.x = v.x - Math.sin(v.angle) * 2;
       d.y = v.y + Math.cos(v.angle) * 2;
-      if (d.kind === 'civ') this.combat.scare(d, ped.x, ped.y);
-      else d.state = 'chase';
-      this.crime(p, 'carjack');
+      // the odd one goes for the carjacker; the rest run (and may phone the police)
+      if (d.kind === 'civ') {
+        if (!this.crowd.provoke(d, p)) this.combat.scare(d, ped.x, ped.y);
+      } else d.state = 'chase';
+      this.crime(p, 'carjack', d);
     }
     if (v.kind === 'police') this.crime(p, 'stealCop');
     this.ai.drivers.delete(v);
@@ -529,7 +539,8 @@ export class Sim {
   }
 
   // -------------------------------------------------------------------- crime
-  crime(p: SimPlayer, kind: Crime) {
+  /** `victim`: whoever it was done to (a carjacked driver), the first to phone the police */
+  crime(p: SimPlayer, kind: Crime, victim: Ped | null = null) {
     if (p.state !== 'play') return;
     const now = this.time;
     const cd = p.crimeCooldown.get(kind) ?? -Infinity;
@@ -538,7 +549,9 @@ export class Sim {
     switch (kind) {
       case 'shoot':
         this.police.danger(f.x, f.y, 20);
-        if (copNear(45) && now > cd) this.raise(p, 1, kind, 5);
+        if (copNear(45)) {
+          if (now > cd) this.raise(p, 1, kind, 5);
+        } else this.crowd.witness(p, f.x, f.y, null);
         break;
       case 'killPed':
         this.raise(p, 1, kind, 0.5);
@@ -555,6 +568,7 @@ export class Sim {
         break;
       case 'carjack':
         if (copNear(60)) this.raise(p, 1, kind, 3);
+        else this.crowd.witness(p, f.x, f.y, victim);
         break;
       case 'hitCop':
         if (now > cd) this.raise(p, 1, kind, 8);
@@ -585,6 +599,18 @@ export class Sim {
     p.crimeCooldown.set(kind, this.time + cooldown);
     if (Math.ceil(p.wanted) > before) this.events.toPlayer(p.id, { k: 'stars' });
     this.anyWanted = true;
+  }
+
+  /** a witness got through to the police about `p` */
+  reported(p: SimPlayer) {
+    if (p.state !== 'play') return;
+    this.raise(p, 1, 'reported', 0);
+    this.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Svedok ťa nahlásil polícii!', time: 3, color: '#ff5252' });
+  }
+
+  /** a car honks: people in its way step aside (a player's horn, or traffic stuck behind someone) */
+  honk(v: Vehicle) {
+    this.crowd.honk(v);
   }
 
   setWanted(p: SimPlayer, level: number) {

@@ -68,6 +68,8 @@ export interface SimEvents {
   scream(x: number, y: number): void;
   bell(x: number, y: number): void;
   horn(vehicleId: number, x: number, y: number): void;
+  /** someone says something (a speech bubble): `line` from phrases.ts `pickLine` */
+  say(pedId: number, x: number, y: number, line: number): void;
   toPlayer(pid: number, e: PrivateEvent): void;
 }
 
@@ -83,5 +85,6 @@ export const nullEvents: SimEvents = {
   scream() {},
   bell() {},
   horn() {},
+  say() {},
   toPlayer() {},
 };

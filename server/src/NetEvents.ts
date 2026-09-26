@@ -51,6 +51,9 @@ export class NetEvents implements SimEvents {
   horn(vid: number, x: number, y: number) {
     this.add(x, y, { k: 'horn', vid, x: r2(x), y: r2(y) });
   }
+  say(id: number, x: number, y: number, line: number) {
+    this.add(x, y, { k: 'say', id, l: line });
+  }
   toPlayer(pid: number, e: PrivateEvent) {
     let q = this.priv.get(pid);
     if (!q) this.priv.set(pid, (q = []));

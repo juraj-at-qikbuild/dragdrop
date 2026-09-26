@@ -496,7 +496,7 @@ export class Room {
     const v = p.ped.vehicle;
     if (!v) return;
     this.events.horn(v.id, v.x, v.y);
-    for (const q of this.sim.pedsNear(v.x, v.y, 12)) if (q.kind === 'civ' && !q.vehicle && dist(q.x, q.y, v.x, v.y) < 12) this.sim.combat.scare(q, v.x, v.y);
+    this.sim.honk(v);
   }
 
   /** the victim's client says a car or tram ran them over */

@@ -59,6 +59,8 @@ export interface Driver {
   yieldTo: Vehicle | null;
   squeeze: Vehicle | null;
   standoff: number;
+  /** how long someone on foot has stood in its way */
+  pedWait: number;
   /** times it has had to back up since it last got anywhere, and where that was */
   wedged: number;
   px: number;
@@ -106,8 +108,9 @@ export class AI {
   policeGraph: Graph;
   private spawnTimer = 0;
   private retire = new Set<Vehicle>();
-  /** the nearest car `obstacleAhead` last found in the way */
+  /** the nearest car `obstacleAhead` last found in the way, or the person (not a player) */
   private lastBlocker: Vehicle | null = null;
+  private lastPed: Ped | null = null;
   /** while prewarming around this player, their own screen doesn't block spawns */
   private warmFor: SimPlayer | null = null;
   /** walking groups: follower -> leader + fixed offset (WeakMap so despawned peds can be GC'd) */
@@ -195,7 +198,7 @@ export class AI {
     }
     for (const p of sim.peds) {
       if (p.kinematic || p.playerId) continue;
-      if (p.vehicle || p.dead || p.state === 'chase' || p.state === 'flee') {
+      if (p.vehicle || p.dead || p.state === 'chase' || p.state === 'flee' || p.state === 'fight') {
         this.updatePed(p, dt);
         continue;
       }
@@ -330,7 +333,7 @@ export class AI {
       searchTarget: null, searchTimer: 0, target, retarget: 2, stops: mode === 'traffic' ? [...sim.world.lights.forLink(link)] : [],
       marks: mode === 'traffic' ? this.marksFor(link, kind) : [], waitAt: null, waited: 0, lane,
       nudge: 0, nudgeTo: 0, passing: null, waitFor: null, waitedFor: 0, passCheck: 0,
-      blocker: null, blockedT: 0, yieldTo: null, squeeze: null, standoff: 0,
+      blocker: null, blockedT: 0, yieldTo: null, squeeze: null, standoff: 0, pedWait: 0,
       wedged: 0, px: x, py: y,
     };
     this.drivers.set(v, d);
@@ -459,23 +462,28 @@ export class AI {
     if (!nodes.length) return false;
     const n = sim.rng.pick(nodes);
     // at the kerb of a residential street (not in a lane of a multi-lane one), and on a narrow
-    // two-way street only along one side of it, so there's still room to get past
-    const link = w.car.out[n].find(
-      (l) => l.edge.cls >= 4 && l.edge.len > 20 && (l.edge.lanesF ?? 1) + (l.edge.lanesR ?? 1) <= 2 && (l.edge.oneway || l.edge.width >= 9 || l.fwd === (l.edge.id % 2 === 0)),
-    );
-    if (!link) return false;
-    const pts = linkPoints(link, link.edge.width / 2 - 1);
-    if (pts.length < 4) return false;
-    const t = sim.rng.range(0.2, 0.8);
-    const x0 = pts[0] + (pts[2] - pts[0]) * t, y0 = pts[1] + (pts[3] - pts[1]) * t;
-    if (this.onScreen(x0, y0, 5) || !this.freeSpot(x0, y0, 5) || w.insideBuilding(x0, y0)) return false;
-    const kind = sim.rng.weighted(PARKED_MIX);
-    const angle = Math.atan2(pts[3] - pts[1], pts[2] - pts[0]);
-    if (!this.clearOfWalls(kind, x0, y0, angle)) return false;
-    const v = new Vehicle(kind, x0, y0, angle, sim.rng.pick(SPECS[kind].colors));
-    v.parked = true;
-    sim.addVehicle(v);
-    return true;
+    // two-way street only along one side of it (the right-hand side of one direction, picked per
+    // street), so there's still room to get past
+    const cands = w.car.out[n].filter((l) => l.edge.cls >= 4 && l.edge.len > 20 && (l.edge.lanesF ?? 1) + (l.edge.lanesR ?? 1) <= 2);
+    for (let tries = 0; tries < 3 && cands.length; tries++) {
+      const link = cands.splice(sim.rng.int(cands.length), 1)[0];
+      const e = link.edge;
+      // on this link's right, facing its way, or on its left facing back (the other direction's side)
+      const along = !!e.oneway || e.width >= 9 || link.fwd === (e.id % 2 === 0);
+      const pts = linkPoints(link, (along ? 1 : -1) * (e.width / 2 - 1));
+      if (pts.length < 4) continue;
+      const t = sim.rng.range(0.2, 0.8);
+      const x0 = pts[0] + (pts[2] - pts[0]) * t, y0 = pts[1] + (pts[3] - pts[1]) * t;
+      if (this.onScreen(x0, y0, 5) || !this.freeSpot(x0, y0, 5) || w.insideBuilding(x0, y0)) continue;
+      const kind = sim.rng.weighted(PARKED_MIX);
+      const angle = Math.atan2(pts[3] - pts[1], pts[2] - pts[0]) + (along ? 0 : Math.PI);
+      if (!this.clearOfWalls(kind, x0, y0, angle)) continue;
+      const v = new Vehicle(kind, x0, y0, angle, sim.rng.pick(SPECS[kind].colors));
+      v.parked = true;
+      sim.addVehicle(v);
+      return true;
+    }
+    return false;
   }
 
   /** Would a car of this kind standing at (x, y) facing `angle` be clear of every wall, fence,
@@ -509,6 +517,15 @@ export class AI {
     const sim = this.sim;
     const rng = sim.rng;
     const w = sim.world;
+    // some already sit on a bench or at a café table, or wait for a tram
+    const special = rng.next();
+    if (special < 0.12) {
+      const n = sim.crowd.spawnSeated(x, y, rMin, rMax);
+      if (n) return n;
+    } else if (special < 0.2) {
+      const n = sim.crowd.spawnWaiting(x, y, rMin, rMax);
+      if (n) return n;
+    }
     let cx = x, cy = y, rm = rMin, rM = rMax, hot = false;
     if (rng.chance(0.4)) {
       const spots = this.getHotspots().filter((h) => dist(h.x, h.y, x, y) < rMax + 45);
@@ -654,7 +671,8 @@ export class AI {
     const fwd = Math.max(0, v.fwdSpeed);
     while (d.marks.length) {
       const m = d.marks[0];
-      const past = (v.x - m.x) * m.ux + (v.y - m.y) * m.uy;
+      // how far its front is past the line (a bus straddling it is past it)
+      const past = (v.x - m.x) * m.ux + (v.y - m.y) * m.uy + v.spec.length / 2;
       if (past > 0.5 || (d.waitAt === m && past > -1.2 && d.waited < 0)) {
         d.marks.shift();
         if (d.waitAt === m) (d.waitAt = null), (d.waited = 0);
@@ -691,7 +709,7 @@ export class AI {
         // slow down to look, stop only for traffic coming across (and after a long wait at the
         // line, nose out anyway: someone lets it in)
         if (d.waitAt === m && d.waited < 0) continue;
-        if (gap < 20) desired = Math.min(desired, 3.5 + gap * 0.35);
+        if (gap < 20) desired = Math.min(desired, 3.5 + Math.max(0, gap) * 0.35);
         if (gap < 12 && !this.crossClear(v, m)) {
           desired = Math.min(desired, stopBy(1));
           if (gap < 3 && fwd < 0.6) {
@@ -886,7 +904,7 @@ export class AI {
     // waiting for the way past to clear: a few metres back, honking now and then (and after half a
     // minute stuck there, it's as good as wedged: towed away once nobody's looking)
     d.waitedFor += dt;
-    if (d.waitedFor > 6 && this.sim.rng.chance(dt * 0.15)) v.horn = 0.5;
+    if (d.waitedFor > 6 && this.sim.rng.chance(dt * 0.15)) this.honk(v);
     if (d.waitedFor > 30) d.wedged = Math.max(d.wedged, 3);
     const gap = lonOf(o) - (o.spec.length + v.spec.length) / 2;
     return gap < PASS_GAP ? 0 : Math.sqrt(2 * 3 * (gap - PASS_GAP));
@@ -976,7 +994,7 @@ export class AI {
         desired = Math.min(v.spec.maxSpeed * 0.85, Math.max(desired, desired * 1.8 + 4));
         const away = Math.atan2(v.y - danger.y, v.x - danger.x);
         diff += angleDiff(v.angle, away) * 0.2;
-        if (sim.rng.chance(dt * 1.5)) v.horn = 0.5;
+        if (sim.rng.chance(dt * 0.6)) this.honk(v);
       } else if (this.sirenBehind(v)) {
         desired *= 0.35;
         diff += 0.25;
@@ -986,7 +1004,8 @@ export class AI {
     // traffic lights: stop at the line on red, and on amber when there's room to. The cycle runs
     // on the world clock, which online clients sync to, so everyone sees the same colours.
     if (!chase && d.stops.length) {
-      while (d.stops.length && (v.x - d.stops[0].x) * d.stops[0].ux + (v.y - d.stops[0].y) * d.stops[0].uy > 0.5) d.stops.shift();
+      // (once its front is over the line it carries on through the junction)
+      while (d.stops.length && (v.x - d.stops[0].x) * d.stops[0].ux + (v.y - d.stops[0].y) * d.stops[0].uy + v.spec.length / 2 > 0.5) d.stops.shift();
       const l = d.stops[0];
       if (l) {
         const gap = (l.x - v.x) * l.ux + (l.y - v.y) * l.uy - v.spec.length / 2;
@@ -1014,9 +1033,24 @@ export class AI {
     if (!chase) desired = Math.min(desired, this.standoffs(v, d, dt));
     if (obstacle) {
       desired = 0;
-      if (obstacle === 'player' && !chase && sim.rng.chance(dt * 0.4)) v.horn = 0.6;
+      if (obstacle === 'player' && !chase && sim.rng.chance(dt * 0.4)) this.honk(v);
     }
+    // someone standing in the road: a toot after a while, and they step aside
+    if (obstacle === 'other' && this.lastPed && !chase) {
+      if ((d.pedWait += dt) > 2.5) {
+        d.pedWait = -4;
+        this.honk(v);
+      }
+    } else if (d.pedWait > 0) d.pedWait = 0;
     this.steerTo(v, d, diff, desired, dt, obstacle !== null);
+  }
+
+  /** traffic leans on the horn: everyone near hears it, people in its way step aside */
+  private honk(v: Vehicle) {
+    if (v.horn > 0) return;
+    v.horn = 0.6;
+    this.sim.events.horn(v.id, v.x, v.y);
+    this.sim.honk(v);
   }
 
   /** is a siren-on police car (not a player's) closing in from behind this traffic car? */
@@ -1131,12 +1165,15 @@ export class AI {
       }
     });
     this.lastBlocker = near;
+    this.lastPed = null;
     if (res) return res;
     if (!chase) {
       for (const p of sim.pedsNear(cx, cy, qr)) {
         if (p.vehicle || p.dead) continue;
         if (Math.abs(p.x - v.x) > range + 3 || Math.abs(p.y - v.y) > range + 3) continue;
-        if (test(p.x, p.y, 0.4)) return p.playerId ? 'player' : 'other';
+        if (!test(p.x, p.y, 0.4)) continue;
+        if (!p.playerId) this.lastPed = p;
+        return p.playerId ? 'player' : 'other';
       }
     }
     for (const t of sim.trams)
@@ -1346,15 +1383,19 @@ export class AI {
       }
       return;
     }
-    // civilians near an armed cop put their hands up
+    // civilians near an armed cop, or with a gun pointed at them, put their hands up
     if (p.kind === 'civ') {
-      let near = false;
-      for (const c of this.armedCops)
-        if (dist(p.x, p.y, c.x, c.y) < 6) {
-          near = true;
-          break;
-        }
+      if (p.surrender > 0) p.surrender -= dt;
+      let near = p.surrender > 0;
+      if (!near)
+        for (const c of this.armedCops)
+          if (dist(p.x, p.y, c.x, c.y) < 6) {
+            near = true;
+            break;
+          }
       if (near !== p.handsUp) p.handsUp = near;
+      // sitting, waiting for a tram, phoning, fighting, heading for a seat...
+      if (this.sim.crowd.updatePed(p, dt, this.followers.has(p))) return;
     }
     // walking groups: follow the leader at a fixed offset instead of navigating independently
     const fo = this.followers.get(p);

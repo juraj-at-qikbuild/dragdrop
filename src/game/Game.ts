@@ -20,6 +20,7 @@ import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
 import { drawNametags } from '../render/nametags';
+import { Bubbles } from '../render/bubbles';
 import { drawVehicle, emitVehicleLights } from '../render/drawVehicle';
 import { drawPed } from '../render/drawPed';
 import { drawTram, emitTramLights } from '../render/drawTram';
@@ -64,6 +65,8 @@ export class Game {
   entityFx = new EntityFx();
   events: ClientEvents;
   juice: Juice;
+  /** what people nearby just said */
+  bubbles = new Bubbles();
   /** read by the HUD combo widget */
   get combo() {
     return this.juice.combo;
@@ -382,6 +385,7 @@ export class Game {
     this.updateCamera(dtReal);
     this.updateInfo(dt);
     this.juice.tick(dtReal, dt);
+    this.bubbles.update(dt, (id) => host.pedById(id));
     this.shake = this.juice.trauma; // kept for any code that still reads it
 
     for (const m of this.messages.slice(0, 1)) m.time -= dtReal;
@@ -746,6 +750,7 @@ export class Game {
 
     this.drawSigns(ctx, v);
     this.juice.drawTexts(ctx);
+    if (hud) this.bubbles.draw(ctx, v);
     if (host.net && hud) drawNametags(ctx, host.net, host.peds, v, host.me.id, underground);
     if (hud) this.drawPlayerMarker(ctx);
 
