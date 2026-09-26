@@ -72,18 +72,28 @@ class CumilHunt extends TimedEvent {
   constructor(sim: Sim, director: WorldEvents, id: number, target: { x: number; y: number }) {
     super(sim, director, id, 'cumil', ANNOUNCE_S, LIVE_S);
     this.target = target;
+    // Everything that leaves the server (the circle, the announce/start positions, the place name)
+    // comes from the jittered circle, never the target: the statue itself is only sent within 40 m.
     this.circleX = target.x;
     this.circleY = target.y;
-    this.place = placeName(sim.world, target.x, target.y);
+    this.recentre();
+    this.place = placeName(sim.world, this.circleX, this.circleY);
     this.placeAt = sim.time;
-    sim.events.global({ k: 'eventAnnounce', kind: 'cumil', x: target.x, y: target.y, secs: ANNOUNCE_S });
+    sim.events.global({ k: 'eventAnnounce', kind: 'cumil', x: this.circleX, y: this.circleY, secs: ANNOUNCE_S });
   }
 
   protected onLive() {
     const sim = this.sim;
     this.pickup = { id: sim.ids.alloc(sim.time), x: this.target.x, y: this.target.y, kind: 'goldenCumil', amount: REWARD, respawn: 0, hidden: 0, cumil: -1, tag: 'cumilHunt' };
     sim.pickups.push(this.pickup);
-    sim.events.global({ k: 'eventStart', kind: 'cumil', x: this.target.x, y: this.target.y });
+    sim.events.global({ k: 'eventStart', kind: 'cumil', x: this.circleX, y: this.circleY });
+  }
+
+  /** a new circle centre up to `CIRCLE_JITTER` × the current radius from the target, so it still contains it */
+  private recentre() {
+    const a = this.sim.rng.next() * Math.PI * 2, r = this.sim.rng.next() * CIRCLE_JITTER * this.circleR;
+    this.circleX = this.target.x + Math.cos(a) * r;
+    this.circleY = this.target.y + Math.sin(a) * r;
   }
 
   update(dt: number): boolean {
@@ -101,9 +111,7 @@ class CumilHunt extends TimedEvent {
     if (wantStep > this.circleStep) {
       this.circleStep = wantStep;
       this.circleR = CIRCLE_START * (CIRCLE_END / CIRCLE_START) ** (this.circleStep / CIRCLE_STEPS);
-      const a = this.sim.rng.next() * Math.PI * 2, r = this.sim.rng.next() * CIRCLE_JITTER * this.circleR;
-      this.circleX = this.target.x + Math.cos(a) * r;
-      this.circleY = this.target.y + Math.sin(a) * r;
+      this.recentre();
       this.director.changed();
     }
     if (this.sim.time - this.placeAt >= PLACE_REFRESH) {

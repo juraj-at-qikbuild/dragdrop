@@ -118,10 +118,12 @@ describe('Hon na Čumila', () => {
     expect(sim.world.spawnLevel(target.x, target.y, 0.4)).toBe(0);
     expect(sim.world.inWater(target.x, target.y, 0)).toBe(false);
 
+    // the circle is jittered from the very first entry: the exact spot never leaves the server
+    const first = ev.entry();
+    expect(Math.hypot(first.x! - target.x, first.y! - target.y)).toBeGreaterThan(0);
     for (let i = 0; i < 30 + 300 + 5; i++) {
       sim.step(1);
       const e = ev.entry();
-      if (e.phase !== 'live') continue;
       expect(Math.hypot(e.x! - target.x, e.y! - target.y)).toBeLessThanOrEqual(e.r! + 1e-6);
     }
     expect(ev.entry().r).toBeCloseTo(30, 0); // fully shrunk after 5 minutes live
@@ -151,8 +153,12 @@ describe('Hon na Čumila', () => {
     const main = sim.world.landmark('main');
     sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: main.x, y: main.y });
     const dir = sim.rule<WorldEvents>('worldEvents')!;
-    dir.start('cumil');
+    const ev = dir.start('cumil')!;
+    const target = (ev as unknown as { target: { x: number; y: number } }).target;
     for (let i = 0; i < 30 + 420 + 2; i++) sim.step(1); // 30 s announce + 7 min live
+    // the announce and start broadcasts carry the jittered circle centre, never the statue's spot
+    for (const e of globals) if (e.k === 'eventAnnounce' || e.k === 'eventStart') expect(Math.hypot(e.x - target.x, e.y - target.y)).toBeGreaterThan(0);
+    expect(globals.filter((e) => e.k === 'eventAnnounce' || e.k === 'eventStart').length).toBe(2);
     expect(dir.active.length).toBe(0);
     expect(globals.some((e) => e.k === 'eventEnd' && e.kind === 'cumil' && e.how === 'expired')).toBe(true);
     expect(sim.pickups.some((pk) => pk.kind === 'goldenCumil')).toBe(false);
