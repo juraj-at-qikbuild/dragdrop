@@ -11,6 +11,9 @@ import type { Store } from './db';
 const REFRESH_MS = 10 * 60 * 1000;
 const REFETCH_THROTTLE_MS = 30 * 1000;
 const WORLD_KEY = 'jwks';
+/** every JWKS fetch gives up after this long, so a stalled endpoint never stalls every account hello
+ *  waiting on the shared refresh (same idea, and timeout, as supa.ts's `request()`) */
+const FETCH_TIMEOUT_MS = 10_000;
 
 /** Supabase's access-token claims beyond the standard JWT set we check */
 interface SupabaseClaims extends JWTPayload {
@@ -27,17 +30,26 @@ export interface SupabaseVerifierOptions {
   store?: Store | null;
   /** injectable for tests; defaults to fetching `${url}/auth/v1/.well-known/jwks.json` */
   fetchJwks?: () => Promise<JSONWebKeySet>;
+  /** the default fetchJwks's own timeout (ms); tests shrink this instead of waiting out the real one */
+  fetchTimeoutMs?: number;
 }
 
 export function createSupabaseVerifier(opts: SupabaseVerifierOptions): AuthVerifier {
   const { url, store = null } = opts;
   const issuer = url + '/auth/v1';
+  const fetchTimeoutMs = opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS;
   const fetchJwks =
     opts.fetchJwks ??
     (async () => {
-      const res = await fetch(issuer + '/.well-known/jwks.json');
-      if (!res.ok) throw new Error('jwks http ' + res.status);
-      return (await res.json()) as JSONWebKeySet;
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), fetchTimeoutMs);
+      try {
+        const res = await fetch(issuer + '/.well-known/jwks.json', { signal: ac.signal });
+        if (!res.ok) throw new Error('jwks http ' + res.status);
+        return (await res.json()) as JSONWebKeySet;
+      } finally {
+        clearTimeout(timer);
+      }
     });
 
   let keySet: ReturnType<typeof createLocalJWKSet> | null = null;

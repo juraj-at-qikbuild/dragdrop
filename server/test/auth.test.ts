@@ -115,4 +115,25 @@ describe('createSupabaseVerifier', () => {
     const token = await sign(privateKey, 'k1', 'u1');
     await expect(verifier.verify(token)).rejects.toThrow();
   });
+
+  it("the default JWKS fetch aborts on a timeout instead of hanging forever (a stalled endpoint can't stall every account hello)", async () => {
+    // a `fetch` that never settles on its own, but honours the AbortSignal like a real one would
+    const hangingFetch = vi.fn((_url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        const err = new Error('The operation was aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    }));
+    vi.stubGlobal('fetch', hangingFetch);
+    try {
+      const { privateKey } = await keyPair('k1');
+      const verifier = createSupabaseVerifier({ url: URL, fetchTimeoutMs: 20 }); // short: no real fetchJwks override
+      const token = await sign(privateKey, 'k1', 'u1');
+      await expect(verifier.verify(token)).rejects.toThrow();
+      expect(hangingFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
