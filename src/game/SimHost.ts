@@ -12,7 +12,7 @@ import type { PrivateEvent } from '../shared/sim/events';
 import type { Observer, PlayerState, Profile } from '../shared/sim/SimPlayer';
 import type { NetStatus } from '../net/Connection';
 import type { RosterRow } from '../shared/net/protocol';
-import type { ChallengeState, DailyState, EventEntry, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
+import type { ChallengeState, DailyState, EventEntry, JobKind, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
 export interface MeView {
@@ -124,6 +124,10 @@ export interface SimHost {
   /** Závod?: challenge a nearby player's car (or answer one you were sent); no-ops offline (races are online only) */
   challenge(target: number): void;
   challengeAnswer(from: number, ok: boolean): void;
+  /** jobs (Vlk courier / Hopík taxi): start a shift; a no-op if one is already running */
+  jobStart(kind: JobKind): void;
+  /** ends the current job shift, if any */
+  jobStop(): void;
   /** combo cash (offline only) */
   styleCash(n: number): void;
   /** host-specific reaction to a private event (before the generic effects) */

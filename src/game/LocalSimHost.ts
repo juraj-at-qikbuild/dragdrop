@@ -7,6 +7,8 @@ import type { PrivateEvent, SimEvents } from '../shared/sim/events';
 import type { Observer, Profile, SimPlayer } from '../shared/sim/SimPlayer';
 import { Sim } from '../shared/sim/Sim';
 import type { WorldEvents } from '../shared/sim/rules/WorldEvents';
+import type { Jobs } from '../shared/sim/rules/jobs/Jobs';
+import type { JobKind } from '../shared/sim/rules/types';
 import { applyLive, emptyLive, type SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
@@ -85,6 +87,14 @@ export class LocalSimHost implements SimHost {
   /** races are online only: nobody to challenge offline */
   challenge() {}
   challengeAnswer() {}
+
+  jobStart(kind: JobKind) {
+    this.sim.rule<Jobs>('jobs')?.start(this.me, kind);
+  }
+
+  jobStop() {
+    this.sim.rule<Jobs>('jobs')?.stop(this.me);
+  }
 
   /** honking: people in the way step aside (and someone may shout back) */
   horn() {

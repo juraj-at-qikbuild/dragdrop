@@ -3,6 +3,7 @@ import type { Game } from '../Game';
 import type { ClientFeature } from './ClientFeature';
 import { DailyCard } from './DailyCard';
 import { EventsOverlay } from './EventsOverlay';
+import { JobsHud } from './JobsHud';
 import { News } from './News';
 import { PartyUi } from './PartyUi';
 import { RaceUi } from './RaceUi';
@@ -20,6 +21,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new DailyCard(g));
   out.push(new News(g));
   out.push(new RaceUi(g));
-  // each feature adds its line here: out.push(new JobsHud(g)) …
+  out.push(new JobsHud(g));
   return out;
 }

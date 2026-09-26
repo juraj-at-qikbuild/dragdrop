@@ -165,6 +165,16 @@ try {
   await sleep(500);
   check(mission && (await page.evaluate(() => !!window.game.missions.active)), 'a phone booth starts a mission');
 
+  // jobs (Vlk courier): the shared rule runs offline too, with no server round-trip
+  const job = await page.evaluate(() => {
+    const g = window.game;
+    g.host.jobStart('courier');
+    return g.host.live.job;
+  });
+  check(!!job && job.kind === 'courier' && job.stage === 'pickup', `offline courier job starts (${JSON.stringify(job)})`);
+  await page.evaluate(() => window.game.host.jobStop());
+  check(!(await page.evaluate(() => window.game.host.live.job)), 'jobStop ends the shift');
+
   // persistence
   const saved = await page.evaluate(() => {
     window.game.persist();

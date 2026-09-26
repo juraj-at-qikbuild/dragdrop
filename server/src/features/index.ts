@@ -11,6 +11,7 @@ import type { RoomFeature } from './RoomFeature';
 import { Revive } from './Revive';
 import { Voice } from './Voice';
 import { Race } from './Race';
+import { Jobs } from './Jobs';
 
 export type { RoomFeature };
 export { Activity, Daily, RemoteConfig, Supa, Voice };
@@ -32,6 +33,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Voice(room, remoteConfig, activity));
   out.push(new Daily(room, supa));
   out.push(new Race(room));
-  // each feature adds its line here: out.push(new Jobs(room)) …
+  out.push(new Jobs(room));
+  // each feature adds its line here …
   return out;
 }

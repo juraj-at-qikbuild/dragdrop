@@ -5,6 +5,7 @@ import type { SimRule } from './SimRule';
 import { WorldEvents, type RulesMode } from './WorldEvents';
 import { Revive } from './Revive';
 import { Race } from './Race';
+import { Jobs } from './jobs/Jobs';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
@@ -19,6 +20,8 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   director.register(MOST_WANTED_DEF);
   director.register(DERBY_DEF);
   const rules: SimRule[] = [director];
+  // courier and taxi jobs run offline and online alike
+  rules.push(new Jobs(sim));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), and races need two players
   if (mode === 'server') {

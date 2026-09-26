@@ -8,6 +8,7 @@ import { Vehicle } from '../shared/entities/Vehicle';
 import type { Observer } from '../shared/sim/SimPlayer';
 import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent } from '../shared/sim/events';
+import type { JobKind } from '../shared/sim/rules/types';
 import { VehiclePhysics, pedContact } from '../shared/sim/Physics';
 import { spikeHit } from '../shared/sim/Police';
 import { Writer, Reader, decodeSnapshot, encodeState, MSG_SNAPSHOT, type Snapshot, type StateReport } from '../shared/net/codec';
@@ -526,6 +527,14 @@ export class NetSimHost implements SimHost, NetView {
 
   challengeAnswer(from: number, ok: boolean) {
     this.conn.send({ t: 'challengeAnswer', from, ok });
+  }
+
+  jobStart(kind: JobKind) {
+    this.conn.send({ t: 'job', op: 'start', kind });
+  }
+
+  jobStop() {
+    this.conn.send({ t: 'job', op: 'stop' });
   }
 
   styleCash() {

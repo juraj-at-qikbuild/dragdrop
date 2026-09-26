@@ -13,6 +13,7 @@ import type { AuthVerifier } from '../src/auth-types';
 import { Store, hashToken } from '../src/db';
 import { TimedEvent, type WorldEventDef } from '../../src/shared/sim/rules/WorldEvents';
 import type { EventEntry } from '../../src/shared/sim/rules/types';
+import type { PrivateEvent } from '../../src/shared/sim/events';
 
 function setup(extra: Partial<RoomOptions> = {}) {
   const clock = new FakeClock();
@@ -853,5 +854,111 @@ describe('Race (online)', () => {
     expect(result?.winner).toBe('Anna');
     expect(result?.loser).toBe('Boris');
     expect(result?.amount).toBe(500);
+  });
+});
+
+describe('Jobs (Vlk courier / Hopík taxi)', () => {
+  /** every {k:'job'} private event this link has received so far, in order */
+  const jobEvents = (link: FakeLink) =>
+    link
+      .json('ev')
+      .flatMap((m) => m.p)
+      .filter((e): e is Extract<PrivateEvent, { k: 'job' }> => e.k === 'job');
+  const payoutEvents = (link: FakeLink, reason: string) =>
+    link
+      .json('ev')
+      .flatMap((m) => m.p)
+      .filter((e): e is Extract<PrivateEvent, { k: 'payout' }> => e.k === 'payout' && e.reason === reason);
+
+  it('job{op:start} leads to job private events, and a finished courier job pays through sim.payout(reason: courier)', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!;
+
+    room.onMessage(a.conn, JSON.stringify({ t: 'job', op: 'start', kind: 'courier' }));
+    tick(1); // private events queue server-side and only flush to the client on the next tick
+    expect(jobEvents(a.link).length).toBeGreaterThan(0);
+    const offer = jobEvents(a.link).pop()!.s!;
+    expect(offer.kind).toBe('courier');
+    expect(offer.stage).toBe('pickup');
+
+    // on foot to the pickup, held still (debug.teleport moves the figure; with no further state
+    // reports from this fake client it just stays put at 0 m/s)
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', teleport: [offer.x, offer.y] }));
+    tick(25); // just over 1 s
+    const delivering = jobEvents(a.link).pop()!.s!;
+    expect(delivering.stage).toBe('deliver');
+
+    const before = pa.profile.money;
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', teleport: [delivering.x, delivering.y] }));
+    tick(25);
+    expect(jobEvents(a.link).pop()!.s).toBeNull(); // delivered: chaining to the next offer
+    expect(pa.profile.money).toBeGreaterThan(before);
+    const payouts = payoutEvents(a.link, 'courier');
+    expect(payouts).toHaveLength(1);
+    expect(payouts[0].amount).toBe(pa.profile.money - before);
+  });
+
+  it('a finished taxi job pays through sim.payout(reason: taxi)', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!;
+    const car = room.sim.addVehicle(new Vehicle('sedan', pa.ped.x, pa.ped.y, 0, '#fff'));
+    room.onMessage(a.conn, JSON.stringify({ t: 'enter', vid: car.id }));
+    tick(1);
+    expect(pa.ped.vehicle).toBe(car);
+
+    room.onMessage(a.conn, JSON.stringify({ t: 'job', op: 'start', kind: 'taxi' }));
+    tick(1);
+    const offer = jobEvents(a.link).pop()!.s!;
+    expect(offer.kind).toBe('taxi');
+    expect(offer.stage).toBe('pickup');
+
+    // drive (stationary edits, like debug.teleport does for a figure) onto the fare and hold still
+    car.x = offer.x;
+    car.y = offer.y;
+    car.vx = 0;
+    car.vy = 0;
+    tick(25);
+    const boarded = jobEvents(a.link).pop()!.s!;
+    expect(boarded.stage).toBe('deliver');
+
+    car.x = boarded.x;
+    car.y = boarded.y;
+    const before = pa.profile.money;
+    tick(25);
+    const payouts = payoutEvents(a.link, 'taxi');
+    expect(payouts).toHaveLength(1);
+    // >=, not ==: the destination pool includes landmarks, and this one may happen to double as an
+    // undiscovered landmark, which pays its own unrelated +€100 through addMoney (see revive.test.ts's
+    // identical caveat) — the job's own payout is still exactly this one event, for exactly this amount
+    expect(pa.profile.money - before).toBeGreaterThanOrEqual(payouts[0].amount);
+  });
+
+  it('job{op:stop} ends the shift outright', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    room.onMessage(a.conn, JSON.stringify({ t: 'job', op: 'start', kind: 'courier' }));
+    tick(1);
+    expect(jobEvents(a.link).pop()!.s).not.toBeNull();
+    room.onMessage(a.conn, JSON.stringify({ t: 'job', op: 'stop' }));
+    tick(1);
+    expect(jobEvents(a.link).pop()!.s).toBeNull();
+  });
+
+  it('rejects an unknown kind and a job message from a player with no session', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const before = room.counters.rejected;
+    room.onMessage(a.conn, JSON.stringify({ t: 'job', op: 'start', kind: 'not-a-kind' }));
+    tick(1);
+    expect(jobEvents(a.link)).toHaveLength(0); // validated and ignored, not started
+    expect(room.counters.rejected).toBe(before); // still a known message type: not a strike
   });
 });
