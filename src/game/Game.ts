@@ -33,6 +33,7 @@ import { WEAPONS, traceMelee, traceShot } from '../shared/sim/Combat';
 import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
+import { newDriveState, touchDrive, type DriveScheme } from './touchDrive';
 import { FURNITURE, F_HYDRANT } from '../shared/world/Street';
 import { EntityFx } from './EntityFx';
 import { ClientEvents } from './ClientEvents';
@@ -97,6 +98,9 @@ export class Game {
   facades = true;
   /** on-foot WASD, user choice from the menus: 'screen' = W is up the screen, 'cursor' = W walks towards the mouse */
   footControls: 'screen' | 'cursor' = 'screen';
+  /** touch driving scheme, user choice from the menus (see touchDrive.ts) */
+  driveControls: DriveScheme = 'direction';
+  private driveState = newDriveState();
   /** the player's zoom (mouse wheel), a factor on the automatic camera zoom */
   zoomPref = 1;
   private frameAvg = 16;
@@ -492,15 +496,10 @@ export class Game {
         const trig = inp.pad.rt - inp.pad.lt;
         if (Math.abs(trig) > 0.05) throttle = trig;
       }
-      if (inp.touch.move.on) {
-        // touch: steer toward the stick's direction, easing off the throttle through a turn
-        // (the tyres only hold so much) and braking into a sharp one at speed
-        const want = Math.atan2(inp.touch.move.y, inp.touch.move.x);
-        const mag = Math.hypot(inp.touch.move.x, inp.touch.move.y);
-        const diff = Math.atan2(Math.sin(want - v.angle), Math.cos(want - v.angle));
-        const turn = Math.abs(diff);
-        throttle = mag < 0.3 ? 0 : turn > 2.2 ? -1 : turn > 0.7 && v.fwdSpeed > 12 ? -0.6 : 1 - clamp((turn - 0.25) * 1.2, 0, 0.8);
-        steer = clamp(diff * 2, -1, 1) * (throttle < 0 && turn > 2.2 ? -1 : 1);
+      const t = inp.touch;
+      if (t.move.on || inp.touchButtons.has('gas') || inp.touchButtons.has('brake')) {
+        // touch: the stick points where to go ('direction') or steers ('classic'), see touchDrive.ts
+        ({ throttle, steer } = touchDrive(this.driveControls, t.move, { gas: inp.touchButtons.has('gas'), brake: inp.touchButtons.has('brake') }, v, this.driveState, dt));
       }
       v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space', 'handbrake'), inp.down('ShiftLeft', 'ShiftRight', 'nitro'));
       if (inp.hit('KeyH')) {
