@@ -7,6 +7,7 @@ import { randomNick } from './net/nicknames';
 import { cleanNick } from './shared/net/protocol';
 import { parseBootLinks } from './boot/links';
 import { setPauseOnline } from './ui/kit/dom';
+import { handleAuthCallback, markPasswordResetPending } from './net/auth';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -64,6 +65,20 @@ async function boot() {
   if (links.online) history.replaceState(null, '', location.pathname + location.search);
   const game = new Game(canvas, data, { online: onlineBoot });
   (window as unknown as { game: Game }).game = game;
+  // an account e-mail link coming back (confirm sign-up, or a password reset — reset=1 always also
+  // carries the same ?code=, so both exchange it the same way). Fire-and-forget: it's a quick local
+  // round trip and shouldn't hold up the first frame. No modal yet (part 2); just tell the player.
+  if (links.authCallback || links.reset) {
+    void (async () => {
+      const { signedIn } = await handleAuthCallback();
+      if (links.reset) {
+        markPasswordResetPending(); // part 2's new-password modal will read and clear this
+        console.log('password reset: code exchanged, signedIn =', signedIn, '– the new-password modal lands in part 2');
+      } else {
+        game.message('', signedIn ? 'Prihlásenie prebehlo automaticky.' : 'Účet potvrdený, môžeš sa prihlásiť.', 6, '#69f0ae');
+      }
+    })();
+  }
   try {
     const saved = localStorage.getItem(QUALITY_KEY) as Game['qualityPref'] | null;
     if (saved && QUALITY_CYCLE.includes(saved)) game.qualityPref = saved;
@@ -200,14 +215,35 @@ async function boot() {
     const id = loadIdentity();
     if (id) saveIdentity({ ...id, nick });
   };
-  const startOnline = async (id: Identity) => {
+  // `claim`: sent once, right after a fresh sign-up that found local guest progress worth keeping
+  // (part 2 wires the actual button; this just needs to be ready to call).
+  const startOnline = async (id: Identity, claim = false) => {
     $('loading').classList.remove('hidden');
     $('loading-text').textContent = 'Pripájam sa na server…';
-    const session = new NetSimHost(game, SERVER_URL, id);
+    const session = new NetSimHost(game, SERVER_URL, id, claim);
     try {
       await session.start();
     } catch (e) {
       const why = (e as Error).message;
+      if (why === 'nick-taken') {
+        // only a brand-new account's hello gets this (its chosen nickname is already taken)
+        const nick = await askNick(id.nick, 'Skúsiť znova');
+        if (nick) return startOnline({ ...id, nick }, claim);
+        showMenu();
+        return;
+      }
+      if (why === 'auth' || why === 'auth-unavailable') {
+        $('loading-text').textContent = why === 'auth' ? 'Prihlásenie vypršalo – prihlás sa znova.' : 'Prihlásenie je teraz nedostupné.';
+        const guest = document.createElement('button');
+        guest.textContent = 'Hrať ako hosť';
+        guest.onclick = () => {
+          const g = loadIdentity() ?? { token: newToken(), nick: randomNick() };
+          saveIdentity(g);
+          void startOnline(g);
+        };
+        $('loading').appendChild(guest);
+        return;
+      }
       $('loading-text').textContent =
         why === 'version' ? 'Nová verzia hry – obnov stránku.' : why === 'full' ? 'Server je plný. Skús to neskôr.' : 'Server je nedostupný. Skús to neskôr.';
       const back = document.createElement('button');

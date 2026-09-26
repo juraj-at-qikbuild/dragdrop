@@ -271,7 +271,13 @@ export class Room {
         return this.onHit(s, msg.src, msg.speed, msg.tram === 1, msg.rt);
       case 'nick': {
         const n = cleanNick(msg.nick);
-        if (n) (p.nick = n), this.dirty.add(s);
+        if (!n) return;
+        // an account's nick must stay unique; without a store (tests), it behaves like a guest's
+        if (p.account && this.store && !this.store.reserveNick(s.key.slice(5), n, this.wall())) {
+          this.send(c, { t: 'error', code: 'nick-taken' }); // non-fatal: the old nickname is kept
+          return;
+        }
+        (p.nick = n), this.dirty.add(s);
         return;
       }
       case 'ping':
@@ -333,8 +339,13 @@ export class Room {
           c.link.close(4005, 'auth');
           return;
         }
-        const { nick: accNick, claimed } = this.accountIdentity(msg, acct);
-        this.accept(c, msg, 'acct:' + acct.userId, accNick, true, claimed);
+        const identity = this.accountIdentity(msg, acct);
+        if (!identity) {
+          this.send(c, { t: 'error', code: 'nick-taken' });
+          c.link.close(4006, 'nick-taken');
+          return;
+        }
+        this.accept(c, msg, 'acct:' + acct.userId, identity.nick, true, identity.claimed);
       },
       () => {
         c.pending = false;
@@ -345,10 +356,40 @@ export class Room {
     );
   }
 
-  /** where the accounts feature will reserve a unique nickname and claim guest progress (hello.claim,
-   *  once, into an empty account); for now every account just keeps its hello nickname and claims nothing */
-  private accountIdentity(msg: HelloMsg, _acct: { userId: string; email?: string }): { nick: string; claimed: boolean } {
-    return { nick: cleanNick(msg.nick)!, claimed: false };
+  /** An account's nickname and claimed guest progress. Null: the hello nickname is already taken by
+   *  another account (only possible for a brand-new one; an existing account keeps its stored nick
+   *  regardless of what the hello sent), and the caller must refuse the hello with 'nick-taken'. */
+  private accountIdentity(msg: HelloMsg, acct: { userId: string; email?: string }): { nick: string; claimed: boolean } | null {
+    const store = this.store;
+    if (!store) return { nick: cleanNick(msg.nick)!, claimed: false }; // no persistence (tests): behave like a guest
+    const userId = acct.userId;
+    const existing = store.getAccount(userId);
+    let nick: string;
+    if (existing) nick = existing.nick; // the hello nick is decoration only; the `nick` message renames
+    else {
+      const wanted = cleanNick(msg.nick)!;
+      if (!store.reserveNick(userId, wanted, this.wall())) return null;
+      nick = wanted;
+    }
+    let claimed = false;
+    const acctKey = 'acct:' + userId;
+    if (msg.claim && !store.hasPlayer(acctKey)) {
+      const guestKey = hashToken(msg.token);
+      // a live (or grace-period) guest session under that key: save and drop it first, so it can't
+      // later overwrite the row we're about to move with its own (now stale) in-memory state
+      const guest = this.sessions.get(guestKey);
+      if (guest) {
+        if (guest.conn) {
+          this.send(guest.conn, { t: 'bye', reason: 'replaced' });
+          const old = guest.conn;
+          old.session = null;
+          old.link.close(4002, 'replaced');
+        }
+        this.drop(guest);
+      }
+      claimed = store.movePlayer(guestKey, acctKey);
+    }
+    return { nick, claimed };
   }
 
   /** shared tail of hello(): find-or-create the session for `key` and welcome it. Used by both the
@@ -652,9 +693,10 @@ export class Room {
     for (const f of this.features) f.onDebug?.(s, m);
   }
 
-  /** remove a player for good (quit, or grace expired) */
-  private drop(s: Session) {
-    this.save([s]);
+  /** remove a player for good (quit, or grace expired). `save` is false only when the caller already
+   *  deleted this session's rows on purpose (GDPR delete): re-saving here would resurrect them. */
+  private drop(s: Session, save = true) {
+    if (save) this.save([s]);
     for (const f of this.features) f.onDrop?.(s);
     this.sim.removePlayer(s.player);
     this.sessions.delete(s.key);
@@ -818,6 +860,18 @@ export class Room {
   /** to one player's client, if connected (features) */
   sendTo(s: Session, msg: ServerMsg) {
     if (s.conn) this.send(s.conn, msg);
+  }
+
+  /** a feature is done with this session for good (GDPR delete): close its connection and remove it
+   *  from the world right away, the same as leave/grace-expiry would (send any parting message first).
+   *  Never re-saves: the caller already deleted this session's rows on purpose. */
+  dropSession(s: Session) {
+    if (s.conn) {
+      const c = s.conn;
+      c.session = null;
+      c.link.close(4007, 'deleted');
+    }
+    this.drop(s, false);
   }
 
   /** wall clock, ms (timestamps, daily rollover) */

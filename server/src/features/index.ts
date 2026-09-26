@@ -2,6 +2,7 @@
 import { config } from '../config';
 import type { Room } from '../Room';
 import { Supa } from '../supa';
+import { Account } from './Account';
 import { Activity } from './Activity';
 import { RemoteConfig } from './RemoteConfig';
 import type { RoomFeature } from './RoomFeature';
@@ -15,6 +16,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   const supa = opts.supa ?? (process.env.VITEST ? new Supa('', '') : new Supa(config.supabaseUrl, config.supabaseSecretKey));
   supa.start();
   const out: RoomFeature[] = [new RemoteConfig(room, supa, { e2e: config.e2e || room.debug }), new Activity(supa)];
+  out.push(new Account(room));
   // each feature adds its line here: out.push(new Party(room)) …
   return out;
 }

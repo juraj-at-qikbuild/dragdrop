@@ -1,5 +1,7 @@
 // Anonymous online identity: a random UUID token (a bearer secret for the online profile) plus a
-// nickname, kept in localStorage. There are no accounts; clearing site data starts a new profile.
+// nickname, kept in localStorage. Signed-in account play (src/net/auth.ts) keeps its own session
+// separately; this is only ever the guest identity, though its token is still sent even when playing
+// as an account, so a guest can claim it (docs/plans/social-events.md).
 import { cleanNick } from '../shared/net/protocol';
 
 const KEY = 'blava-city-online-id';
@@ -7,6 +9,9 @@ const KEY = 'blava-city-online-id';
 export interface Identity {
   token: string;
   nick: string;
+  /** play as the signed-in Supabase account, not the guest token above (still always sent, so it can
+   *  be claimed); set by whatever boot/sign-in code constructs this Identity, not persisted here */
+  account?: boolean;
 }
 
 export function loadIdentity(): Identity | null {
@@ -27,6 +32,15 @@ export function saveIdentity(id: Identity) {
     localStorage.setItem(KEY, JSON.stringify(id));
   } catch {
     /* storage unavailable: the identity lasts for this page only */
+  }
+}
+
+/** after an account delete: the next guest session (if any) must not reuse a token tied to it */
+export function clearIdentity() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
   }
 }
 

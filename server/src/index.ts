@@ -9,6 +9,7 @@ import { World } from '../../src/shared/world/World';
 import type { MapJSON } from '../../src/shared/types';
 import { Store } from './db';
 import { SERVER_CAPS, scaleCaps } from '../../src/shared/sim/density';
+import { createSupabaseVerifier } from './auth';
 
 const t0 = performance.now();
 const world = new World(JSON.parse(readFileSync(config.mapPath, 'utf8')) as MapJSON);
@@ -17,9 +18,13 @@ const store = new Store(config.dbPath);
 console.log(`database ${config.dbPath}: ${store.playerCount()} profiles`);
 // never log the values themselves (config.ts), only whether each optional integration is set up
 console.log(`integrations: supabase ${config.supabaseUrl && config.supabaseSecretKey ? 'yes' : 'no'}, turn ${config.cfTurnKeyId && config.cfTurnApiToken ? 'yes' : 'no'}`);
+// account hellos verify a Supabase access token locally against its JWKS; unset (or AUTH_DISABLED,
+// for tests/local dev without a project) means every account hello gets 'auth-unavailable'
+const auth = config.supabaseUrl && !config.authDisabled ? createSupabaseVerifier({ url: config.supabaseUrl, store }) : null;
+console.log(`auth: ${auth ? 'yes' : 'no'}`);
 const room = new Room({
   world, store, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e,
-  caps: scaleCaps(SERVER_CAPS, config.npcScale),
+  caps: scaleCaps(SERVER_CAPS, config.npcScale), auth: auth ?? undefined,
 });
 const originOk = originMatcher(config.allowedOrigins);
 

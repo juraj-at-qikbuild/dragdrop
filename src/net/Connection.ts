@@ -2,8 +2,9 @@
 // RTT and server-clock estimation. Knows nothing about game state; NetSimHost/OnlineSession do.
 import type { ClientMsg, ErrorCode, HelloMsg, ServerMsg, WelcomeMsg } from '../shared/net/protocol';
 
-/** why the server won't have this client: refused on hello (ErrorCode) or replaced by another tab */
-export type FatalReason = ErrorCode | 'replaced';
+/** why the server won't have this client: refused on hello (ErrorCode), replaced by another tab, or
+ *  the account behind this session was deleted */
+export type FatalReason = ErrorCode | 'replaced' | 'deleted';
 
 export type NetState = 'connecting' | 'online' | 'reconnecting' | 'failed' | 'closed';
 
@@ -24,6 +25,10 @@ export interface ConnectionHandlers {
   binary?(data: ArrayBuffer): void;
   /** the server said the client is outdated, or took the identity over in another tab */
   fatal?(reason: FatalReason): void;
+  /** a chance to fix an 'auth' error (the access token expired or was rejected) before giving up on
+   *  it: return true to retry the connection once more right away, false to make it fatal. Tried at
+   *  most once per successful connection. */
+  authRetry?(): Promise<boolean>;
 }
 
 const PING_MS = 2000;
@@ -42,6 +47,10 @@ export class Connection {
   private offset = 0;
   private offsetSamples: { rtt: number; off: number }[] = [];
   private nextRetryFast = false;
+  /** 'auth' has already been retried once since the last welcome (or the start of the connection) */
+  private authRetried = false;
+  /** an authRetry() is in flight: onclose must not also schedule its own reconnect while we wait */
+  private authRetryPending = false;
 
   constructor(
     private url: string,
@@ -108,7 +117,8 @@ export class Connection {
       if (this.ws !== ws) return;
       this.ws = null;
       clearInterval(this.pingTimer);
-      if (this.stopped) return;
+      // an authRetry() is awaiting a fresh token; it (not onclose) decides what happens next
+      if (this.stopped || this.authRetryPending) return;
       this.scheduleRetry();
     };
     ws.onerror = () => {
@@ -122,6 +132,7 @@ export class Connection {
         const reconnect = this.everWelcomed;
         this.everWelcomed = true;
         this.attempt = 0;
+        this.authRetried = false; // a fresh connection earns its own one 'auth' retry again
         this.status.state = 'online';
         // coarse offset until the first pong refines it
         this.offsetSamples = [];
@@ -149,11 +160,30 @@ export class Connection {
         this.status.players = m.ps.length;
         break;
       case 'error':
+        // a rename's nick-taken (after we're already playing) is a normal message, not fatal: the
+        // server kept the old nickname, and NetSimHost just tells the player. At hello time
+        // (everWelcomed still false, since this is the very first response on this connection) it
+        // stays fatal, so the caller can ask for another nick and reconnect.
+        if (m.code === 'nick-taken' && this.everWelcomed) break;
+        if (m.code === 'auth' && this.h.authRetry && !this.authRetried) {
+          this.authRetried = true;
+          this.authRetryPending = true;
+          void this.h.authRetry().then((ok) => {
+            this.authRetryPending = false;
+            if (ok && !this.stopped) this.open();
+            else this.fatal('auth');
+          });
+          return;
+        }
         this.fatal(m.code);
         return;
       case 'bye':
         if (m.reason === 'replaced' || m.reason === 'kicked') {
           this.fatal('replaced');
+          return;
+        }
+        if (m.reason === 'deleted') {
+          this.fatal('deleted');
           return;
         }
         // server restarting (deploy): come back quickly

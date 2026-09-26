@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Room, GRACE_MS, type RoomOptions } from '../src/Room';
 import { PROTOCOL_VERSION, ROSTER_ACCOUNT } from '../../src/shared/net/protocol';
 import { Ent } from '../../src/shared/net/codec';
@@ -7,6 +10,7 @@ import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, flush, lo
 import type { Ped } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import type { AuthVerifier } from '../src/auth-types';
+import { Store, hashToken } from '../src/db';
 import { TimedEvent, type WorldEventDef } from '../../src/shared/sim/rules/WorldEvents';
 import type { EventEntry } from '../../src/shared/sim/rules/types';
 
@@ -479,5 +483,176 @@ describe('features and debug', () => {
     const to = room.sim.world.walkableNear(l.x, l.y - 40);
     room.onMessage(a.conn, JSON.stringify({ t: 'debug', teleport: [to.x, to.y] }));
     expect(Math.hypot(p.ped.x - to.x, p.ped.y - to.y)).toBeLessThan(15);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// accounts: nicknames, claiming and deletion need a real Store (SQLite), unlike the fakeAuth
+// tests above which only exercise the hello/welcome shape without a store attached.
+function withDb(fn: (file: string) => Promise<void>) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'blava-room-'));
+  return fn(path.join(dir, 'test.db')).finally(() => rmSync(dir, { recursive: true, force: true }));
+}
+
+/** 'tok-a'/'tok-b'/'tok-c' verify as three distinct accounts u1/u2/u3; anything else fails */
+const STORE_USERS: Record<string, string> = { 'tok-a': 'u1', 'tok-b': 'u2', 'tok-c': 'u3' };
+const storeAuth: AuthVerifier = { verify: (token) => Promise.resolve(STORE_USERS[token] ? { userId: STORE_USERS[token] } : null) };
+
+function setupStore(file: string) {
+  const clock = new FakeClock();
+  const store = new Store(file);
+  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 7, store, debug: true, auth: storeAuth });
+  const join = (token: string, nick: string) => {
+    const link = new FakeLink();
+    const conn = room.onJoin(link);
+    room.onMessage(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token, nick }));
+    return { link, conn, w: link.last('welcome') };
+  };
+  const joinAuth = async (token: string, nick: string, authToken: string, claim = false) => {
+    const link = new FakeLink();
+    const conn = room.onJoin(link);
+    room.onMessage(conn, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token, nick, auth: authToken, claim }));
+    await flush();
+    return { link, conn, w: link.last('welcome') };
+  };
+  const tick = (n = 1) => {
+    for (let i = 0; i < n; i++) {
+      clock.advance(50);
+      room.tick(50);
+    }
+  };
+  return { clock, store, room, join, joinAuth, tick };
+}
+
+describe('accounts: nicknames, claiming, deletion (store-backed)', () => {
+  it('a new account reserves its hello nickname', async () => {
+    await withDb(async (file) => {
+      const { store, joinAuth } = setupStore(file);
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      expect(a.w.nick).toBe('Fero');
+      expect(store.getAccount('u1')).toEqual({ nick: 'Fero' });
+    });
+  });
+
+  it('a second account with the same nick in a different case gets nick-taken and is closed', async () => {
+    await withDb(async (file) => {
+      const { joinAuth } = setupStore(file);
+      await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      const b = await joinAuth(TOKEN_B, 'fero', 'tok-b');
+      expect(b.link.last('error').code).toBe('nick-taken');
+      expect(b.link.closed?.code).toBe(4006);
+    });
+  });
+
+  it('an existing account keeps its stored nick, ignoring what a later hello sends', async () => {
+    await withDb(async (file) => {
+      const { joinAuth } = setupStore(file);
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      expect(a.w.nick).toBe('Fero');
+      const b = await joinAuth(TOKEN_B, 'ÚplneIné', 'tok-a'); // same account, a different hello nick
+      expect(b.w.nick).toBe('Fero');
+    });
+  });
+
+  it('claim moves a guest\'s money and found into an empty account, claimed=true', async () => {
+    await withDb(async (file) => {
+      const { room, store, join, joinAuth } = setupStore(file);
+      const g = join(TOKEN_A, 'Hosť');
+      const gp = room.sim.players.get(g.w.id)!;
+      gp.profile.money = 500;
+      gp.profile.found.push('castle');
+      // no tick() before the claim: the guest's (disconnected) ped happens to sit on a landmark,
+      // and even one sim step would credit its own $100 "found" bonus, drowning out the assertion
+      room.onLeave(g.conn); // saves, and stays in the grace period
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true);
+      expect(a.w.claimed).toBe(true);
+      expect(room.sim.players.get(a.w.id)!.profile.money).toBe(500);
+      expect(room.sim.players.get(a.w.id)!.profile.found).toContain('castle');
+      expect(store.hasPlayer(hashToken(TOKEN_A))).toBe(false); // the old guest row is gone
+    });
+  });
+
+  it('claim into an account that already has progress refuses, claimed=false', async () => {
+    await withDb(async (file) => {
+      const { room, clock, join, joinAuth } = setupStore(file);
+      const a1 = await joinAuth(TOKEN_B, 'Fero', 'tok-a');
+      room.onMessage(a1.conn, JSON.stringify({ t: 'debug', money: 50 }));
+      room.onLeave(a1.conn); // persist u1's progress
+      // jump straight past the grace period so its session is dropped for good on the very next tick,
+      // before sim.step() can run for it again: its ped sits on a landmark, and even one step would
+      // credit a stray $100 "found" bonus on top of the money set above, muddying the assertion below
+      clock.advance(GRACE_MS + 50);
+      room.tick(50);
+      const g = join(TOKEN_A, 'Hosť');
+      room.onLeave(g.conn);
+      const a2 = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true);
+      expect(a2.w.claimed).toBe(false);
+      expect(room.sim.players.get(a2.w.id)!.profile.money).toBe(50); // untouched
+    });
+  });
+
+  it('claiming the same guest twice gets the second false', async () => {
+    await withDb(async (file) => {
+      const { room, join, joinAuth, tick } = setupStore(file);
+      const g = join(TOKEN_A, 'Hosť');
+      room.onMessage(g.conn, JSON.stringify({ t: 'debug', money: 10 }));
+      tick(1);
+      room.onLeave(g.conn);
+      tick(1);
+      const a1 = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true);
+      expect(a1.w.claimed).toBe(true);
+      room.onLeave(a1.conn);
+      tick(1);
+      const a2 = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true); // the same (already-claimed) guest token again
+      expect(a2.w.claimed).toBe(false);
+    });
+  });
+
+  it('a live guest session is dropped (told bye, closed, removed) when it is claimed', async () => {
+    await withDb(async (file) => {
+      const { room, join, joinAuth, tick } = setupStore(file);
+      const g = join(TOKEN_A, 'Hosť'); // a second tab, still connected, sharing this device's guest token
+      tick(1);
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a', true);
+      expect(a.w.claimed).toBe(true);
+      expect(g.link.last('bye').reason).toBe('replaced');
+      expect(g.link.closed).not.toBeNull();
+      expect(room.sessions.has(hashToken(TOKEN_A))).toBe(false);
+    });
+  });
+
+  it('accountDelete removes the account rows and sends bye "deleted"', async () => {
+    await withDb(async (file) => {
+      const { room, store, joinAuth } = setupStore(file);
+      const a = await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      room.onMessage(a.conn, JSON.stringify({ t: 'accountDelete' }));
+      expect(a.link.last('bye').reason).toBe('deleted');
+      expect(a.link.closed?.code).toBe(4007);
+      expect(store.getAccount('u1')).toBeNull();
+      expect(store.hasPlayer('acct:u1')).toBe(false);
+      expect(room.sessions.has('acct:u1')).toBe(false);
+    });
+  });
+
+  it('accountDelete is a no-op for a guest', async () => {
+    await withDb(async (file) => {
+      const { room, join } = setupStore(file);
+      const g = join(TOKEN_A, 'Hosť');
+      room.onMessage(g.conn, JSON.stringify({ t: 'accountDelete' }));
+      expect(g.link.json('bye')).toHaveLength(0);
+      expect(g.link.closed).toBeNull();
+    });
+  });
+
+  it('a rename via `nick` to a taken nick keeps the old one, without closing the connection', async () => {
+    await withDb(async (file) => {
+      const { room, joinAuth } = setupStore(file);
+      await joinAuth(TOKEN_A, 'Fero', 'tok-a');
+      const b = await joinAuth(TOKEN_B, 'Jozef', 'tok-b');
+      room.onMessage(b.conn, JSON.stringify({ t: 'nick', nick: 'Fero' }));
+      expect(b.link.last('error').code).toBe('nick-taken');
+      expect(b.link.closed).toBeNull();
+      expect(room.sim.players.get(b.w.id)!.nick).toBe('Jozef'); // kept
+    });
   });
 });

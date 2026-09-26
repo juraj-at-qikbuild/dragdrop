@@ -17,7 +17,12 @@ import {
 } from '../shared/net/protocol';
 import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
-import type { Identity } from './identity';
+import { clearIdentity, newToken, saveIdentity, type Identity } from './identity';
+import { accessToken, signOut } from './auth';
+
+/** how often an account's cached access token is refreshed while online (Connection.hello() reads
+ *  the cache synchronously, so it can't just await accessToken() itself) */
+const TOKEN_REFRESH_MS = 10 * 60 * 1000;
 
 export class NetSimHost implements SimHost, NetView {
   readonly mode = 'net';
@@ -44,8 +49,14 @@ export class NetSimHost implements SimHost, NetView {
   private enteringAt = 0;
   private hitAt = new Map<number, number>();
   private started = false;
+  /** cached Supabase access token; hello() reads it synchronously (Connection builds hello() from a
+   *  plain callback, so it can't await), refreshed before start() and every 10 min while online */
+  private authToken: string | null = null;
+  private authTimer = 0;
+  /** remembered so a rejected rename (`error: nick-taken`) can be reverted; see onMessage()'s 'error' */
+  private pendingNick: string | null = null;
 
-  constructor(private game: Game, url: string, private identity: Identity) {
+  constructor(private game: Game, url: string, private identity: Identity, private claimPending = false) {
     this.nick = identity.nick;
     const ped = new Ped('player', 0, 0, 1);
     this.me = {
@@ -58,13 +69,22 @@ export class NetSimHost implements SimHost, NetView {
       message: (m) => this.onMessage(m),
       binary: (b) => this.onBinary(b),
       fatal: (r) => this.onFatal(r),
+      authRetry: () => this.refreshAuthToken().then(() => !!this.authToken),
     });
   }
 
   /** resolves once connected; rejects if the server can't be reached */
   async start() {
+    if (this.identity.account) {
+      await this.refreshAuthToken();
+      this.authTimer = window.setInterval(() => void this.refreshAuthToken(), TOKEN_REFRESH_MS);
+    }
     await this.conn.start();
     this.game.events.skipOwnShots = true;
+  }
+
+  private async refreshAuthToken() {
+    this.authToken = await accessToken();
   }
 
   get net(): NetView {
@@ -77,9 +97,12 @@ export class NetSimHost implements SimHost, NetView {
   private hello() {
     const p = this.me.ped;
     const f = this.ownCar ?? p;
+    const account = !!this.identity.account;
     return {
       t: 'hello' as const, v: PROTOCOL_VERSION, token: this.identity.token, nick: this.nick,
       resume: this.started ? { x: f.x, y: f.y, lvl: p.level, car: this.ownCar?.id ?? 0 } : undefined,
+      auth: account ? (this.authToken ?? undefined) : undefined,
+      claim: account && this.claimPending ? true : undefined,
     };
   }
 
@@ -109,10 +132,28 @@ export class NetSimHost implements SimHost, NetView {
     }
     this.started = true;
     this.game.atmos.clock.sync(w.clock);
+    if (w.claimed !== undefined) {
+      // the attempt (whichever way it went) is used up: don't keep re-sending claim on later hellos
+      this.claimPending = false;
+      if (w.claimed) {
+        // this device's guest token just got moved into the account: never resume it as a guest again
+        this.identity.token = newToken();
+        saveIdentity(this.identity);
+      }
+    }
     if (reconnect) this.game.message('', 'Znovu pripojený k serveru.', 2, '#69f0ae');
   }
 
   private onFatal(r: FatalReason) {
+    if (r === 'deleted') {
+      // the account (and its guest token, just in case it was ever claimed from this device) is gone
+      // for good: clear every local trace, then land back on the plain menu, not #online (which would
+      // otherwise just reconnect — as a brand-new guest, since there's nothing left to resume)
+      void signOut();
+      clearIdentity();
+      location.href = location.pathname + location.search;
+      return;
+    }
     const text =
       r === 'version' ? 'Nová verzia hry – obnov stránku.'
       : r === 'replaced' ? 'Tvoj profil hrá v inom okne.'
@@ -196,6 +237,18 @@ export class NetSimHost implements SimHost, NetView {
         p.y = m.y;
         break;
       }
+      case 'error':
+        // the only 'error' Connection still forwards here (see Connection.handle): a rename lost to
+        // someone else since the hello, while already playing. The server kept the old nickname.
+        if (m.code === 'nick-taken') {
+          if (this.pendingNick !== null) {
+            this.nick = this.pendingNick;
+            this.identity.nick = this.pendingNick;
+            saveIdentity(this.identity);
+          }
+          this.game.message('', 'Prezývka je obsadená – ponechaná pôvodná.', 4, '#ff8a80');
+        }
+        break;
     }
   }
 
@@ -519,6 +572,7 @@ export class NetSimHost implements SimHost, NetView {
   }
 
   setNick(n: string) {
+    this.pendingNick = this.nick; // in case the server rejects it (an account's nick must stay unique)
     this.nick = n;
     this.identity.nick = n;
     this.conn.send({ t: 'nick', nick: n });
@@ -530,6 +584,7 @@ export class NetSimHost implements SimHost, NetView {
   }
 
   dispose() {
+    clearInterval(this.authTimer);
     this.conn.close();
   }
 }

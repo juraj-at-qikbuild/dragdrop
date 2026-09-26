@@ -247,6 +247,17 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Slovak templates for account sign-up confirmation and password reset (docs/plans/social-events.md,
+# Features → Accounts). `supabase config push` uploads these to the hosted project (see Setup); until
+# then, paste them into the dashboard by hand (Authentication → Emails).
+[auth.email.template.confirmation]
+subject = "Potvrď svoj účet v Blava City"
+content_path = "./supabase/templates/confirm.html"
+
+[auth.email.template.recovery]
+subject = "Nastavenie nového hesla – Blava City"
+content_path = "./supabase/templates/reset.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true
