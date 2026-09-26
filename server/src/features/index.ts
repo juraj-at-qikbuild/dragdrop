@@ -10,11 +10,11 @@ export type { RoomFeature };
 export { Activity, RemoteConfig, Supa };
 
 export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeature[] {
-  // tests inject a disabled (or fake-fetch) Supa through RoomOptions.supa so they never touch the network
-  const supa = opts.supa ?? new Supa(config.supabaseUrl, config.supabaseSecretKey);
+  // tests inject a disabled (or fake-fetch) Supa through RoomOptions.supa; under vitest the default is
+  // disabled too, so a test that forgets to inject one still never touches the network
+  const supa = opts.supa ?? (process.env.VITEST ? new Supa('', '') : new Supa(config.supabaseUrl, config.supabaseSecretKey));
   supa.start();
-  const remoteConfig = new RemoteConfig(room, supa, { e2e: config.e2e || room.debug });
-  const activity = new Activity(supa);
-  return [remoteConfig, activity];
-  // out.push(new Party(room)) …
+  const out: RoomFeature[] = [new RemoteConfig(room, supa, { e2e: config.e2e || room.debug }), new Activity(supa)];
+  // each feature adds its line here: out.push(new Party(room)) …
+  return out;
 }
