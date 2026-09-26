@@ -10,6 +10,7 @@ import { RemoteConfig } from './RemoteConfig';
 import type { RoomFeature } from './RoomFeature';
 import { Revive } from './Revive';
 import { Voice } from './Voice';
+import { Race } from './Race';
 
 export type { RoomFeature };
 export { Activity, Daily, RemoteConfig, Supa, Voice };
@@ -30,6 +31,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Party(room));
   out.push(new Voice(room, remoteConfig, activity));
   out.push(new Daily(room, supa));
-  // each feature adds its line here: out.push(new Race(room)) …
+  out.push(new Race(room));
+  // each feature adds its line here: out.push(new Jobs(room)) …
   return out;
 }

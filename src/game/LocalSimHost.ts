@@ -82,6 +82,10 @@ export class LocalSimHost implements SimHost {
   /** offline never downs a player (SimOptions.downed is server-only): nothing to give up on */
   giveUp() {}
 
+  /** races are online only: nobody to challenge offline */
+  challenge() {}
+  challengeAnswer() {}
+
   /** honking: people in the way step aside (and someone may shout back) */
   horn() {
     const v = this.me.ped.vehicle;

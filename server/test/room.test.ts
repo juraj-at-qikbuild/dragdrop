@@ -770,3 +770,75 @@ describe('Revive (downed online)', () => {
     expect(pa.profile.money).toBe(moneyBefore); // Anna downed Boris herself: no Samaritan bonus for that revive
   });
 });
+
+describe('Race (online)', () => {
+  /** two connected players, close together, each already driving their own car */
+  function setupRacers(moneyA = 500, moneyB = 500) {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const b = join(TOKEN_B, 'Boris');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    room.onMessage(b.conn, stateMsg(b.x!, b.y!));
+    tick(2);
+    const pa = room.sim.players.get(a.id!)!, pb = room.sim.players.get(b.id!)!;
+    pa.profile.money = moneyA;
+    pb.profile.money = moneyB;
+    const ca = room.sim.addVehicle(new Vehicle('sedan', pa.ped.x, pa.ped.y, 0, '#fff'));
+    const cb = room.sim.addVehicle(new Vehicle('sedan', pa.ped.x + 4, pa.ped.y, 0, '#fff'));
+    expect(room.sim.enterVehicle(pa, ca, 20)).toBe(true);
+    expect(room.sim.enterVehicle(pb, cb, 20)).toBe(true);
+    return { room, a, b, pa, pb, ca, cb, tick };
+  }
+
+  it('challenge -> a private challenge -> challengeAnswer -> a race for both, plus the raceStart global', () => {
+    const { room, a, b, pa, pb, tick } = setupRacers();
+    room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));
+    tick();
+    const chal = b.link.json('ev').flatMap((m) => m.p).find((e) => e.k === 'challenge')?.s;
+    expect(chal?.from).toBe(pa.id);
+    expect(chal?.nick).toBe('Anna');
+    room.onMessage(b.conn, JSON.stringify({ t: 'challengeAnswer', from: pa.id, ok: true }));
+    tick();
+    const raceA = a.link.json('ev').flatMap((m) => m.p).find((e) => e.k === 'race')?.s;
+    const raceB = b.link.json('ev').flatMap((m) => m.p).find((e) => e.k === 'race')?.s;
+    expect(raceA?.opponent).toBe(pb.id);
+    expect(raceA?.opponentNick).toBe('Boris');
+    expect(raceB?.opponent).toBe(pa.id);
+    expect(raceA?.startsIn).toBe(3);
+    const started = a.link.json('ev').flatMap((m) => m.g ?? []).some((e) => e.k === 'raceStart');
+    expect(started).toBe(true);
+  });
+
+  it('rate-limits challenge to one per 5 s per challenger', () => {
+    const { room, a, b, pa, pb, tick } = setupRacers();
+    room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));
+    tick();
+    expect(b.link.json('ev').flatMap((m) => m.p).some((e) => e.k === 'challenge')).toBe(true);
+    b.link.clear();
+    // the target declines right away, freeing them up, but A is still on cooldown
+    room.onMessage(b.conn, JSON.stringify({ t: 'challengeAnswer', from: pa.id, ok: false }));
+    room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));
+    tick();
+    // b.link still sees the decline's own s:null clear queued earlier; a *new* (non-null) challenge must not arrive
+    expect(b.link.json('ev').flatMap((m) => m.p).some((e) => e.k === 'challenge' && e.s !== null)).toBe(false);
+  });
+
+  it('teleporting the winner to the finish with debug.teleport pays them and sends raceResult in ev.g', () => {
+    const { room, a, b, pa, pb, tick } = setupRacers();
+    room.onMessage(a.conn, JSON.stringify({ t: 'challenge', target: pb.id }));
+    tick();
+    room.onMessage(b.conn, JSON.stringify({ t: 'challengeAnswer', from: pa.id, ok: true }));
+    tick();
+    const race = a.link.json('ev').flatMap((m) => m.p).find((e) => e.k === 'race')?.s!;
+    expect(pa.profile.money).toBe(250); // 500 - the €250 stake, held right on accept
+    tick(65); // just over 3 s: past the countdown
+    room.onMessage(a.conn, JSON.stringify({ t: 'debug', teleport: [race.x, race.y] }));
+    tick();
+    expect(pa.profile.money).toBe(750); // 250 + 2x the €250 stake
+    expect(pb.profile.money).toBe(250); // unchanged: the stake stays lost
+    const result = a.link.json('ev').flatMap((m) => m.g ?? []).find((e) => e.k === 'raceResult');
+    expect(result?.winner).toBe('Anna');
+    expect(result?.loser).toBe('Boris');
+    expect(result?.amount).toBe(500);
+  });
+});

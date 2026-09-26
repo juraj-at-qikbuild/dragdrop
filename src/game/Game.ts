@@ -119,6 +119,8 @@ export class Game {
   cam = { x: 0, y: 0, scale: 8 };
   paused = false;
   showMap = false;
+  /** Závod?: RaceUi sets this during the countdown so nobody can jump the start */
+  lockThrottle = false;
   messages: Msg[] = [];
   radio = 0;
   radioText = { text: '', time: 0 };
@@ -498,7 +500,7 @@ export class Game {
         throttle = mag < 0.3 ? 0 : turn > 2.2 ? -1 : turn > 0.7 && v.fwdSpeed > 12 ? -0.6 : 1 - clamp((turn - 0.25) * 1.2, 0, 0.8);
         steer = clamp(diff * 2, -1, 1) * (throttle < 0 && turn > 2.2 ? -1 : 1);
       }
-      v.setControls(throttle, steer, inp.down('Space'), inp.down('ShiftLeft', 'ShiftRight'));
+      v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space'), inp.down('ShiftLeft', 'ShiftRight'));
       if (inp.hit('KeyH')) {
         this.audio.horn();
         this.host.horn();

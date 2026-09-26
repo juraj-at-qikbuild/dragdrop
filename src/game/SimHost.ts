@@ -121,6 +121,9 @@ export interface SimHost {
   horn(): void;
   /** downed (Revive): skip the bleed-out wait and go straight to hospital; a no-op offline (no downing there) */
   giveUp(): void;
+  /** Závod?: challenge a nearby player's car (or answer one you were sent); no-ops offline (races are online only) */
+  challenge(target: number): void;
+  challengeAnswer(from: number, ok: boolean): void;
   /** combo cash (offline only) */
   styleCash(n: number): void;
   /** host-specific reaction to a private event (before the generic effects) */

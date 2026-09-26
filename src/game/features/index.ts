@@ -5,6 +5,7 @@ import { DailyCard } from './DailyCard';
 import { EventsOverlay } from './EventsOverlay';
 import { News } from './News';
 import { PartyUi } from './PartyUi';
+import { RaceUi } from './RaceUi';
 import { ReviveUi } from './ReviveUi';
 import { VoiceFeature } from './voice/VoiceFeature';
 
@@ -18,6 +19,7 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new VoiceFeature(g));
   out.push(new DailyCard(g));
   out.push(new News(g));
-  // each feature adds its line here: out.push(new RaceUi(g)) …
+  out.push(new RaceUi(g));
+  // each feature adds its line here: out.push(new JobsHud(g)) …
   return out;
 }

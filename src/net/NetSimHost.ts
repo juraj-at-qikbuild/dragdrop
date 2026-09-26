@@ -520,6 +520,14 @@ export class NetSimHost implements SimHost, NetView {
     this.conn.send({ t: 'giveUp' });
   }
 
+  challenge(target: number) {
+    this.conn.send({ t: 'challenge', target });
+  }
+
+  challengeAnswer(from: number, ok: boolean) {
+    this.conn.send({ t: 'challengeAnswer', from, ok });
+  }
+
   styleCash() {
     /* combo cash is offline only */
   }
