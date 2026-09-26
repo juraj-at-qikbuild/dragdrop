@@ -17,6 +17,9 @@ export interface RoomFeature {
   onLeave?(s: Session): void;
   /** the session is gone for good (grace expired, left, deleted) */
   onDrop?(s: Session): void;
+  /** a test-only `debug` message (Room.debug); Room handles the common fields itself and calls this
+   *  on every feature regardless, so each one can pick out its own (e.g. the daily puzzle's `msg.daily`) */
+  onDebug?(s: Session, msg: Extract<ClientMsg, { t: 'debug' }>): void;
   /** once per tick, after the simulation and the snapshots */
   tick?(dtMs: number): void;
   /** add to the city-wide `wev` state */

@@ -17,10 +17,11 @@ import { dist } from '../../src/shared/util/math';
 import { NetEvents } from './NetEvents';
 import { ClientView, SnapshotBuilder } from './snapshot';
 import { History } from './history';
-import type { Store } from './db';
+import { hashToken, type Store } from './db';
 import { Bucket, checkMove, plausibleHit, rewindTime, type Bounds } from './validate';
 import type { WorldEvents } from '../../src/shared/sim/rules/WorldEvents';
 import { createFeatures, type RoomFeature } from './features';
+import type { AuthVerifier } from './auth-types';
 
 export interface ClientLink {
   send(data: string | Uint8Array): void;
@@ -48,9 +49,12 @@ export interface Conn {
   otherBucket: Bucket;
   strikes: number;
   strikeAt: number;
+  /** an account hello is awaiting AuthVerifier.verify(): every message is ignored (not struck) until
+   *  it resolves, so a slow/rejected verify can't be used to smuggle in unauthenticated traffic */
+  pending: boolean;
 }
 
-/** one identity (token) in the world: survives reconnects within the grace period */
+/** one identity (a player key) in the world: survives reconnects within the grace period */
 export class Session {
   conn: Conn | null = null;
   disconnectedAt = 0;
@@ -65,6 +69,9 @@ export class Session {
   fireBucket: Bucket;
   hitAt = new Map<number, number>();
   constructor(
+    /** the Store/`Room.sessions` key: hashToken(token) for a guest, 'acct:'+userId for an account */
+    public readonly key: string,
+    /** the guest token this connection presented (kept even for an account, to claim it later) */
     public token: string,
     public player: SimPlayer,
     now: number,
@@ -86,6 +93,8 @@ export interface RoomOptions {
   wallClock?: () => number;
   /** accept test-only `debug` messages */
   debug?: boolean;
+  /** verifies a Supabase access token from hello.auth; unset: account hellos get 'auth-unavailable' */
+  auth?: AuthVerifier;
 }
 
 export class Room {
@@ -106,6 +115,8 @@ export class Room {
   readonly store: Store | null;
   /** test-only `debug` messages are accepted */
   readonly debug: boolean;
+  /** verifies hello.auth tokens; null means account hellos get 'auth-unavailable' */
+  private readonly auth: AuthVerifier | null;
   private nextLook = 0;
   private history = new History();
   private wall: () => number;
@@ -130,6 +141,7 @@ export class Room {
     this.budget = opts.tickBudgetMs ?? 12;
     this.store = opts.store ?? null;
     this.debug = !!opts.debug;
+    this.auth = opts.auth ?? null;
     this.wall = opts.wallClock ?? (() => Date.now());
     this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server' });
     // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
@@ -148,14 +160,18 @@ export class Room {
       this.sim.clock.wet = c.wet;
       this.sim.clock.rainTarget = c.target;
     }
-    this.features = createFeatures(this);
-    for (const f of this.features)
-      for (const [t, h] of Object.entries(f.messages ?? {})) this.handlers.set(t, h as (s: Session, msg: ClientMsg) => void);
+    for (const f of createFeatures(this)) this.addFeature(f);
   }
 
   /** the world-event director */
   get director() {
     return this.sim.rule<WorldEvents>('worldEvents');
+  }
+
+  /** register a feature (features/index.ts does this at construction; tests and later wiring can too) */
+  addFeature(f: RoomFeature) {
+    this.features.push(f);
+    for (const [t, h] of Object.entries(f.messages ?? {})) this.handlers.set(t, h as (s: Session, msg: ClientMsg) => void);
   }
 
   private sessionOf(p: SimPlayer) {
@@ -166,7 +182,7 @@ export class Room {
   // ------------------------------------------------------------- transport
   onJoin(link: ClientLink): Conn {
     const t = this.now();
-    const c: Conn = { link, session: null, stateBucket: new Bucket(40, 60, t), floodBucket: new Bucket(120, 240, t), otherBucket: new Bucket(30, 60, t), strikes: 0, strikeAt: t };
+    const c: Conn = { link, session: null, stateBucket: new Bucket(40, 60, t), floodBucket: new Bucket(120, 240, t), otherBucket: new Bucket(30, 60, t), strikes: 0, strikeAt: t, pending: false };
     this.conns.add(c);
     return c;
   }
@@ -187,6 +203,9 @@ export class Room {
 
   onMessage(c: Conn, data: string | ArrayBuffer | Uint8Array) {
     this.counters.msgsIn++;
+    // an account hello is awaiting verify(): hold everything (even a repeat hello) until it resolves,
+    // without striking the connection for it
+    if (c.pending) return;
     const t = this.now();
     if (typeof data !== 'string') {
       const s = c.session;
@@ -243,7 +262,7 @@ export class Room {
         c.link.close(1000, 'leave');
         return;
       case 'debug':
-        if (this.debug) this.onDebug(p, msg);
+        if (this.debug) this.onDebug(s, msg);
         return;
       default: {
         const h = this.handlers.get(msg.t);
@@ -275,12 +294,52 @@ export class Room {
       c.link.close(4001, 'bad-hello');
       return;
     }
-    let s = this.sessions.get(msg.token);
+    if (typeof msg.auth !== 'string') return this.accept(c, msg, hashToken(msg.token), nick, false, false);
+    if (!this.auth) {
+      this.send(c, { t: 'error', code: 'auth-unavailable' });
+      c.link.close(4004, 'auth-unavailable');
+      return;
+    }
+    // verifying is async (the only await in Room); hold every other message from this connection until
+    // it settles (onMessage), and re-check afterwards that the connection is still the one we started with
+    c.pending = true;
+    this.auth.verify(msg.auth).then(
+      (acct) => {
+        c.pending = false;
+        if (!this.conns.has(c) || c.session) return; // closed, or otherwise resolved, while we waited
+        if (!acct) {
+          this.send(c, { t: 'error', code: 'auth' });
+          c.link.close(4005, 'auth');
+          return;
+        }
+        const { nick: accNick, claimed } = this.accountIdentity(msg, acct);
+        this.accept(c, msg, 'acct:' + acct.userId, accNick, true, claimed);
+      },
+      () => {
+        c.pending = false;
+        if (!this.conns.has(c) || c.session) return;
+        this.send(c, { t: 'error', code: 'auth-unavailable' });
+        c.link.close(4004, 'auth-unavailable');
+      },
+    );
+  }
+
+  /** where the accounts feature will reserve a unique nickname and claim guest progress (hello.claim,
+   *  once, into an empty account); for now every account just keeps its hello nickname and claims nothing */
+  private accountIdentity(msg: HelloMsg, _acct: { userId: string; email?: string }): { nick: string; claimed: boolean } {
+    return { nick: cleanNick(msg.nick)!, claimed: false };
+  }
+
+  /** shared tail of hello(): find-or-create the session for `key` and welcome it. Used by both the
+   *  synchronous guest path and the account path once its token has verified. */
+  private accept(c: Conn, msg: HelloMsg, key: string, nick: string, account: boolean, claimed: boolean) {
+    let s = this.sessions.get(key);
     const isNew = !s;
     const r = msg.resume;
     const resumeOk = !!r && Number.isFinite(r.x) && Number.isFinite(r.y) && checkMove(null, r, 0, false, this.bounds) === 'ok';
     if (s) {
-      // reconnect within the grace period, or the same identity in a second tab: take over
+      // reconnect within the grace period, or the same identity in a second tab (or a second device,
+      // for an account): take over
       if (s.conn) {
         this.send(s.conn, { t: 'bye', reason: 'replaced' });
         const old = s.conn;
@@ -288,6 +347,7 @@ export class Room {
         old.link.close(4002, 'replaced');
       }
       s.player.nick = nick;
+      s.token = msg.token; // the guest token *this* connection presented (claiming reads it later)
       const p = s.player;
       const car = p.ped.vehicle;
       // the client kept playing while disconnected: take its position (movement is client-side anyway)
@@ -305,9 +365,9 @@ export class Room {
         c.link.close(4003, 'full');
         return;
       }
-      const stored = this.store?.loadProfile(msg.token);
-      const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [] };
-      const last = this.store?.loadSession(msg.token);
+      const stored = this.store?.loadProfile(key);
+      const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [], stats: {} };
+      const last = this.store?.loadSession(key);
       let x: number | undefined, y: number | undefined, lvl: Level = 0;
       // where to put them: where their client says it is (reconnect after a restart), else where they
       // were when last saved, else the square
@@ -321,6 +381,7 @@ export class Room {
       const p = this.sim.addPlayer({ nick, look, profile, kinematic: true, x, y });
       p.ped.level = lvl;
       p.ped.levelInit = true;
+      p.account = account;
       if (last) {
         p.ped.health = Math.min(100, Math.max(1, last.health));
         p.ped.armor = Math.min(100, Math.max(0, last.armor));
@@ -330,8 +391,8 @@ export class Room {
         p.ped.weapon = last.weapon === 'fist' || p.ammo[last.weapon] > 0 ? last.weapon : 'fist';
         p.wanted = Math.min(5, Math.max(0, last.wanted));
       }
-      s = new Session(msg.token, p, this.now());
-      this.sessions.set(msg.token, s);
+      s = new Session(key, msg.token, p, this.now());
+      this.sessions.set(key, s);
       this.sim.prewarm(p);
     }
     s.conn = c;
@@ -344,7 +405,7 @@ export class Room {
     const p = s.player;
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
-      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account,
+      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed,
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats });
     for (const f of this.features) f.onHello?.(s, isNew, msg);
@@ -559,11 +620,15 @@ export class Room {
     this.counters.badHits++;
   }
 
-  private onDebug(p: SimPlayer, m: Extract<ClientMsg, { t: 'debug' }>) {
+  private onDebug(s: Session, m: Extract<ClientMsg, { t: 'debug' }>) {
+    const p = s.player;
     if (m.give && WEAPON_IDS.includes(m.give)) (p.ammo[m.give] = 999), (p.ped.weapon = m.give);
     if (typeof m.money === 'number') p.profile.money = m.money;
     if (typeof m.wanted === 'number') this.sim.setWanted(p, m.wanted);
     if (typeof m.hp === 'number') p.ped.health = m.hp;
+    if (m.event) this.director?.start(m.event);
+    if (m.teleport) this.sim.teleport(p, m.teleport[0], m.teleport[1], 0);
+    for (const f of this.features) f.onDebug?.(s, m);
   }
 
   /** remove a player for good (quit, or grace expired) */
@@ -571,14 +636,14 @@ export class Room {
     this.save([s]);
     for (const f of this.features) f.onDrop?.(s);
     this.sim.removePlayer(s.player);
-    this.sessions.delete(s.token);
+    this.sessions.delete(s.key);
     this.dirty.delete(s);
   }
 
   /** write players' profiles and sessions to the database */
   private save(list: Iterable<Session>) {
     if (!this.store || this.closing) return;
-    const rows = [...list].map((s) => ({ token: s.token, nick: s.player.nick, player: s.player }));
+    const rows = [...list].map((s) => ({ key: s.key, nick: s.player.nick, player: s.player }));
     if (!rows.length) return;
     try {
       this.store.savePlayers(rows);

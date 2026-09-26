@@ -28,6 +28,15 @@ export const config = {
   e2e: process.env.E2E === '1',
   /** optional permessage-deflate (costs CPU, saves bandwidth) */
   deflate: process.env.WS_DEFLATE === '1',
+  /** Supabase project URL (Auth JWKS, PostgREST, Storage); '' disables every Supabase-backed feature */
+  supabaseUrl: (process.env.SUPABASE_URL ?? process.env.GTA_BRATISKA_SUPABASE_URL ?? process.env.GTA_BRATISKA_SUPABASE_PROJECT_URL ?? '').replace(/\/+$/, ''),
+  /** the `service_role`-equivalent secret key: server-only, never sent to a client, never logged */
+  supabaseSecretKey: process.env.SUPABASE_SECRET_KEY ?? process.env.GTA_BRATISKA_SUPABASE_SECRET_KEY ?? '',
+  /** Cloudflare Realtime TURN credentials for voice chat; unset means STUN-only ICE */
+  cfTurnKeyId: process.env.CF_TURN_KEY_ID ?? '',
+  cfTurnApiToken: process.env.CF_TURN_API_TOKEN ?? '',
+  /** skip Supabase JWT verification (tests, and local dev without a Supabase project) */
+  authDisabled: process.env.AUTH_DISABLED === '1',
 };
 
 /** Compile the allow-list into matchers. `*` matches a single DNS label fragment (no dots). */

@@ -15,6 +15,8 @@ const world = new World(JSON.parse(readFileSync(config.mapPath, 'utf8')) as MapJ
 console.log(`map loaded in ${(performance.now() - t0).toFixed(0)} ms`);
 const store = new Store(config.dbPath);
 console.log(`database ${config.dbPath}: ${store.playerCount()} profiles`);
+// never log the values themselves (config.ts), only whether each optional integration is set up
+console.log(`integrations: supabase ${config.supabaseUrl && config.supabaseSecretKey ? 'yes' : 'no'}, turn ${config.cfTurnKeyId && config.cfTurnApiToken ? 'yes' : 'no'}`);
 const room = new Room({
   world, store, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e,
   caps: scaleCaps(SERVER_CAPS, config.npcScale),

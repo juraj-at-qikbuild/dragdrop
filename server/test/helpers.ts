@@ -47,6 +47,9 @@ export class FakeLink implements ClientLink {
   }
 }
 
+/** wait out pending microtasks/timers (e.g. Room.hello's `AuthVerifier.verify()` promise) before asserting */
+export const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
 export const TOKEN_A = '11111111-1111-4111-8111-111111111111';
 export const TOKEN_B = '22222222-2222-4222-8222-222222222222';
 export const TOKEN_C = '33333333-3333-4333-8333-333333333333';
