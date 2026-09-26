@@ -178,7 +178,8 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+# 8 matches production policy and the client's own check (src/ui/AccountUi.ts).
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
@@ -222,7 +223,9 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# true matches production policy. This whole file is local-dev config: see the warning near the
+# email templates below about never pushing it to the hosted project.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -248,8 +251,17 @@ otp_expiry = 3600
 # content_path = "./supabase/templates/invite.html"
 
 # Slovak templates for account sign-up confirmation and password reset (docs/plans/social-events.md,
-# Features → Accounts). `supabase config push` uploads these to the hosted project (see Setup); until
-# then, paste them into the dashboard by hand (Authentication → Emails).
+# Features → Accounts).
+#
+# WARNING — never run `supabase config push` against the hosted project. This whole file is local-dev
+# config: [auth] above still has `site_url`/`additional_redirect_urls` pointing at localhost, and
+# `config push` would upload every [auth] value here (Site URL and redirect URLs included), silently
+# overwriting the production dashboard's settings with these local-dev ones. There is no per-section
+# push — it's all or nothing.
+#
+# To ship the templates below, paste their content by hand into the dashboard instead (Authentication
+# → Emails), as docs/deploy.md ("Auth dashboard setup") describes. Schema changes go through
+# `npm run db:push` (`supabase db push`), which is a different, safe command — see docs/deploy.md.
 [auth.email.template.confirmation]
 subject = "Potvrď svoj účet v Blava City"
 content_path = "./supabase/templates/confirm.html"

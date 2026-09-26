@@ -141,7 +141,9 @@ that's there today is `supabase/migrations/20260926110000_social_events.sql`.
 
 ### Auth dashboard setup
 
-Under **Authentication** in the Supabase dashboard:
+Under **Authentication** in the Supabase dashboard. Set all of this by hand — never run `supabase
+config push`: `supabase/config.toml`'s `[auth]` block is local-dev config (localhost Site URL and
+redirect URLs included), and that command would overwrite the hosted project's settings with it.
 
 - **Providers → Email**: enabled, with **Confirm email** on (both are the project defaults).
 - **URL Configuration**: Site URL = the production frontend URL; **Redirect URLs** add
