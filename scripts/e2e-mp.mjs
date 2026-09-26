@@ -198,14 +198,22 @@ async function main() {
   await browser.close();
 }
 
-main()
-  .catch((e) => {
-    failures++;
-    console.error(e);
-  })
-  .finally(() => {
-    for (const p of procs) killTree(p, 'SIGKILL');
-    rmSync(tmp, { recursive: true, force: true });
-    log(failures ? `${failures} FAILED` : 'ALL PASSED');
-    process.exit(failures ? 1 : 0);
-  });
+if (process.env.E2E_PHASE === 'social' || process.env.E2E_PHASE === 'accounts') {
+  // a different harness shape entirely (its own server env, 2-3 pages, no shared-NPC/restart
+  // checks): dispatch to the dedicated script so `E2E_PHASE=<phase> npm run e2e` stays the one
+  // entry point (docs/plans/social-events.md). Its own top-level flow runs and exits the process.
+  rmSync(tmp, { recursive: true, force: true }); // this file's own scratch dir goes unused
+  await import(`./e2e-${process.env.E2E_PHASE}.mjs`);
+} else {
+  main()
+    .catch((e) => {
+      failures++;
+      console.error(e);
+    })
+    .finally(() => {
+      for (const p of procs) killTree(p, 'SIGKILL');
+      rmSync(tmp, { recursive: true, force: true });
+      log(failures ? `${failures} FAILED` : 'ALL PASSED');
+      process.exit(failures ? 1 : 0);
+    });
+}

@@ -13,6 +13,8 @@
     "build:server": "npm --prefix server run build",
     "test": "vitest run",
     "e2e": "node scripts/e2e-mp.mjs",
+    "e2e:social": "node scripts/e2e-social.mjs",
+    "e2e:accounts": "node scripts/e2e-accounts.mjs",
     "loadtest": "npm --prefix server run loadtest --",
     "fetch:osm": "node scripts/fetch-osm.mjs",
     "build:map": "node scripts/fetch-osm.mjs && node scripts/fetch-heights.mjs && node scripts/build-map.mjs",
