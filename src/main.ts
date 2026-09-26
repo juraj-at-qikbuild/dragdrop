@@ -4,8 +4,8 @@ import type { MapJSON } from './shared/types';
 import { NetSimHost } from './net/NetSimHost';
 import { loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
 import { randomNick } from './net/nicknames';
-import { cleanNick } from './shared/net/protocol';
 import { parseBootLinks } from './boot/links';
+import { askNick } from './ui/askNick';
 import { openModal, setPauseOnline, toast } from './ui/kit/dom';
 import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
 import { completePasswordReset, consumeClaimPending, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls } from './ui/AccountUi';
@@ -18,36 +18,6 @@ const FOOT_KEY = 'blava-city-foot-controls';
 const FOOT_LABEL: Record<Game['footControls'], string> = { screen: 'podľa obrazovky', cursor: 'za kurzorom myši' };
 /** game server; unset = single-player only (no Online button) */
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
-
-/** Nickname prompt. Resolves with a valid nickname, or null when cancelled. Exported: src/ui/AccountUi.ts
- *  reuses it for the chooser's guest path ("today's askNick flow"). */
-export function askNick(initial: string, okLabel: string): Promise<string | null> {
-  const box = $('nick'), input = $('nick-input') as HTMLInputElement, err = $('nick-error');
-  ($('nick-ok') as HTMLButtonElement).textContent = okLabel;
-  input.value = initial;
-  err.classList.add('hidden');
-  box.classList.remove('hidden');
-  setTimeout(() => input.select(), 0);
-  return new Promise((resolve) => {
-    const done = (v: string | null) => {
-      box.classList.add('hidden');
-      ($('nick-form') as HTMLFormElement).onsubmit = null;
-      $('nick-cancel').onclick = null;
-      resolve(v);
-    };
-    $('nick-roll').onclick = () => {
-      input.value = randomNick();
-      input.focus();
-    };
-    ($('nick-form') as HTMLFormElement).onsubmit = (e) => {
-      e.preventDefault();
-      const n = cleanNick(input.value);
-      if (!n) return err.classList.remove('hidden');
-      done(n);
-    };
-    $('nick-cancel').onclick = () => done(null);
-  });
-}
 
 async function boot() {
   const canvas = $('game') as HTMLCanvasElement;
@@ -363,21 +333,17 @@ async function boot() {
     return;
   }
   if (joinCode) {
-    // the page just loaded for this, so no reload is needed (unlike the #online button); a guest
-    // with no identity yet gets asked for a nickname first (the code stays in sessionStorage either way)
+    // the page just loaded for this, so no reload is needed (unlike the #online button): a stored
+    // identity (a signed-in account first, else the guest) joins straight away. A device with neither
+    // gets the guest/account chooser; the code waits in sessionStorage across its reload into #online.
     showMenu();
     $('menu').classList.add('hidden');
     void (async () => {
-      let id = loadIdentity();
-      if (!id) {
-        const nick = await askNick(randomNick(), 'Hrať online');
-        if (nick) {
-          id = { token: newToken(), nick };
-          saveIdentity(id);
-        }
-      }
+      const id = await resolveOnlineIdentity();
       if (id) return startOnline(id);
-      showMenu(); // cancelled: back to the normal menu (the join link still works from there via #online)
+      $('loading').classList.add('hidden');
+      showMenu();
+      openChooser();
     })();
     return;
   }

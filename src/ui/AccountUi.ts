@@ -9,7 +9,7 @@ import { cleanNick, NICK_MAX, NICK_MIN } from '../shared/net/protocol';
 import { authAvailable, clearPendingPasswordReset, hasStoredSession, resetPassword, signIn, signOut, signUp, updatePassword, user } from '../net/auth';
 import { loadIdentity, newToken, saveIdentity, type Identity } from '../net/identity';
 import { randomNick } from '../net/nicknames';
-import { askNick } from '../main';
+import { askNick } from './askNick';
 
 declare global {
   interface Window {
