@@ -65,6 +65,8 @@ export class SimPlayer {
   crimeCooldown = new Map<string, number>();
   ammo: Record<WeaponId, number> = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
   state: PlayerState = 'play';
+  /** seconds left in the current non-'play' state before Sim.step respawns the player: 4 s wasted/
+   *  busted, 25 s downed (DOWNED_BLEED) before bleeding out */
   stateTimer = 0;
   lastCar: Vehicle | null = null;
   sprayCooldown = 0;

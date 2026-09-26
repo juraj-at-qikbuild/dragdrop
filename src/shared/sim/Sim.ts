@@ -23,7 +23,7 @@ import { Clock } from './Clock';
 import { IdPool } from './IdPool';
 import { nullEvents, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
-import { SimPlayer, type Profile } from './SimPlayer';
+import { SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
 import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
 
@@ -52,6 +52,8 @@ const SPRAY_COST = 250;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
 const CREDIT_WINDOW = 10;
+/** seconds a downed player has to be revived before they bleed out (SimOptions.downed) */
+export const DOWNED_BLEED = 25;
 
 export class Sim {
   world: World;
@@ -222,6 +224,7 @@ export class Sim {
     const p = new SimPlayer(id, o.nick, ped, o.profile, o.kinematic);
     p.lastSeenPos = { x, y };
     this.players.set(id, p);
+    for (const r of this.rules) r.onAdd?.(p);
     return p;
   }
 
@@ -230,17 +233,20 @@ export class Sim {
     if (v) this.releaseCar(p, v);
     this.police.clear(p);
     this.peds = this.peds.filter((q) => q !== p.ped);
+    for (const r of this.rules) r.onRemove?.(p);
     this.players.delete(p.id);
     for (const q of this.peds) if (q.targetPid === p.id) q.targetPid = 0;
   }
 
-  /** the player leaves the car (or is thrown out); it becomes an ordinary, simulated car */
+  /** the player leaves the car (or is thrown out); it becomes an ordinary, simulated car. Covers a
+   *  normal exit, an eject (carjacked), a respawn and leaving the world for good. */
   private releaseCar(p: SimPlayer, v: Vehicle) {
     v.owner = 0;
     v.kinematic = false;
     v.driver = null;
     v.setControls(0, 0, true);
     p.ped.vehicle = null;
+    for (const r of this.rules) r.onExit?.(p, v);
   }
 
   /** players whose cameras NPCs spawn around */
@@ -408,8 +414,10 @@ export class Sim {
     this.combat.explode(v.x, v.y, v, credit?.id ?? 0);
     const owner = this.players.get(v.owner);
     if (owner && owner.ped.vehicle === v) {
-      if (credit && credit !== owner) this.killedBy(owner, credit);
-      this.wasted(owner);
+      const by = credit && credit !== owner ? credit : undefined;
+      if (by) this.killedBy(owner, by);
+      // a car exploding under its driver is a hard death, not a downing: this bypasses hurtPlayer
+      this.wasted(owner, by);
     }
     if (credit && credit !== owner) {
       this.crime(credit, 'destroy');
@@ -489,6 +497,7 @@ export class Sim {
       // another player's car: only when it's (nearly) standing still
       const other = this.players.get(v.owner);
       if (!other || v.speed > 2) return false;
+      if (this.rules.some((r) => r.allowPvp?.(p, other) === false)) return false;
       this.eject(other, v, ped.x, ped.y);
       this.crime(p, 'carjack');
       this.hurtPlayer(other, 0, ped.x, ped.y, p.id);
@@ -513,6 +522,7 @@ export class Sim {
     ped.vehicle = v;
     p.lastCar = v;
     this.events.toPlayer(p.id, { k: 'enter', vehicle: v.id, ok: true });
+    for (const r of this.rules) r.onEnter?.(p, v);
     return true;
   }
 
@@ -546,22 +556,27 @@ export class Sim {
   }
 
   // ------------------------------------------------------------------- combat
-  /** A player fired (offline: straight from the local player; online: a validated report). */
+  /** A player fired (offline: straight from the local player; online: a validated report). Ignored
+   *  from anyone not 'play' (a downed player can't fight back). */
   applyShot(p: SimPlayer, shot: ShotReport) {
+    if (p.state !== 'play') return;
     const ped = p.ped;
     const shooter: Shooter = { id: ped.id, x: shot.ox - Math.cos(shot.a) * 0.5, y: shot.oy - Math.sin(shot.a) * 0.5, level: shot.lvl, vehicle: ped.vehicle };
     this.combat.applyShot(shooter, p.id, shot);
   }
 
   applyMelee(p: SimPlayer, targetId: number) {
+    if (p.state !== 'play') return;
     const t = targetId ? this.pedById(targetId) : null;
     this.combat.applyMelee(p.ped, p.id, t);
   }
 
   // -------------------------------------------------------------------- crime
-  /** `victim`: whoever it was done to (a carjacked driver), the first to phone the police */
-  crime(p: SimPlayer, kind: Crime, victim: Ped | null = null) {
+  /** `victim`: whoever it was done to (a carjacked driver), the first to phone the police. `target`:
+   *  the player it was done to, for hitPlayer/killPlayer (bounty hunters, the derby's amnesty…) */
+  crime(p: SimPlayer, kind: Crime, victim: Ped | null = null, target?: SimPlayer) {
     if (p.state !== 'play') return;
+    if (this.rules.some((r) => r.allowCrime?.(p, kind, target) === false)) return;
     const now = this.time;
     const cd = p.crimeCooldown.get(kind) ?? -Infinity;
     const f = p.focus();
@@ -641,14 +656,23 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ health / death
-  /** Damage a player from (fx, fy). `byPid` is the player responsible (PvP), 0 for the world/NPCs. */
+  /** Damage a player from (fx, fy). `byPid` is the player responsible (PvP), 0 for the world/NPCs.
+   *  Also how a downed player is finished off (a second hit, once `state` is already 'downed'). */
   hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0) {
-    if (p.state !== 'play') return;
+    if (p.state !== 'play' && p.state !== 'downed') return;
     const attacker = byPid && byPid !== p.id ? this.players.get(byPid) : undefined;
+    // parties (and the derby arena) can turn PvP off between a pair, or entirely: no damage, no
+    // crime, no credit, not even the coup de grâce on someone already downed
+    if (attacker && this.rules.some((r) => r.allowPvp?.(attacker, p) === false)) return;
+    if (p.state === 'downed') {
+      // the downing already gave someone the kill credit; this is just the finishing blow
+      if (dmg > 0) this.wasted(p, attacker);
+      return;
+    }
     if (attacker) {
       p.lastAttacker = attacker.id;
       p.lastAttackedAt = this.time;
-      if (dmg > 0) this.crime(attacker, 'hitPlayer');
+      if (dmg > 0) this.crime(attacker, 'hitPlayer', null, p);
     }
     if (dmg <= 0) return;
     const ped = p.ped;
@@ -660,23 +684,38 @@ export class Sim {
     this.events.toPlayer(p.id, { k: 'hurt', dmg, fx, fy });
     if (ped.health <= 0) {
       const killer = attacker ?? (p.lastAttacker && this.time - p.lastAttackedAt < CREDIT_WINDOW ? this.players.get(p.lastAttacker) : undefined);
-      if (killer) this.killedBy(p, killer);
-      this.wasted(p);
+      if (this.downed) this.down(p, killer);
+      else {
+        if (killer) this.killedBy(p, killer);
+        this.wasted(p, killer);
+      }
     }
   }
 
-  /** PvP kill credit: a crime, and a style bonus for the killer */
+  /** PvP kill credit: a crime, a style bonus for the killer, and the rules' onKill (bounties, parties) */
   private killedBy(victim: SimPlayer, killer: SimPlayer) {
     if (killer === victim) return;
-    this.crime(killer, 'killPlayer');
+    this.crime(killer, 'killPlayer', null, victim);
     const f = victim.focus();
     this.events.toPlayer(killer.id, { k: 'style', label: `K.O. ${victim.nick}`, cash: 50, x: f.x, y: f.y - 1.5 });
     this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Dostal ťa ${killer.nick}.`, time: 3, color: '#ff8a80' });
+    for (const r of this.rules) r.onKill?.(victim, killer);
   }
 
-  wasted(p: SimPlayer) {
-    if (p.state !== 'play') return;
-    p.state = 'wasted';
+  /** Change a player's state (play/downed/wasted/busted) and tell every rule (world events, revive,
+   *  the most-wanted chase…), so they can react to a down, a kill, a bust or a respawn. */
+  private setState(p: SimPlayer, to: PlayerState, by?: SimPlayer) {
+    const from = p.state;
+    p.state = to;
+    for (const r of this.rules) r.onState?.(p, from, to, by);
+  }
+
+  /** A hard death: wasted, waiting `stateTimer` (4 s) before respawning at a hospital. Drowning and a
+   *  sinking car call this directly, bypassing `down()`, even when SimOptions.downed is set. `by`:
+   *  who's responsible, if anyone (for the state-change hook: parties, the most-wanted chase…). */
+  wasted(p: SimPlayer, by?: SimPlayer) {
+    if (p.state !== 'play' && p.state !== 'downed') return;
+    this.setState(p, 'wasted', by);
     p.stateTimer = 4;
     p.ped.health = 0;
     this.events.toPlayer(p.id, { k: 'down', state: 'wasted' });
@@ -684,9 +723,33 @@ export class Sim {
 
   bust(p: SimPlayer) {
     if (p.state !== 'play') return;
-    p.state = 'busted';
+    this.setState(p, 'busted');
     p.stateTimer = 4;
     this.events.toPlayer(p.id, { k: 'down', state: 'busted' });
+  }
+
+  /** SimOptions.downed: lethal damage downs a player instead of killing them outright — lying
+   *  wounded, revivable (Revive), until another hit finishes them or they bleed out. `killer`: PvP
+   *  credit, given exactly as a kill does today (killedBy: a crime, style bonus, the onKill hooks). */
+  down(p: SimPlayer, killer?: SimPlayer) {
+    if (p.state !== 'play') return;
+    if (killer) this.killedBy(p, killer);
+    this.exitVehicle(p, true);
+    p.ped.health = 0;
+    p.ped.downed = true;
+    this.setState(p, 'downed', killer);
+    p.stateTimer = DOWNED_BLEED;
+    this.events.toPlayer(p.id, { k: 'down', state: 'downed' });
+  }
+
+  /** Another player revives someone downed (Revive): back on their feet right where they lay, with
+   *  no fee and no epoch bump (unlike a respawn, they never moved). `by`: the reviver, if any. */
+  revive(p: SimPlayer, by?: SimPlayer, health = 40) {
+    if (p.state !== 'downed') return;
+    p.ped.health = health;
+    p.ped.downed = false;
+    p.ped.state = 'walk';
+    this.setState(p, 'play', by);
   }
 
   respawn(p: SimPlayer) {
@@ -706,6 +769,7 @@ export class Sim {
     ped.health = 100;
     ped.armor = 0;
     ped.state = 'walk';
+    ped.downed = false;
     ped.levelInit = false;
     const fee = Math.round(p.profile.money * 0.1);
     this.addMoney(p, -fee);
@@ -731,7 +795,7 @@ export class Sim {
     this.peds = this.peds.filter((q) => !gone.has(q) && !(q.kind === 'cop' && !q.vehicle && q.targetPid === p.id));
     p.searchZone = null;
     p.searching = false;
-    p.state = 'play';
+    this.setState(p, 'play');
     p.epoch = (p.epoch + 1) & 0xff;
     this.events.toPlayer(p.id, { k: 'respawn', x: pos.x, y: pos.y, busted, poi: best?.n ?? '', fee, epoch: p.epoch });
     this.onProfileChange?.(p);
@@ -801,6 +865,7 @@ export class Sim {
         const r = pk.kind === 'cash' ? 1.2 : onFoot ? 1.3 : 3;
         if (Math.abs(pk.x - f.x) > r || Math.abs(pk.y - f.y) > r || dist(pk.x, pk.y, f.x, f.y) > r) continue;
         if (!this.takePickup(p, pk, onFoot)) continue;
+        for (const rule of this.rules) rule.onPickup?.(p, pk);
         // Čumils are collected per player: the statue stays for everyone else
         if (pk.cumil >= 0) break;
         if (pk.respawn) pk.hidden = pk.respawn;

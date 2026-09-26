@@ -189,6 +189,8 @@ export class World {
   private districts: { name: string; rings: Float32Array[]; bbox: BBox }[] = [];
   private quarters: { name: string; x: number; y: number }[] = [];
   private squares: { name: string; rings: Float32Array[]; bbox: BBox }[] = [];
+  /** `places(kind)` results, cached per kind (the underlying data never changes) */
+  private placesByKind = new Map<string, { k: string; x: number; y: number; n?: number }[]>();
 
   /** wall segments, WALL floats each (see WALL) */
   private walls: Float32Array;
@@ -1375,6 +1377,14 @@ export class World {
 
   pois(kind: 'police' | 'hospital' | 'fuel' | 'shop') {
     return this.data.pois.filter((p) => p.k === kind);
+  }
+
+  /** places of one kind (food, cafe, bar, bank, taxi, museum…, see MapJSON.places); [] on a map with
+   *  none. Jobs, the armoured van's bank route and the like read this a lot, so it's cached per kind. */
+  places(kind: string) {
+    let list = this.placesByKind.get(kind);
+    if (!list) this.placesByKind.set(kind, (list = (this.data.places ?? []).filter((p) => p.k === kind)));
+    return list;
   }
 
   /** Walkable spot near a point (outside buildings and water). */

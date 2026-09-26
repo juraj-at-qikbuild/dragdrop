@@ -147,7 +147,9 @@ export class CombatRules {
         sparks |= 1 << i;
         const car = sim.vehicleById(pl.hit);
         if (!car || car.wrecked) return;
-        sim.damageVehicle(car, w.dmg * 0.35, pid);
+        const carDmg = w.dmg * 0.35;
+        sim.damageVehicle(car, carDmg, pid);
+        for (const r of sim.rules) r.onVehicleHit?.(car, carDmg, pid, pl.hx, pl.hy);
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
         if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid);
         if (car.isPlayer && car.owner !== pid) {
