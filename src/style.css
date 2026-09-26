@@ -300,3 +300,8 @@ button small {
 .hint.small {
   font-size: 12px;
 }
+/* the pause menu's extension point (src/ui/kit/dom.ts addPauseControl): collapsed while empty, so it
+   reserves no flex gap in #pause until a feature actually adds a control to it. */
+#pause-extra:empty {
+  display: none;
+}

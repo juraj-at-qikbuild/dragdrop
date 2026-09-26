@@ -6,6 +6,7 @@ import { loadIdentity, newToken, saveIdentity, type Identity } from './net/ident
 import { randomNick } from './net/nicknames';
 import { cleanNick } from './shared/net/protocol';
 import { parseBootLinks } from './boot/links';
+import { setPauseOnline } from './ui/kit/dom';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -217,6 +218,7 @@ async function boot() {
     }
     game.setHost(session);
     btnNick.classList.remove('hidden');
+    setPauseOnline(true);
     $('loading').classList.add('hidden');
     startGame(false);
   };

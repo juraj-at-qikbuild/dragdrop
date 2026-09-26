@@ -1,6 +1,7 @@
 import type { Game } from '../game/Game';
 import { outlined } from './Hud';
 import type { View } from '../world/Renderer';
+import { roundRect } from '../render/shapes';
 
 const PX = 0.6; // pixels per metre in the cached map image
 const GOLD_FRAME = '#ffd600';
@@ -30,6 +31,9 @@ const ICON_BG: Record<string, string> = {
   food: '#e65100', cafe: '#6d4c41', bar: '#7b1fa2', pharmacy: '#00897b', museum: '#546e7a', theatre: '#4a148c', church: '#5e35b1',
   library: '#795548', view: '#2e7d32', grocery: '#2e7d32', bakery: '#f9a825', bank: '#1565c0', post: '#ef6c00', hotel: '#283593',
   wc: '#607d8b', taxi: '#f9a825', tram: '#d71920', police: '#1565c0', hospital: '#d32f2f', fuel: '#0288d1', star: '#78909c', phone: '#ffd600',
+  // social features' markers (docs/plans/social-events.md)
+  kofolka: '#b71c1c', goldenCumil: '#ffc400', armored: '#455a64', derby: '#ff6f00', wanted: '#8e0000', party: '#7c4dff',
+  vlk: '#2e7d32', hopik: '#f9a825', race: '#263238', daily: '#0277bd', revive: '#d32f2f', voice: '#00acc1',
 };
 
 interface Label {
@@ -248,16 +252,7 @@ export class MapView {
   /** police "last seen" area: stay out of it for the stars to drop */
   private searchZone(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
     const blue = Math.floor(this.g.time * 3) % 2 === 0;
-    ctx.save();
-    ctx.fillStyle = blue ? 'rgba(66,133,244,0.22)' : 'rgba(229,57,53,0.22)';
-    ctx.strokeStyle = blue ? 'rgba(66,133,244,0.85)' : 'rgba(229,57,53,0.85)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    pulsingCircle(ctx, x, y, r, blue ? '#4285f4' : '#e53935', this.g.time);
   }
 
   /** the GPS route as a bold line (purple to a waypoint, gold to a mission) */
@@ -774,6 +769,60 @@ export class MapView {
   }
 }
 
+/** Icon kinds `badge()` can draw: the existing map/legend places, plus the social features' markers
+ *  (docs/plans/social-events.md), each with its own `ICON_BG` colour. */
+export type MapIcon =
+  | 'phone' | 'star' | 'starFound' | 'police' | 'fuel' | 'hospital'
+  | 'food' | 'cafe' | 'bar' | 'pharmacy' | 'museum' | 'theatre' | 'church' | 'library' | 'view'
+  | 'grocery' | 'bakery' | 'bank' | 'post' | 'hotel' | 'wc' | 'taxi' | 'tram'
+  | 'kofolka' | 'goldenCumil' | 'armored' | 'derby' | 'wanted' | 'party' | 'vlk' | 'hopik' | 'race' | 'daily' | 'revive' | 'voice';
+
+/** A pulsing ring: a light fill inside a dashed (or solid) stroke that shimmers gently with `t`
+ *  (seconds, e.g. `game.time`). Extracted from the police search zone so event/hint zones can reuse it. */
+export function pulsingCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, t: number, dashed = true) {
+  const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  if (dashed) ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.globalAlpha = 0.22;
+  ctx.fill();
+  ctx.globalAlpha = 0.65 + pulse * 0.2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A map marker for a social feature's `drawMap` (the world-event van, a party member…): the icon
+ *  badge, an optional highlight ring (pulsing when `pulse`, a seconds value, is given), and a label
+ *  under it — shown only on the full map (`opts.full`), like the roster's nick labels in `blips()`. */
+export function mapMarker(
+  ctx: CanvasRenderingContext2D, x: number, y: number, size: number, icon: MapIcon,
+  opts: { ring?: string; pulse?: number; label?: string; full?: boolean } = {},
+) {
+  if (opts.ring) {
+    if (opts.pulse !== undefined) pulsingCircle(ctx, x, y, size * 1.7, opts.ring, opts.pulse, false);
+    else {
+      ctx.save();
+      ctx.strokeStyle = opts.ring;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  badge(ctx, x, y, size, icon);
+  if (opts.label && opts.full) {
+    ctx.font = `700 11px ${BODY}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    outlined(ctx, opts.label, x, y - size - 2, '#fff59d', 3);
+  }
+}
+
 /** A round map badge with a little glyph for a kind of place. */
 function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, kind: string) {
   const star = kind === 'star' || kind === 'starFound';
@@ -829,7 +878,8 @@ function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k
       ctx.stroke();
       return;
     case 'pharmacy':
-    case 'hospital': // a cross
+    case 'hospital':
+    case 'revive': // a cross
       ctx.fillRect(x - s * 0.3, y - s, s * 0.6, s * 2);
       ctx.fillRect(x - s, y - s * 0.3, s * 2, s * 0.6);
       return;
@@ -899,6 +949,121 @@ function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k
       ctx.closePath();
       ctx.moveTo(x, y - s * 0.6);
       ctx.lineTo(x, y + s * 0.8);
+      ctx.stroke();
+      return;
+    // ---- social features' markers (docs/plans/social-events.md): kept simple, readable at minimap size
+    case 'kofolka': // the event van, from above (its colour carries the rest)
+      roundRect(ctx, x - s * 0.55, y - s * 0.95, s * 1.1, s * 1.9, s * 0.32);
+      ctx.fill();
+      return;
+    case 'armored': // an armoured van, with a cut-out shield badge on its door
+      roundRect(ctx, x - s * 0.5, y - s * 0.9, s, s * 1.8, s * 0.28);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.15);
+      ctx.lineTo(x + s * 0.32, y + s * 0.05);
+      ctx.lineTo(x + s * 0.22, y + s * 0.4);
+      ctx.lineTo(x, y + s * 0.55);
+      ctx.lineTo(x - s * 0.22, y + s * 0.4);
+      ctx.lineTo(x - s * 0.32, y + s * 0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      return;
+    case 'goldenCumil': // a golden Čumil peeking out of a manhole
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + s * 0.35, s * 0.85, s * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#8d6e63';
+      ctx.beginPath();
+      ctx.arc(x, y + s * 0.05, s * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#4a2f28';
+      ctx.lineWidth = Math.max(0.6, s * 0.12);
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.15, s * 0.4, Math.PI * 0.95, Math.PI * 2.05);
+      ctx.stroke();
+      return;
+    case 'derby': // a trophy cup
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.25, s * 0.5, 0, Math.PI);
+      ctx.moveTo(x - s * 0.5, y - s * 0.25);
+      ctx.lineTo(x - s * 0.3, y + s * 0.25);
+      ctx.lineTo(x + s * 0.3, y + s * 0.25);
+      ctx.lineTo(x + s * 0.5, y - s * 0.25);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x - s * 0.35, y + s * 0.25, s * 0.7, s * 0.18);
+      ctx.fillRect(x - s * 0.15, y + s * 0.1, s * 0.3, s * 0.2);
+      return;
+    case 'wanted': // a crown (the bounty target)
+      ctx.moveTo(x - s * 0.7, y + s * 0.5);
+      ctx.lineTo(x - s * 0.7, y - s * 0.05);
+      ctx.lineTo(x - s * 0.32, y + s * 0.25);
+      ctx.lineTo(x, y - s * 0.55);
+      ctx.lineTo(x + s * 0.32, y + s * 0.25);
+      ctx.lineTo(x + s * 0.7, y - s * 0.05);
+      ctx.lineTo(x + s * 0.7, y + s * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    case 'party': // a person, seen from above
+      ctx.beginPath();
+      ctx.arc(x, y + s * 0.15, s * 0.65, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.45, s * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    case 'vlk': // a courier bag with a pointed ear
+      ctx.moveTo(x - s * 0.35, y - s * 0.7);
+      ctx.lineTo(x - s * 0.05, y - s * 0.7);
+      ctx.lineTo(x - s * 0.2, y - s * 0.25);
+      ctx.closePath();
+      ctx.fill();
+      roundRect(ctx, x - s * 0.7, y - s * 0.35, s * 1.4, s * 1.15, s * 0.2);
+      ctx.fill();
+      return;
+    case 'hopik': // a taxi roof light
+      roundRect(ctx, x - s * 0.75, y - s * 0.45, s * 1.5, s * 0.9, s * 0.22);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillRect(x - s * 0.75, y - s * 0.07, s * 1.5, s * 0.14);
+      ctx.globalCompositeOperation = 'source-over';
+      return;
+    case 'race': // a chequered flag
+      ctx.fillRect(x - s * 0.05, y - s * 0.9, s * 0.1, s * 1.8);
+      for (let row = 0; row < 3; row++)
+        for (let col = 0; col < 3; col++)
+          if ((row + col) % 2 === 0) ctx.fillRect(x + col * s * 0.35, y - s * 0.85 + row * s * 0.32, s * 0.35, s * 0.32);
+      return;
+    case 'daily': // a camera
+      roundRect(ctx, x - s * 0.8, y - s * 0.45, s * 1.6, s * 0.95, s * 0.18);
+      ctx.fill();
+      ctx.fillRect(x - s * 0.3, y - s * 0.68, s * 0.5, s * 0.28);
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(x, y + s * 0.02, s * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath();
+      ctx.arc(x, y + s * 0.02, s * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    case 'voice': // a microphone
+      roundRect(ctx, x - s * 0.32, y - s, s * 0.64, s * 1.15, s * 0.32);
+      ctx.fill();
+      ctx.lineWidth = Math.max(0.7, s * 0.16);
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.05, s * 0.55, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y + s * 0.5);
+      ctx.lineTo(x, y + s * 0.85);
+      ctx.moveTo(x - s * 0.35, y + s * 0.85);
+      ctx.lineTo(x + s * 0.35, y + s * 0.85);
       ctx.stroke();
       return;
   }

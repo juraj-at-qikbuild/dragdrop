@@ -1,0 +1,75 @@
+/* Styling for src/ui/kit/dom.ts, layered on top of style.css (.screen, .menu-card, .buttons, button,
+   .hint are already defined there — the kit modal reuses them so it matches #nick and #pause). */
+
+.kit-modal {
+  /* above #pause (#pause has no z-index of its own beyond .screen's 10; #nick sits at 12) */
+  z-index: 13;
+}
+.kit-modal-body {
+  text-align: left;
+}
+
+.kit-field {
+  display: block;
+  text-align: left;
+  margin: 10px 0;
+}
+.kit-field span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b0bec5;
+  margin-bottom: 4px;
+}
+.kit-field input {
+  width: 100%;
+  font: inherit;
+  font-family: var(--font-body);
+  font-size: 15px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.kit-field input:focus {
+  outline: none;
+  border-color: rgba(255, 214, 0, 0.6);
+}
+
+button.danger {
+  color: #ff8a80;
+  border-color: rgba(255, 82, 82, 0.5);
+}
+button.danger:hover {
+  background: linear-gradient(180deg, rgba(255, 82, 82, 0.25), rgba(255, 82, 82, 0.08));
+  border-color: #ff5252;
+}
+
+.kit-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 90px;
+  z-index: 25;
+  max-width: min(80vw, 360px);
+  padding: 10px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid #69f0ae;
+  background: rgba(12, 14, 18, 0.92);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+.kit-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

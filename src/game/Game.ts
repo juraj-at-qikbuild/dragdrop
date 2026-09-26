@@ -20,6 +20,7 @@ import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
 import { drawNametags } from '../render/nametags';
+import { Banners } from '../ui/kit/Banners';
 import { Bubbles } from '../render/bubbles';
 import { drawVehicle, emitVehicleLights } from '../render/drawVehicle';
 import { drawPed } from '../render/drawPed';
@@ -84,6 +85,8 @@ export class Game {
   host: SimHost;
   /** plug-in features: world events, party, revive, races, jobs, daily puzzle, news, voice (features/index.ts) */
   features: ClientFeature[] = [];
+  /** city-wide announcement queue (src/ui/kit/Banners.ts), e.g. a world event's "HORÚCA KOFOLKA" */
+  banners = new Banners();
   /** 1 = full quality, 0 = low (kept for old call sites: true whenever qualityTier > 0) */
   quality = 1;
   /** 2 = high, 1 = medium, 0 = low — drives PostFX detail and quality (see `trackFrameTime`) */
@@ -434,6 +437,7 @@ export class Game {
 
     for (const m of this.messages.slice(0, 1)) m.time -= dtReal;
     this.messages = this.messages.filter((m) => m.time > 0);
+    this.banners.update(dtReal);
     inp.endFrame();
   }
 
@@ -827,6 +831,7 @@ export class Game {
       this.hudCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       this.hud.draw(this.hudCtx);
       for (const f of this.features) f.drawHud?.(this.hudCtx);
+      this.banners.draw(this.hudCtx, this.viewW, this.viewH);
       if (this.showMap) this.mapView.drawFull(this.hudCtx);
     }
   }
