@@ -288,7 +288,8 @@ export class Sim {
       if (p.wanted > 0) this.anyWanted = true;
       if (p.state !== 'play') {
         p.stateTimer -= dt;
-        if (p.stateTimer <= 0) this.respawn(p);
+        // bleeding out is a death (downed → wasted, then the usual respawn), so rules can tell it from a revive
+        if (p.stateTimer <= 0) p.state === 'downed' ? this.wasted(p) : this.respawn(p);
       }
       if (p.sprayCooldown > 0) p.sprayCooldown -= dt;
     }

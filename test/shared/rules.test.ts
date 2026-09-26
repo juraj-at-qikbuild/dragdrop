@@ -129,13 +129,18 @@ describe('downed core (SimOptions.downed)', () => {
     expect(kills).toBe(1);
   });
 
-  it('a downed player bleeds out and respawns at a hospital, with ped.downed cleared', () => {
+  it('a downed player bleeds out (downed → wasted), then respawns at a hospital with ped.downed cleared', () => {
     const sim = new Sim(loadWorld(), { rng: new Rng(112), downed: true, caps: NO_NPCS });
     const p = sim.addPlayer({ nick: 'A', profile: { ...profile(), money: 500 }, kinematic: false });
+    const seen: string[] = [];
+    sim.rules.push({ id: 'spy', onState: (_q, from, to) => seen.push(`${from}>${to}`) });
     sim.down(p);
     expect(p.state).toBe('downed');
     expect(p.stateTimer).toBe(DOWNED_BLEED);
-    for (let t = 0; t < DOWNED_BLEED + 1; t += 0.1) sim.step(0.1);
+    for (let t = 0; t < DOWNED_BLEED + 0.5; t += 0.1) sim.step(0.1);
+    expect(p.state).toBe('wasted');
+    for (let t = 0; t < 4.5; t += 0.1) sim.step(0.1);
+    expect(seen).toEqual(['play>downed', 'downed>wasted', 'wasted>play']);
     expect(p.state).toBe('play');
     expect(p.ped.downed).toBe(false);
     expect(p.ped.health).toBe(100);

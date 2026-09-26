@@ -770,7 +770,9 @@ Where this section and the text above disagree, this section wins.
 
 - **Rule hooks** (`src/shared/sim/rules/SimRule.ts`):
   - The single `onState(p, from, to, by?)` hook replaces `onDown`. It covers play → downed, wasted or
-    busted; downed → play (revived) or wasted; and respawns.
+    busted; downed → play (revived) or wasted (finished off, or bled out: a bleed-out is always
+    downed → wasted, then the usual respawn, so rules can tell it from a revive); and respawns
+    (wasted or busted → play).
   - `onAdd` and `onRemove` fire when players come and go.
   - `PayoutReason` lists the reasons parties may split.
 - **Rules modules** must `import type` from `../Sim`, never import it as a value. `Sim.ts` imports
