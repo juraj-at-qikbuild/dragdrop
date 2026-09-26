@@ -103,7 +103,7 @@ section.
   - `invites(code PK, inviter_key, created_at, expires_at)`
   - `accounts(user_id PK, nick, nick_lower UNIQUE, created_at)`
 - `config.ts` reads every new env var:
-  - `SUPABASE_URL ?? GTA_BRATISKA_SUPABASE_URL` and `SUPABASE_SECRET_KEY ?? GTA_BRATISKA_SUPABASE_SECRET_KEY`
+  - `SUPABASE_URL ?? GTA_BRATISKA_SUPABASE_URL ?? GTA_BRATISKA_SUPABASE_PROJECT_URL` and `SUPABASE_SECRET_KEY ?? GTA_BRATISKA_SUPABASE_SECRET_KEY`
   - optional `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN`
   - `AUTH_DISABLED` for tests
 
@@ -269,7 +269,7 @@ auth verifier. The existing tests must stay green.
 Wave 1 continues meanwhile, because every feature degrades gracefully without Supabase.
 
 1. Run `supabase/migrations/0001_social_events.sql` in the Supabase SQL editor.
-2. Add `GTA_BRATISKA_SUPABASE_URL` to this environment.
+2. Add `GTA_BRATISKA_SUPABASE_PROJECT_URL` to this environment.
 3. If the environment's network policy blocks `*.supabase.co`, allow it.
 4. Set up Auth: see Setup below.
 
@@ -698,7 +698,7 @@ expected conflicts, and they are trivial.
 
 **This environment**
 
-- Add `GTA_BRATISKA_SUPABASE_URL`.
+- Add `GTA_BRATISKA_SUPABASE_PROJECT_URL`.
 - Let the network reach `*.supabase.co`.
 
 **Supabase: SQL**
