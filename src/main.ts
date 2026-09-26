@@ -7,7 +7,9 @@ import { clearPendingJoin, JOIN_KEY, loadIdentity, newToken, saveIdentity, type 
 import { randomNick } from './net/nicknames';
 import { parseBootLinks } from './boot/links';
 import { askNick } from './ui/askNick';
-import { openModal, setPauseOnline, toast } from './ui/kit/dom';
+import { addPauseControl, openModal, setPauseOnline, toast } from './ui/kit/dom';
+import { setting } from './ui/kit/settings';
+import { KEYS } from './game/Input';
 import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
 import { completePasswordReset, consumeClaimPending, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls } from './ui/AccountUi';
 
@@ -17,6 +19,11 @@ const QUALITY_LABEL: Record<Game['qualityPref'], string> = { auto: 'Auto', high:
 const QUALITY_CYCLE: Game['qualityPref'][] = ['auto', 'high', 'medium', 'low'];
 const FOOT_KEY = 'blava-city-foot-controls';
 const FOOT_LABEL: Record<Game['footControls'], string> = { screen: 'podľa obrazovky', cursor: 'za kurzorom myši' };
+const DRIVE_LABEL: Record<Game['driveControls'], string> = { direction: 'Smer', classic: 'Klasické' };
+/** touch: how close the camera is (a factor on the automatic zoom, like the mouse wheel's) */
+type CameraPref = 'near' | 'normal' | 'far';
+const CAMERA_ZOOM: Record<CameraPref, number> = { near: 1.2, normal: 1, far: 0.85 };
+const CAMERA_LABEL: Record<CameraPref, string> = { near: 'bližšie', normal: 'normálna', far: 'ďalej' };
 /** game server; unset = single-player only (no Online button) */
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
@@ -117,6 +124,60 @@ async function boot() {
       }
     };
   });
+  // touch screens: the driving scheme and how close the camera is, in the controls panel and the
+  // pause menu; jobs and the party (J and N on a keyboard) from the pause menu
+  if (game.touch) {
+    const drive = setting<Game['driveControls']>('drive-controls', 'direction', (v): v is Game['driveControls'] => v === 'direction' || v === 'classic');
+    const camera = setting<CameraPref>('camera', 'normal', (v): v is CameraPref => typeof v === 'string' && v in CAMERA_ZOOM);
+    game.driveControls = drive.get();
+    game.zoomPref = CAMERA_ZOOM[camera.get()];
+    for (const cls of ['opt-drive', 'opt-camera']) {
+      const b = document.createElement('button');
+      b.className = cls;
+      addPauseControl(b);
+    }
+    const pauseKey = (label: string, code: string, onlineOnly: boolean) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.onclick = () => {
+        game.paused = false;
+        game.onPause?.(false);
+        game.input.press(code);
+      };
+      addPauseControl(b, { onlineOnly });
+    };
+    pauseKey('Práca: kuriér, taxi', KEYS.jobs, false);
+    pauseKey('Partia', KEYS.party, true);
+    const drives = document.querySelectorAll<HTMLButtonElement>('.opt-drive');
+    const cams = document.querySelectorAll<HTMLButtonElement>('.opt-camera');
+    const show = () => {
+      drives.forEach((b) => (b.textContent = `Riadenie auta: ${DRIVE_LABEL[game.driveControls]}`));
+      cams.forEach((b) => (b.textContent = `Kamera: ${CAMERA_LABEL[camera.get()]}`));
+    };
+    drives.forEach((b) => {
+      b.onclick = () => {
+        game.driveControls = game.driveControls === 'direction' ? 'classic' : 'direction';
+        drive.set(game.driveControls);
+        show();
+      };
+    });
+    cams.forEach((b) => {
+      b.onclick = () => {
+        const order = Object.keys(CAMERA_ZOOM) as CameraPref[];
+        const next = order[(order.indexOf(camera.get()) + 1) % order.length];
+        camera.set(next);
+        game.zoomPref = CAMERA_ZOOM[next];
+        show();
+      };
+    });
+    show();
+    $('btn-tips').onclick = () => {
+      game.touchUi?.tips.reset();
+      toast('Tipy sa ukážu znova počas hry.');
+    };
+    // the keyboard's controls fold away under the touch ones
+    document.querySelector('details.keyboard')?.removeAttribute('open');
+  }
   // canvas text (HUD/minimap) waits on the Google Fonts load before it looks right;
   // a re-draw isn't needed since the loop redraws every frame regardless.
   document.fonts?.ready?.catch(() => {});
@@ -153,9 +214,14 @@ async function boot() {
     game.cam.x = game.player.x;
     game.cam.y = game.player.y;
     game.prewarm();
-    if (game.online) game.message('Vitaj v spoločnom meste', 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.', 6);
+    const t = game.touch;
+    if (game.online) game.message('Vitaj v spoločnom meste', t ? 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (žlté tlačidlo pri aute), mapa: ťukni na minimapu.' : 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.', 6);
     else if (!game.save.done.length && !game.save.found.length)
-      game.message('Vitaj v Bratislave', 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).', 7);
+      game.message(
+        'Vitaj v Bratislave',
+        t ? 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.' : 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).',
+        7,
+      );
   };
 
   $('btn-new').onclick = () => startGame(!!(Game.hasSave() || game.save.money));

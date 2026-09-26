@@ -484,3 +484,80 @@ button small {
 #pause-extra:empty {
   display: none;
 }
+
+/* ----------------------------------------------------------------- phones and tablets
+   `html.touch` is set by TouchControls.ts. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-only {
+  display: none;
+}
+html.touch .touch-only {
+  display: block;
+}
+/* walking toward the mouse means nothing on a touch screen */
+html.touch .opt-foot {
+  display: none;
+}
+details.keyboard > summary {
+  cursor: pointer;
+  color: var(--gold);
+  font-weight: 700;
+  margin: 10px 0 4px;
+}
+html:not(.touch) details.keyboard > summary {
+  display: none;
+}
+.touch-only table + button,
+.touch-only button + button {
+  margin-top: 8px;
+}
+/* menus clear of the notch and the home indicator, scrollable by a finger */
+.screen {
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
+.menu-card {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+  }
+}
+/* a phone on its side: the main menu fits without scrolling, the pause menu in two columns */
+@media (max-height: 480px) {
+  .screen {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .menu-card {
+    padding: 12px 16px 8px;
+  }
+  .erb {
+    width: 44px;
+  }
+  h1 {
+    font-size: 34px;
+  }
+  .tagline {
+    margin: 4px 0 10px;
+  }
+  #menu .buttons,
+  #pause .buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  #pause .menu-card.small {
+    width: min(540px, 100%);
+  }
+  /* (it's a .buttons box itself: its buttons join the grid) */
+  #pause #pause-extra:not(:empty) {
+    display: contents;
+  }
+  .osm {
+    margin-top: 6px;
+  }
+}

@@ -49,6 +49,16 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - A context prompt for the use button (F / the pad's Y / the touch car button), the gamepad's button
   legend when it's picked up and on getting in or out, and rumble on crashes, hits, explosions, shots,
   bumps and kerbs.
+- **Touch, rebuilt for phones** (landscape first). Before: a fixed stick and four emoji buttons, no
+  pause, weapon switch, running, nitro, horn, radio or drive-bys; online a touch player never got past
+  their fists; the HUD's minimap sat under the left thumb. Now a floating stick (a full push runs), a
+  right-thumb cluster per situation (on foot, both driving schemes, bleeding out, the city map), a use
+  button that says what it does, a pause button, the minimap tapped for the map, aim assist on the
+  fire button (hold: the best target ahead, threats first; drag: aim yourself), the HUD laid out
+  around the thumbs and the notch (`src/ui/layout.ts`), first-run tips, and `npm run smoke:mobile`.
+- **Touch driving fixed**: with the stick more than 126° behind the car it flickered and then reversed
+  forever (the reverse steering had the wrong sign). Now a K-turn, a real brake (it had none: 97 m to
+  coast to a stop from 15 m/s), and a classic scheme with pedals (`test/client/touchDrive.test.ts`).
 
 ### Social features (protocol v7)
 - **Five server-run world events**, announced on the map and by Rádio Kecy: Horúca Kofolka (a cash van
@@ -90,8 +100,15 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 ### Controls
 - Remappable keys and a second pad layout (throttle on A, brake on X for pads without analog
   triggers).
-- Aim assist on foot for the pad: snap toward the nearest target in the stick's cone.
-- Touch: show the prompt's text on the touch button itself.
+- Aim assist on foot for the pad: snap toward the nearest target in the stick's cone
+  (`src/game/aimAssist.ts` already does it for touch).
+- Phones, still open: fullscreen and an installable app (manifest, icons), pausing and muting when
+  the app goes to the background, haptics (`navigator.vibrate` beside the pad's rumble), and
+  performance: the automatic graphics quality measures the gap between frames instead of the work in
+  them, so on a 60 Hz screen it can only ever go down (`Game.trackFrameTime`), then the pixel ratio and
+  the canvas caches on low-memory phones.
+- Online drive-bys at speed can fail the server's check that a shot starts within 4 m of the player
+  (`Room.onFire`), with any input.
 
 ### Physics
 - Car handling (tyre slip, weight transfer, ABS, stability control, drag) is in good shape

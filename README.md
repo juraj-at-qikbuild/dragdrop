@@ -11,6 +11,8 @@ npm install
 npm run dev        # http://localhost:5173
 npm run build      # static site in dist/
 npm run preview    # serve the production build
+npm run dev -- --host   # also on your network, to play on a phone
+npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smoke tests
 ```
 
 ### Controls
@@ -36,7 +38,7 @@ npm run preview    # serve the production build
 
 **Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map. Online: the left stick click (L3) is push-to-talk, and d-pad left opens jobs.
 
-A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key, the pad's Y or the touch screen's car button. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
+A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
 
 The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops, and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
 
@@ -44,7 +46,20 @@ On foot, WASD is screen-relative by default (W walks up the screen). Set **Chôd
 
 In a car, steering in reverse works like a real car: steer right and the tail swings right.
 
-On touch devices a virtual joystick and buttons appear automatically.
+**Touch** (phones and tablets; best held sideways): the controls appear by themselves and change with what you're doing.
+
+| Control | Action |
+| --- | --- |
+| Left thumb, anywhere on the left | a stick appears under it: walk or drive; pushed all the way, run |
+| 🎯 (held) | shoot at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line |
+| Weapon button | next weapon (it shows the one in hand and the ammo) |
+| Yellow button | says what it does and does it: get in, pull a driver out, steal a police car, get out |
+| BRZDA · RUČNÁ · N₂O | brake (held at a standstill: reverse) · handbrake · nitro, with its charge |
+| 📣 · 📻 | horn (held next to another player's car: a race challenge) · next radio station |
+| Minimap | tap for the city map: drag, pinch, tap for a waypoint; ✕, +/− and ⌖ on the side, layers from the "Vrstvy" chip |
+| ❚❚ | pause and settings |
+
+Two ways to drive, chosen in the pause menu: **Smer** (the default) points the stick where the car should go and it speeds up by itself (pointed behind, it turns around with a short K-turn), **Klasické** steers with the stick and has gas and brake pedals (slide the thumb between them). The pause menu also sets how close the camera is. Tips next to each control show the first time; "Zobraziť tipy znova" in the controls panel brings them back. On a touch screen the HUD moves out of the thumbs' way (the minimap goes top-left) and keeps clear of the notch. `?touch=1` in the URL forces the touch controls on a desktop, `?touch=0` turns them off.
 
 ## What's in the game
 
@@ -110,7 +125,7 @@ To play a different part of the city, change `scripts/bbox.mjs` and rebuild. The
 
 ```
 src/
-  main.ts              boot, menu, game loop, touch controls
+  main.ts              boot, menu, game loop, settings
   shared/              the DOM-free simulation, run by the browser (offline) and the server (online)
     world/World.ts     map data, collision grid (buildings, walls, fences, fountains, posts, trees,
                        tunnel tubes), levels (tunnel / ground / bridge deck / upper deck), water,
@@ -128,6 +143,8 @@ src/
   game/Game.ts         game state, player, wanted level, drawing
   game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online
   game/Gps.ts          waypoint and GPS route over the real streets
+  game/touchDrive.ts   touch driving (the stick's direction or steering, K-turns, the brake)
+  game/aimAssist.ts    touch aim assist: who the fire button locks onto
   world/Renderer.ts    chunked Path2D map rendering, fake-3D buildings and roof shapes, shadows,
                        trees, lamps, walls and fences, tunnel portals, traffic lights, lane markings
   world/StreetDetail.ts  street furniture (knocked flying by cars), gates, signs, tram stops
@@ -138,7 +155,9 @@ src/
   world/Weather.ts     rain streaks, splashes, lightning
   render/              vehicles, peds, trams, props, name tags, speech bubbles, WebGL PostFX
   missions/Missions.ts mission definitions and runner
-  ui/                  HUD (context prompts, pad legend), minimap and the interactive city map
+  ui/                  HUD (context prompts, pad legend), minimap and the interactive city map;
+                       layout.ts (where the HUD goes, phones included), TouchControls.ts and
+                       TouchTips.ts (the touch screen's controls and first-run tips)
   audio/Audio.ts       WebAudio sound effects and radio
   data/brands.ts       parody brands, radio stations, landmark texts
 server/src/            the multiplayer game server (see docs/multiplayer.md)

@@ -52,6 +52,8 @@ const SAVE_KEY = 'blava-city-save-v1';
 const TOUCH_FIRE_DELAY = 0.1;
 /** camera zoom: metres across the short side of the screen on foot */
 const CAM_FOOT_M = 38;
+/** ...closer on a phone, where everything is a quarter of the size it is on a monitor */
+const CAM_FOOT_M_PHONE = 32;
 /** in a vehicle, zoomed out by this factor at a standstill... */
 const CAM_CAR_ZOOM = 0.84;
 /** ...and further with speed: the view doubles at this speed (m/s) */
@@ -807,7 +809,9 @@ export class Game {
     const wheel = this.showMap ? 0 : this.input.takeWheel();
     if (wheel) this.zoomPref = clamp(this.zoomPref * 1.12 ** wheel, 0.55, 1.8);
     const base = (Math.min(this.viewW, this.viewH) / CAM_FOOT_M) * this.zoomPref;
-    const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : base) * this.juice.zoomFactor(v, dt);
+    // on foot on a phone a little closer (driving keeps its view of the road ahead)
+    const foot = this.touch && this.layout.compact ? (base * CAM_FOOT_M) / CAM_FOOT_M_PHONE : base;
+    const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }

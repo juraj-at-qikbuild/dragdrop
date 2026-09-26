@@ -33,6 +33,24 @@
           <button id="btn-credits">O hre</button>
         </div>
         <div id="panel-controls" class="panel hidden">
+          <!-- the touch screen's controls (shown on a phone or tablet, src/ui/TouchControls.ts) -->
+          <div class="touch-only">
+            <table>
+              <tr><td>Ľavý palec</td><td>kdekoľvek vľavo: chôdza a jazda · potlač naplno = beh</td></tr>
+              <tr><td>🎯 podrž</td><td>streľba na najbližší cieľ · ťahaj z tlačidla = mieriš sám (aj z auta)</td></tr>
+              <tr><td>Zbraň</td><td>ťuknutím ďalšia zbraň</td></tr>
+              <tr><td>Žlté tlačidlo</td><td>nastúpiť, vystúpiť, ukradnúť auto – vždy napíše, čo urobí</td></tr>
+              <tr><td>V aute</td><td>BRZDA (drž = cúvanie) · RUČNÁ · N₂O · 📣 klaksón (drž pri aute iného hráča = výzva na závod) · 📻 rádio</td></tr>
+              <tr><td>Minimapa</td><td>ťuk = mapa mesta: ťahaj, štipni, ťukni = cieľ s navigáciou</td></tr>
+              <tr><td>❚❚</td><td>pauza a nastavenia</td></tr>
+            </table>
+            <button class="opt-drive">Riadenie auta: Smer</button>
+            <button class="opt-camera">Kamera: normálna</button>
+            <button id="btn-tips">Zobraziť tipy znova</button>
+            <p class="hint small">Smer: páčkou ukážeš, kam má auto ísť, a rozbehne sa samo; ukáž dozadu a otočí sa. Klasické: páčkou zatáčaš, vpravo plyn a brzda.</p>
+          </div>
+          <details class="keyboard" open>
+          <summary>Klávesnica a gamepad</summary>
           <table>
             <tr><td>WASD / šípky</td><td>chôdza / jazda</td></tr>
             <tr><td>Myš</td><td>mierenie, ľavé tlačidlo = streľba</td></tr>
@@ -48,6 +66,7 @@
             <tr><td>Gamepad</td><td>ľavá páčka jazda/chôdza · RT plyn (pešo streľba) · LT brzda/cúvanie · RB ručná brzda · A beh/nitro · Y nastúpiť · pravá páčka mierenie (v aute streľba) · X klaksón · B zbraň · krížik hore rádio · Back mapa · Start pauza</td></tr>
           </table>
           <button class="opt-foot">Chôdza: podľa obrazovky</button>
+          </details>
           <p class="hint">☎ Žlté telefónne búdky spúšťajú misie. Hľadaj 10 skrytých Čumilov a objav pamiatky. Na čerpacích staniciach Slovnafta ti prestriekajú auto a zbavia ťa polície (€250). Pozor na svedkov: kto uvidí streľbu alebo krádež auta, zavolá políciu, ak ho nezastavíš.</p>
         </div>
         <div id="panel-credits" class="panel hidden">

@@ -71,7 +71,7 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(SHOTS, name + '.png') });
 }
 
-async function boot(browser, device, name) {
+async function boot(browser, device, name, menuShots = false) {
   const ctx = await browser.newContext({ ...device, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   const errors = [];
@@ -82,6 +82,12 @@ async function boot(browser, device, name) {
   const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
   if (!coarse) await page.goto(`http://localhost:${PORT}/?t=12&touch=1`);
   const fingers = touchscreen(await ctx.newCDPSession(page));
+  if (menuShots) {
+    await shot(page, 'land-menu');
+    await page.evaluate(() => document.getElementById('btn-controls').click());
+    await shot(page, 'land-controls');
+    await page.evaluate(() => document.getElementById('btn-controls').click());
+  }
   const b = await page.evaluate(() => {
     const r = document.getElementById('btn-new').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -120,7 +126,7 @@ try {
   const browser = await chromium.launch({ executablePath: existsSync(exe) ? exe : undefined, args: ['--use-gl=swiftshader', '--mute-audio'] });
 
   // ------------------------------------------------------------------ landscape
-  const land = await boot(browser, devices['Pixel 7 landscape'], 'landscape');
+  const land = await boot(browser, devices['Pixel 7 landscape'], 'landscape', true);
   const { page, fingers } = land;
   await page.evaluate(() => window.game.touchUi.tips.reset());
   await shot(page, 'land-foot');
@@ -283,9 +289,23 @@ try {
     check(!!stopped, 'BRAKE stops the car');
   }
 
-  // classic: the pedals
+  // classic, switched in the pause menu: the pedals
   {
-    await page.evaluate(() => (window.game.driveControls = 'classic'));
+    const tapEl = async (sel) => {
+      const r = await page.evaluate((sel) => {
+        const b = document.querySelector(sel).getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }, sel);
+      await fingers.tap(r.x, r.y);
+    };
+    const pb = await centre(page, 'pause');
+    await fingers.tap(pb.x, pb.y);
+    await until(page, () => !document.getElementById('pause').classList.contains('hidden'));
+    await shot(page, 'land-pause');
+    await tapEl('#pause .opt-drive');
+    const label = await until(page, () => /Klasické/.test(document.querySelector('#pause .opt-drive').textContent) && document.querySelector('#pause .opt-drive').textContent);
+    check(!!label, `the pause menu switches the driving scheme (${label})`);
+    await tapEl('#btn-resume');
     const classic = await until(page, () => document.getElementById('touch').dataset.ctx === 'car-c');
     check(!!classic, 'the classic scheme shows its pedals');
     const pedal = await page.evaluate(() => {
@@ -304,6 +324,7 @@ try {
     check(Math.hypot(p1.x - p0.x, p1.y - p0.y) > 3, 'GAS drives');
     check(!!braking, 'sliding the thumb from GAS onto BRAKE brakes');
     await page.evaluate(() => (window.game.driveControls = 'direction'));
+    check(await page.evaluate(() => localStorage.getItem('blava-city-drive-controls') === '"classic"'), 'the driving scheme is remembered');
   }
 
   // out of the car
@@ -321,7 +342,6 @@ try {
     await fingers.tap(pb.x, pb.y);
     const paused = await until(page, () => !document.getElementById('pause').classList.contains('hidden'));
     check(!!paused, 'the pause button opens the pause menu');
-    await shot(page, 'land-pause');
     const r = await page.evaluate(() => {
       const b = document.getElementById('btn-resume').getBoundingClientRect();
       return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
