@@ -1,8 +1,7 @@
 // Rádio Kecy's breaking news: turns GlobalEvents into Slovak DJ lines (news/lines.ts), rate-limits
-// and prioritises them (news/NewsQueue.ts), shows them the way the car radio always has
-// (Game.radioText) while driving, and reaches players on foot with a plain toast instead — the HUD's
-// radio banner implies a car radio is playing, which isn't true off foot. Optionally reads the line
-// aloud with speechSynthesis. Works the same online and offline: both hosts route GlobalEvents
+// and prioritises them (news/NewsQueue.ts), and shows them the way the car radio always has
+// (Game.radioText) while driving; on foot they wait for the next car (or expire). Optionally reads
+// the line aloud with speechSynthesis. Works the same online and offline: both hosts route GlobalEvents
 // through ClientEvents.global -> onGlobal (see src/game/ClientEvents.ts).
 // Plan: docs/plans/social-events.md ("Rádio Kecy breaking news")
 import type { Game } from '../Game';
@@ -13,9 +12,9 @@ import { formatNews } from './news/lines';
 import { NewsQueue } from './news/NewsQueue';
 import { RADIO } from '../../data/brands';
 import { setting } from '../../ui/kit/settings';
-import { addPauseControl, toast } from '../../ui/kit/dom';
+import { addPauseControl } from '../../ui/kit/dom';
 
-/** how long a shown line stays on screen (Game.radioText / the toast), in seconds */
+/** how long a shown line stays on screen (Game.radioText), in seconds */
 const SHOW_TIME = 8;
 
 const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
@@ -62,14 +61,15 @@ export class News implements ClientFeature {
     if ((g.paused && !this.wasPaused) || (this.wasInCar && !inCar)) this.cancelSpeech();
     this.wasInCar = inCar;
     this.wasPaused = g.paused;
-    if (g.paused) return;
+    // it's the car radio: on foot the lines wait (the queue drops them after a minute), and the event
+    // features' own banners have already told the player what happened
+    if (g.paused || !this.radioAudible()) return;
 
     const text = this.queue.next(performance.now());
     if (text === null) return;
     // updateInfo's own random DJ chatter must not immediately overwrite this
     g.newsUntil = g.time + SHOW_TIME;
-    if (this.radioAudible()) g.radioText = { text: `📻 Rádio Kecy – MIMORIADNE: ${text}`, time: SHOW_TIME };
-    else toast(`📻 ${text}`, '#f8bbd0', SHOW_TIME * 1000);
+    g.radioText = { text: `📻 Rádio Kecy – MIMORIADNE: ${text}`, time: SHOW_TIME };
     g.audio.newsSting();
     this.speak(text);
   }
@@ -78,9 +78,8 @@ export class News implements ClientFeature {
     this.cancelSpeech();
   }
 
-  /** whether the HUD's radio banner currently means anything (a real station, playing in a car the
-   *  player is actually driving) — the condition under which it's fair to put news there instead of
-   *  a toast (Hud.ts itself draws radioText regardless of this, so News.ts has to decide). */
+  /** whether the HUD's radio line currently means anything: the player is driving a car with a radio
+   *  (Hud.ts draws radioText regardless, so News.ts has to decide) */
   private radioAudible(): boolean {
     const g = this.g;
     const v = g.player.vehicle;

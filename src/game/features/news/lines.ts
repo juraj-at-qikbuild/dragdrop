@@ -188,6 +188,8 @@ function mostWantedEndLines(nick: string, how: MostWantedHow, by: string | undef
  *  breaking in for. `place(x, y)` is `placeName` bound to the world (News.ts supplies it; kept as a
  *  parameter so this stays pure and DOM-free, and testable with a fake). */
 export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
+  // raceStart/raceResult `dest` is the landmark's display name, in the nominative ("Eurovea"): the
+  // lines only use it in apposition ("do cieľa Eurovea"), never after a case-governing preposition
   switch (e.k) {
     case 'eventAnnounce': {
       const at = place(e.x, e.y);
@@ -234,16 +236,16 @@ export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
       const variants = [
         `${e.a} vyzval ${e.b} na Závod? Cieľ: ${e.dest}, v hre je ${stake}!`,
         `Rádio Kecy hlási novú stávku: ${e.a} proti ${e.b}, cieľ ${e.dest}, stávka ${stake}.`,
-        `Na štarte sú ${e.a} a ${e.b} – ide sa na ${e.dest}, v hre ${stake}!`,
+        `Na štarte sú ${e.a} a ${e.b} – ide sa do cieľa ${e.dest}, v hre ${stake}!`,
       ];
       return { text: pick(variants, `RS:${e.a}:${e.b}:${e.dest}:${e.stake}`), priority: 2 };
     }
     case 'raceResult': {
       const cash = formatMoney(e.amount);
       const variants = [
-        `${e.winner} zdrhol hráčovi ${e.loser} na ceste k ${e.dest} a zhrabol ${cash}!`,
+        `${e.winner} zdrhol hráčovi ${e.loser} v pretekoch do cieľa ${e.dest} a zhrabol ${cash}!`,
         `Výsledok súboja Závod?: ${e.winner} porazil hráča ${e.loser}, výhra ${cash}.`,
-        `${e.winner} bol pri ${e.dest} prvý – ${e.loser} ostal v prachu a prišiel o ${cash}.`,
+        `${e.winner} bol v cieli ${e.dest} prvý – ${e.loser} ostal v prachu a prišiel o ${cash}.`,
       ];
       return { text: pick(variants, `RR:${e.winner}:${e.loser}:${e.dest}:${e.amount}`), priority: 3 };
     }
@@ -278,7 +280,7 @@ export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
     }
     case 'dailyAnswer': {
       const at = place(e.x, e.y);
-      const variants = [`Včerajšie Kde to je? zostalo neuhádnuté – bolo to ${at}.`, `Nikto to netrafil: hľadané miesto bolo ${at}.`, `Rádio Kecy prezrádza: dnešné miesto bolo ${at}.`];
+      const variants = [`Včerajšie Kde to je? zostalo neuhádnuté – bolo to ${at}.`, `Nikto to netrafil: hľadané miesto bolo ${at}.`, `Rádio Kecy prezrádza: včerajšie miesto bolo ${at}.`];
       return { text: pick(variants, `DA:${e.x}:${e.y}`), priority: 2 };
     }
     case 'revived': {
