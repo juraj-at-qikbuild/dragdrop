@@ -1,4 +1,6 @@
 node_modules/
+# symlinked into agent worktrees: a link isn't a directory, so match the name too
+node_modules
 dist/
 .cache/
 .wrangler/
@@ -8,3 +10,5 @@ server/dist/
 *.db-*
 .env
 *.local
+# git worktrees of parallel agents
+.claude/worktrees/
