@@ -1,5 +1,6 @@
 -- Blava City: data for the social features (docs/plans/social-events.md).
--- Run once in the Supabase dashboard's SQL editor. Safe to re-run.
+-- Applied with the Supabase CLI: `npx supabase link --project-ref <ref>` once, then `npx supabase db push`.
+-- Idempotent (re-running is harmless).
 --
 -- Who can see what:
 --  * The game server and the scripts use the secret key, which bypasses row level security.

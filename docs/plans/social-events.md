@@ -235,7 +235,7 @@ auth verifier. The existing tests must stay green.
   - `select`, `patch`, `rpc` and admin helpers
 - `server/src/features/RemoteConfig.ts`: `game_config` loaded at boot and every 60 s, with typed defaults.
 - `server/src/features/Activity.ts`: `room.activity.log(kind, p, amount, meta)`.
-- `supabase/migrations/0001_social_events.sql` (schema below).
+- `supabase/migrations/20260926110000_social_events.sql` (schema below). Later schema changes are new migration files (`npx supabase migration new <name>`), never edits to applied ones.
 - `scripts/supa-check.mjs`: verifies the tables, the RLS rules (anon cannot read the secrets, activity or
   reports) and the bucket.
 - Tests use an injected fake `fetch`.
@@ -268,7 +268,7 @@ auth verifier. The existing tests must stay green.
 
 Wave 1 continues meanwhile, because every feature degrades gracefully without Supabase.
 
-1. Run `supabase/migrations/0001_social_events.sql` in the Supabase SQL editor.
+1. Apply the migrations with the Supabase CLI on your machine, so they're recorded in the migration history: `npx supabase link --project-ref eejvrdvzteyrwlhjfnfx` once, then `npx supabase db push`. This container can't reach Postgres directly: it only has HTTPS through a proxy, and the database host is IPv6-only.
 2. Add `GTA_BRATISKA_SUPABASE_PROJECT_URL` to this environment.
 3. If the environment's network policy blocks `*.supabase.co`, allow it.
 4. Set up Auth: see Setup below.
@@ -600,7 +600,7 @@ Every number is a default that can be tuned through `game_config`. Every payout 
   accounts (bans stick), push-to-talk as the default, mute, reports, the blocklist and the kill switch.
 - Stretch: party members hear each other up to 300 m as a band-passed "radio".
 
-## Supabase schema (`supabase/migrations/0001_social_events.sql`)
+## Supabase schema (`supabase/migrations/20260926110000_social_events.sql`)
 
 Auth uses Supabase's built-in `auth.users`. No `profiles` table is needed, because account nicknames live
 in SQLite next to the rest of the hot profile.
@@ -703,7 +703,7 @@ expected conflicts, and they are trivial.
 
 **Supabase: SQL**
 
-- Run `0001_social_events.sql` in the SQL editor when Phase 0b pauses.
+- Apply the migrations with `npx supabase db push`, after `npx supabase link --project-ref eejvrdvzteyrwlhjfnfx` once. Use the CLI rather than the SQL editor, so the migration history stays right.
 
 **Supabase: Auth**
 

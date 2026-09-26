@@ -17,7 +17,9 @@
     "fetch:osm": "node scripts/fetch-osm.mjs",
     "build:map": "node scripts/fetch-osm.mjs && node scripts/fetch-heights.mjs && node scripts/build-map.mjs",
     "fetch:heights": "node scripts/fetch-heights.mjs",
-    "smoke": "node scripts/smoke-offline.mjs"
+    "smoke": "node scripts/smoke-offline.mjs",
+    "db:link": "npx --yes supabase link --project-ref eejvrdvzteyrwlhjfnfx",
+    "db:push": "npx --yes supabase db push"
   },
   "dependencies": {
     "@supabase/auth-js": "^2.117.2",
