@@ -492,17 +492,17 @@ export class Game {
         const trig = inp.pad.rt - inp.pad.lt;
         if (Math.abs(trig) > 0.05) throttle = trig;
       }
-      if (inp.stick.active) {
+      if (inp.touch.move.on) {
         // touch: steer toward the stick's direction, easing off the throttle through a turn
         // (the tyres only hold so much) and braking into a sharp one at speed
-        const want = Math.atan2(inp.stick.y, inp.stick.x);
-        const mag = Math.hypot(inp.stick.x, inp.stick.y);
+        const want = Math.atan2(inp.touch.move.y, inp.touch.move.x);
+        const mag = Math.hypot(inp.touch.move.x, inp.touch.move.y);
         const diff = Math.atan2(Math.sin(want - v.angle), Math.cos(want - v.angle));
         const turn = Math.abs(diff);
         throttle = mag < 0.3 ? 0 : turn > 2.2 ? -1 : turn > 0.7 && v.fwdSpeed > 12 ? -0.6 : 1 - clamp((turn - 0.25) * 1.2, 0, 0.8);
         steer = clamp(diff * 2, -1, 1) * (throttle < 0 && turn > 2.2 ? -1 : 1);
       }
-      v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space'), inp.down('ShiftLeft', 'ShiftRight'));
+      v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space', 'handbrake'), inp.down('ShiftLeft', 'ShiftRight', 'nitro'));
       if (inp.hit('KeyH')) {
         this.audio.horn();
         this.host.horn();
@@ -528,7 +528,7 @@ export class Game {
     // on foot
     const ax = inp.axis();
     // 'cursor' mode: W/S walk towards/away from the mouse, A/D strafe around it (touch stick stays screen-relative)
-    const cursorMode = this.footControls === 'cursor' && !inp.stick.active && !inp.pad.active;
+    const cursorMode = this.footControls === 'cursor' && !inp.touch.active && !inp.pad.active;
     let heading = p.angle;
     if (cursorMode) {
       const c = this.cursorWorld();
@@ -548,9 +548,9 @@ export class Game {
     const padAim = this.padAim(0.35);
     if (padAim !== null) p.angle = padAim;
     else if (cursorMode) p.angle = heading;
-    else if (!inp.pad.active && (this.time - this.lastMouseMove < 3 || inp.mouseDown)) p.angle = this.aimAngle(p.x, p.y);
+    else if (!inp.pad.active && !inp.touch.active && (this.time - this.lastMouseMove < 3 || inp.mouseDown)) p.angle = this.aimAngle(p.x, p.y);
     if (p.cooldown > 0) p.cooldown -= dt;
-    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touchButtons.has('fire') || (inp.pad.active && inp.pad.rt > 0.5);
+    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || inp.touch.fire || (inp.pad.active && inp.pad.rt > 0.5);
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon === 'fist') this.host.punch(traceMelee(this.host.peds, p, p.angle)?.id ?? 0);

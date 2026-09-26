@@ -272,16 +272,16 @@ async function boot() {
       let y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
       const l = Math.hypot(x, y);
       if (l > 1) (x /= l), (y /= l);
-      game.input.stick = { x, y, active: true };
+      Object.assign(game.input.touch.move, { x, y, on: true });
       knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
     };
     stick.addEventListener('pointerdown', (e) => {
       stick.setPointerCapture(e.pointerId);
       setStick(e);
     });
-    stick.addEventListener('pointermove', (e) => game.input.stick.active && setStick(e));
+    stick.addEventListener('pointermove', (e) => game.input.touch.move.on && setStick(e));
     const end = () => {
-      game.input.stick = { x: 0, y: 0, active: false };
+      Object.assign(game.input.touch.move, { x: 0, y: 0, on: false });
       knob.style.transform = '';
     };
     stick.addEventListener('pointerup', end);
@@ -292,11 +292,13 @@ async function boot() {
         e.preventDefault();
         game.audio.init();
         if (code === 'KeyF' || code === 'KeyM') game.input.press(code);
+        else if (code === 'fire') game.input.touch.fire = true;
         else game.input.touchButtons.add(code);
       });
-      const up = () => game.input.touchButtons.delete(code);
+      const up = () => (code === 'fire' ? (game.input.touch.fire = false) : game.input.touchButtons.delete(code));
       b.addEventListener('pointerup', up);
       b.addEventListener('pointerleave', up);
+      b.addEventListener('pointercancel', up);
     });
   }
 

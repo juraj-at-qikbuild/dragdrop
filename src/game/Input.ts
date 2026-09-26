@@ -1,13 +1,16 @@
-/** Keyboard + mouse + gamepad + simple touch controls. */
+/** Keyboard + mouse + gamepad + touch controls (src/ui/TouchControls.ts writes `touch`). */
 export class Input {
   keys = new Set<string>();
   private pressed = new Set<string>();
   mouseX = 0;
   mouseY = 0;
   mouseDown = false;
-  private clicked = false;
-  /** virtual joystick (touch) in [-1, 1] */
-  stick = { x: 0, y: 0, active: false };
+  /** Touch controls: the left stick (screen-relative, [-1, 1]), the aim drag from the fire button
+   *  (a unit vector once dragged far enough), the fire button held, and whether touch is what the
+   *  player last used (like `pad.active`). */
+  touch = { move: { x: 0, y: 0, on: false }, aim: { x: 0, y: 0, on: false }, fire: false, active: false };
+  /** held touch buttons, read by `down()`: 'gas', 'brake', 'handbrake', 'nitro', or a key code they
+   *  stand in for (the horn's KeyH, push-to-talk) */
   touchButtons = new Set<string>();
   /** mouse-wheel zoom steps since the last `takeWheel` (+ zooms in) */
   private wheel = 0;
@@ -24,25 +27,43 @@ export class Input {
       if (!this.keys.has(k)) this.pressed.add(k);
       this.keys.add(k);
       this.pad.active = false;
+      this.touch.active = false;
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(k)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => {
+    const release = () => {
       this.keys.clear();
       this.mouseDown = false;
-    });
-    canvas.addEventListener('mousemove', (e) => {
-      this.mouseX = e.offsetX;
-      this.mouseY = e.offsetY;
+      this.resetTouch();
+    };
+    addEventListener('blur', release);
+    addEventListener('visibilitychange', () => document.hidden && release());
+    // The mouse only: a tap on the touch screen also sends emulated mouse events, which would turn
+    // the player toward the tap. Pointer events say which device they came from.
+    addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      this.mouseX = e.clientX;
+      this.mouseY = e.clientY;
+      if (!(e.buttons & 1)) this.mouseDown = false;
       this.pad.active = false;
+      this.touch.active = false;
     });
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) {
-        this.mouseDown = true;
-        this.clicked = true;
-      }
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button === 0) this.mouseDown = true;
     });
-    addEventListener('mouseup', () => (this.mouseDown = false));
+    addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse' && !(e.buttons & 1)) this.mouseDown = false;
+    });
+    // any touch hands the controls back to the touch screen (after a gamepad, say)
+    addEventListener(
+      'pointerdown',
+      (e) => {
+        if (e.pointerType !== 'touch') return;
+        this.touch.active = true;
+        this.pad.active = false;
+      },
+      { capture: true },
+    );
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener(
       'wheel',
@@ -69,10 +90,12 @@ export class Input {
     return r;
   }
 
-  takeClick() {
-    const c = this.clicked;
-    this.clicked = false;
-    return c;
+  /** let go of everything the touch controls hold (a context change, the page losing focus) */
+  resetTouch() {
+    const t = this.touch;
+    t.move.x = t.move.y = t.aim.x = t.aim.y = 0;
+    t.move.on = t.aim.on = t.fire = false;
+    this.touchButtons.clear();
   }
 
   /** mouse-wheel steps since the last call (+ = zoom in) */
@@ -88,7 +111,6 @@ export class Input {
 
   endFrame() {
     this.pressed.clear();
-    this.clicked = false;
   }
 
   /** Read the gamepad (call once a frame, before reading input). Buttons act as the keys they stand
@@ -141,7 +163,7 @@ export class Input {
     if (this.down('KeyD', 'ArrowRight')) x += 1;
     if (this.down('KeyW', 'ArrowUp')) y -= 1;
     if (this.down('KeyS', 'ArrowDown')) y += 1;
-    if (this.stick.active) (x = this.stick.x), (y = this.stick.y);
+    if (this.touch.move.on) (x = this.touch.move.x), (y = this.touch.move.y);
     else if (this.pad.active && (this.pad.lx || this.pad.ly)) (x = this.pad.lx), (y = this.pad.ly);
     return { x, y };
   }
