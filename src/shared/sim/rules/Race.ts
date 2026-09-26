@@ -28,8 +28,9 @@ const MAX_STAKE = 250;
 /** below this much money, it's a stakeless friendly race instead */
 const FRIENDLY_THRESHOLD = 20;
 const FRIENDLY_PRIZE = 50;
-/** friendly prizes per player per calendar day */
+/** friendly prizes per player per day (a day of sim time: the shared rule has no wall clock) */
 const FRIENDLY_DAILY_CAP = 3;
+const DAY_S = 24 * 60 * 60;
 /** candidate landmarks: straight-line distance from the start, sorted toward the middle of this range */
 const DEST_MIN = 700, DEST_MAX = 1800, DEST_TARGET = 1300;
 const MAX_CANDIDATES = 12;
@@ -81,8 +82,8 @@ export class Race implements SimRule {
   private races: ActiveRace[] = [];
   /** "loId:hiId" -> sim.time a race between them last ended */
   private pairCooldown = new Map<string, number>();
-  /** "nick|YYYY-MM-DD" -> friendly prizes already paid, for the daily cap */
-  private friendlyToday = new Map<string, number>();
+  /** nick -> friendly prizes paid on `day` (days of sim.time), for the daily cap */
+  private friendlyToday = new Map<string, { day: number; n: number }>();
   private nextId = 1;
 
   constructor(private sim: Sim) {}
@@ -106,7 +107,7 @@ export class Race implements SimRule {
     this.pending.push(pend);
     this.sendChallengeState(pend);
     const stakeText = friendly ? `mestskú odmenu €${FRIENDLY_PRIZE}` : `€${stake}`;
-    this.sim.events.toPlayer(from.id, { k: 'msg', title: '', text: `Vyzval si ${to.nick} na závod ku ${dest.label} o ${stakeText}`, time: 3, color: '#ffd740' });
+    this.sim.events.toPlayer(from.id, { k: 'msg', title: '', text: `Vyzval si ${to.nick} na závod do cieľa ${dest.label} o ${stakeText}`, time: 3, color: '#ffd740' });
     return null;
   }
 
@@ -334,15 +335,16 @@ export class Race implements SimRule {
     if (i >= 0) this.races.splice(i, 1);
   }
 
-  private today(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
   private friendlyAllowed(nick: string): boolean {
-    return (this.friendlyToday.get(`${nick}|${this.today()}`) ?? 0) < FRIENDLY_DAILY_CAP;
+    const e = this.friendlyToday.get(nick);
+    return !e || e.day !== this.day() || e.n < FRIENDLY_DAILY_CAP;
   }
   private markFriendly(nick: string) {
-    const key = `${nick}|${this.today()}`;
-    this.friendlyToday.set(key, (this.friendlyToday.get(key) ?? 0) + 1);
+    const day = this.day(), e = this.friendlyToday.get(nick);
+    this.friendlyToday.set(nick, { day, n: e && e.day === day ? e.n + 1 : 1 });
+  }
+  private day(): number {
+    return Math.floor(this.sim.time / DAY_S);
   }
 }
 

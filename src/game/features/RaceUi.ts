@@ -149,7 +149,7 @@ export class RaceUi implements ClientFeature {
     const stakeText = c.stake > 0 ? formatMoney(c.stake) : 'zadarmo – mestská odmena';
     ctx.font = `700 ${small ? 14 : 17}px ${HEAD}`;
     outlined(ctx, `ZÁVOD? ${c.nick} ťa vyzýva`, W / 2, y + 8, '#ffd740', 3);
-    outlined(ctx, `ku ${c.dest} o ${stakeText}`, W / 2, y + 8 + (small ? 18 : 21), '#ffd740', 3);
+    outlined(ctx, `do cieľa ${c.dest} o ${stakeText}`, W / 2, y + 8 + (small ? 18 : 21), '#ffd740', 3);
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
     outlined(ctx, `Podrž [H] = prijať · ${Math.max(0, Math.ceil(c.left))} s`, W / 2, y + (small ? 48 : 56), '#e8eaed', 2.5);
     const frac = this.acceptFrom === c.from ? Math.max(0, this.acceptT) / ACCEPT_TIME : 0;
@@ -184,7 +184,7 @@ export class RaceUi implements ClientFeature {
     ctx.textBaseline = 'middle';
     const mm = Math.floor(r.left / 60), ss = Math.floor(r.left % 60);
     ctx.font = `700 ${small ? 11 : 13}px ${BODY}`;
-    outlined(ctx, `ZÁVOD ku ${r.dest} · ${mm}:${String(ss).padStart(2, '0')}`, W / 2, y + h * 0.32, '#ffd740', 3);
+    outlined(ctx, `ZÁVOD · cieľ ${r.dest} · ${mm}:${String(ss).padStart(2, '0')}`, W / 2, y + h * 0.32, '#ffd740', 3);
     const oppText = oppD !== null ? `${r.opponentNick} ${oppD} m` : r.opponentNick;
     outlined(ctx, `Ty ${myD} m   ·   ${oppText}`, W / 2, y + h * 0.72, '#e8eaed', 2.5);
     ctx.restore();
@@ -207,8 +207,8 @@ export class RaceUi implements ClientFeature {
     if (e.k !== 'raceResult') return;
     const nick = this.g.online?.nick;
     if (!nick) return;
-    if (e.winner === nick) this.g.banners.push({ title: 'VYHRAL SI ZÁVOD!', text: `${formatMoney(e.amount)} · ku ${e.dest}`, icon: 'race', color: '#69f0ae', priority: 2 });
-    else if (e.loser === nick) this.g.banners.push({ title: 'PREHRAL SI ZÁVOD', text: `${e.winner} dorazil prvý ku ${e.dest}`, icon: 'race', color: '#ff5252', priority: 2 });
+    if (e.winner === nick) this.g.banners.push({ title: 'VYHRAL SI ZÁVOD!', text: `${formatMoney(e.amount)} · cieľ ${e.dest}`, icon: 'race', color: '#69f0ae', priority: 2 });
+    else if (e.loser === nick) this.g.banners.push({ title: 'PREHRAL SI ZÁVOD', text: `${e.winner} dorazil prvý do cieľa ${e.dest}`, icon: 'race', color: '#ff5252', priority: 2 });
   }
 
   reset() {

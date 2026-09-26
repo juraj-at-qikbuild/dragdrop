@@ -244,6 +244,22 @@ describe('Race: running it to the finish', () => {
     }
     expect(w.profile.money).toBe(10 + 50 * 3); // only the first 3 friendly wins paid
     expect(w.profile.stats?.racesWon).toBe(4); // every win still counts
+
+    // a day of sim time later the cap starts over
+    (sim as unknown as { time: number }).time += 24 * 60 * 60;
+    wCar.x = bx;
+    wCar.y = by;
+    const o = sim.addPlayer({ nick: 'NextDay', profile: profile(10), kinematic: true, x: bx + 3, y: by });
+    const oCar = sim.addVehicle(new Vehicle('sedan', bx + 3, by, 0, '#fff'));
+    expect(sim.enterVehicle(o, oCar)).toBe(true);
+    expect(rule.challenge(w, o)).toBeNull();
+    rule.answer(o, w.id, true);
+    for (let t = 0; t < 31; t++) sim.step(0.1);
+    const race = lastEvent(priv, w.id, 'race')!.s!;
+    wCar.x = race.x;
+    wCar.y = race.y;
+    sim.step(0.1);
+    expect(w.profile.money).toBe(10 + 50 * 4);
   });
 });
 
