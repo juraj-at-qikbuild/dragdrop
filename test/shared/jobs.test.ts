@@ -70,7 +70,7 @@ describe('Jobs: courier offer generation', () => {
         const dDrop = dist(offer!.pickup.x, offer!.pickup.y, offer!.drop.x, offer!.drop.y);
         expect(dDrop).toBeGreaterThanOrEqual(600 - 25);
         expect(dDrop).toBeLessThanOrEqual(1800 + 25);
-        expect(offer!.pickup.label).toMatch(/^Vlk: bistro na /);
+        expect(offer!.pickup.label).toMatch(/^Vlk: bistro \S+ \S/); // a placeName phrase: "na ulici …", "pri …", "v štvrti …"
         expect(offer!.routeM).toBeGreaterThan(0);
       }
     }

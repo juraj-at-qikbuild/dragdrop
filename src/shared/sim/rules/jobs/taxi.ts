@@ -4,6 +4,7 @@ import type { Sim } from '../../Sim';
 import type { Vehicle } from '../../../entities/Vehicle';
 import { Ped } from '../../../entities/Ped';
 import { pickInBand, type Pt } from './courier';
+import { placeName } from '../placeName';
 
 const FARE_RANGE: [number, number] = [150, 500];
 const DEST_RANGE: [number, number] = [800, 2500];
@@ -14,7 +15,7 @@ const AHEAD_COS = 0.3;
 /** Destination kinds with the flavour the plan asks for ("museum, theatre, hotel, …"). A landmark is
  *  tried first (see offerDestination) since it always carries a proper name; these fill out the rest
  *  of the city for places that aren't landmarks. Only museum/theatre/church/library carry a name in
- *  the map data (World.places' `n`); the others fall back to a generic "<kind> na <street>" label. */
+ *  the map data (World.places' `n`); the others fall back to a generic "<kind> <placeName phrase>" label ("Hotel na ulici Obchodná"). */
 const DEST_KINDS: { k: string; label: string }[] = [
   { k: 'museum', label: 'Múzeum' },
   { k: 'theatre', label: 'Divadlo' },
@@ -66,7 +67,7 @@ export function offerDestination(sim: Sim, fromX: number, fromY: number): Pt | n
       const label =
         place.n !== undefined
           ? world.names[place.n]
-          : `${dk.label} na ${world.streetName(place.x, place.y) ?? world.quarter(place.x, place.y) ?? world.district(place.x, place.y)}`;
+          : `${dk.label} ${placeName(world, place.x, place.y)}`;
       pool.push({ x: place.x, y: place.y, label });
     }
   const dest = pickInBand(sim, pool, fromX, fromY, DEST_RANGE);

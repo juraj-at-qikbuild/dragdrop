@@ -5,6 +5,7 @@
 import type { Sim } from '../../Sim';
 import type { World } from '../../../world/World';
 import { dist } from '../../../util/math';
+import { placeName } from '../placeName';
 
 export interface Pt {
   x: number;
@@ -61,9 +62,10 @@ function placeLabel(world: World, x: number, y: number): string {
   return world.streetName(x, y) ?? world.quarter(x, y) ?? world.district(x, y);
 }
 
-/** The Vlk-branded pickup label, e.g. "Vlk: bistro na Obchodnej". */
+/** The Vlk-branded pickup label, e.g. "Vlk: bistro na ulici Obchodná" (placeName's phrase, which
+ *  declines what needs declining, instead of a bare nominative name after "na") */
 function pickupLabel(world: World, x: number, y: number): string {
-  return `Vlk: bistro na ${placeLabel(world, x, y)}`;
+  return `Vlk: bistro ${placeName(world, x, y)}`;
 }
 
 /** A fresh courier offer from wherever the player currently is: a food place 200-900 m away, and a
