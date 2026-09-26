@@ -315,6 +315,23 @@ describe('Daily: solving', () => {
   });
 });
 
+describe('Daily: player lifecycle', () => {
+  it("a dropped player's held-seconds entry is cleared, not left to leak into a later id reuse", async () => {
+    const { room, join, tick, clock, standOnSpot } = setup({ supa: fakeSupa({ daily_spots: [spotsRow()], daily_spot_secrets: [secretRow()] }).supa });
+    await flush();
+    const a = join(TOKEN_A, 'Anna');
+    standOnSpot(a.id);
+    clock.t = REVEAL_MS + 1000;
+    tick(1);
+    tick(15, 50); // holding the spot for a while: not yet the 1s needed to solve it
+    const daily = room.feature<Daily>('daily') as unknown as { holding: Map<number, number> };
+    expect(daily.holding.get(a.id)).toBeGreaterThan(0);
+
+    room.onMessage(a.conn, JSON.stringify({ t: 'leave' })); // drops the session for good (Sim ids get recycled)
+    expect(daily.holding.has(a.id)).toBe(false);
+  });
+});
+
 describe('Daily: debug injection', () => {
   it('msg.daily injects a spot for today, revealed immediately, with no Supabase', async () => {
     const { room, join, tick, standOnSpot } = setup({ supa: disabledSupa() }); // no rows at all

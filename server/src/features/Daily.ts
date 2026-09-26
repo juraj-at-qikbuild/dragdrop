@@ -164,6 +164,12 @@ export class Daily implements RoomFeature {
     }
   }
 
+  /** a dropped player's held-seconds entry must go with them: ids get recycled (Sim.addPlayer), and a
+   *  later player reusing this id must not inherit a stranger's partial hold */
+  onDrop(s: Session) {
+    this.holding.delete(s.player.id);
+  }
+
   /** msg.daily {x, y, r}: a spot for today, revealed right away, no Supabase involved (tests, e2e) */
   onDebug(_s: Session, m: Extract<ClientMsg, { t: 'debug' }>) {
     if (!m.daily) return;
