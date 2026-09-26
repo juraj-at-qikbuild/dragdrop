@@ -212,15 +212,34 @@ describe('escaping', () => {
     const { sim, dir, globals } = setup(430);
     const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: true });
     sim.addPlayer({ nick: 'B', profile: profile(), kinematic: true });
+    sim.setWanted(a, 5);
     dir.trigger('wanted', a);
+    for (let i = 0; i < 30; i++) sim.step(1); // 30 s at 5★
+    sim.setWanted(a, 3);
+    sim.step(1);
+    sim.setWanted(a, 5);
+    for (let i = 0; i < 30; i++) sim.step(1); // 30 s more: 60 s at 5★ in all, the first bounty step ($450)
     sim.setWanted(a, 3);
     for (let i = 0; i < 59; i++) sim.step(1);
     expect(dir.get('wanted')).toBeDefined(); // not yet
     const before = a.profile.money;
     sim.step(1); // crosses the 60s mark
-    expect(a.profile.money - before).toBe(150); // 50% of the starting $300 bounty
-    expect(globals.some((e) => e.k === 'mostWantedEnd' && e.how === 'escaped' && e.amount === 150)).toBe(true);
+    expect(a.profile.money - before).toBe(225); // 50% of the $450 bounty
+    expect(globals.some((e) => e.k === 'mostWantedEnd' && e.how === 'escaped' && e.amount === 225)).toBe(true);
     expect(dir.get('wanted')).toBeUndefined();
+  });
+
+  it('an escape before a minute at 5★ pays nothing (no hitting 5★ and hiding at once for money)', () => {
+    const { sim, dir, globals } = setup(432);
+    const a = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: true });
+    sim.addPlayer({ nick: 'B', profile: profile(), kinematic: true });
+    dir.trigger('wanted', a);
+    sim.setWanted(a, 3);
+    const before = a.profile.money;
+    for (let i = 0; i < 61; i++) sim.step(1);
+    expect(dir.get('wanted')).toBeUndefined();
+    expect(a.profile.money).toBe(before);
+    expect(globals.some((e) => e.k === 'mostWantedEnd' && e.how === 'escaped' && e.amount === 0)).toBe(true);
   });
 
   it('going back to 5★ resets the escape countdown', () => {

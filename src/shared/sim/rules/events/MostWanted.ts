@@ -18,7 +18,8 @@ const WATCH_INTERVAL_S = 1;
 const RETRIGGER_COOLDOWN_S = 5 * 60;
 /** a (killer, target) pair can only collect the bounty once this often (anti-collusion) */
 const PAIR_COOLDOWN_S = 60 * 60;
-/** the target must have spent at least this long at 5★ (accumulated, this chase) for a takedown to pay */
+/** the target must have spent at least this long at 5★ (accumulated, this chase) for a takedown or an
+ *  escape to pay */
 const MIN_STAR_TIME_S = 60;
 /** the bounty grows, and the target is paid, every this many seconds spent at 5★ */
 const STAR_STEP_S = 60;
@@ -226,8 +227,9 @@ class MostWanted extends TimedEvent {
     if (this.done) return false;
     const sim = this.sim, target = this.target;
     const { x, y } = target.focus();
-    const amount = Math.round(this.bounty * ESCAPE_SHARE);
-    sim.payout(target, amount, 'escape', x, y);
+    // only a chase that was actually on pays: otherwise hitting 5★ and hiding at once is free money
+    const amount = this.starAccum >= MIN_STAR_TIME_S ? Math.round(this.bounty * ESCAPE_SHARE) : 0;
+    if (amount) sim.payout(target, amount, 'escape', x, y);
     sim.events.global({ k: 'mostWantedEnd', nick: target.nick, how: 'escaped', amount, x, y });
     this.finishChase();
     return false;
