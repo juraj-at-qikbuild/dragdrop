@@ -4,6 +4,7 @@ import type { ClientFeature } from './ClientFeature';
 import { EventsOverlay } from './EventsOverlay';
 import { PartyUi } from './PartyUi';
 import { ReviveUi } from './ReviveUi';
+import { VoiceFeature } from './voice/VoiceFeature';
 
 export type { ClientFeature };
 
@@ -12,6 +13,7 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new EventsOverlay(g));
   out.push(new ReviveUi(g));
   out.push(new PartyUi(g));
-  // each feature adds its line here: out.push(new VoiceUi(g)) …
+  out.push(new VoiceFeature(g));
+  // each feature adds its line here: out.push(new DailyCard(g)) …
   return out;
 }

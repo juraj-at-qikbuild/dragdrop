@@ -13,7 +13,7 @@ import { spikeHit } from '../shared/sim/Police';
 import { Writer, Reader, decodeSnapshot, encodeState, MSG_SNAPSHOT, type Snapshot, type StateReport } from '../shared/net/codec';
 import {
   INTERP_DELAY_MS, PROTOCOL_VERSION, STATE_HZ,
-  type RosterRow, type ServerMsg, type VehFull, type WelcomeMsg, type WorldEvent,
+  type ClientMsg, type RosterRow, type ServerMsg, type VehFull, type WelcomeMsg, type WorldEvent,
 } from '../shared/net/protocol';
 import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
@@ -37,6 +37,9 @@ export class NetSimHost implements SimHost, NetView {
   conn: Connection;
   roster: RosterRow[] = [];
   nick: string;
+  /** playing as a Supabase account rather than a guest, as the server confirmed it (welcome.account):
+   *  voice chat and the pause menu's account controls (src/ui/AccountUi.ts) gate on it */
+  account = false;
   private mirrors: Mirrors;
   private ownCar: Vehicle | null = null;
   private physics = new VehiclePhysics();
@@ -128,6 +131,7 @@ export class NetSimHost implements SimHost, NetView {
     const me = this.me;
     me.id = w.id;
     this.nick = w.nick;
+    this.account = w.account;
     this.epoch = w.epoch;
     const p = me.ped;
     p.id = w.ped;
@@ -613,14 +617,15 @@ export class NetSimHost implements SimHost, NetView {
     return r ? { nick: r[1], wanted: r[4], partyId: r[7] ?? 0, flags: r[8] ?? 0 } : null;
   }
 
-  /** playing as a signed-in Supabase account, not a guest (src/ui/AccountUi.ts's pause-menu controls) */
-  get account(): boolean {
-    return !!this.identity.account;
-  }
-
   /** GDPR self-delete (src/ui/AccountUi.ts); the server answers with bye 'deleted' (see onFatal) */
   deleteAccount() {
     this.conn.send({ t: 'accountDelete' });
+  }
+
+  /** the voice feature's signalling channel (src/game/features/voice/): opt in/out, WebRTC signals,
+   *  reports — online only, which is the only place voice runs */
+  sendVoice(m: Extract<ClientMsg, { t: 'voice' | 'voiceSig' | 'report' }>) {
+    this.conn.send(m);
   }
 
   dispose() {

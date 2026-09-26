@@ -7,6 +7,9 @@ export class Audio {
   private master!: GainNode;
   private sfx!: GainNode;
   private music!: GainNode;
+  /** proximity voice chat (src/game/features/voice/): every peer's playback graph feeds into this
+   *  bus, under `master`, so the pause menu's "Hlasitosť hlasov" setting scales all of them at once */
+  voiceBus: GainNode | null = null;
   private engineOsc: OscillatorNode | null = null;
   private engineOsc2: OscillatorNode | null = null;
   private engineGain!: GainNode;
@@ -45,6 +48,9 @@ export class Audio {
     this.music = c.createGain();
     this.music.gain.value = 0.32;
     this.music.connect(this.master);
+    this.voiceBus = c.createGain();
+    this.voiceBus.gain.value = 1;
+    this.voiceBus.connect(this.master);
 
     const len = c.sampleRate * 1.5;
     this.noise = c.createBuffer(1, len, c.sampleRate);
@@ -108,6 +114,11 @@ export class Audio {
   setMuted(m: boolean) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 0.55;
+  }
+
+  /** the pause menu's "Hlasitosť hlasov" setting (0..1); per-peer distance gain multiplies onto this */
+  setVoiceVolume(v: number) {
+    if (this.voiceBus) this.voiceBus.gain.value = Math.max(0, Math.min(1, v));
   }
 
   private now() {

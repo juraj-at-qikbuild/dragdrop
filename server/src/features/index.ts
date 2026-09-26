@@ -8,19 +8,26 @@ import { Party } from './Party';
 import { RemoteConfig } from './RemoteConfig';
 import type { RoomFeature } from './RoomFeature';
 import { Revive } from './Revive';
+import { Voice } from './Voice';
 
 export type { RoomFeature };
-export { Activity, RemoteConfig, Supa };
+export { Activity, RemoteConfig, Supa, Voice };
 
 export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeature[] {
   // tests inject a disabled (or fake-fetch) Supa through RoomOptions.supa; under vitest the default is
   // disabled too, so a test that forgets to inject one still never touches the network
   const supa = opts.supa ?? (process.env.VITEST ? new Supa('', '') : new Supa(config.supabaseUrl, config.supabaseSecretKey));
   supa.start();
-  const out: RoomFeature[] = [new RemoteConfig(room, supa, { e2e: config.e2e || room.debug }), new Activity(supa)];
+  // built directly (not looked up through room.remoteConfig/room.activity) because every feature here
+  // is constructed *before* any of them is added to room.features (Room's constructor loop runs after
+  // this whole array comes back), so those accessors would still see an empty registry right now
+  const remoteConfig = new RemoteConfig(room, supa, { e2e: config.e2e || room.debug });
+  const activity = new Activity(supa);
+  const out: RoomFeature[] = [remoteConfig, activity];
   out.push(new Account(room));
   out.push(new Revive(room));
   out.push(new Party(room));
-  // each feature adds its line here: out.push(new Voice(room)) …
+  out.push(new Voice(room, remoteConfig, activity));
+  // each feature adds its line here: out.push(new Daily(room)) …
   return out;
 }
