@@ -308,6 +308,16 @@ export class Fx {
     }
   }
 
+  /** a market stall's goods flung the way the car went (MOJE LOKŠE!): lokše, langoše, sausages,
+   *  cups of punč */
+  food(x: number, y: number, kind: 'lokse' | 'langos' | 'klobasa' | 'punc', dir: number) {
+    const color = kind === 'lokse' ? ['#f3e3c3', '#e8d2a6'] : kind === 'langos' ? ['#f0c35a', '#e2a83f'] : kind === 'klobasa' ? ['#a1452f', '#8a3a26'] : ['#fafafa', '#c2185b'];
+    for (let i = 0; i < 14; i++) {
+      const a = dir + rand(-0.9, 0.9), sp = rand(3, 11);
+      this.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.8, 1.6), max: 1.6, size: rand(0.1, 0.18), grow: 0, color: pick(color), alphaMax: 1, top: true, kind: 'chunk', rot: Math.random() * Math.PI * 2, vr: rand(-10, 10) });
+    }
+  }
+
   /** feathers, from a flock of pigeons taking off (FRRR!) */
   feathers(x: number, y: number, n: number) {
     for (let i = 0; i < n; i++) {

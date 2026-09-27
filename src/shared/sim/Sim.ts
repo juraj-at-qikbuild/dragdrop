@@ -372,6 +372,7 @@ export class Sim {
     this.police.update(dt);
     this.updateVehicles(dt);
     this.world.gates.sweep(this.vehicles, dt);
+    this.world.stalls.sweep(this.vehicles, dt, (i, v) => this.stallHit(i, v));
     updateLevels(this.world, this.trams, this.peds);
     this.updatePickups(dt);
     for (const p of this.players.values()) {
@@ -558,6 +559,18 @@ export class Sim {
       this.events.toPlayer(driver.id, { k: 'style', label: 'BOING!', cash: 0, x: p.x, y: p.y - 1.5 });
     }
     for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dazed && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
+  }
+
+  /** A car ploughed through a market stall (world/Stalls.ts: MOJE LOKŠE!): the player at its wheel
+   *  gets the combo, and the police's attention if they see it; the passers-by around scatter. */
+  private stallHit(i: number, v: Vehicle) {
+    const st = this.world.stalls, x = st.x[i], y = st.y[i];
+    const pl = v.owner ? this.players.get(v.owner) : undefined;
+    if (pl && pl.ped.vehicle === v) {
+      this.style(pl, 'stall', x, y);
+      this.crime(pl, 'destroy');
+    }
+    for (const q of this.pedsNear(x, y, 10)) if (q.kind === 'civ' && !q.dazed && dist(q.x, q.y, x, y) < 10) this.combat.scare(q, x, y);
   }
 
   /** Knock an NPC down (docs/plans/non-violent.md: nobody dies): thrown a little way from (fromX,

@@ -11,6 +11,9 @@ import { FIVE_GAP, FIVE_MAX, FIVE_MIN, besideCar } from '../shared/sim/rules/Spl
 import type { Vehicle } from '../shared/entities/Vehicle';
 import { MissionManager } from '../missions/Missions';
 import { Hud, drawWeaponIcon } from '../ui/Hud';
+import { Pigeons } from '../world/Pigeons';
+import { drawStalls } from '../render/drawStall';
+import type { StallKind } from '../shared/world/Stalls';
 import { MapView } from '../ui/MapView';
 import { Gps } from './Gps';
 import { RADIO, BRAND_COLORS } from '../data/brands';
@@ -92,6 +95,8 @@ export class Game {
   juice: Juice;
   /** what people nearby just said */
   bubbles = new Bubbles();
+  /** the flocks on the squares (docs/plans/non-violent.md), only for the looks */
+  pigeons!: Pigeons;
   /** read by the HUD combo widget */
   get combo() {
     return this.juice.combo;
@@ -214,6 +219,26 @@ export class Game {
     const clock = new Clock(new Rng(), profile.clock);
     this.atmos = new Atmosphere(undefined, clock);
     this.renderer.atmos = this.atmos;
+    // the pigeons and the market stalls (docs/plans/non-violent.md): what a car ploughing through them
+    // looks and sounds like here (the simulation pays for a stall: MOJE LOKŠE!)
+    this.pigeons = new Pigeons(this.world);
+    this.pigeons.onScare = (x, y, n) => {
+      const f = this.focus(), d = dist(x, y, f.x, f.y);
+      if (d > 60) return;
+      this.fx.feathers(x, y, Math.min(14, n));
+      this.audio.flutter(d);
+    };
+    this.world.stalls.onKnock = (i, x, y, speed) => {
+      const f = this.focus(), d = dist(x, y, f.x, f.y);
+      if (d > 80) return;
+      const st = this.world.stalls;
+      this.fx.food(x, y, st.kind[i], st.fling[i]);
+      for (let k = 0; k < 5; k++) this.fx.debris(x, y);
+      this.audio.knock(d, false);
+      if (d < 40) this.audio.crash(Math.min(18, speed));
+      this.bubbles.addText(-1000 - i, x, y, STALL_YELL[st.kind[i]]);
+      this.pigeons.scare(x, y, 16);
+    };
     if (matchMedia('(pointer: coarse)').matches) this.light.res = 0.35;
     // online, this offline world only backs the menu's attract mode until the connection is up
     this.host = new LocalSimHost(this.world, this.events, profile, clock, () => this.persist());
@@ -877,6 +902,7 @@ export class Game {
   private updateStreet(dt: number) {
     const f = this.focus();
     const street = this.renderer.street;
+    this.pigeons.update(dt, this.focus(), this.host.vehicles, this.host.peds);
     street.update(dt, this.host.vehicles, (x, y, kind, speed) => {
       const d = dist(x, y, f.x, f.y);
       if (d > 70) return;
@@ -1021,6 +1047,8 @@ export class Game {
     this.renderer.drawBarriers(ctx, v);
     this.renderer.drawPosts(ctx, v);
     this.renderer.street.drawLow(ctx, v, this.time);
+    drawStalls(ctx, this.world.stalls, v, this.time);
+    this.pigeons.draw(ctx, v, this.time, atmos.night, false);
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);
@@ -1078,6 +1106,7 @@ export class Game {
     drawEntities(2);
 
     this.fx.drawParticles(ctx, true);
+    this.pigeons.draw(ctx, v, this.time, atmos.night, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
     for (const h of host.helis) drawHeli(h, ctx, v, atmos, this.focus());
@@ -1522,6 +1551,9 @@ function drawRaincoat(ctx: CanvasRenderingContext2D) {
   ctx.fill();
   ctx.stroke();
 }
+
+/** what the stallholder yells when a car ploughs through their stall */
+const STALL_YELL: Record<StallKind, string> = { lokse: 'Moje lokše!', langos: 'Moje langoše!', klobasa: 'Moje klobásy!', punc: 'Môj punč!' };
 
 const PICKUP_GLOW: Record<PickupKind, string> = {
   cash: '#69f0ae',

@@ -3,6 +3,7 @@ import { Graph, linkPoints, type Edge } from './Graph';
 import { TrafficLights, StreetMarks } from './TrafficLights';
 import { Bumps, FURNITURE, F_COLUMN, Gates, Islands } from './Street';
 import { Puddles } from './Puddles';
+import { Stalls } from './Stalls';
 import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
 
 /** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on
@@ -164,6 +165,12 @@ export class World {
   /** the potholes (výtlky, Puddles.ts: docs/plans/non-violent.md), placed the first time anyone asks */
   get puddles(): Puddles {
     return (this.puddleMap ??= new Puddles(this));
+  }
+  private stallSet?: Stalls;
+  /** the market stalls (Stalls.ts: MOJE LOKŠE!), placed the first time anyone asks; each World keeps
+   *  which are knocked over */
+  get stalls(): Stalls {
+    return (this.stallSet ??= new Stalls(this));
   }
   bounds: BBox;
   names: string[];

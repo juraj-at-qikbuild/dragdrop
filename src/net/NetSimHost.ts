@@ -376,6 +376,8 @@ export class NetSimHost implements SimHost, NetView {
     for (const t of this.trams) t.dwell = atTramStop(game.world.tramStops, t) ? 1 : 0;
     Vehicle.env.wet = game.atmos.wet;
     world.gates.sweep(this.vehicles, dt);
+    // (a stall knocked over, seen here: the server pays for it)
+    world.stalls.sweep(this.vehicles, dt);
     const me = this.me;
     const p = me.ped;
     const car = this.ownCar;

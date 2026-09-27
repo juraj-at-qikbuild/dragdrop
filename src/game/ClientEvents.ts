@@ -35,6 +35,7 @@ export class ClientEvents implements SimEvents {
     // (the helicopter, the one shooter with no ped, tips its water bucket: docs/plans/non-violent.md)
     const heli = e.by === 0;
     this.g.fx.shot(e.x, e.y, e.a, e.ends, e.sparks, e.w, heli);
+    this.g.pigeons.scare(e.x, e.y, 18);
     const d = this.distTo(e.x, e.y);
     if (d < 130) heli ? this.g.audio.splash(d) : this.g.audio.shot(e.w, d);
     // a mirrored shooter turns to face where they fired
@@ -78,6 +79,7 @@ export class ClientEvents implements SimEvents {
     g.audio.explosion(d);
     g.juice.explosionNearPlayer(x, y);
     g.fx.explosion(x, y, color, vehicleId ? g.host.vehicleById(vehicleId) : null);
+    g.pigeons.scare(x, y, 40);
   }
 
   crash(vehicleId: number, x: number, y: number, sev: number, nx: number, ny: number, kick: number) {
@@ -108,6 +110,7 @@ export class ClientEvents implements SimEvents {
   }
 
   horn(vehicleId: number, x: number, y: number) {
+    this.g.pigeons.scare(x, y, 14);
     const v = this.g.host.vehicleById(vehicleId);
     if (v && v === this.g.player.vehicle) return; // played on the key press
     // a scooter's or a bike's is a bell
@@ -133,6 +136,7 @@ export class ClientEvents implements SimEvents {
     if (d > 70) return;
     this.g.fx.wave(x, y, a, s);
     this.g.audio.splash(d);
+    this.g.pigeons.scare(x, y, 12);
     const p = this.g.host.pedById(pedId);
     if (p) (p.mess = 'water'), (p.messT = MESS_S), (p.hitFlash = 0.14);
   }
