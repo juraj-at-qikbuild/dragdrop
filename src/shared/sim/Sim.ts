@@ -18,6 +18,7 @@ import { Crowd } from './Crowd';
 import { Police } from './Police';
 import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
 import { DROP_KEEP, DROP_LIFE, tuned } from './shops/catalog';
+import { STYLE, type Style, type StyleMove } from './rules/Style';
 import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
@@ -57,6 +58,8 @@ export interface SimOptions {
 }
 
 const SPRAY_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#263238'];
+/** a getaway is clean (a style move) in a car with at least this much of its health left */
+const CLEAN_GETAWAY_HP = 0.95;
 const SPRAY_COST = 250;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
@@ -463,7 +466,7 @@ export class Sim {
     if (credit && credit !== owner) {
       this.crime(credit, 'destroy');
       if (v.kind === 'police' && !v.isPlayer) {
-        this.events.toPlayer(credit.id, { k: 'style', label: 'TAKEDOWN!', cash: 60, x: v.x, y: v.y - 2 });
+        this.style(credit, 'takedown', v.x, v.y);
         this.score(credit, POINTS.takedown, 'takedown', v.x, v.y);
       }
     }
@@ -498,7 +501,7 @@ export class Sim {
     if (driver) {
       this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
       this.dropCash(p.x, p.y, p.money);
-      this.events.toPlayer(driver.id, { k: 'style', label: 'ROADKILL', cash: p.kind === 'cop' ? 40 : 15, x: p.x, y: p.y - 1.5 });
+      this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
     }
     for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dead && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
   }
@@ -768,7 +771,7 @@ export class Sim {
     if (killer === victim) return;
     this.crime(killer, 'killPlayer', null, victim);
     const f = victim.focus();
-    this.events.toPlayer(killer.id, { k: 'style', label: `K.O. ${victim.nick}`, cash: 50, x: f.x, y: f.y - 1.5 });
+    this.style(killer, 'ko', f.x, f.y, { label: `K.O. ${victim.nick}` });
     this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Dostal ťa ${killer.nick}.`, time: 3, color: '#ff8a80' });
     for (const r of this.rules) r.onKill?.(victim, killer);
   }
@@ -1076,13 +1079,24 @@ export class Sim {
    *  it lasted long enough and the last getaway that scored isn't too recent (no farming a quick star). */
   getaway(p: SimPlayer) {
     const pts = getawayPoints(p.chasePeak);
-    if (pts > 0 && this.onScore && this.time - p.chaseSince >= GETAWAY_MIN_S && this.time - p.lastGetawayAt >= GETAWAY_COOLDOWN_S) {
+    if (pts > 0 && this.time - p.chaseSince >= GETAWAY_MIN_S && this.time - p.lastGetawayAt >= GETAWAY_COOLDOWN_S) {
       p.lastGetawayAt = this.time;
       const f = p.focus();
       this.score(p, pts, 'getaway', f.x, f.y);
+      // a clean one: at the wheel of a car without a scratch, from a real chase (2★ or more)
+      const v = p.ped.vehicle;
+      if (v && !v.wrecked && p.chasePeak >= 2 && v.health >= v.spec.health * CLEAN_GETAWAY_HP) this.style(p, 'getaway', f.x, f.y);
     }
     p.chaseSince = -1;
     p.chasePeak = 0;
+  }
+
+  /** A style move (rules/Style.ts, docs/plans/gameplay.md Phase 3): into `p`'s combo, or, in a Sim
+   *  without the rules (tests, tools), the floating bonus as before */
+  style(p: SimPlayer, move: StyleMove, x: number, y: number, o: { label?: string } = {}) {
+    const r = this.rule<Style>('style');
+    if (r) r.move(p, move, x, y, o);
+    else this.events.toPlayer(p.id, { k: 'style', label: o.label ?? STYLE[move].label, cash: STYLE[move].cash, x, y: y - 1.5 });
   }
 
   /** Slovnafta spray shop, for a player on the run: repaint + repair + lose the cops, as they stop. Not

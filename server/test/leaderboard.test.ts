@@ -6,6 +6,7 @@ import { Room } from '../src/Room';
 import { Store, hashToken } from '../src/db';
 import { BOARD_ACCOUNT, BOARD_ME, BOARD_ONLINE, PROTOCOL_VERSION, type BoardMsg, type ScoreMsg } from '../../src/shared/net/protocol';
 import { HOURLY_CAP, POINTS } from '../../src/shared/sim/rules/points';
+import { STYLE, STYLE_PER_POINT } from '../../src/shared/sim/rules/Style';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, loadWorld } from './helpers';
 
@@ -39,6 +40,20 @@ function setup(opts: { store?: Store | null; at?: number } = {}) {
 
 /** the most recent `score` push to this link */
 const lastScore = (link: FakeLink): ScoreMsg => link.last('score');
+
+describe('Leaderboard: the Štýl board (docs/plans/gameplay.md, Phase 3)', () => {
+  it('a combo paid out online scores 1 point per €25 on the style board, capped at 30 an hour', () => {
+    const { room, store, join, tick } = setup();
+    const { link, s, p } = join(TOKEN_A, 'Anna');
+    room.sim.style(p, 'takedown', 1, 2);
+    room.sim.style(p, 'takedown', 1, 2);
+    tick(90); // 4.5 s: the combo runs out and pays
+    const paid = STYLE.takedown.cash * 2 * 3;
+    expect(link.json('ev').flatMap((m) => m.p)).toContainEqual(expect.objectContaining({ k: 'payout', reason: 'style', amount: paid }));
+    expect(store.scoreOf('all', 'style', s.key)).toBe(Math.round(paid / STYLE_PER_POINT));
+    expect(HOURLY_CAP.style).toBe(30);
+  });
+});
 
 describe('Leaderboard: scoring', () => {
   it("sends the player's own totals right after the welcome", () => {

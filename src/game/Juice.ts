@@ -1,5 +1,5 @@
-// Game feel: camera shake/punch, hit-stop & slow-mo, floating world text, and the
-// style/chaos combo (near misses, drifts, takedowns) that feeds nitro & cash.
+// Game feel: camera shake/punch, hit-stop & slow-mo, floating world text, and the style combo's meter
+// (the combo itself, near misses, drifts, takedowns…, runs in the simulation: rules/Style.ts).
 import type { Game } from './Game';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import { clamp, dist, lerp } from '../shared/util/math';
@@ -30,8 +30,6 @@ export class Juice {
   // combo/style
   combo = { mult: 1, timer: 0, label: '' };
   private comboCash = 0;
-  private driftDur = new Map<Vehicle, number>();
-  private nearMissCd = new Map<Vehicle, number>();
 
   constructor(private game: Game) {}
 
@@ -142,14 +140,32 @@ export class Juice {
   }
 
   // -------------------------------------------------------------- combo/style
-  /** register a style event: banks `cash` (base, scaled by the combo mult when it expires). */
-  event(label: string, cash: number, worldX?: number, worldY?: number) {
+  /** A style event. With `mult` it's the simulation's own combo (rules/Style.ts: it banks and pays
+   *  itself), and the meter just shows it. Without, it's the old kind (a server from before): `cash`
+   *  banked here, scaled by the multiplier when the combo runs out, or only the floating text when
+   *  it's 0 (a job's tip). */
+  event(label: string, cash: number, worldX?: number, worldY?: number, mult?: number) {
     const c = this.combo;
-    c.mult = Math.min(5, c.mult + 1);
-    c.timer = COMBO_WINDOW;
-    c.label = label;
-    this.comboCash += cash;
+    if (mult !== undefined) {
+      c.mult = mult;
+      c.timer = COMBO_WINDOW;
+      c.label = label;
+    } else if (cash > 0) {
+      c.mult = Math.min(5, c.mult + 1);
+      c.timer = COMBO_WINDOW;
+      c.label = label;
+      this.comboCash += cash;
+    }
     if (worldX !== undefined && worldY !== undefined) this.spawnText(worldX, worldY, label, '#ffd740');
+  }
+
+  /** the simulation's combo paid out (a `payout` for 'style') */
+  comboPaid(amount: number) {
+    this.game.message('', `Combo ×${this.combo.mult}  +€${amount}`, 2, '#ffd740');
+    this.combo.mult = 1;
+    this.combo.label = '';
+    this.combo.timer = 0;
+    this.comboCash = 0;
   }
 
   private updateCombo(dtReal: number) {
@@ -167,49 +183,14 @@ export class Juice {
     }
   }
 
-  /** sustained drift & near-miss scoring; cheap O(vehicles) scan, once per frame. */
-  private updateStyle(dt: number) {
-    const g = this.game;
-    const pv = g.player.vehicle;
-    if (!pv || pv.wrecked) return;
-    // sustained drift
-    if (pv.skid > 0.4 && pv.speed > 6) {
-      const d = (this.driftDur.get(pv) ?? 0) + dt;
-      this.driftDur.set(pv, d);
-      if (d > 0.6 && Math.random() < dt * 2) {
-        pv.addNitro(dt * 0.15);
-        if (Math.random() < dt) this.event(`DRIFT ×${(d * pv.speed * 0.05).toFixed(1)}`, Math.round(d * pv.speed), pv.x, pv.y - 2);
-      }
-    } else this.driftDur.delete(pv);
-    // near misses vs other moving vehicles
-    if (pv.speed > 12) {
-      for (const v of g.vehicles) {
-        if (v === pv || v.wrecked) continue;
-        const cd = this.nearMissCd.get(v) ?? 0;
-        if (cd > 0) {
-          this.nearMissCd.set(v, cd - dt);
-          continue;
-        }
-        const d = dist(pv.x, pv.y, v.x, v.y);
-        const gap = d - pv.radius - v.radius;
-        if (gap > 0 && gap < 1.2 && v.speed > 1) {
-          this.nearMissCd.set(v, 1.5);
-          pv.addNitro(0.06);
-          this.event('NEAR MISS', 20, (pv.x + v.x) / 2, (pv.y + v.y) / 2 - 2);
-        }
-      }
-    }
-  }
-
   /** call once per frame from Game.update, after the sim step. dtReal drives UI/combo, unaffected by hit-stop. */
-  tick(dtReal: number, dtSim: number) {
+  tick(dtReal: number, _dtSim: number) {
     this.trauma = Math.max(0, this.trauma - dtReal * 1.8);
     this.kx = lerp(this.kx, 0, Math.min(1, dtReal * 9));
     this.ky = lerp(this.ky, 0, Math.min(1, dtReal * 9));
     this.zoomPunch = Math.max(0, this.zoomPunch - dtReal * 2.2);
     this.updateTexts(dtReal);
     this.updateCombo(dtReal);
-    this.updateStyle(dtSim);
   }
 
   // ------------------------------------------------------------ event hooks

@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { World } from '../../src/shared/world/World';
 import { Vehicle, SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
 import { NO_MODS, type Mods } from '../../src/shared/sim/shops/catalog';
+import { DRAFT_SPEED, slipstream } from '../../src/shared/sim/Physics';
+import { Tram, TRAM_SEG } from '../../src/shared/entities/Tram';
 import type { MapJSON } from '../../src/shared/types';
 
 const track = (() => {
@@ -207,5 +209,100 @@ describe('Tuning (the Dielňa, docs/plans/gameplay.md Phase 2)', () => {
     const [a, b, c] = [0, 1, 2].map(lasts);
     expect(b / a).toBeCloseTo(1.5, 1);
     expect(c / a).toBeCloseTo(2, 1);
+  });
+});
+
+describe('Behind the wheel (docs/plans/gameplay.md, Phase 3)', () => {
+  /** full throttle for `seconds` with a fixed slipstream, from 25 m/s */
+  const flatOut = (draft: number, seconds = 40) => {
+    const v = new Vehicle('sedan', -4900, 0, 0, '#fff');
+    v.owner = 1;
+    v.vx = 25;
+    for (let t = 0; t < seconds; t += dt) {
+      v.draft = draft;
+      v.setControls(1, 0, false);
+      v.update(dt, track);
+    }
+    return v;
+  };
+
+  it('a slipstream raises the top speed by up to 5 % and fills the nitro faster', () => {
+    const still = flatOut(0), drafting = flatOut(1);
+    expect(drafting.speed / still.speed).toBeGreaterThan(1.03);
+    expect(drafting.speed / still.speed).toBeLessThan(1.06);
+    const fill = (draft: number) => {
+      const v = new Vehicle('sedan', -4900, 0, 0, '#fff');
+      v.nitro = 0;
+      v.vx = 20;
+      for (let t = 0; t < 2; t += dt) {
+        v.draft = draft;
+        v.setControls(0.5, 0, false);
+        v.update(dt, track);
+      }
+      return v.nitro;
+    };
+    expect(fill(1)).toBeGreaterThan(fill(0) * 4);
+  });
+
+  it('slipstream: close behind a bus or a tram going the same way, not beside it, not coming the other way', () => {
+    const me = new Vehicle('sedan', 0, 0, 0, '#fff');
+    me.vx = 20;
+    const bus = new Vehicle('bus', 12, 0, 0, '#fff');
+    bus.vx = 18;
+    expect(slipstream(me, [me, bus], [])).toBeGreaterThan(0.3);
+    // further back, weaker; beside it, or a car, or coming the other way: none
+    bus.x = 22;
+    const far = slipstream(me, [me, bus], []);
+    expect(far).toBeGreaterThan(0);
+    expect(far).toBeLessThan(slipstream(me, [me, Object.assign(new Vehicle('bus', 12, 0, 0, '#fff'), { vx: 18 })], []));
+    expect(slipstream(me, [me, Object.assign(new Vehicle('bus', 12, 4, 0, '#fff'), { vx: 18 })], [])).toBe(0);
+    expect(slipstream(me, [me, Object.assign(new Vehicle('hatch', 8, 0, 0, '#fff'), { vx: 18 })], [])).toBe(0);
+    expect(slipstream(me, [me, Object.assign(new Vehicle('bus', 12, 0, Math.PI, '#fff'), { vx: -18 })], [])).toBe(0);
+    // too slow for it
+    me.vx = DRAFT_SPEED - 1;
+    expect(slipstream(me, [me, Object.assign(new Vehicle('bus', 12, 0, 0, '#fff'), { vx: 18 })], [])).toBe(0);
+    // a tram: its last section is its tail
+    me.vx = 20;
+    const t = new Tram(null, null);
+    t.speed = 11 * 1.5;
+    t.sections = [{ x: 30, y: 0, a: 0 }, { x: 30 - TRAM_SEG - 0.6, y: 0, a: 0 }, { x: 30 - 2 * (TRAM_SEG + 0.6), y: 0, a: 0 }];
+    expect(slipstream(me, [me], [t])).toBeGreaterThan(0.2);
+  });
+
+  it('a damaged side pulls the steering toward it, in a player\'s car', () => {
+    const drift = (left: number, right: number) => {
+      const v = new Vehicle('sedan', -4900, 0, 0, '#fff');
+      v.owner = 1;
+      v.vx = 15;
+      v.dmg.left = left;
+      v.dmg.right = right;
+      for (let t = 0; t < 3; t += dt) {
+        v.setControls(0.4, 0, false);
+        v.update(dt, track);
+      }
+      return v.y;
+    };
+    // +y is the car's right (heading +x)
+    expect(drift(0, 0)).toBeCloseTo(0, 1);
+    expect(drift(1, 0)).toBeLessThan(-1);
+    expect(drift(0, 1)).toBeGreaterThan(1);
+  });
+
+  it('a badly damaged engine loses power: slower off the line below 35 % health', () => {
+    const to20 = (hp: number) => {
+      const v = new Vehicle('hatch', -4900, 0, 0, '#fff');
+      v.health = hp;
+      let t = 0;
+      while (v.speed < 20 && t < 30) {
+        v.setControls(1, 0, false);
+        v.update(dt, track);
+        t += dt;
+      }
+      return t;
+    };
+    const full = to20(100), smoking = to20(30), dying = to20(2);
+    expect(smoking / full).toBeGreaterThan(1.01);
+    expect(dying / full).toBeGreaterThan(1.25);
+    expect(dying / full).toBeLessThan(1.5);
   });
 });

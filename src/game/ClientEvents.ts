@@ -127,7 +127,9 @@ export class ClientEvents implements SimEvents {
         g.audio.jingle(e.good);
         break;
       case 'style':
-        g.juice.event(e.label, e.cash, e.x, e.y);
+        g.juice.event(e.label, e.cash, e.x, e.y, e.mult);
+        // the combo tops up the driver's nitro (online the client simulates the car)
+        if (e.nitro) g.player.vehicle?.addNitro(e.nitro);
         break;
       case 'cash':
         g.juice.cashText(e.x, e.y, e.amount);
@@ -185,6 +187,9 @@ export class ClientEvents implements SimEvents {
         break;
       // the shops (docs/plans/gameplay.md, Phase 2): a purchase rings the till; a car parked in the
       // garage takes its engine and radio with it
+      case 'payout':
+        if (e.reason === 'style') g.juice.comboPaid(e.amount);
+        break;
       case 'shop':
         if (e.ok) g.audio.cash();
         break;

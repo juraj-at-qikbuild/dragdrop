@@ -143,7 +143,9 @@ try {
   check(police >= 2, `police cars chase at 3 stars (${police} at ${JSON.stringify(where)})`);
 
   // die and respawn at a hospital with a fee (after any combo from the shooting has paid out)
-  for (let t = 0; t < 10000 && (await page.evaluate(() => window.game.juice.combo.timer > 0)); t += 250) await sleep(250);
+  // (the combo runs in the simulation, rules/Style.ts: wait for it as well as for the meter)
+  const comboOn = () => page.evaluate(() => window.game.juice.combo.timer > 0 || !!window.game.host.sim.rule('style')?.combo(window.game.host.me));
+  for (let t = 0; t < 10000 && (await comboOn()); t += 250) await sleep(250);
   const before = await page.evaluate(() => {
     const g = window.game;
     g.save.money = 1000;

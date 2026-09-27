@@ -6,7 +6,7 @@
 // infinite mass. Everything else behaves exactly like the original single-player code.
 import { Vehicle, resolveContact } from '../entities/Vehicle';
 import type { Ped } from '../entities/Ped';
-import type { Tram } from '../entities/Tram';
+import { TRAM_SEG, type Tram } from '../entities/Tram';
 import type { World } from '../world/World';
 import { SpatialHash } from '../util/SpatialHash';
 import { dist } from '../util/math';
@@ -41,6 +41,39 @@ interface Contact {
 /** a parked car that isn't moving or burning: nothing to integrate, and it can't hit another sleeper */
 const asleep = (v: Vehicle) => v.parked && !v.isPlayer && v.speed < 0.01 && v.fire < 0 && !v.kinematic;
 
+/** slipstream: going at least this fast (m/s), and within this far of a big vehicle's tail (m) */
+export const DRAFT_SPEED = 12;
+const DRAFT_RANGE = 14;
+const TRAM_HALF_W = 1.25;
+
+/** How much slipstream `v` has, 0..1 (docs/plans/gameplay.md, Phase 3): close behind a bus, a van or a
+ *  tram going the same way above DRAFT_SPEED, and more the closer. */
+export function slipstream(v: Vehicle, vehicles: readonly Vehicle[], trams: readonly Tram[]): number {
+  if (v.speed < DRAFT_SPEED || v.wrecked) return 0;
+  const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
+  const reach = DRAFT_RANGE + 20;
+  let best = 0;
+  // a body whose centre is at (x, y), moving (vx, vy), that far long and wide from its centre
+  const behind = (x: number, y: number, vx: number, vy: number, halfLen: number, halfW: number) => {
+    const dx = x - v.x, dy = y - v.y;
+    if (Math.abs(dx) > reach || Math.abs(dy) > reach) return;
+    const gap = dx * fx + dy * fy - halfLen - v.spec.length / 2;
+    if (gap < 0.3 || gap > DRAFT_RANGE || Math.abs(-dx * fy + dy * fx) > halfW + 0.4) return;
+    const sp = Math.hypot(vx, vy);
+    if (sp < DRAFT_SPEED * 0.8 || vx * fx + vy * fy < sp * 0.85) return;
+    best = Math.max(best, 1 - gap / DRAFT_RANGE);
+  };
+  for (const o of vehicles)
+    if (o !== v && (o.kind === 'bus' || o.kind === 'van') && !o.wrecked && o.level === v.level) behind(o.x, o.y, o.vx, o.vy, o.spec.length / 2, o.spec.width / 2);
+  for (const t of trams) {
+    const tail = t.sections[t.sections.length - 1];
+    if (!tail || t.level !== v.level) continue;
+    const ca = Math.cos(tail.a), sa = Math.sin(tail.a);
+    behind(tail.x, tail.y, ca * t.speed, sa * t.speed, TRAM_SEG / 2, TRAM_HALF_W);
+  }
+  return best;
+}
+
 export class VehiclePhysics {
   private accum = 0;
   readonly hash = new SpatialHash<Vehicle>(10);
@@ -62,6 +95,9 @@ export class VehiclePhysics {
       v.level = world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
       v.levelInit = true;
     }
+    // a player's car behind a bus, a van or a tram gets its slipstream (the server's players drive
+    // on their own clients: kinematic here)
+    for (const v of vehicles) if (v.isPlayer && !v.kinematic) v.draft = slipstream(v, vehicles, trams);
     // broad phase once per step: every pair that could touch before the substeps are done
     // (each car can travel at most ~fastest × accum; accelerating adds a little)
     this.findPairs(vehicles, Math.min(12, (fastest + 5) * this.accum * 2 + 0.3));

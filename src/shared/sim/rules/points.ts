@@ -19,10 +19,12 @@ export type ScoreSource =
   // Dobrý samaritán
   | 'samaritan'
   // the garage's collection: every kind of vehicle driven (docs/plans/gameplay.md, Phase 2)
-  | 'collection';
+  | 'collection'
+  // a combo paid out at the wheel or on foot (rules/Style.ts, Phase 3)
+  | 'style';
 
 /** the boards: every point counts on 'all' and on its source's own board */
-export const BOARDS = ['all', 'events', 'police', 'jobs', 'races', 'city', 'help'] as const;
+export const BOARDS = ['all', 'events', 'police', 'jobs', 'races', 'city', 'help', 'style'] as const;
 export type BoardId = (typeof BOARDS)[number];
 /** today and this week (Europe/Bratislava, weeks from Monday), and all time */
 export const PERIODS = ['day', 'week', 'all'] as const;
@@ -35,6 +37,7 @@ export const SOURCE_BOARD: Record<ScoreSource, Exclude<BoardId, 'all'>> = {
   race: 'races',
   daily: 'city', landmark: 'city', statue: 'city', collection: 'city',
   samaritan: 'help',
+  style: 'style',
 };
 
 export const POINTS = {
@@ -93,6 +96,8 @@ export const HOURLY_CAP: Partial<Record<ScoreSource, number>> = {
   loot: 12,
   tip: 60,
   race: 8,
+  // a combo's points (rules/Style.ts: 1 per €25 of its payout, 40 at most)
+  style: 30,
 };
 
 /** points for losing the police after a chase that reached `stars` */

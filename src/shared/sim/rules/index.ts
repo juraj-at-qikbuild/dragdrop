@@ -8,6 +8,7 @@ import { Race } from './Race';
 import { Presence } from './Presence';
 import { Jobs } from './jobs/Jobs';
 import { Shops } from './Shops';
+import { Style } from './Style';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
@@ -29,6 +30,8 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   rules.push(new Jobs(sim));
   rules.push(new VanLoot(sim));
   rules.push(new Shops(sim));
+  // style: the combo, online too (Phase 3)
+  rules.push(new Style(sim));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), races need two players, and offline the pause menu freezes the world (Presence)
   if (mode === 'server') {

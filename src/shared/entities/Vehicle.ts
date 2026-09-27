@@ -70,6 +70,23 @@ export const SPECS: Record<VehicleKind, CarSpec> = {
 };
 /** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
 const ROLL = 0.15, AERO = 0.00065;
+/** the slipstream's top speed gain at its strongest, and how much faster the nitro fills (per s) */
+const DRAFT_TOP = 0.05;
+const DRAFT_NITRO = 0.12;
+/** below this share of its health an engine loses power, up to WEAK_LOSS of it */
+const WEAK_HP = 0.35;
+const WEAK_LOSS = 0.25;
+/** how hard a fully damaged side pulls the steering (a share of full lock) */
+const DMG_PULL = 0.18;
+
+/** The speed (m/s) a car takes a bump of `kind` at without flying (0 a bump, 1 a raised table, 2 a
+ *  cushion, which buses and vans straddle); 5 m/s more and it leaves the ground (overBump, and the
+ *  style combo's AIR: rules/Style.ts). */
+export function bumpLimit(kind: number, width: number): number {
+  return [5.5, 8, width > 2 ? 30 : 9][kind] ?? 6;
+}
+/** over its limit by this much, a car takes off */
+export const BUMP_AIR = 5;
 const drag = (v: number) => ROLL + AERO * v * v;
 for (const k of Object.keys(SPECS) as VehicleKind[]) {
   const s = SPECS[k];
@@ -149,6 +166,9 @@ export class Vehicle {
   /** nitro charge 0..1 */
   nitro = 1;
   boosting = false;
+  /** slipstream, 0..1: close behind a bus, a van or a tram (set by VehiclePhysics for a player's car
+   *  each step, docs/plans/gameplay.md Phase 3): a little more top speed, and the nitro fills faster */
+  draft = 0;
   /** tuning (docs/plans/gameplay.md, Phase 2: the Dielňa): set with `tune`, which works out what it
    *  does to the engine */
   mods: Mods = { ...NO_MODS };
@@ -260,14 +280,18 @@ export class Vehicle {
       this.boosting = true;
     } else {
       this.boosting = false;
-      this.nitro = Math.min(1, this.nitro + 0.03 * dt);
+      this.nitro = Math.min(1, this.nitro + (0.03 + DRAFT_NITRO * this.draft) * dt);
     }
     const boostAccel = this.boosting ? 1.6 : 1;
     const boostTop = this.boosting ? 1.25 : 1;
     const dmgTop = 1 - 0.2 * this.dmg.front;
     const dmgSteer = 1 - 0.35 * this.dmg.front;
-    const vCap = this.vCapT * boostTop * dmgTop;
-    const maxSpeed = s.maxSpeed * this.topK * boostTop * dmgTop;
+    const draftK = 1 + DRAFT_TOP * this.draft;
+    const vCap = this.vCapT * boostTop * dmgTop * draftK;
+    const maxSpeed = s.maxSpeed * this.topK * boostTop * dmgTop * draftK;
+    // a badly damaged engine (smoking, see EntityFx) loses power, up to a quarter of it at the end
+    const full = this.maxHealth || s.health;
+    const power = this.health < full * WEAK_HP ? 1 - WEAK_LOSS * (1 - Math.max(0, this.health) / (full * WEAK_HP)) : 1;
     /** reverse gear tops out around 30 km/h */
     const revMax = Math.min(8.5, s.maxSpeed * 0.25);
 
@@ -284,7 +308,7 @@ export class Vehicle {
     const abs = 1 - 0.3 * Math.min(1, Math.abs(this.steer));
     let ax = 0, braking = 0;
     if (tIn > 0 && vF < -0.5) (ax = s.brake * muLong * tIn * abs), (braking = tIn * abs); // reversing: brake first
-    else if (tIn > 0) ax = s.accel * this.accelK * tIn * boostAccel * Math.sqrt(muLong) * Math.max(0, 1 - Math.max(0, vF) / vCap);
+    else if (tIn > 0) ax = s.accel * this.accelK * power * tIn * boostAccel * Math.sqrt(muLong) * Math.max(0, 1 - Math.max(0, vF) / vCap);
     else if (tIn < 0 && vF > 0.5) (ax = s.brake * muLong * tIn * abs), (braking = -tIn * abs);
     else if (tIn < 0) ax = vF > -revMax ? s.accel * 0.5 * muLong * tIn : 0;
     else ax = -Math.sign(vF) * Math.min(Math.abs(vF) / dt, ENGINE_BRAKE);
@@ -302,8 +326,10 @@ export class Vehicle {
     // plowing straight on), tighter in a parking manoeuvre. A player's wheel turns quicker, and
     // centres quicker still, so a tapped key is a short, crisp correction.
     const assist = this.isPlayer;
-    const centring = c.steer * this.steer < 0 || Math.abs(c.steer) < Math.abs(this.steer);
-    this.steer += (c.steer - this.steer) * Math.min(1, dt * (assist ? (centring ? PLAYER_STEER_CENTRE : PLAYER_STEER_IN) : 8));
+    // a damaged side pulls the wheel toward it (a player's car: traffic's drivers hold it straight)
+    const want = assist && Math.abs(vF) > 3 ? clamp(c.steer + (this.dmg.right - this.dmg.left) * DMG_PULL, -1, 1) : c.steer;
+    const centring = want * this.steer < 0 || Math.abs(want) < Math.abs(this.steer);
+    this.steer += (want - this.steer) * Math.min(1, dt * (assist ? (centring ? PLAYER_STEER_CENTRE : PLAYER_STEER_IN) : 8));
     const wheelbase = s.length * 0.6;
     const a = wheelbase * 0.5, b = wheelbase * 0.5; // axle distances from CG
     const vAbs = Math.abs(vF);
@@ -422,15 +448,13 @@ export class Vehicle {
   private overBump(kind: number, vF: number) {
     const v = Math.abs(vF);
     if (kind === 3) return this.jolt(Math.min(0.2, v / 60), 0.2);
-    // buses and vans straddle cushions
-    const limit = [5.5, 8, this.spec.width > 2 ? 30 : 9][kind] ?? 6;
-    const over = v - limit;
+    const over = v - bumpLimit(kind, this.spec.width);
     if (over <= 0) return this.jolt(Math.min(0.15, v / 40), 0.3);
     const k = clamp(over / 12, 0.15, 1);
     const keep = 1 - clamp(over * 0.012, 0, 0.18);
     this.vx *= keep;
     this.vy *= keep;
-    if (over > 5) this.air = Math.max(this.air, clamp((over - 5) * 0.03, 0.05, 0.45));
+    if (over > BUMP_AIR) this.air = Math.max(this.air, clamp((over - BUMP_AIR) * 0.03, 0.05, 0.45));
     if (over > 11) {
       this.damage((over - 11) * 2);
       this.dmg.front = clamp(this.dmg.front + 0.03, 0, 1);

@@ -1241,6 +1241,12 @@ export class World {
     return this.insideBuilding(x, y) && !this.inPassage(x, y);
   }
 
+  /** In a passage through a solid building (a gateway, a covered street): the only way to be inside
+   *  one's footprint (the style combo's THREAD THE NEEDLE, rules/Style.ts) */
+  inBuildingPassage(x: number, y: number) {
+    return this.inPassage(x, y) && this.insideBuilding(x, y);
+  }
+
   /** Inside a passage corridor (a gateway, a courtyard passage, a covered street through a building). */
   private inPassage(x: number, y: number) {
     const c = this.passageGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));

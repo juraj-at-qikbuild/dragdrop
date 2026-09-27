@@ -48,8 +48,12 @@ export type PrivateEvent =
   /** wanted level went up a star */
   | { k: 'stars' }
   | { k: 'jingle'; good: boolean }
-  /** style/kill bonus shown as floating text (e.g. KILL, ROADKILL, TAKEDOWN!) */
-  | { k: 'style'; label: string; cash: number; x: number; y: number }
+  /** style/kill bonus shown as floating text (e.g. KILL, ROADKILL, TAKEDOWN!). From the combo
+   *  (rules/Style.ts, docs/plans/gameplay.md Phase 3): `mult` is the combo's multiplier now (the
+   *  combo pays itself out, as a `payout` for 'style'), `nitro` a top-up for the driver's tank.
+   *  Without `mult` (a server from before, a job's tip) it's the old kind: `cash` for the client's own
+   *  combo to bank, or just the floating text when it's 0. */
+  | { k: 'style'; label: string; cash: number; x: number; y: number; mult?: number; nitro?: number }
   | { k: 'cash'; amount: number; x: number; y: number }
   | { k: 'pickup'; kind: string; amount: number }
   /** discovered a landmark (+ reward); the client formats the text */

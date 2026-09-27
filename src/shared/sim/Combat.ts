@@ -209,7 +209,7 @@ export class CombatRules {
       if (player) {
         sim.crime(player, p.kind === 'cop' ? 'killCop' : 'killPed');
         sim.dropCash(p.x, p.y, p.money);
-        sim.events.toPlayer(player.id, { k: 'style', label: 'KILL', cash: p.kind === 'cop' ? 40 : 15, x: p.x, y: p.y - 1.5 });
+        sim.style(player, p.kind === 'cop' ? 'copkill' : 'kill', p.x, p.y);
       }
     } else if (p.kind === 'civ' && by) sim.crowd.hurt(p, player, by, melee);
     if (p.kind === 'cop' && player) sim.crime(player, 'shootCop');

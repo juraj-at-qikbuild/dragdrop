@@ -42,4 +42,6 @@ export type PayoutPolicy = (p: SimPlayer, amount: number, reason: PayoutReason |
 /** why money was paid (parties split some of these; `activity` logs them) */
 export type PayoutReason =
   | 'kofolka' | 'bounty' | 'wanted' | 'escape' | 'cumil' | 'armored' | 'derby'
-  | 'courier' | 'taxi' | 'tip' | 'samaritan' | 'race' | 'daily';
+  | 'courier' | 'taxi' | 'tip' | 'samaritan' | 'race' | 'daily'
+  /** a combo paid out (rules/Style.ts) */
+  | 'style';

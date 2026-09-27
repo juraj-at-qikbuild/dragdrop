@@ -2,6 +2,7 @@
 // each covers, what every point is for (straight from the points table, so it can't drift), and the
 // countdown to a new day or week. Pure and DOM-free, like news/lines.ts, so test/client can check it.
 import { GETAWAY_MIN_S, POINTS, type BoardId, type ScorePeriod } from '../../../shared/sim/rules/points';
+import { STYLE_PER_POINT, STYLE_POINTS_MAX } from '../../../shared/sim/rules/Style';
 
 export const PERIOD_LABEL: Record<ScorePeriod, string> = { day: 'Dnes', week: 'Týždeň', all: 'Celkovo' };
 export const PREV_LABEL: Record<'day' | 'week', string> = { day: 'Včera vyhral', week: 'Minulý týždeň vyhral' };
@@ -13,6 +14,7 @@ export const BOARD_INFO: Record<BoardId, { label: string; icon: string; about: s
   races: { label: 'Závody', icon: '🏁', about: 'Vyhrané Závody? – dôjsť do cieľa prvý, nie kontumačne.' },
   city: { label: 'Mesto', icon: '🗺️', about: 'Kde to je?, objavené pamiatky, skrytí Čumili a zbierka áut.' },
   help: { label: 'Pomoc', icon: '✚', about: 'Hráči postavení na nohy (Dobrý samaritán).' },
+  style: { label: 'Štýl', icon: '🏎️', about: 'Kombá: tesné obchádzky, drifty, skoky, jazda v protismere a na červenú, pasáže, čisté úteky.' },
 };
 
 /** what each thing is worth, for the panel's "Za čo sú body", straight from the points table */
@@ -28,6 +30,7 @@ export function pointsHelp(): string[] {
     `Útek polícii (naháňačka aspoň ${GETAWAY_MIN_S} s): ${P.getaway.slice(1).join(' / ')} b podľa hviezd · zničené policajné auto +${P.takedown} b`,
     `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b · zbierka áut (všetkých 8 druhov) +${P.collection} b`,
     `Postaviť hráča na nohy: +${P.samaritan} b`,
+    `Kombo (tesné obchádzky, drifty, skoky…): 1 b za každých €${STYLE_PER_POINT} z jeho výplaty, najviac ${STYLE_POINTS_MAX} b`,
     'Partia sa delí o body z udalostí a práce rovnako ako o peniaze. Body sa rátajú iba online.',
   ];
 }

@@ -399,81 +399,102 @@ the cars they're proud of. Losing money becomes a risk, not a formality.
 
 ## Phase 3: Behind the wheel, and new ways around
 
-Driving gains depth and scoring online, and the map's structure (bollards, tram tracks, the river)
+Driving gains depth and scores online, and the map's structure (bollards, tram tracks, the river)
 becomes something players use.
+
+### What players get
+
+| What | How it plays |
+|---|---|
+| **Style online** | The combo (near misses, drifts, kills, takedowns…) runs in the shared simulation, so it pays online too, and its payout scores on a new **Štýl** board. |
+| **New combo moves** | *WRONG WAY* down a one-way street, *AIR* off a bump taken fast, *TRAM DODGE*, *RED LIGHT* at speed, *THREAD THE NEEDLE* flat out through a building's passage, a *CLEAN GETAWAY* in an undamaged car. |
+| **Slipstream** | Close behind a bus, a van or a tram above 43 km/h: up to 5 % more top speed, and the nitro fills four times as fast. |
+| **Damage you feel** | A damaged side pulls the steering toward it; a smoking engine (under 35 % health) loses up to a quarter of its power. |
+| **Sirens** | In a police car or an ambulance, H switches the siren on and off, and traffic pulls over for it. |
+| **The ambulance** | Parked at the hospitals. Its driver heals 2 HP a second. |
+| **Scooters and bikes** | *Bolťák* e-scooters at the bike-share docks, bikes at the bicycle stands. 25 km/h, through bollard rows police cars can't pass, and the rider falls off when hit. |
+| **Trams** | Ride one (board at a stop, get off at any stop: the police take twice as long to pick the player out of a crowd), or drive it from the front cab: throttle, brake and the bell. Stealing one is a crime. |
+| **The Danube** | Swim (slowly, for 20 s, and cops on foot don't follow), or take a boat moored at a pier. A police boat comes at 4★. |
 
 ### Decisions
 
-1. **Combos count online.** The server detects near misses (as it already does for the jobs' tips,
-   `Jobs.ts`) and drifts (from the reported skid) and pays style points onto a new "Štýl"
-   leaderboard board, with hourly caps like every other source. The client's combo meter shows the
-   server's count.
-2. **New combo moves from what the city already has:**
-   - wrong way down a one-way street (the car graph knows);
-   - air off a raised table or a speed bump taken fast (`Vehicle.overBump` already launches the
-     car);
-   - threading between two trams, or a near miss with one;
-   - through a red light at speed (`TrafficLights` knows the phase);
-   - flat out through a building passage;
-   - a clean getaway (Phase 1): losing the police without a scratch on the car.
-3. **Slipstream.** Close behind a bus, van or tram above 12 m/s, nitro charges and top speed rises
-   5%.
-4. **Damage you feel.** A damaged side pulls the steering toward it. Below 30% health the engine
-   smokes and loses up to 25% of its power. Burst tyres already exist.
-5. **Vehicles with abilities.**
-   - A player driving a police car turns its siren on with the horn key, and traffic pulls over for
-     them (`AI.sirenBehind` skips players today).
-   - An ambulance (a new kind, spawning at the hospitals) has a siren too, and heals its driver
-     2 HP/s up to full.
-6. **E-scooters and bikes.** A parody rental scooter ("Bolťák") at the real bike-share docks, and
-   bikes at the bicycle stands.
-   - They go about 25 km/h, fit through bollard rows and use footpaths, and the rider falls off when
-     hit.
-   - The car-free Old Town becomes a way to lose police cars, which can't cross the bollards.
+1. **Style is a shared rule** (`rules/Style.ts`, both modes). Every move banks cash into the player's
+   combo and raises its multiplier (to ×5); 4 s with no new move and it pays (`payout` for `style`).
+   A crash ends it early (paid), a death or an arrest loses it. The bank is capped at €400 and a
+   combo at 60 s, so chaining near misses isn't a money printer. Online a payout scores 1 point per
+   €25 (at most 40) on the new `style` board, at most 30 times an hour. Kills, road kills, takedowns
+   and knock-outs go through `Sim.style` into the same combo. The client's meter only shows the
+   simulation's (`style` events carry the multiplier); the client detects nothing itself any more.
+2. **Every move is detected from the car's pose**, so the server can do it for a player's car it
+   doesn't simulate (a kinematic car it only knows from reports): near misses (only with moving
+   traffic, and voided by a crash within 0.3 s), drifts (sideways speed against the heading, not the
+   client's skid flag), bumps crossed at speed (`world.bumps`, the same limits as the physics), a
+   one-way link's direction (a new `Graph.segmentAt`), stop lines crossed on red (`world.lights`),
+   distance covered inside a solid building's footprint (only a passage lets a car in there), and a
+   tram's sections.
+3. **Slipstream and damage are physics** (`Vehicle`), for a player's car: `VehiclePhysics` works out
+   the slipstream each step for the car it simulates (offline the Sim, online the driver's client).
+4. **Sirens.** H toggles the siren of a police car or an ambulance a player drives (the horn
+   otherwise). It goes off when a player gets in (a stolen car's lights no longer stay on). Traffic
+   pulls over for any siren closing in from behind, a player's too, whether or not anyone is wanted.
+5. **New vehicle kinds** (ambulance, scooter, bike, boat) are appended to `SPECS`, so every existing
+   kind keeps its index on the wire and an older client draws a new one as a sedan. They join the
+   collection.
+6. **Scooters and bikes are vehicles with a narrow body** (0.6 m: its circles pass a bollard row's
+   1.2 m gaps, where a car's can't). They spawn parked at the real docks and stands near players (a
+   rule, both modes), cost nothing and aren't a crime. A hit harder than a shove throws the rider off.
 7. **Trams.**
-   - **Riding:** board at a stop, as the crowd does. Aboard, the police need twice as long to
-     recognise the player (a crowd). Get off at any stop.
-   - **Driving:** take the front cab. Throttle and the bell only, since the tram follows its track.
-     It shoves cars aside and runs through the castle tunnel. Stealing one is a crime.
+   - **Riding:** F by an open door of a tram standing at a stop boards it; F again while it's stopped
+     gets off at a door. Aboard, the player moves with the tram and isn't drawn, cars and trams can't
+     hit them, and a unit needs twice as long to recognise them.
+   - **Driving:** F by the front of a stopped tram takes the cab. Throttle and brake only, the track
+     does the steering (at a junction the steering key picks the branch), H rings the bell. The tram
+     shoves cars aside and hits people. Taking it is a crime (like a police car). Leaving hands it back
+     to the AI. One tram per player.
+   - **Online** the tram stays server-simulated. The client asks (`tram` message: board, off, drive,
+     and the cab's controls); the server checks, attaches the player (their reports are ignored while
+     aboard) and answers with a private `tram` event. Another client sees a rider vanish and reappear,
+     as the crowd's passengers do.
 8. **The Danube.**
-   - **Swimming:** slow, for 20 s before the player tires and drowns. Cops on foot don't follow into
-     the water.
-   - **Boats:** moored at the piers and pontoons, driven with water physics, stealable, and a police
-     boat at 4★.
-
-### Wire
-
-New vehicle kinds (ambulance, scooter, bike, boat), a player riding a tram (an attach state), the
-police car siren for players, and the style board. That's one protocol bump.
+   - **Swimming:** on foot in the water the player swims at a third of walking pace for 20 s, then
+     drowns (the server's clock decides). No running, no shooting. Cops on foot stop at the bank.
+   - **Boats:** a boat is a vehicle kept to the water (land is a wall to it), with loose grip and no
+     sinking. Boats are moored along the piers near players. At 4★, with the player on the water, a
+     police boat comes after them.
+9. **Protocol 7 stays.** Everything is optional: new event fields and kinds older clients ignore, new
+   kinds that decode as a sedan, and the `tram` message sent only to a server whose welcome lists it
+   (`welcome.caps`).
 
 ### Steps
 
-1. Style online: server-side detection, the "Štýl" board and caps, the client meter on server
-   events.
-2. The new combo moves, each with its own label and base value.
+1. Style online: the rule, the board and caps, the meter on the rule's events.
+2. The new combo moves.
 3. Slipstream and the damage model.
-4. The player's siren and the ambulance.
-5. Scooters and bikes: the kinds, the physics, the bollards, the docks.
-6. Trams, riding and then driving.
-7. Swimming, then boats.
+4. The player's siren, and the ambulance.
+5. Scooters and bikes: the kinds, the physics, the spawning, falling off.
+6. Trams: riding, then driving.
+7. Swimming, then boats and the police boat.
 
 ### Verification
 
-- Style: server-detected near misses and drifts match the client's within tolerance on recorded
-  runs, and the caps hold.
-- Each combo move fires on a scripted run and not on a normal drive.
+- `test/shared/style.test.ts`: each move fires on a scripted run and not on a normal drive; the
+  combo's multiplier, payout, caps and loss; the points online.
 - Vehicle tests: the slipstream gain, the pull, the power loss.
-- Traffic pulls over for a player's siren (a soak test like `traffic.test.ts`).
-- A scooter passes a bollard row that a car can't, and the police graph still refuses it.
-- A tram rider and driver online: attach and detach, a disconnect while aboard.
-- Swimming: the time limit. Boats: kept to the water.
+- Traffic pulls over for a player's siren; an ambulance heals its driver.
+- A scooter passes a bollard row a car can't (Uršulínska), and the police graph still refuses it.
+- Trams: boarding and getting off offline and through the Room; a driven tram moves on its track;
+  a disconnect while aboard.
+- Swimming: the time limit. Boats: kept to the water; the police boat.
+- `npm test`, the typechecks, `npm run smoke`, `npm run smoke:mobile`, `npm run e2e`.
 
 ### Risks
 
-- **Server load from style detection.** It's per player and per nearby car, like the tips already
-  are.
-- **Trams are shared.** A player driving one takes it from everyone's schedule: it's returned to AI
-  control on exit, and one tram per player at a time.
+- **Server load.** The style checks are per player at the wheel and look only nearby (like the jobs'
+  tips); stop lines are one flat list of about 200.
+- **Farming style online.** Parked cars don't count for near misses, the bank and the combo are
+  capped, and the points have an hourly cap.
+- **Trams are shared.** A driven tram leaves everyone's schedule until it's handed back, so one per
+  player, and it goes back to the AI when the driver leaves or drops.
 
 ---
 

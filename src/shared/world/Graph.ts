@@ -96,6 +96,53 @@ export class Graph {
     return (Math.floor(x / CELL) + 1000) * 4096 + Math.floor(y / CELL) + 1000;
   }
 
+  /** every edge segment by grid cell (edge id << 12 | segment index), built on first use */
+  private segs: Map<number, number[]> | null = null;
+
+  /** The edge segment nearest (x, y) within `maxDist`: its edge, its direction a → b (a unit vector)
+   *  and how far away it is. (The style combo's wrong way down a one-way street: rules/Style.ts.) */
+  segmentAt(x: number, y: number, maxDist = 6): { edge: Edge; dx: number; dy: number; d: number } | null {
+    if (!this.segs) this.segs = this.indexSegments();
+    let best: { edge: Edge; dx: number; dy: number; d: number } | null = null;
+    let bd = maxDist * maxDist;
+    const r = Math.ceil(maxDist / CELL);
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+    for (let gx = cx - r; gx <= cx + r; gx++)
+      for (let gy = cy - r; gy <= cy + r; gy++)
+        for (const code of this.segs.get((gx + 1000) * 4096 + gy + 1000) ?? []) {
+          const e = this.edges[code >> 12], k = (code & 4095) * 2, p = e.p;
+          const ax = p[k], ay = p[k + 1], bx = p[k + 2], by = p[k + 3];
+          const ux = bx - ax, uy = by - ay, l2 = ux * ux + uy * uy;
+          if (l2 < 1e-6) continue;
+          const t = Math.max(0, Math.min(1, ((x - ax) * ux + (y - ay) * uy) / l2));
+          const qx = ax + ux * t - x, qy = ay + uy * t - y, d2 = qx * qx + qy * qy;
+          if (d2 >= bd) continue;
+          bd = d2;
+          const l = Math.sqrt(l2);
+          best = { edge: e, dx: ux / l, dy: uy / l, d: Math.sqrt(d2) };
+        }
+    return best;
+  }
+
+  private indexSegments() {
+    const out = new Map<number, number[]>();
+    for (const e of this.edges) {
+      const p = e.p;
+      for (let k = 0; k + 3 < p.length && k / 2 < 4096; k += 2) {
+        const x0 = Math.floor(Math.min(p[k], p[k + 2]) / CELL), x1 = Math.floor(Math.max(p[k], p[k + 2]) / CELL);
+        const y0 = Math.floor(Math.min(p[k + 1], p[k + 3]) / CELL), y1 = Math.floor(Math.max(p[k + 1], p[k + 3]) / CELL);
+        for (let gx = x0; gx <= x1; gx++)
+          for (let gy = y0; gy <= y1; gy++) {
+            const key = (gx + 1000) * 4096 + gy + 1000;
+            let c = out.get(key);
+            if (!c) out.set(key, (c = []));
+            c.push((e.id << 12) | (k / 2));
+          }
+      }
+    }
+    return out;
+  }
+
   nx(i: number) {
     return this.nodes[i * 2];
   }

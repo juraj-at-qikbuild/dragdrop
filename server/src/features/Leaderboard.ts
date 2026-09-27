@@ -147,6 +147,7 @@ export class Leaderboard implements RoomFeature {
         races: n('racesWon') * POINTS.race,
         city: pr.found.length * POINTS.landmark + pr.cumils.length * POINTS.statue + n('dailyWins') * POINTS.daily,
         help: 0,
+        style: 0,
       };
       const now = this.room.wallNow();
       for (const [board, points] of Object.entries(seed)) {
