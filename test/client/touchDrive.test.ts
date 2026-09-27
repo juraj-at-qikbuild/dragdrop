@@ -38,6 +38,8 @@ function drive(kind: VehicleKind, o: Opts) {
   const w = o.world ?? track();
   const car = new Vehicle(kind, 0, 0, 0, '#fff');
   car.id = 7;
+  // a player's car: it handles like one (Vehicle.update's player grip and yaw control)
+  car.owner = 1;
   car.vx = o.speed ?? 0;
   const st = newDriveState();
   let settled = -1, revSpeed = 0, revDist = 0, stoppedAt = -1, firstReverse = -1;

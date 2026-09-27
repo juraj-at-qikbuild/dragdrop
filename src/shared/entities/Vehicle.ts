@@ -272,12 +272,16 @@ export class Vehicle {
 
     // steering: the wheels turn as far as a driver would at this speed, about as far as the front
     // tyres grip (a keyboard's full lock then carves the tightest line the car holds, instead of
-    // plowing straight on), tighter in a parking manoeuvre
-    this.steer += (c.steer - this.steer) * Math.min(1, dt * 8);
+    // plowing straight on), tighter in a parking manoeuvre. A player's wheel turns quicker, and
+    // centres quicker still, so a tapped key is a short, crisp correction.
+    const assist = this.isPlayer;
+    const centring = c.steer * this.steer < 0 || Math.abs(c.steer) < Math.abs(this.steer);
+    this.steer += (c.steer - this.steer) * Math.min(1, dt * (assist ? (centring ? PLAYER_STEER_CENTRE : PLAYER_STEER_IN) : 8));
     const wheelbase = s.length * 0.6;
     const a = wheelbase * 0.5, b = wheelbase * 0.5; // axle distances from CG
     const vAbs = Math.abs(vF);
-    const latMax = 2 * TIRE_FORCE * 0.9 * (s.grip / 7) * muSurf;
+    const gripK = assist ? PLAYER_GRIP : 1;
+    const latMax = 2 * TIRE_FORCE * 0.9 * (s.grip / 7) * muSurf * gripK;
     const maxSteer = Math.min(0.6, (1.15 * wheelbase * latMax) / Math.max(1, vAbs * vAbs) + 0.04) * dmgSteer;
     const steerAngle = this.steer * maxSteer;
 
@@ -296,9 +300,9 @@ export class Vehicle {
     const slipF = Math.atan2(vR + a * this.av, vFa) - steerAngle * dir;
     const slipR = Math.atan2(vR - b * this.av, vFa);
 
-    const muF = (s.grip / 7) * muSurf * s.frontGrip * tyreMul;
+    const muF = (s.grip / 7) * muSurf * s.frontGrip * tyreMul * gripK;
     // the handbrake locks the rear wheels: a locked tyre slides with little sideways grip
-    const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * (c.handbrake ? 0.2 : 1);
+    const muR = (s.grip / 7) * muSurf * s.rearGrip * tyreMul * gripK * (c.handbrake ? 0.2 : 1);
     // Fy is a genuine force (N): tireCurve * mu * load-fraction * peak-accel-per-tyre * mass,
     // so dividing by mass below gives back the peak accel, and dividing by inertia gives a sane yaw accel.
     let FyF = -tireCurve(slipF) * muF * (loadF / staticF) * TIRE_FORCE * s.mass * wheels;
@@ -315,6 +319,18 @@ export class Vehicle {
     let avAccel = (a * FyF - b * FyR) / s.inertia;
     avAccel -= this.av * 0.3; // passive yaw damping
     if (Math.abs(vR) > 2.5 && this.steer * dir !== 0 && Math.sign(this.steer * dir) === -Math.sign(this.av)) avAccel -= this.av * 1.2; // counter-steer assist
+    // a player's yaw control: the car turns at the rate its wheels ask for (as tight as the weaker
+    // axle holds, so it never throws the car into a slide). Rotating more than that (overshooting
+    // into a bend, or still swinging after the key is let go) is reined in hard; falling behind it
+    // gets a gentler push while the rear tyres still grip. Off with the handbrake, and gentler in
+    // the sports car, so drifts and handbrake turns still work; it fades out at a crawl, where a
+    // shove can still spin the car.
+    if (assist && !c.handbrake) {
+      const rMax = (0.9 * latMax * tyreMul * Math.min(s.frontGrip, s.rearGrip)) / Math.max(1, vAbs);
+      const err = clamp((vF * Math.tan(steerAngle)) / wheelbase, -rMax, rMax) - this.av;
+      const k = err * this.av < 0 ? (s.kind === 'sport' ? 6 : 12) : 8 * clamp((0.14 - Math.abs(slipR)) / 0.08, 0, 1);
+      avAccel += err * k * wheels * clamp((vAbs - 1) / 4, 0, 1);
+    }
     // stability control: once the body rotates faster than the tyres are turning the car's path
     // (the tail stepping out under braking, or lifting off mid-bend), it's reined back, so an
     // ordinary car doesn't spin. Off with the handbrake, and gentler in the sports car, so drifts and
@@ -457,6 +473,12 @@ export class Vehicle {
 const SLIP_PEAK = 0.15; // rad, ~8.6°, where a tyre's lateral force peaks
 /** m/s² of lateral accel one fully loaded axle with grip 7 gives: both together hold ~1.1 g */
 const TIRE_FORCE = 5.6;
+/** A player's car grips this much harder than traffic (about 2 g round a bend on dry asphalt): at
+ *  real-car grip a junction has to be taken at 40 km/h, and at 90 km/h full lock needs a 60 m circle. */
+const PLAYER_GRIP = 2;
+/** how fast a player's steering follows the key or stick (1/s): turning in, and back to centre */
+const PLAYER_STEER_IN = 12;
+const PLAYER_STEER_CENTRE = 16;
 /** lifting off the throttle: engine braking in gear, m/s² */
 const ENGINE_BRAKE = 0.9;
 /** extra drag rolling over grass and gravel, m/s² */

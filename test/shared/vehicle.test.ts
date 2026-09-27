@@ -1,5 +1,7 @@
 // Vehicle handling measured on an open asphalt test track: top speeds match the specs, brakes and
-// tyres are in a real car's range, and ordinary cars don't spin under a driver's usual inputs.
+// tyres are in a real car's range, and ordinary cars don't spin under a driver's usual inputs. A
+// player's car grips about twice as hard and steers with yaw control (Vehicle.update), so it can take
+// a junction at speed and settles the moment a key is let go.
 import { describe, expect, it } from 'vitest';
 import { World } from '../../src/shared/world/World';
 import { Vehicle, SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
@@ -17,10 +19,12 @@ const track = (() => {
 const dt = 1 / 120;
 const kinds = Object.keys(SPECS) as VehicleKind[];
 
-/** run `script` (throttle, steer, handbrake by time) from `kmh`; the car and its largest body slip (deg, while going forwards) */
-function run(kind: VehicleKind, kmh: number, seconds: number, script: (t: number, v: Vehicle) => [number, number, boolean?]) {
+/** run `script` (throttle, steer, handbrake by time) from `kmh`, in traffic or (`player`) a player's
+ *  car; the car and its largest body slip (deg, while going forwards) */
+function run(kind: VehicleKind, kmh: number, seconds: number, script: (t: number, v: Vehicle) => [number, number, boolean?], player = false) {
   // from the west end of the 10 km track: even the Porše at full speed stays on it
   const v = new Vehicle(kind, -4900, 0, 0, '#fff');
+  if (player) v.owner = 1;
   v.vx = kmh / 3.6;
   let slip = 0;
   for (let t = 0; t < seconds; t += dt) {
@@ -74,10 +78,65 @@ describe('Vehicle', () => {
     }
   });
 
-  it('still swings round on the handbrake', () => {
-    for (const k of ['hatch', 'sedan', 'police', 'sport'] as VehicleKind[]) {
-      const { v } = run(k, 60, 1.5, (t) => [0, t < 0.8 ? 1 : 0, t < 0.8]);
-      expect((Math.abs(v.angle) * 180) / Math.PI).toBeGreaterThan(90);
+  it('still swings round on the handbrake, in traffic and as a player', () => {
+    for (const k of ['hatch', 'sedan', 'police', 'sport'] as VehicleKind[])
+      for (const player of [false, true]) {
+        const { v } = run(k, 60, 1.5, (t) => [0, t < 0.8 ? 1 : 0, t < 0.8], player);
+        expect((Math.abs(v.angle) * 180) / Math.PI).toBeGreaterThan(90);
+      }
+  });
+
+  it("a player's car corners at about 2 g: round a city junction at 60 km/h, half traffic's circle at 90", () => {
+    for (const k of kinds) {
+      /** full lock holding `kmh`: the radius of the circle it settles on */
+      const circle = (kmh: number, player: boolean) => {
+        const { v } = run(k, kmh, 6, (_t, c) => [Math.max(0, Math.min(1, (kmh / 3.6 - c.fwdSpeed) * 0.4)), 1], player);
+        return v.speed / Math.abs(v.av);
+      };
+      const r90 = circle(90, true);
+      expect(r90, k).toBeLessThan(circle(90, false) * 0.6);
+      // (a van and a bus are still a van and a bus)
+      if (k === 'van' || k === 'bus') continue;
+      expect(circle(60, true), k).toBeLessThan(18);
+      expect(r90, k).toBeLessThan(40);
+      const g = (90 / 3.6) ** 2 / r90 / 9.81;
+      expect(g, k).toBeGreaterThan(1.5);
+      expect(g, k).toBeLessThan(2.6);
+    }
+  });
+
+  it("a player's car turns in crisply, without overshooting, and stops turning when the key is let go", () => {
+    for (const k of kinds) {
+      // 90 km/h: full lock (a held key) for 2 s, then let go
+      const v = new Vehicle(k, -4900, 0, 0, '#fff');
+      v.owner = 1;
+      v.vx = 25;
+      const yaw: number[] = [];
+      let atRelease = 0;
+      for (let t = 0; t < 3; t += dt) {
+        v.setControls(Math.max(0, Math.min(1, (25 - v.fwdSpeed) * 0.4)), t < 2 ? 1 : 0);
+        v.update(dt, track);
+        yaw.push(v.av);
+        if (t < 2) atRelease = v.angle;
+      }
+      const held = yaw.slice(0, 240), after = yaw.slice(240);
+      const steady = held.slice(-60).reduce((a, b) => a + b) / 60;
+      /** seconds until `f` first holds (Infinity: never) */
+      const until = (rs: number[], f: (r: number) => boolean) => (rs.findIndex(f) + 1 || Infinity) * dt;
+      // most of the way round within a quarter of a second, and not swinging past it
+      expect(until(held, (r) => r > 0.9 * steady), k).toBeLessThan(0.25);
+      expect(Math.max(...held) / steady, k).toBeLessThan(1.2);
+      // let go: still in under half a second, a few degrees further round at most
+      expect(until(after, (r) => Math.abs(r) < 0.05 * steady), k).toBeLessThan(0.45);
+      expect(((v.angle - atRelease) * 180) / Math.PI, k).toBeLessThan(12);
+    }
+  });
+
+  it("a player's car is as stable as traffic, the Porše included", () => {
+    for (const k of kinds) {
+      expect(run(k, 100, 3, (t) => [0.3, t < 0.3 ? 1 : t < 0.6 ? -1 : 0], true).slip, k).toBeLessThan(10);
+      expect(run(k, 100, 3, (t) => [t < 0.2 ? 1 : 0, t > 0.2 && t < 1.2 ? 1 : 0], true).slip, k).toBeLessThan(20);
+      expect(run(k, 80, 3, (t) => [-1, t < 1.5 ? 1 : 0], true).slip, k).toBeLessThan(45);
     }
   });
 });

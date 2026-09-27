@@ -140,9 +140,10 @@ describe('Sim', () => {
 
   it('people jump out of the way of a car bearing down on them', () => {
     const sim = new Sim(loadWorld(), { rng: new Rng(5) });
-    // Most SNP's northbound carriageway: a player's car at 50 km/h, someone standing in its path
+    // Most SNP's northbound carriageway: a player's car at 50 km/h, someone crossing in front of it
+    // (the car points the way it's going: set sideways to its velocity, it would curve off the line)
     const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: -578.7, y: 560 });
-    const car = sim.addVehicle(new Vehicle('sedan', -578.7, 560, -Math.PI / 2 - 0.035, '#fff'));
+    const car = sim.addVehicle(new Vehicle('sedan', -578.7, 560, -Math.PI / 2, '#fff'));
     expect(sim.enterVehicle(p, car)).toBe(true);
     car.vy = -14;
     const walker = sim.addPed(new Ped('civ', -580.3, 505, 3));
