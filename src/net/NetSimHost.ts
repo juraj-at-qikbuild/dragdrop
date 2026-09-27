@@ -4,7 +4,7 @@
 import type { Game } from '../game/Game';
 import { applyLive, emptyLive, type MeView, type NetView, type SimHost } from '../game/SimHost';
 import { Ped, setPlayerHat, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
-import { Vehicle } from '../shared/entities/Vehicle';
+import { FALL_GRACE, FALL_KNOCK, Vehicle } from '../shared/entities/Vehicle';
 import type { Observer } from '../shared/sim/SimPlayer';
 import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent } from '../shared/sim/events';
@@ -54,6 +54,8 @@ export class NetSimHost implements SimHost, NetView {
   private pendingAmmo: { seq: number; w: WeaponId }[] = [];
   private entering = 0;
   private enteringAt = 0;
+  /** performance.now() we were last thrown off a scooter or a bike (see FALL_GRACE) */
+  private fellAt = -1e9;
   private hitAt = new Map<number, number>();
   private started = false;
   /** cached Supabase access token; hello() reads it synchronously (Connection builds hello() from a
@@ -388,17 +390,30 @@ export class NetSimHost implements SimHost, NetView {
       for (const pr of this.mirrors.props)
         if (pr.kind === 'spike' && pr.active && !car.tyresBurst && pr.level === car.level && spikeHit(pr, car) && car.burstTyres())
           game.message('', 'Klince prepichli pneumatiky!', 2.5, '#ff8a80');
+      // on a scooter or a bike: a hard knock throws us off, and so does it breaking under us (the
+      // server's Sim.fallOff does it offline; here we simulate the ride, so we decide and say so)
+      if (car.spec.twoWheeler) {
+        const knock = car.knock;
+        car.knock = 0;
+        if (knock > FALL_KNOCK || car.fire >= 0) {
+          this.requestExit(knock > FALL_KNOCK ? knock : FALL_KNOCK + 3);
+          this.fellAt = performance.now();
+          ev.fell();
+        }
+      }
     } else {
       this.physics.rehash(this.vehicles);
       if (me.state === 'play') {
-        // cars and trams shove us aside; a fast one runs us over: tell the server what hit us
+        // cars and trams shove us aside; a fast one runs us over: tell the server what hit us (not
+        // what has just thrown us off our scooter or bike: that knock was the hit)
+        const thrown = performance.now() - this.fellAt < FALL_GRACE * 1000;
         pedContact(p, this.physics.hash, this.trams, dt, {
           runOver: (q, v, sp) => {
             q.x += (v.vx / sp) * 1.5;
             q.y += (v.vy / sp) * 1.5;
-            this.reportHit(v.id, sp, false);
+            if (!thrown) this.reportHit(v.id, sp, false);
           },
-          tramHit: (_q, t) => this.reportHit(t.id, t.speed, true),
+          tramHit: (_q, t) => thrown || this.reportHit(t.id, t.speed, true),
         });
       }
       if (!p.levelInit) (p.level = world.spawnLevel(p.x, p.y, p.r)), (p.levelInit = true);
@@ -515,7 +530,8 @@ export class NetSimHost implements SimHost, NetView {
     this.conn.send({ t: 'enter', vid: v.id });
   }
 
-  requestExit() {
+  /** `fall`: thrown off a scooter or a bike by a knock that hard (m/s) */
+  requestExit(fall = 0) {
     const v = this.ownCar;
     if (!v) return;
     const p = this.me.ped;
@@ -527,7 +543,7 @@ export class NetSimHost implements SimHost, NetView {
       x: r2(v.x), y: r2(v.y), a: r3(v.angle), vx: r2(v.vx), vy: r2(v.vy), av: r3(v.av), hp: Math.max(0, v.health),
       dmg: [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right], fire: v.fire, tyres: v.tyresBurst ? 1 : 0, nitro: v.nitro, lvl: v.level,
     };
-    this.conn.send({ t: 'exit', x: r2(p.x), y: r2(p.y), veh: full });
+    this.conn.send(fall ? { t: 'exit', x: r2(p.x), y: r2(p.y), veh: full, fall: r2(fall) } : { t: 'exit', x: r2(p.x), y: r2(p.y), veh: full });
     this.releaseCar();
     this.game.audio.setStation(null);
     this.game.audio.engine(0, 0, false);
@@ -640,6 +656,8 @@ export class NetSimHost implements SimHost, NetView {
         v.vx += e.dvx;
         v.vy += e.dvy;
         v.av += e.dav;
+        // a blast that throws a scooter or a bike throws us off it (as Sim.damageVehicle does offline)
+        if (v.spec.twoWheeler) v.knock = Math.max(v.knock, Math.hypot(e.dvx, e.dvy));
         break;
       }
       case 'spray': {

@@ -122,7 +122,9 @@ export class VehiclePhysics {
         world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
         const impact = v.update(h, world);
         if (impact > 6) hooks.impact?.(v, impact);
-        if (v.level === 0 && world.gates.n) gateContact(v, world);
+        knocked(v, impact);
+        // (a scooter or a bike goes round a lift gate's boom, or under it)
+        if (v.level === 0 && world.gates.n && !v.spec.twoWheeler) gateContact(v, world);
       }
       this.collide(vehicles, trams, hooks);
       this.accum -= STEP;
@@ -184,6 +186,8 @@ export class VehiclePhysics {
         b.y += best.ny * best.depth * (ma / tot);
         const sev = resolveContact(a, best.cx, best.cy, b, best.cx, best.cy, best.nx, best.ny, 0.25, 0.4);
         if (sev <= 0) continue;
+        knocked(a, sev);
+        knocked(b, sev);
         if (a.parked || b.parked) {
           a.parked = a.parked && !a.isPlayer && a.speed < 0.5 ? a.parked : false;
           b.parked = b.parked && !b.isPlayer && b.speed < 0.5 ? b.parked : false;
@@ -209,6 +213,7 @@ export class VehiclePhysics {
         const sev = resolveContact(v, v.x, v.y, null, v.x, v.y, -n2x, -n2y, 0.15, 0.5, {
           vx: Math.cos(s.a) * t.speed, vy: Math.sin(s.a) * t.speed, av: 0,
         });
+        knocked(v, sev);
         if (sev > 2) {
           if (t.speed > 3) v.damage(t.speed * 0.1);
           hooks.tramContact?.(v, t, sev);
@@ -242,6 +247,12 @@ function gateContact(v: Vehicle, world: World) {
   }
 }
 
+/** a scooter or a bike took a knock `sev` hard (m/s): remembered until its rider's check (Sim, or the
+ *  rider's client online) */
+function knocked(v: Vehicle, sev: number) {
+  if (v.spec.twoWheeler && sev > v.knock) v.knock = sev;
+}
+
 /** deepest overlap between the two cars' circle chains, or null */
 function deepest(a: Vehicle, b: Vehicle): Contact | null {
   let best: Contact | null = null;
@@ -260,15 +271,19 @@ function deepest(a: Vehicle, b: Vehicle): Contact | null {
 }
 
 /** A dynamic car against a kinematic one: the kinematic car is a moving wall of infinite mass. Only the
- *  dynamic side is pushed and damaged (whoever simulates the other car handles its side). */
+ *  dynamic side is pushed and damaged (whoever simulates the other car handles its side). A car
+ *  hardly notices a scooter or a bike, though: it drives on, and the rider's own simulation sends
+ *  them flying. */
 function kinematicContact(a: Vehicle, b: Vehicle, c: Contact, hooks: PhysicsHooks) {
   const dyn = a.kinematic ? b : a, kin = a.kinematic ? a : b;
+  if (kin.spec.twoWheeler && !dyn.spec.twoWheeler) return;
   const s = dyn === a ? 1 : -1;
   const nx = c.nx * s, ny = c.ny * s;
   dyn.x -= nx * c.depth;
   dyn.y -= ny * c.depth;
   const sev = resolveContact(dyn, c.cx, c.cy, null, c.cx, c.cy, nx, ny, 0.25, 0.4, { vx: kin.vx, vy: kin.vy, av: 0 });
   if (sev <= 0) return;
+  knocked(dyn, sev);
   if (dyn.parked && !dyn.isPlayer && dyn.speed > 0.5) dyn.parked = false;
   if (sev > 5) {
     const share = kin.spec.mass / (kin.spec.mass + dyn.spec.mass);
@@ -303,7 +318,8 @@ export function pedContact(p: Ped, hash: SpatialHash<Vehicle>, trams: readonly T
       const d = dist(cx, cy, p.x, p.y);
       if (d >= r) continue;
       const sp = v.speed;
-      if (sp > RUN_OVER_SPEED) hooks.runOver(p, v, sp, cx, cy);
+      // (a scooter or a bike only ever barges people aside)
+      if (sp > RUN_OVER_SPEED && !v.spec.twoWheeler) hooks.runOver(p, v, sp, cx, cy);
       else {
         const nx = (p.x - cx) / (d || 1), ny = (p.y - cy) / (d || 1);
         p.x += nx * (r - d);

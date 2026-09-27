@@ -71,6 +71,12 @@ interface Job {
   fareId: number;
 }
 
+/** the car a taxi driver drives their fares in: no fare rides on a scooter or a bike */
+function cab(p: SimPlayer) {
+  const v = p.ped.vehicle;
+  return v && !v.spec.twoWheeler ? v : null;
+}
+
 const FAIL_TEXT: Record<JobKind, string> = {
   courier: 'Objednávka sa vyliala!',
   taxi: 'Zákazník vystúpil!',
@@ -169,7 +175,7 @@ export class Jobs implements SimRule {
    *  threshold (the plan doesn't specify one for taxi's drop-off, unlike its explicit boarding radius). */
   private checkStop(p: SimPlayer, job: Job, dt: number): boolean {
     const car = p.ped.vehicle;
-    if (job.kind === 'taxi' && !car) {
+    if (job.kind === 'taxi' && !cab(p)) {
       job.stopTimer = 0;
       return false;
     }
@@ -245,7 +251,7 @@ export class Jobs implements SimRule {
   private beginOffer(p: SimPlayer, job: Job) {
     const sim = this.sim;
     job.waitUntil = 0;
-    if (job.kind === 'taxi' && !p.ped.vehicle) return this.endShift(p, 'Na Hopík taxi potrebuješ auto — zmena končí.');
+    if (job.kind === 'taxi' && !cab(p)) return this.endShift(p, 'Na Hopík taxi potrebuješ auto — zmena končí.');
     let x: number, y: number, label: string, next: { x: number; y: number; label: string }, routeM: number, fareId = 0;
     if (job.kind === 'courier') {
       const offer = offerCourier(sim, p.ped.x, p.ped.y);

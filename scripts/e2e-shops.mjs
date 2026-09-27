@@ -75,6 +75,13 @@ async function shops({ A, B, check, log, sleep, waitFor }) {
   await A.bringToFront();
   await A.keyboard.press('KeyF');
   if (!(await waitFor(A, (id) => window.game.player.vehicle?.id === id, car.id, 4000, 'A in the car'))) return check(false, 'A gets into the car by the garage');
+  // getting in isn't pulling up (no panel then): roll it a little, and stopping there is
+  check(!(await A.$('.kit-shop-card')), 'getting into a car at the garage door opens no panel');
+  await A.evaluate(() => {
+    const v = window.game.player.vehicle;
+    v.vx = Math.cos(v.angle) * 1.5;
+    v.vy = Math.sin(v.angle) * 1.5;
+  });
   const parked = await waitFor(A, () => !!document.querySelector('.kit-shop-card button[data-k="store"]'), null, 5000, 'the garage panel, in the car');
   if (!parked)
     log(

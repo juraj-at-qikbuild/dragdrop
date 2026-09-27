@@ -222,6 +222,13 @@ export class Audio {
     this.tone(415, 0.35, 'square', 0.12);
     this.tone(523, 0.35, 'square', 0.1);
   }
+  /** a bicycle bell: cring-cring (a scooter's or a bike's horn) */
+  ring() {
+    [0, 0.14].forEach((dt) => {
+      this.tone(2637, 0.12, 'triangle', 0.14, this.ctx ? this.now() + dt : 0);
+      this.tone(3520, 0.08, 'sine', 0.06, this.ctx ? this.now() + dt : 0);
+    });
+  }
   jingle(good: boolean) {
     const notes = good ? [523, 659, 784, 1046] : [392, 330, 262, 196];
     notes.forEach((f, i) => this.tone(f, 0.25, 'square', 0.15, this.ctx ? this.now() + i * 0.14 : 0));

@@ -109,7 +109,9 @@ export type ClientMsg =
   | FireMsg
   | { t: 'punch'; target: number; rt: number }
   | { t: 'enter'; vid: number }
-  | { t: 'exit'; x: number; y: number; veh: VehFull }
+  /** `fall`: thrown off a scooter or a bike by a knock that hard (m/s), which hurts (Vehicle.fallHurt;
+   *  docs/plans/gameplay.md, Phase 3). The rider's client decides it: it simulates the ride. */
+  | { t: 'exit'; x: number; y: number; veh: VehFull; fall?: number }
   | { t: 'horn' }
   /** "a car/tram just hit me": the victim's client reports it (it sees exactly what hit it) */
   | { t: 'hit'; src: number; speed: number; tram: 0 | 1; rt: number }

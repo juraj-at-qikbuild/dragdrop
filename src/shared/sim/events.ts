@@ -65,8 +65,8 @@ export type PrivateEvent =
   /** answer to an enter-vehicle request; `mods`: the car's tuning, when it has any (online the
    *  driver's client simulates the car, and a snapshot carries only its neon) */
   | { k: 'enter'; vehicle: number; ok: boolean; mods?: Mods }
-  /** thrown out of your car (carjacked) */
-  | { k: 'eject'; vehicle: number; x: number; y: number }
+  /** thrown out of your car (carjacked), or off a scooter or a bike (`fall`) */
+  | { k: 'eject'; vehicle: number; x: number; y: number; fall?: boolean }
   /** the server damaged the car you drive (explosion, gunfire): apply it to your simulation */
   | { k: 'vehDamage'; vehicle: number; amount: number; dvx: number; dvy: number; dav: number }
   /** spray shop: repaint + repair the car you drive */

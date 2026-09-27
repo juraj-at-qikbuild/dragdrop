@@ -5,7 +5,7 @@
 //  - offline, in the browser (LocalSimHost): one player, whose figure and car are simulated here;
 //  - online, on the server (server/src/Room.ts): many players, whose figures and cars are `kinematic`,
 //    i.e. simulated by their own clients and reported to the server, which validates and applies them.
-import { Vehicle } from '../entities/Vehicle';
+import { FALL_GRACE, FALL_KNOCK, Vehicle, fallHurt } from '../entities/Vehicle';
 import { Ped, setPlayerLook, type WeaponId } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Prop } from '../entities/Props';
@@ -445,6 +445,13 @@ export class Sim {
         this.combat.scare(d, v.x, v.y);
         this.ai.drivers.delete(v);
       }
+      // a scooter's or a bike's rider is thrown off by a hard knock, or when it breaks under them (a
+      // rider the server doesn't simulate is thrown off by their own client: Room.onExit's `fall`)
+      if (v.spec.twoWheeler) {
+        const owner = !v.kinematic && v.knock > FALL_KNOCK ? this.players.get(v.owner) : undefined;
+        if (owner && owner.ped.vehicle === v) this.fallOff(owner, v.knock);
+        v.knock = 0;
+      }
       // a player's own car: their client runs its fire countdown and sinking, and reports the result
       if (v.fire > -1 && v.fire <= 0 && !v.wrecked) this.wreck(v);
       if (v.sinking > 2.5 && !v.kinematic) {
@@ -465,7 +472,7 @@ export class Sim {
       tramHit: (p, t, sx, sy) => {
         if (p.playerId) {
           const pl = this.players.get(p.playerId);
-          if (pl) this.hurtPlayer(pl, t.speed * 5, sx, sy, 0);
+          if (pl && this.time >= pl.thrownUntil) this.hurtPlayer(pl, t.speed * 5, sx, sy, 0);
           return;
         }
         p.kill(sx, sy, t.speed);
@@ -475,11 +482,17 @@ export class Sim {
     });
   }
 
-  /** a burning car's countdown ran out */
+  /** a burning car's countdown ran out (or a scooter or a bike broke: no fire, no blast, and its rider
+   *  lands beside it) */
   wreck(v: Vehicle) {
     v.wrecked = true;
     v.fire = -1;
     v.siren = false;
+    if (v.spec.twoWheeler) {
+      const owner = this.players.get(v.owner);
+      if (owner && owner.ped.vehicle === v && !v.kinematic) this.fallOff(owner, FALL_KNOCK + 3);
+      return;
+    }
     const credit = this.creditFor(v);
     this.combat.explode(v.x, v.y, v, credit?.id ?? 0);
     const owner = this.players.get(v.owner);
@@ -514,7 +527,7 @@ export class Sim {
     if (p.playerId) {
       const pl = this.players.get(p.playerId);
       if (pl) {
-        this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner);
+        if (this.time >= pl.thrownUntil) this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner);
         p.x += (v.vx / sp) * 1.5;
         p.y += (v.vy / sp) * 1.5;
       }
@@ -547,6 +560,8 @@ export class Sim {
       v.vy += impulse.dvy;
       v.av += impulse.dav;
       if (v.parked && !v.isPlayer) v.parked = false;
+      // a blast that throws a scooter or a bike throws its rider off too
+      if (v.spec.twoWheeler) v.knock = Math.max(v.knock, Math.hypot(impulse.dvx, impulse.dvy));
     }
   }
 
@@ -620,6 +635,18 @@ export class Sim {
     p.ped.x = s.x;
     p.ped.y = s.y;
     this.events.toPlayer(p.id, { k: 'eject', vehicle: v.id, x: p.ped.x, y: p.ped.y });
+  }
+
+  /** Thrown off a scooter or a bike by a knock `sev` hard (m/s): off beside it, hurt a little
+   *  (fallHurt), and told so (an `eject` that says it was a fall). Online the rider's own client
+   *  decides this and tells the server as it gets off (Room.onExit). */
+  fallOff(p: SimPlayer, sev: number) {
+    const v = p.ped.vehicle;
+    if (!v?.spec.twoWheeler) return;
+    this.exitVehicle(p, true);
+    p.thrownUntil = this.time + FALL_GRACE;
+    this.events.toPlayer(p.id, { k: 'eject', vehicle: v.id, x: p.ped.x, y: p.ped.y, fall: true });
+    this.hurtPlayer(p, fallHurt(sev), v.x, v.y);
   }
 
   /** Leave the car: step out where there's room (`World.exitSpot`), or where the client says they
@@ -1131,7 +1158,8 @@ export class Sim {
    *  wanted, the workshop there is a shop (rules/Shops.ts: paint of their choice, tuning). */
   private sprayShop(p: SimPlayer) {
     const v = p.ped.vehicle;
-    if (!v || p.wanted <= 0 || v.speed >= 3 || p.sprayCooldown > 0) return;
+    // (cars only: nobody resprays a scooter or a bike)
+    if (!v || v.spec.twoWheeler || p.wanted <= 0 || v.speed >= 3 || p.sprayCooldown > 0) return;
     for (const fuel of this.world.pois('fuel')) {
       if (dist(fuel.x, fuel.y, v.x, v.y) > 12) continue;
       p.sprayCooldown = 6;

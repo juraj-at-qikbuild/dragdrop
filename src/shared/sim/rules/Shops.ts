@@ -35,7 +35,7 @@ const HOLD_S = 90;
 
 /** a car the workshop may tune and a garage keep: not a police car, nor an event's or a mission's */
 export function ownable(v: Vehicle): boolean {
-  return v.kind !== 'police' && v.livery === LIVERY_NONE && !v.mission && !v.locked && !v.wrecked && v.fire <= -1 && !v.sinking;
+  return v.kind !== 'police' && !v.spec.twoWheeler && v.livery === LIVERY_NONE && !v.mission && !v.locked && !v.wrecked && v.fire <= -1 && !v.sinking;
 }
 
 export class Shops implements SimRule {
@@ -54,10 +54,10 @@ export class Shops implements SimRule {
     return (p.profile.gear ??= {});
   }
 
-  /** where `p` is shopping, if anywhere: on foot, or stopped in a car */
+  /** where `p` is shopping, if anywhere: on foot, or stopped in a car (not on a scooter or a bike) */
   placeOf(p: SimPlayer, slack = SLACK): ShopPlace | null {
     const v = p.ped.vehicle;
-    if (v && v.speed > STOPPED) return null;
+    if (v && (v.speed > STOPPED || v.spec.twoWheeler)) return null;
     const f = p.focus();
     return shopAt(this.sim.world, f.x, f.y, !!v, slack);
   }

@@ -149,6 +149,51 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   ctx.restore();
 }
 
+/** Someone riding a scooter (standing, one foot ahead of the other) or a bike (`seated`, the feet on
+ *  the pedals), hands on the grips `bar` metres ahead of them (docs/plans/gameplay.md, Phase 3).
+ *  Drawn by drawVehicle over the ride, in its frame (facing +x, the figure at the origin). */
+export function drawRider(ctx: CanvasRenderingContext2D, p: Ped, bar: number, seated: boolean) {
+  ctx.save();
+  const k = 1.45 * p.build;
+  ctx.scale(k, k);
+  ctx.lineCap = 'round';
+  const sleeve = BARE_ARMS.has(p.archetype) ? p.skin : shade(p.shirt, -0.06);
+  if (seated) {
+    capsule(ctx, 0, -0.1, 0.26, -0.12, 0.14, p.pants);
+    capsule(ctx, 0, 0.1, 0.18, 0.12, 0.14, p.pants);
+    shoe(ctx, 0.32, -0.13, SHOES);
+    shoe(ctx, 0.24, 0.13, SHOES);
+  } else {
+    shoe(ctx, 0.2, -0.05, SHOES);
+    shoe(ctx, -0.14, 0.06, SHOES);
+  }
+  // the arms out to the grips
+  const gx = bar / k, gy = 0.2 / k;
+  capsule(ctx, 0, -0.24, gx, -gy, 0.105, sleeve);
+  capsule(ctx, 0, 0.24, gx, gy, 0.105, sleeve);
+  dot(ctx, gx, -gy, 0.052, p.skin);
+  dot(ctx, gx, gy, 0.052, p.skin);
+  ctx.fillStyle = torsoGradient(ctx, p.shirt);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.19, 0.31, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = shade(p.shirt, -0.35);
+  ctx.lineWidth = 0.025;
+  ctx.stroke();
+  drawOutfit(ctx, p);
+  ctx.fillStyle = p.skin;
+  ctx.beginPath();
+  ctx.arc(0.06, 0, 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  drawHair(ctx, p);
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = 0.02;
+  ctx.beginPath();
+  ctx.arc(0.06, 0, 0.14, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 type Pose = 'stand' | 'walk' | 'run' | 'sit' | 'phone' | 'fight' | 'hands';
 /** what the arms do when not in the pose's own way: hang and swing, hold a gun, throw a punch,
  *  keep a fighting guard */

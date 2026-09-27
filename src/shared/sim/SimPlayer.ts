@@ -102,6 +102,9 @@ export class SimPlayer {
   lastCar: Vehicle | null = null;
   sprayCooldown = 0;
   drown = 0;
+  /** thrown off a scooter or a bike: until this sim.time, whatever threw them doesn't run them over
+   *  as well (the knock was the hit: Sim.fallOff) */
+  thrownUntil = -1;
   observer: Observer;
   police: PlayerPolice = { heli: null, heliSearch: null, roadblocks: [], rbTimer: 0, spikeTimer: 0 };
   /** bumped on every teleport (respawn); stale client reports carry an older epoch */

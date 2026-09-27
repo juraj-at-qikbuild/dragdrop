@@ -92,7 +92,17 @@ export class ClientEvents implements SimEvents {
   horn(vehicleId: number, x: number, y: number) {
     const v = this.g.host.vehicleById(vehicleId);
     if (v && v === this.g.player.vehicle) return; // played on the key press
-    if (this.distTo(x, y) < 60) this.g.audio.horn();
+    // a scooter's or a bike's is a bell
+    if (this.distTo(x, y) < 60) v?.spec.twoWheeler ? this.g.audio.ring() : this.g.audio.horn();
+  }
+
+  /** thrown off our scooter or bike (docs/plans/gameplay.md, Phase 3): offline the Sim says so (an
+   *  `eject` with `fall`), online our own simulation of the ride decides (NetSimHost) */
+  fell() {
+    const g = this.g;
+    g.audio.thud(0.8);
+    g.rumble(0.6, 0.9, 260);
+    g.message('', 'Spadol si!', 2, '#ff8a80');
   }
 
   say(pedId: number, x: number, y: number, line: number) {
@@ -170,6 +180,8 @@ export class ClientEvents implements SimEvents {
       case 'enter': {
         const v = g.host.vehicleById(e.vehicle);
         if (!e.ok || !v) break;
+        // (no radio on a scooter or a bike)
+        if (v.spec.twoWheeler) break;
         g.audio.setStation(v.kind === 'police' || g.radio >= RADIO.length ? null : RADIO[g.radio]);
         g.showRadio();
         break;
@@ -177,7 +189,8 @@ export class ClientEvents implements SimEvents {
       case 'eject':
         g.audio.setStation(null);
         g.audio.engine(0, 0, false);
-        g.message('', 'Vyhodili ťa z auta!', 2, '#ff8a80');
+        if (e.fall) this.fell();
+        else g.message('', g.host.vehicleById(e.vehicle)?.spec.twoWheeler ? 'Zhodili ťa!' : 'Vyhodili ťa z auta!', 2, '#ff8a80');
         break;
       case 'spray':
         g.audio.cash();

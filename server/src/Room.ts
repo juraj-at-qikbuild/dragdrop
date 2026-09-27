@@ -12,7 +12,7 @@ import { SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
 import { WEAPONS, WEAPON_IDS, traceMelee, type PelletReport } from '../../src/shared/sim/Combat';
 import { SERVER_CAPS, type Caps } from '../../src/shared/sim/density';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
-import { LIVERY_NONE, SPECS, Vehicle } from '../../src/shared/entities/Vehicle';
+import { FALL_KNOCK, LIVERY_NONE, SPECS, Vehicle, fallHurt } from '../../src/shared/entities/Vehicle';
 import { inTrouble, type Presence } from '../../src/shared/sim/rules/Presence';
 import { Rng } from '../../src/shared/util/Rng';
 import { dist } from '../../src/shared/util/math';
@@ -326,7 +326,7 @@ export class Room {
         return;
       }
       case 'exit':
-        return this.onExit(s, msg.x, msg.y, msg.veh);
+        return this.onExit(s, msg.x, msg.y, msg.veh, msg.fall);
       case 'fire':
         return this.onFire(s, msg);
       case 'punch':
@@ -661,7 +661,7 @@ export class Room {
     o.cy = f.y + r.camDy;
   }
 
-  private onExit(s: Session, x: number, y: number, veh: VehFull) {
+  private onExit(s: Session, x: number, y: number, veh: VehFull, fall?: number) {
     const p = s.player;
     const v = p.ped.vehicle;
     if (!v || !Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -683,6 +683,8 @@ export class Room {
     this.sim.exitVehicle(p, false, at);
     s.lastPose = { x: p.ped.x, y: p.ped.y };
     s.wasInCar = true; // allow the car's last speed on the next report
+    // thrown off a scooter or a bike: the fall hurts (only the rider themselves, so their word will do)
+    if (v.spec.twoWheeler && typeof fall === 'number' && fall > FALL_KNOCK) this.sim.hurtPlayer(p, fallHurt(Math.min(fall, 40)), v.x, v.y);
   }
 
   /** a player's gun shot (hits as traced by their client) */

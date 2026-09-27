@@ -248,6 +248,31 @@ describe('Room', () => {
     expect(car.kinematic).toBe(false);
   });
 
+  it('a rider thrown off a scooter (their client says so as they get off) is hurt; a car\'s driver isn\'t', () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    tick(2);
+    const p = room.sim.players.get(a.id!)!;
+    const hurtBy = (kind: 'scooter' | 'sedan', fall?: number) => {
+      p.ped.health = 100;
+      const v = room.sim.addVehicle(new Vehicle(kind, p.ped.x + 1.5, p.ped.y, 0, '#34d186'));
+      v.parked = true;
+      room.onMessage(a.conn, JSON.stringify({ t: 'enter', vid: v.id }));
+      tick();
+      expect(v.owner).toBe(a.id);
+      const veh = { x: v.x, y: v.y, a: v.angle, vx: 0, vy: 0, av: 0, hp: v.health, dmg: [0, 0, 0, 0], fire: -1, tyres: 0, nitro: 0, lvl: 0 };
+      room.onMessage(a.conn, JSON.stringify({ t: 'exit', x: v.x, y: v.y + 1.2, veh, fall }));
+      expect(p.ped.vehicle).toBeNull();
+      room.sim.removeVehicle(v);
+      return 100 - p.ped.health;
+    };
+    expect(hurtBy('scooter')).toBe(0);
+    expect(hurtBy('scooter', 9)).toBeGreaterThan(5);
+    expect(hurtBy('scooter', 1e9)).toBeLessThanOrEqual(30);
+    expect(hurtBy('sedan', 9)).toBe(0);
+  });
+
   it('plays in the Suché mýto tunnel: resumes there, shots at level -1 count, a car left there stays underground', () => {
     const { room, tick, clock } = setup();
     const [x, y, ang] = [-403.5, -740, -0.66];

@@ -55,13 +55,14 @@ export class StreetDetail {
 
   /** Cars knock street furniture flying (every car this client sees: the knocks are its own
    *  business, nothing else in the world depends on them). Calls `hit` for each knock (effects). */
-  update(dt: number, cars: Iterable<{ x: number; y: number; vx: number; vy: number; level: number; spec: { width: number; length: number } }>, hit: (x: number, y: number, kind: number, speed: number) => void) {
+  update(dt: number, cars: Iterable<{ x: number; y: number; vx: number; vy: number; level: number; spec: { width: number; length: number; twoWheeler?: boolean } }>, hit: (x: number, y: number, kind: number, speed: number) => void) {
     for (const [i, k] of this.knocked) if ((k.t -= dt) <= 0) this.knocked.delete(i);
     for (const [i, t] of this.geysers) if (t - dt <= 0) this.geysers.delete(i);
     else this.geysers.set(i, t - dt);
     const f = this.world.furniture;
     for (const v of cars) {
-      if (v.level !== 0) continue;
+      // (a scooter or a bike weaves past a bench: it's taken from beside a stand or a dock, too)
+      if (v.level !== 0 || v.spec.twoWheeler) continue;
       const sp = Math.hypot(v.vx, v.vy);
       if (sp < 2) continue;
       const reach = v.spec.length / 2 + 1.8;

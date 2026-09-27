@@ -253,7 +253,8 @@ export class AI {
     for (const v of sim.vehicles) {
       const d = this.drivers.get(v);
       if (d?.mode === 'traffic') traffic++, g.add(v.x, v.y, C_TRAFFIC);
-      else if (v.parked) parked++, g.add(v.x, v.y, C_PARKED);
+      // (the scooters and bikes at the docks and stands are rules/Bikes.ts's, not parked cars)
+      else if (v.parked && !v.spec.twoWheeler) parked++, g.add(v.x, v.y, C_PARKED);
       if (d?.mode === 'police' && v.driver && !v.driver.dead && !v.wrecked) police++;
     }
     for (const p of sim.peds) if (p.kind === 'civ' && !p.vehicle && !p.dead) peds++, g.add(p.x, p.y, C_PEDS);
@@ -291,7 +292,7 @@ export class AI {
         if (v.isPlayer || v.mission || v.kinematic || sim.visibleToAny(v.x, v.y, 15)) continue;
         const d = this.drivers.get(v);
         if (t > 0 && d?.mode === 'traffic') (this.retire.add(v), t--);
-        else if (p > 0 && v.parked && !v.driver) (this.retire.add(v), p--);
+        else if (p > 0 && v.parked && !v.driver && !v.spec.twoWheeler) (this.retire.add(v), p--);
       }
     if (q > 0) {
       const gone = new Set<Ped>();
@@ -410,7 +411,7 @@ export class AI {
       for (let i = 0; i < max + 40 && local() < max && global() < cap; i++) spawn();
     };
     const civList = () => sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead);
-    const parkedList = () => sim.vehicles.filter((v) => v.parked);
+    const parkedList = () => sim.vehicles.filter((v) => v.parked && !v.spec.twoWheeler);
     const trafficList = () => sim.vehicles.filter((v) => this.drivers.get(v)?.mode === 'traffic');
     count(() => within(civList(), 200), density.peds, () => civList().length, sim.caps.peds, () => void this.spawnPed(x, y, 4, 150));
     count(() => within(parkedList(), 260), density.parked, () => parkedList().length, sim.caps.parked, () => void this.spawnParked(x, y, 8, 200));

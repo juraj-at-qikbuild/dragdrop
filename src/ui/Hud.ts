@@ -144,7 +144,7 @@ export class Hud {
     if (pr && !(L.touch && pr.use && !g.input.pad.active)) this.drawPrompt(ctx, pr.use, pr.text, L.prompt.cx, promptY, small, L.prompt.w);
     // a panel open over the game (a shop…): what the pad does there (Game.padModal)
     if (isModalOpen() && g.input.pad.active) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), PAD_MENU, 1, small);
-    else if (g.padHints > 0) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), car ? PAD_CAR : PAD_FOOT, Math.min(1, g.padHints), small);
+    else if (g.padHints > 0) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), car ? (car.spec.twoWheeler ? PAD_BIKE : PAD_CAR) : PAD_FOOT, Math.min(1, g.padHints), small);
 
     // street and district name
     ctx.textAlign = L.place.align;
@@ -479,8 +479,9 @@ export class Hud {
     ctx.font = `700 ${small ? 9 : 11}px ${BODY}`;
     outlined(ctx, 'km/h', cx, cy + (small ? 14 : 18), '#cfd8dc', 2.5);
 
+    // (a scooter or a bike has no nitro)
     const nitro = (car as unknown as { nitro?: number }).nitro;
-    if (typeof nitro === 'number') {
+    if (typeof nitro === 'number' && !car.spec.twoWheeler) {
       const bw = r * 1.5;
       const by = cy + r + (small ? 8 : 10);
       roundRect(ctx, cx - bw / 2, by, bw, 6, 3);
@@ -616,6 +617,8 @@ export class Hud {
 /** the pad's buttons (standard mapping, Xbox face-button colours) and what they do */
 const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa'], ['↓', 'aktivity']];
 const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'streľba'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
+/** on a scooter or a bike: no nitro, no radio, and the horn is a bell */
+const PAD_BIKE: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['X', 'zvonček'], ['RS', 'streľba'], ['Y', 'zosadnúť']];
 const PAD_MENU: [string, string][] = [['✚', 'pohyb'], ['A', 'vybrať'], ['B', 'späť']];
 const FACE: Record<string, string> = { A: '#2e9e44', B: '#d83a2e', X: '#2f6fd6', Y: '#e0b100' };
 

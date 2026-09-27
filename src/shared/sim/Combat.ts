@@ -169,8 +169,9 @@ export class CombatRules {
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
         if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid);
         if (car.isPlayer && car.owner !== pid) {
+          // a car keeps most of it off its driver; a scooter's or a bike's rider is out in the open
           const victim = sim.players.get(car.owner);
-          if (victim) sim.hurtPlayer(victim, w.dmg * 0.12, shooter.x, shooter.y, pid);
+          if (victim) sim.hurtPlayer(victim, w.dmg * (car.spec.twoWheeler ? 0.35 : 0.12), shooter.x, shooter.y, pid);
         }
       } else if (pl.kind === HitKind.Wall) sparks |= 1 << i;
     });
@@ -250,8 +251,12 @@ export class CombatRules {
     for (const v of sim.vehiclesNear(x, y, 12)) {
       if (v === source || v.wrecked || v.level !== lvl) continue;
       const d = dist(v.x, v.y, x, y);
+      // a scooter's or a bike's rider is out in the open: the blast reaches them as it would on foot
+      const rider = v.spec.twoWheeler && d < 7 ? sim.players.get(v.owner) : undefined;
+      if (rider && rider.ped.vehicle === v) sim.hurtPlayer(rider, 90 * (1 - d / 7), x, y, rider.id === pid ? 0 : pid);
       if (d < 9) {
-        const k = ((1 - d / 9) * 11) / (v.spec.mass / 1200);
+        // (a scooter or a bike is thrown, not fired off, and its rider with it: Sim.damageVehicle)
+        const k = ((1 - d / 9) * 11) / Math.max(0.6, v.spec.mass / 1200);
         const nx = (v.x - x) / (d || 1), ny = (v.y - y) / (d || 1);
         sim.damageVehicle(v, 90 * (1 - d / 9), pid, { dvx: nx * k, dvy: ny * k, dav: (sim.rng.next() - 0.5) * k * 0.3 });
       }

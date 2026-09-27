@@ -43,11 +43,11 @@ try {
   check(s1.pickups >= 15, `pickups placed (${s1.pickups})`);
   check(await page.evaluate(() => document.getElementById('touch').classList.contains('hidden')), 'no touch controls on a desktop');
 
-  // get into the nearest car and drive
+  // get into the nearest car and drive (a car: not one of the scooters and bikes at the docks)
   await page.evaluate(() => {
     const g = window.game, p = g.player;
     let best = null, bd = 1e9;
-    for (const v of g.vehicles) if (!v.driver && v.parked) {
+    for (const v of g.vehicles) if (!v.driver && v.parked && !v.spec.twoWheeler) {
       const d = Math.hypot(v.x - p.x, v.y - p.y);
       if (d < bd) (bd = d), (best = v);
     }
@@ -81,9 +81,72 @@ try {
   await page.keyboard.down('Space');
   await sleep(1500);
   await page.keyboard.up('Space');
+  // (stopped at a garage's or a workshop's door, its panel opened and has the keys: close it first)
+  if (await page.$('.kit-shop-card')) {
+    await page.keyboard.press('Escape');
+    await sleep(200);
+  }
   await page.keyboard.press('KeyF');
   await sleep(300);
   check(await page.evaluate(() => !window.game.player.vehicle), 'left the car with F');
+
+  // a scooter (docs/plans/gameplay.md, Phase 3): get on it, ride it with no engine noise or nitro,
+  // and a knock hard enough throws the rider off
+  const scooter = await page.evaluate(() => {
+    const g = window.game, sim = g.host.sim, p = g.player, w = g.world;
+    // near the player, facing 8 m of clear way (riding into a wall would throw them off)
+    const clear = (x, y, a) => {
+      for (let d = 0; d <= 8; d += 0.5) {
+        const cx = x + Math.cos(a) * d, cy = y + Math.sin(a) * d;
+        if (w.collideCircle(cx, cy, 0.4, 0, false) || w.inWater(cx, cy, 0)) return false;
+        for (const o of g.vehicles)
+          for (let i = 0; i < o.circles.length; i++) if (Math.hypot(o.circleX(i) - cx, o.circleY(i) - cy) < o.spec.width / 2 + 0.5) return false;
+      }
+      return true;
+    };
+    let at = null;
+    for (let r = 1.5; r <= 4.5 && !at; r += 1.5)
+      for (let k = 0; k < 32 && !at; k++) {
+        const a = (k / 32) * Math.PI * 2;
+        for (const side of [1, -1]) {
+          const x = p.x + Math.cos(a + (side * Math.PI) / 2) * r, y = p.y + Math.sin(a + (side * Math.PI) / 2) * r;
+          if (!at && clear(x, y, a)) at = { x, y, a, side };
+        }
+      }
+    if (!at) return null;
+    const V = sim.vehicles[0].constructor;
+    const v = sim.addVehicle(new V('scooter', at.x, at.y, at.a, '#34d186'));
+    v.parked = true;
+    v.setControls(0, 0, true);
+    // right beside it, so it's the nearest thing to get on (not a car going by)
+    p.x = at.x - Math.cos(at.a + (at.side * Math.PI) / 2) * 0.8;
+    p.y = at.y - Math.sin(at.a + (at.side * Math.PI) / 2) * 0.8;
+    p.levelInit = false;
+    return { id: v.id, x: v.x, y: v.y };
+  });
+  if (!scooter) check(false, 'room beside the player for a scooter');
+  else {
+    await sleep(200);
+    const onText = await page.evaluate(() => window.game.prompt()?.text);
+    await page.keyboard.press('KeyF');
+    await sleep(300);
+    check(await page.evaluate((id) => window.game.player.vehicle?.id === id, scooter.id), `got on a scooter with F ("${onText}")`);
+    await page.keyboard.down('KeyW');
+    await sleep(1500);
+    await page.keyboard.up('KeyW');
+    const rode = await page.evaluate(({ x, y }) => {
+      const v = window.game.player.vehicle;
+      return v ? { d: Math.hypot(v.x - x, v.y - y), nitro: v.nitro } : null;
+    }, scooter);
+    check(!!rode && rode.d > 1.5 && rode.nitro === 0, `the scooter rides, with no nitro (${JSON.stringify(rode)})`);
+    const fell = await page.evaluate(async () => {
+      const g = window.game, v = g.player.vehicle;
+      v.knock = 9;
+      await new Promise((r) => setTimeout(r, 300));
+      return { off: !g.player.vehicle, hp: g.player.health };
+    });
+    check(fell.off && fell.hp < 100, `a hard knock throws the rider off (${JSON.stringify(fell)})`);
+  }
 
   // shoot the nearest civilian with a pistol
   const shot = await page.evaluate(async () => {

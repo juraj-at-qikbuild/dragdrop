@@ -7,6 +7,7 @@ import { clamp } from '../shared/util/math';
 import { shade } from '../shared/util/color';
 import { NEONS } from '../shared/sim/shops/catalog';
 import { roundRect } from './shapes';
+import { drawRider } from './drawPed';
 
 /** '#rrggbb' at alpha `a` */
 function rgba(hex: string, a: number) {
@@ -44,6 +45,14 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 
   const dmg = v.dmg;
   const k = Math.max(atmos.night, atmos.rain * 0.5);
+  // a scooter or a bike: one small lamp ahead and one red light behind
+  if (s.twoWheeler) {
+    if (k > 0.02) {
+      L.cone(noseX, noseY, v.angle, 9, 0.3, '#fff1c8', 0.7 * k);
+      L.point(tailX, tailY, 0.7, '#ff2a2a', 0.45 * k);
+    }
+    return;
+  }
   // neon underglow (the Dielňa, docs/plans/gameplay.md Phase 2): lights the street around the car
   if (v.mods.glow > 0 && k > 0.02) {
     const c = NEONS[v.mods.glow];
@@ -83,6 +92,7 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 
 export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
   const s = v.spec;
+  if (s.twoWheeler) return drawTwoWheeler(v, ctx, atmos);
   const L = s.length, W = s.width;
   ctx.save();
   ctx.translate(v.x, v.y);
@@ -498,6 +508,120 @@ function shieldPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: nu
 const DMG_OFFSETS: [number, number, number][] = [
   [0.35, -0.55, 0.5], [-0.5, 0.5, 0.42], [0.6, 0.4, 0.4], [-0.65, -0.45, 0.45], [0.05, 0.15, 0.55], [0.5, -0.1, 0.38],
 ];
+
+/** A scooter or a bike from above (docs/plans/gameplay.md, Phase 3): the wheels, the deck or the
+ *  frame and saddle, the handlebar turned with the steering, a lamp, and whoever rides it. A broken
+ *  one lies on its side, its wheels flat to the street. */
+function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D, atmos?: Atmosphere) {
+  const s = v.spec, L = s.length;
+  const bike = s.kind === 'bike';
+  const down = v.wrecked;
+  const body = down ? shade(v.color, -0.45) : v.color;
+  ctx.save();
+  ctx.translate(v.x, v.y);
+  ctx.rotate(v.angle + (down ? 0.35 : 0));
+  if (v.sinking) ctx.globalAlpha *= Math.max(0.15, 1 - v.sinking / 2.5);
+  // a narrow shadow cast along the sun, a small tight one at night
+  const night = atmos?.night ?? 0;
+  let sx = 0.06, sy = 0.09, sa = 0.2;
+  if (atmos && night <= 0.72) {
+    const ca = Math.cos(v.angle), sn = Math.sin(v.angle), h = 0.35;
+    sx = (atmos.sun.dx * ca + atmos.sun.dy * sn) * h;
+    sy = (-atmos.sun.dx * sn + atmos.sun.dy * ca) * h;
+    sa = 0.12 + 0.1 * atmos.daylight;
+  }
+  ctx.fillStyle = `rgba(0,0,0,${sa})`;
+  roundRect(ctx, -L / 2 + sx, -0.08 + sy, L, 0.16, 0.08);
+  ctx.fill();
+  if (v.driver && !down) {
+    // (the rider's, cast further)
+    ctx.beginPath();
+    ctx.ellipse(sx * 2.5 - (bike ? 0.12 : 0.08), sy * 2.5, 0.28, 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const wr = bike ? 0.34 : 0.11;
+  const front = L / 2 - wr - 0.02, rear = -L / 2 + wr + 0.02;
+  // the handlebar and the front wheel turn with the steering, about the head of the frame
+  const head = bike ? 0.4 : L / 2 - 0.14, turn = v.steer * 0.5;
+  ctx.lineCap = 'round';
+  if (down) {
+    // lying flat: the wheels are circles now
+    ctx.strokeStyle = '#161616';
+    ctx.lineWidth = bike ? 0.05 : 0.07;
+    for (const x of [front, rear]) {
+      ctx.beginPath();
+      ctx.arc(x, bike ? 0.05 : 0.03, wr, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else {
+    drawWheel(ctx, rear, 0, 0, wr * 2, bike ? 0.05 : 0.07);
+    ctx.save();
+    ctx.translate(head, 0);
+    ctx.rotate(turn);
+    drawWheel(ctx, front - head, 0, 0, wr * 2, bike ? 0.05 : 0.07);
+    ctx.restore();
+  }
+  if (bike) {
+    // the frame from the rear hub past the saddle to the head, the cranks, the saddle
+    ctx.strokeStyle = body;
+    ctx.lineWidth = 0.06;
+    ctx.beginPath();
+    ctx.moveTo(rear, 0);
+    ctx.lineTo(-0.16, 0);
+    ctx.lineTo(head, 0);
+    ctx.stroke();
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.lineWidth = 0.035;
+    ctx.beginPath();
+    ctx.moveTo(0, -0.13);
+    ctx.lineTo(0, 0.13);
+    ctx.stroke();
+    ctx.fillStyle = '#1c1c1c';
+    ctx.beginPath();
+    ctx.ellipse(-0.2, 0, 0.1, 0.055, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // the deck, with its grip tape, and the stem up to the bar
+    ctx.fillStyle = body;
+    roundRect(ctx, rear - 0.02, -0.085, head - rear, 0.17, 0.07);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(20,20,22,0.75)';
+    roundRect(ctx, rear + 0.1, -0.055, head - rear - 0.3, 0.11, 0.04);
+    ctx.fill();
+  }
+  // the handlebar, its grips, and the lamp
+  ctx.save();
+  ctx.translate(head, 0);
+  ctx.rotate(turn);
+  ctx.strokeStyle = '#2b2b2b';
+  ctx.lineWidth = 0.045;
+  ctx.beginPath();
+  ctx.moveTo(0, -0.24);
+  ctx.lineTo(0, 0.24);
+  ctx.stroke();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 0.06;
+  for (const y of [-0.24, 0.24]) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * 0.8);
+    ctx.lineTo(0, y);
+    ctx.stroke();
+  }
+  if (!down) {
+    ctx.fillStyle = '#fff8e1';
+    ctx.beginPath();
+    ctx.arc(0.05, 0, 0.035, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  // the rider: standing on the deck, or in the saddle
+  if (v.driver && !down) {
+    const at = bike ? -0.12 : -0.08;
+    ctx.translate(at, 0);
+    drawRider(ctx, v.driver, head - at, bike);
+  }
+  ctx.restore();
+}
 
 function drawWheel(ctx: CanvasRenderingContext2D, x: number, y: number, ang: number, len: number, wid: number) {
   ctx.save();

@@ -55,6 +55,10 @@ export class ShopsUi implements ClientFeature {
    *  to the garage, then drove a car to its door) */
   private visited = new Set<string>();
   private visitedAt: string | null = null;
+  /** the car the player was in last frame, and the shop they got into it at, if they did: its panel
+   *  waits until that car has moved (see update) */
+  private lastCar: Vehicle | null = null;
+  private gotInAt: string | null = null;
   /** what the panel was last built from (it's rebuilt only when that changes) */
   private shape = '';
   /** the last request sent (a car taken out of the garage closes the panel: time to drive) */
@@ -77,8 +81,11 @@ export class ShopsUi implements ClientFeature {
     }
     const p = g.player;
     const v = p.vehicle;
+    const gotIn = !!v && v !== this.lastCar;
+    this.lastCar = v;
     const f = g.focus();
-    const zone = shopAt(g.world, f.x, f.y, !!v, LEAVE_SLACK);
+    // (no shop serves anyone on a scooter or a bike: Shops.placeOf)
+    const zone = v?.spec.twoWheeler ? null : shopAt(g.world, f.x, f.y, !!v, LEAVE_SLACK);
     if (this.panel) {
       if (!zone || zone.id !== this.place?.id) this.panel.close();
       else {
@@ -91,6 +98,17 @@ export class ShopsUi implements ClientFeature {
     if (zone?.id !== this.visitedAt) {
       this.visited.clear();
       this.visitedAt = zone?.id ?? null;
+      this.gotInAt = null;
+    }
+    // getting into a car parked at a shop's door isn't pulling up there (its panel would take the
+    // controls from someone who only wanted the car): it waits until the car has moved, and then
+    // stopping at the door is
+    if (gotIn && zone) {
+      this.visited.add(`${zone.id}|car`);
+      this.gotInAt = zone.id;
+    } else if (this.gotInAt && (!v || v.speed > STOPPED)) {
+      if (v) this.visited.delete(`${this.gotInAt}|car`);
+      this.gotInAt = null;
     }
     // it opens for someone who stops there: a car pulled up, a player at the door (not one running past)
     if (!zone || (v ? v.speed > STOPPED : Math.hypot(p.vx, p.vy) > STOPPED) || this.visited.has(`${zone.id}|${v ? 'car' : 'foot'}`)) return;
@@ -114,6 +132,8 @@ export class ShopsUi implements ClientFeature {
     this.panel?.close();
     this.visited.clear();
     this.visitedAt = null;
+    this.lastCar = null;
+    this.gotInAt = null;
   }
 
   private ask(req: ShopReq) {

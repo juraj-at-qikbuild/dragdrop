@@ -340,7 +340,7 @@ export class TouchControls {
     // what's shown besides the context
     const v = g.player.vehicle;
     const pr = ctx === 'foot' || ctx === 'car-d' || ctx === 'car-c' ? g.prompt() : null;
-    const useText = pr?.use ? pr.text : v ? 'Vystúpiť' : '';
+    const useText = pr?.use ? pr.text : v ? (v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
     const hasGun = g.ammo.pistol > 0 || g.ammo.uzi > 0 || g.ammo.shotgun > 0;
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
     const acts = g.hud.activitiesRect;
@@ -349,7 +349,9 @@ export class TouchControls {
       use: !!useText,
       // a drive-by needs a gun (Game picks one when the fists are out)
       fire: !v || hasGun,
-      radio: !!v && v.kind !== 'police',
+      // (a scooter or a bike has neither a radio nor nitro)
+      radio: !!v && v.kind !== 'police' && !v.spec.twoWheeler,
+      nitro: !v?.spec.twoWheeler,
       talk: !!voice?.pushToTalk,
       daily: !!daily,
       activities: !!acts,

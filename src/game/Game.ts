@@ -431,6 +431,8 @@ export class Game {
     if (this.state !== 'play' || this.showMap || this.paused) return null;
     const v = p.vehicle;
     if (v) {
+      // off a scooter or a bike (docs/plans/gameplay.md, Phase 3), which no spray shop or workshop takes
+      if (v.spec.twoWheeler) return v.speed < 1 ? { use: true, text: 'Zosadnúť' } : null;
       // a spray shop just ahead: on the run it resprays at once; otherwise it's a workshop (the
       // shops, docs/plans/gameplay.md Phase 2), except on a server from before them
       if (v.speed > 3)
@@ -446,7 +448,7 @@ export class Game {
     if (car) {
       // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)
       const occupied = car.driver ? car.driver !== p : !car.parked && !car.owner && !car.wrecked;
-      const text = car.owner && car.owner !== this.host.me.id ? 'Vyhodiť vodiča' : occupied ? (car.kind === 'police' ? 'Vytiahnuť policajta' : 'Vytiahnuť vodiča') : car.kind === 'police' ? 'Ukradnúť policajné auto' : 'Nastúpiť';
+      const text = car.owner && car.owner !== this.host.me.id ? (car.spec.twoWheeler ? 'Zhodiť jazdca' : 'Vyhodiť vodiča') : occupied ? (car.kind === 'police' ? 'Vytiahnuť policajta' : 'Vytiahnuť vodiča') : car.kind === 'police' ? 'Ukradnúť policajné auto' : car.spec.twoWheeler ? 'Nasadnúť' : 'Nastúpiť';
       return { use: true, text };
     }
     if (this.missions.enabled && !this.missions.active)
@@ -593,16 +595,19 @@ export class Game {
           v.siren = !v.siren;
           this.message('', v.siren ? 'Siréna zapnutá' : 'Siréna vypnutá', 1.4, '#90caf9');
         } else {
-          this.audio.horn();
+          // (a scooter's or a bike's horn is its bell)
+          if (v.spec.twoWheeler) this.audio.ring();
+          else this.audio.horn();
           this.host.horn();
         }
       }
-      if (inp.hit('KeyR') && v.kind !== 'police') {
+      if (inp.hit('KeyR') && v.kind !== 'police' && !v.spec.twoWheeler) {
         this.radio = (this.radio + 1) % (RADIO.length + 1);
         this.audio.setStation(this.radio < RADIO.length ? RADIO[this.radio] : null);
         this.showRadio();
       }
-      this.audio.engine(v.speed, Math.abs(throttle), true);
+      // (a scooter and a bike make no engine noise)
+      this.audio.engine(v.speed, Math.abs(throttle), !v.spec.twoWheeler);
       // drive-by: shoot sideways with the mouse, or with the gamepad's right stick pushed hard, or
       // touch: the aim drag, else the best target all around (threats first), else straight ahead
       const padAim = this.padAim(0.7);
@@ -878,7 +883,9 @@ export class Game {
     const base = (Math.min(this.viewW, this.viewH) / CAM_FOOT_M) * this.zoomPref;
     // on foot on a phone a little closer (driving keeps its view of the road ahead)
     const foot = this.touch && this.layout.compact ? (base * CAM_FOOT_M) / CAM_FOOT_M_PHONE : base;
-    const target = (v ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
+    // (a scooter or a bike keeps the view on foot: it's person-sized, and slow)
+    const car = v && !v.spec.twoWheeler;
+    const target = (car ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }

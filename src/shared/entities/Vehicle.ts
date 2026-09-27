@@ -9,7 +9,7 @@ import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog'
 
 /** New kinds go at the end (docs/plans/gameplay.md, Phase 3): the wire sends a kind as its index in
  *  SPECS, and a client from before draws one it doesn't know as a sedan. */
-export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance';
+export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance' | 'scooter' | 'bike';
 
 /** a located-damage zone: front/rear/left/right of the car's local frame */
 export type DamageZone = 'front' | 'rear' | 'left' | 'right';
@@ -46,6 +46,9 @@ export interface CarSpec {
   /** speed at which the engine's pull (falling off with speed) would reach zero — filled in below
    *  so that it meets the drag exactly at `maxSpeed` */
   vCap: number;
+  /** a scooter or a bike (docs/plans/gameplay.md, Phase 3): narrow enough for a bollard row, no nitro,
+   *  no fire, and the rider is out in the open (shots and knocks reach them) */
+  twoWheeler?: boolean;
 }
 
 // All vehicles are parody models, loosely styled on cars you see on Bratislava streets.
@@ -72,6 +75,12 @@ export const SPECS: Record<VehicleKind, CarSpec> = {
   // docs/plans/gameplay.md, Phase 3: parked at the hospitals, a siren, and it heals its driver
   ambulance: { kind: 'ambulance', name: 'Sanitka Záchranka', length: 5.6, width: 2.05, maxSpeed: 40, accel: 8, brake: 9, grip: 6.5, mass: 2400, health: 170,
     drive: 'rwd', frontGrip: 0.9, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#fafafa'] },
+  // docs/plans/gameplay.md, Phase 3: at the bike-share docks and the bicycle stands, 25 and 30 km/h,
+  // and narrow enough (a 0.55–0.6 m body) to get through the bollard rows police cars can't
+  scooter: { kind: 'scooter', name: 'Bolťák', length: 1.2, width: 0.55, maxSpeed: 7, accel: 3.2, brake: 5, grip: 7, mass: 110, health: 40,
+    drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#34d186'], twoWheeler: true },
+  bike: { kind: 'bike', name: 'Favoritka', length: 1.75, width: 0.6, maxSpeed: 8.5, accel: 2.8, brake: 5.5, grip: 7, mass: 95, health: 45,
+    drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#1565c0', '#c62828', '#212121', '#f9a825', '#2e7d32', '#eeeeee'], twoWheeler: true },
 };
 /** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
 const ROLL = 0.15, AERO = 0.00065;
@@ -92,6 +101,15 @@ export function bumpLimit(kind: number, width: number): number {
 }
 /** over its limit by this much, a car takes off */
 export const BUMP_AIR = 5;
+/** a knock at least this hard (m/s of closing speed: a wall, a car, a tram) throws a scooter's or a
+ *  bike's rider off (docs/plans/gameplay.md, Phase 3); a shove doesn't */
+export const FALL_KNOCK = 4.5;
+/** for this long after a fall (s), the rider isn't run over by what threw them off as well */
+export const FALL_GRACE = 0.6;
+/** what falling off costs the rider, for a knock `sev` hard (health) */
+export function fallHurt(sev: number): number {
+  return clamp(5 + (sev - FALL_KNOCK) * 3, 5, 30);
+}
 const drag = (v: number) => ROLL + AERO * v * v;
 for (const k of Object.keys(SPECS) as VehicleKind[]) {
   const s = SPECS[k];
@@ -168,7 +186,7 @@ export class Vehicle {
   dmg = { front: 0, rear: 0, left: 0, right: 0 };
   /** burst-tyre flag/bitmask (future spike strips): nonzero drops grip hard */
   tyresBurst = 0;
-  /** nitro charge 0..1 */
+  /** nitro charge 0..1 (none on two wheels) */
   nitro = 1;
   boosting = false;
   /** slipstream, 0..1: close behind a bus, a van or a tram (set by VehiclePhysics for a player's car
@@ -181,6 +199,9 @@ export class Vehicle {
   private accelK = 1;
   private topK = 1;
   private vCapT: number;
+  /** a scooter or a bike: the hardest knock it took (m/s of closing speed) since whoever simulates it
+   *  last looked (VehiclePhysics sets it; a rider is thrown off over FALL_KNOCK) */
+  knock = 0;
   /** seconds left of the body's bounce after a jolt (a speed bump, a kerb), for drawing */
   bounce = 0;
   /** how hard that jolt was, 0..1 */
@@ -203,6 +224,7 @@ export class Vehicle {
     this.color = color;
     this.health = this.spec.health;
     this.vCapT = this.spec.vCap;
+    if (this.spec.twoWheeler) this.nitro = 0;
     const r = this.spec.width / 2;
     const n = Math.max(2, Math.ceil(this.spec.length / this.spec.width));
     this.circles = [];
@@ -284,13 +306,13 @@ export class Vehicle {
     const wheels = airborne ? 0.08 : 1;
     const tyreMul = this.tyresBurst ? 0.45 : 1;
 
-    // nitro (a bigger tank lasts longer)
+    // nitro (a bigger tank lasts longer; none on two wheels)
     if (c.boost && this.nitro > 0) {
       this.nitro = Math.max(0, this.nitro - (0.35 / TANK[this.mods.nitro]) * dt);
       this.boosting = true;
     } else {
       this.boosting = false;
-      this.nitro = Math.min(1, this.nitro + (0.03 + DRAFT_NITRO * this.draft) * dt);
+      if (!s.twoWheeler) this.nitro = Math.min(1, this.nitro + (0.03 + DRAFT_NITRO * this.draft) * dt);
     }
     const boostAccel = this.boosting ? 1.6 : 1;
     const boostTop = this.boosting ? 1.25 : 1;
@@ -496,7 +518,8 @@ export class Vehicle {
   damage(amount: number) {
     if (this.wrecked) return;
     this.health -= amount * PLATING[this.mods.plating];
-    if (this.health <= 0 && this.fire < 0) this.fire = 3.5;
+    // a car catches fire and blows up 3.5 s later; a scooter or a bike is just broken (Sim.wreck)
+    if (this.health <= 0 && this.fire < 0) this.fire = this.spec.twoWheeler ? 0 : 3.5;
   }
 
   /** Which local zone (front/rear/left/right) a world-space point falls into (e.g. the armoured
@@ -516,9 +539,9 @@ export class Vehicle {
     this.dmg[zone] = clamp(this.dmg[zone] + amount, 0, 1);
   }
 
-  /** Top up nitro charge (0..1), e.g. from a pickup. */
+  /** Top up nitro charge (0..1), e.g. from a pickup (none on two wheels). */
   addNitro(x: number) {
-    this.nitro = clamp(this.nitro + x, 0, 1);
+    if (!this.spec.twoWheeler) this.nitro = clamp(this.nitro + x, 0, 1);
   }
 
   /** Apply AI or player controls (clamped). */
