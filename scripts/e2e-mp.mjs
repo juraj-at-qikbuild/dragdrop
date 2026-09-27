@@ -160,6 +160,7 @@ async function main() {
   await sleep(600);
   const after = await mirrorOf(B, aId);
   const moved = Math.hypot(after.x - before.x, after.y - before.y);
+  if (moved <= 3) log('A walked right from', JSON.stringify(before), 'to', JSON.stringify(after), await A.evaluate(() => ({ swim: window.game.swimT, x: window.game.player.x, y: window.game.player.y })));
   check(moved > 3, `B sees A move (${moved.toFixed(1)} m)`);
 
   if (process.env.E2E_SHOTS) {
