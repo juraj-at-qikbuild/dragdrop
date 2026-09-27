@@ -7,11 +7,15 @@ import type { PartyMember, PartyState } from '../../../src/shared/sim/rules/type
 import type { PayoutReason, SimRule } from '../../../src/shared/sim/rules/SimRule';
 import type { SimPlayer } from '../../../src/shared/sim/SimPlayer';
 import { dist } from '../../../src/shared/util/math';
-import type { Room, Session } from '../Room';
+import type { DropReason, Room, Session } from '../Room';
 import { Bucket } from '../validate';
 import type { FeatureHandlers, RoomFeature } from './RoomFeature';
 
 const MAX_MEMBERS = 4;
+/** a member who left (or dropped, or timed out) keeps their seat this long (docs/plans/pause-resume.md) */
+export const SEAT_MS = 15 * 60_000;
+/** how often held seats are checked for expiry */
+const SEAT_CHECK_MS = 1000;
 const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 /** a kicked player can't rejoin the same party (through anyone's invite) for this long */
 const KICK_BAN_MS = 30 * 60 * 1000;
@@ -43,19 +47,34 @@ function mintCode(): string {
 /** the leader's nick, first 4 letters, uppercased */
 const tagFor = (nick: string) => nick.slice(0, 4).toUpperCase();
 
+/** a seat kept for a member who's gone for now: `id` stands in for their player id (negative, so the
+ *  party panel and `partyKick` can still name them) */
+interface HeldSeat {
+  nick: string;
+  /** wallNow ms */
+  until: number;
+  id: number;
+}
+
 interface PartyRec {
   id: number;
   leaderKey: string;
   tag: string;
   color: string;
-  /** session keys */
+  /** session keys, including held seats */
   members: Set<string>;
+  /** members gone for now, whose seat is kept until `until` */
+  held: Map<string, HeldSeat>;
 }
 
 export class Party implements RoomFeature {
   readonly id = 'party';
+  /** tunable (the Presence feature applies game_config) */
+  seatMs = SEAT_MS;
   private parties = new Map<number, PartyRec>();
   private nextId = 1;
+  private nextSeatId = 1;
+  private seatCheck = SEAT_CHECK_MS;
   /** partyInvite rate limit, per session (a Session survives reconnects within the grace period) */
   private inviteBucket = new WeakMap<Session, Bucket>();
   /** partyId -> (player key -> ban expiry, wallNow ms): who was kicked from that party and can't rejoin
@@ -77,6 +96,8 @@ export class Party implements RoomFeature {
 
   onHello(s: Session, _isNew: boolean, msg: HelloMsg) {
     try {
+      // back within the held seat's time: straight back into the party, no invite needed
+      if (!s.player.partyId) this.reclaimSeat(s);
       const joined = typeof msg.join === 'string' && msg.join ? this.onJoin(s, msg.join) : false;
       if (joined) return; // onJoin already pushed the fresh state
       // a reconnecting (or second-tab) member needs their party's current state re-sent: private
@@ -92,9 +113,22 @@ export class Party implements RoomFeature {
     }
   }
 
-  onDrop(s: Session) {
+  onDrop(s: Session, why: DropReason) {
     const party = this.partyOf(s);
-    if (party) this.removeMember(party, s.key);
+    if (!party) return;
+    // gone for good under this key (a deleted account, a guest claimed into an account): out at once
+    if (why === 'deleted' || why === 'claimed') this.removeMember(party, s.key);
+    else this.holdSeat(party, s);
+  }
+
+  /** expire the seats nobody came back for */
+  tick(dtMs: number) {
+    this.seatCheck -= dtMs;
+    if (this.seatCheck > 0) return;
+    this.seatCheck = SEAT_CHECK_MS;
+    const now = this.room.wallNow();
+    for (const party of [...this.parties.values()])
+      for (const [key, seat] of [...party.held]) if (now >= seat.until && this.parties.has(party.id)) this.removeMember(party, key);
   }
 
   /** for Room's roster building (kept out of Room.ts itself: it just calls this if present) */
@@ -103,7 +137,32 @@ export class Party implements RoomFeature {
   }
 
   stats() {
-    return { parties: this.parties.size };
+    let held = 0;
+    for (const p of this.parties.values()) held += p.held.size;
+    return { parties: this.parties.size, heldSeats: held };
+  }
+
+  // ----------------------------------------------------------------------------------- held seats
+  /** `s` left the city (or dropped, or timed out): their seat waits for them a while. Leadership
+   *  passes to someone still here, and their invite code dies (an invite needs its inviter online). */
+  private holdSeat(party: PartyRec, s: Session) {
+    this.room.store?.deleteInvitesOf(s.key);
+    party.held.set(s.key, { nick: s.player.nick, until: this.room.wallNow() + this.seatMs, id: -this.nextSeatId++ });
+    if (party.leaderKey === s.key) {
+      for (const k of party.members) if (k !== s.key && this.room.sessions.get(k)?.conn) { party.leaderKey = k; break; }
+    }
+    this.pushState(party);
+  }
+
+  /** a new session for a key with a held seat: back into that party */
+  private reclaimSeat(s: Session) {
+    for (const party of this.parties.values()) {
+      if (!party.held.delete(s.key)) continue;
+      s.player.partyId = party.id;
+      this.msg(s.player.id, `Si späť v partii ${party.tag}.`, true);
+      this.pushState(party);
+      return;
+    }
   }
 
   // --------------------------------------------------------------------------------------- invite
@@ -171,10 +230,11 @@ export class Party implements RoomFeature {
   private onKick(s: Session, targetId: number) {
     const party = this.partyOf(s);
     if (!party || party.leaderKey !== s.key) return; // leader only
-    const target = this.room.sessionById(targetId);
-    if (!target || target.key === s.key || !party.members.has(target.key)) return;
-    this.ban(party.id, target.key);
-    this.removeMember(party, target.key, true);
+    // a held seat goes by its stand-in (negative) id; everyone else by their player id
+    const key = targetId < 0 ? [...party.held].find(([, seat]) => seat.id === targetId)?.[0] : this.room.sessionById(targetId)?.key;
+    if (!key || key === s.key || !party.members.has(key)) return;
+    this.ban(party.id, key);
+    this.removeMember(party, key, true);
   }
 
   /** a kicked player can't rejoin this same party (through anyone's invite) for KICK_BAN_MS */
@@ -194,13 +254,15 @@ export class Party implements RoomFeature {
     return false;
   }
 
-  /** remove `key` from `party`: passes leadership on, dissolves it if nobody's left connected, and
-   *  tells the leaver (their party state clears; kicked also gets a toast). Always drops `key`'s own
-   *  outstanding invite too — it must not outlive their membership, whatever reason they left by. */
+  /** remove `key` from `party` (a member here, or a held seat): passes leadership on, dissolves it if
+   *  nobody's left (here, or with a seat held), and tells the leaver (their party state clears; kicked
+   *  also gets a toast). Always drops `key`'s own outstanding invite too — it must not outlive their
+   *  membership, whatever reason they left by. */
   private removeMember(party: PartyRec, key: string, kicked = false) {
     if (!party.members.has(key)) return;
     this.room.store?.deleteInvitesOf(key);
-    const leaving = this.room.sessions.get(key);
+    const wasHeld = party.held.delete(key);
+    const leaving = wasHeld ? undefined : this.room.sessions.get(key);
     if (leaving) {
       leaving.player.partyId = 0;
       this.room.sim.events.toPlayer(leaving.player.id, { k: 'party', s: null });
@@ -219,7 +281,8 @@ export class Party implements RoomFeature {
       for (const k of party.members) if (this.room.sessions.get(k)?.conn) { next = k; break; }
       party.leaderKey = next ?? party.members.values().next().value!;
     }
-    if (![...party.members].some((k) => this.room.sessions.get(k)?.conn)) return this.dissolve(party);
+    // still anyone in it: connected, reconnecting (in the grace period), or with a seat held
+    if (![...party.members].some((k) => party.held.has(k) || this.room.sessions.has(k))) return this.dissolve(party);
     this.pushState(party);
   }
 
@@ -228,7 +291,7 @@ export class Party implements RoomFeature {
     this.kicked.delete(party.id);
     for (const key of party.members) {
       this.room.store?.deleteInvitesOf(key); // whoever minted a code out of this party, it's dead now
-      const s = this.room.sessions.get(key);
+      const s = party.held.has(key) ? undefined : this.room.sessions.get(key);
       if (!s) continue;
       s.player.partyId = 0;
       this.room.sim.events.toPlayer(s.player.id, { k: 'party', s: null });
@@ -245,7 +308,7 @@ export class Party implements RoomFeature {
     const existing = this.partyOf(s);
     if (existing) return existing;
     const id = this.nextId++;
-    const party: PartyRec = { id, leaderKey: s.key, tag: tagFor(s.player.nick), color: PARTY_COLORS[(id - 1) % PARTY_COLORS.length], members: new Set([s.key]) };
+    const party: PartyRec = { id, leaderKey: s.key, tag: tagFor(s.player.nick), color: PARTY_COLORS[(id - 1) % PARTY_COLORS.length], members: new Set([s.key]), held: new Map() };
     this.parties.set(id, party);
     s.player.partyId = id;
     return party;
@@ -264,11 +327,16 @@ export class Party implements RoomFeature {
   private pushState(party: PartyRec, inviteFor?: { key: string; code: string }) {
     const members: PartyMember[] = [];
     for (const key of party.members) {
+      const seat = party.held.get(key);
+      if (seat) {
+        members.push({ id: seat.id, nick: seat.nick, leader: key === party.leaderKey, online: false });
+        continue;
+      }
       const s = this.room.sessions.get(key);
       if (s) members.push({ id: s.player.id, nick: s.player.nick, leader: key === party.leaderKey, online: !!s.conn });
     }
     for (const key of party.members) {
-      const s = this.room.sessions.get(key);
+      const s = party.held.has(key) ? undefined : this.room.sessions.get(key);
       if (!s) continue;
       const state: PartyState = { id: party.id, tag: party.tag, color: party.color, members };
       if (inviteFor?.key === key) state.invite = inviteFor.code;
@@ -277,7 +345,8 @@ export class Party implements RoomFeature {
   }
 
   /** kofolka/bounty/cumil/armored/derby/courier/taxi/tip split evenly among the earner and their
-   *  connected, play-or-downed party members within 300 m; everything else pays only the earner. */
+   *  active (connected, not away), play-or-downed party members within 300 m; everything else pays
+   *  only the earner. */
   private split(p: SimPlayer, amount: number, reason: PayoutReason): { p: SimPlayer; amount: number }[] {
     if (!SPLIT_REASONS.has(reason) || !p.partyId) return [{ p, amount }];
     const party = this.parties.get(p.partyId);
@@ -286,7 +355,7 @@ export class Party implements RoomFeature {
     const recipients: SimPlayer[] = [p];
     for (const key of party.members) {
       const mp = this.room.sessions.get(key)?.player;
-      if (!mp || mp === p || !mp.connected) continue;
+      if (!mp || mp === p || !mp.active) continue;
       if (mp.state !== 'play' && mp.state !== 'downed') continue;
       if (dist(f.x, f.y, mp.focus().x, mp.focus().y) > 300) continue;
       recipients.push(mp);

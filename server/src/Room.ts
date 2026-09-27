@@ -2,7 +2,7 @@
 // index.ts wraps each WebSocket in a ClientLink and forwards join/message/leave; Room never touches
 // `ws` directly (docs/multiplayer.md), so tests drive it with in-memory links.
 import {
-  PROTOCOL_VERSION, ROSTER_ACCOUNT, ROSTER_DOWNED, ROSTER_VOICE, TICK_HZ, cleanNick, isToken,
+  PROTOCOL_VERSION, ROSTER_ACCOUNT, ROSTER_AWAY, ROSTER_DOWNED, ROSTER_SHIELD, ROSTER_VOICE, TICK_HZ, cleanNick, isToken,
   type ClientMsg, type FireMsg, type HelloMsg, type PartyTag, type RosterRow, type ServerMsg, type VehFull, type WevMsg,
 } from '../../src/shared/net/protocol';
 import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
@@ -12,12 +12,14 @@ import { SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
 import { WEAPONS, WEAPON_IDS, traceMelee, type PelletReport } from '../../src/shared/sim/Combat';
 import { SERVER_CAPS, type Caps } from '../../src/shared/sim/density';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
+import { LIVERY_NONE, SPECS, Vehicle } from '../../src/shared/entities/Vehicle';
+import { inTrouble, type Presence } from '../../src/shared/sim/rules/Presence';
 import { Rng } from '../../src/shared/util/Rng';
 import { dist } from '../../src/shared/util/math';
 import { NetEvents } from './NetEvents';
 import { ClientView, SnapshotBuilder } from './snapshot';
 import { History } from './history';
-import { hashToken, type Store } from './db';
+import { hashToken, type SavedCar, type Store } from './db';
 import { Bucket, checkMove, CRAWL_MAX, plausibleHit, rewindTime, type Bounds } from './validate';
 import type { WorldEvents } from '../../src/shared/sim/rules/WorldEvents';
 import { createFeatures, type Activity, type RemoteConfig, type RoomFeature, type Supa } from './features';
@@ -29,16 +31,41 @@ export interface ClientLink {
   readonly bufferedAmount: number;
 }
 
-/** a disconnected player's figure (and car) stays in the world this long, so a reconnect resumes */
-export const GRACE_MS = 30_000;
+/** a disconnected player's figure (and car) stays in the world this long, so a reconnect resumes:
+ *  away (⏸) meanwhile, and shielded when it's safe (docs/plans/pause-resume.md) */
+export const GRACE_MS = 120_000;
+/** leaving while wanted or in a fight: the figure stays behind, still vulnerable, this long */
+export const LEAVE_UNSAFE_MS = 10_000;
+/** stars come back with a saved session only this soon after it was saved (the police give up) */
+export const WANTED_RESUME_MS = 30 * 60_000;
+/** a returning player's car is theirs alone this many (sim) seconds */
+export const CAR_HOLD_S = 300;
 /** a connected player that sends no state for this long stops counting as an observer */
 const AFK_MS = 60_000;
+
+/** why a session left the world for good (RoomFeature.onDrop): 'left' and 'grace' and 'idle' may well
+ *  come back (a party holds their seat), 'deleted' and 'claimed' won't under this key */
+export type DropReason = 'left' | 'grace' | 'idle' | 'deleted' | 'claimed';
 /** skip sending to a client whose socket buffer is this full (slow link) */
 const BACKPRESSURE_BYTES = 256 * 1024;
 
 /** a level from a client's JSON: -1 in a tunnel, 1 on a bridge deck, 2 on an upper deck, anything
  *  else the ground */
 const asLevel = (l: unknown): Level => (l === 1 || l === 2 || l === -1 ? l : 0);
+
+/** an ordinary car: it leaves with its driver and waits for them (docs/plans/pause-resume.md). Not a
+ *  police car or an event's vehicle (liveries, mission cars, the locked armoured van), nor a car
+ *  that's burning, sinking or wrecked. */
+function comesAlong(v: Vehicle): boolean {
+  return v.kind !== 'police' && v.livery === LIVERY_NONE && !v.mission && !v.locked && !v.wrecked && v.fire <= -1 && v.sinking <= 0;
+}
+
+/** the car `p` drives, as saved with their session, when it comes along */
+function savedCarOf(p: SimPlayer): SavedCar | null {
+  const v = p.ped.vehicle;
+  if (!v || !comesAlong(v)) return null;
+  return { kind: v.kind, color: v.color, hp: Math.max(1, Math.min(v.health, SPECS[v.kind].health)), dmg: [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right], a: v.angle };
+}
 
 export interface Conn {
   link: ClientLink;
@@ -58,6 +85,10 @@ export interface Conn {
 export class Session {
   conn: Conn | null = null;
   disconnectedAt = 0;
+  /** with no connection: when the figure leaves the world for good (Room.now) */
+  dropAt = 0;
+  /** the client said hello with `presence`: it sends `away` and understands `bye: 'idle'` */
+  presence = false;
   view = new ClientView();
   lastPose: { x: number; y: number } | null = null;
   lastPoseAt = 0;
@@ -135,6 +166,10 @@ export class Room {
   private closing = false;
   counters = { bytesOut: 0, msgsIn: 0, rejected: 0, teleports: 0, shots: 0, badHits: 0 };
   tickMs = 0;
+  /** tunables (the Presence feature applies game_config over these): see GRACE_MS and friends */
+  graceMs = GRACE_MS;
+  leaveUnsafeMs = LEAVE_UNSAFE_MS;
+  carHoldS = CAR_HOLD_S;
 
   constructor(opts: RoomOptions) {
     this.now = opts.now ?? (() => performance.now());
@@ -174,6 +209,11 @@ export class Room {
   /** the world-event director */
   get director() {
     return this.sim.rule<WorldEvents>('worldEvents');
+  }
+
+  /** away and the shield (src/shared/sim/rules/Presence.ts) */
+  get presence() {
+    return this.sim.rule<Presence>('presence');
   }
 
   /** register a feature (features/index.ts does this at construction; tests and later wiring can too) */
@@ -217,8 +257,15 @@ export class Room {
     this.conns.delete(c);
     const s = c.session;
     if (!s || s.conn !== c) return;
+    this.disconnect(s, this.graceMs);
+  }
+
+  /** The connection is gone but the figure stays in the world `stayMs`: for a reconnect to resume (a
+   *  dropped socket), or so leaving isn't an instant way out of trouble (an unsafe `leave`). */
+  private disconnect(s: Session, stayMs: number) {
     s.conn = null;
     s.disconnectedAt = this.now();
+    s.dropAt = s.disconnectedAt + stayMs;
     s.player.connected = false;
     // freeze the figure/car where they are
     const v = s.player.ped.vehicle;
@@ -261,7 +308,10 @@ export class Room {
     switch (msg.t) {
       case 'enter': {
         const v = typeof msg.vid === 'number' ? this.sim.vehicleById(msg.vid) : null;
-        if (!this.sim.enterVehicle(p, v, 1.5)) this.sim.events.toPlayer(p.id, { k: 'enter', vehicle: msg.vid | 0, ok: false });
+        if (this.sim.enterVehicle(p, v, 1.5)) return;
+        this.sim.events.toPlayer(p.id, { k: 'enter', vehicle: msg.vid | 0, ok: false });
+        // a returning player's car, held for them a while (restoreCar): say why the door won't open
+        if (v && this.sim.reservedFromOthers(v, p)) this.sim.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Toto auto čaká na iného hráča.', time: 2.5, color: '#ff8a80' });
         return;
       }
       case 'exit':
@@ -289,8 +339,11 @@ export class Room {
         if (typeof msg.ct === 'number') this.send(c, { t: 'pong', ct: msg.ct, st: this.wall() });
         return;
       case 'leave':
-        this.drop(s);
         c.session = null;
+        // wanted or in a fight: the figure stays a moment, still in danger, so leaving isn't a way
+        // out (docs/plans/pause-resume.md); otherwise it goes at once
+        if (inTrouble(this.sim, p, this.presence?.config.pvpS)) this.disconnect(s, this.leaveUnsafeMs);
+        else this.drop(s, true, 'left');
         c.link.close(1000, 'leave');
         return;
       case 'debug':
@@ -401,7 +454,7 @@ export class Room {
           old.session = null;
           old.link.close(4002, 'replaced');
         }
-        this.drop(guest);
+        this.drop(guest, true, 'claimed');
       }
       claimed = store.movePlayer(guestKey, acctKey);
       store.deleteInvitesOf(guestKey); // the guest identity is gone either way: its invites must not outlive it
@@ -414,6 +467,8 @@ export class Room {
   private accept(c: Conn, msg: HelloMsg, key: string, nick: string, account: boolean, claimed: boolean) {
     let s = this.sessions.get(key);
     const isNew = !s;
+    /** how they came back, for the client's welcome text: still in the city, from the save, or fresh */
+    let resumed: 'live' | 'saved' | 'fresh' = 'live';
     const r = msg.resume;
     const resumeOk = !!r && Number.isFinite(r.x) && Number.isFinite(r.y) && checkMove(null, r, 0, false, this.bounds) === 'ok';
     if (s) {
@@ -430,7 +485,11 @@ export class Room {
       const p = s.player;
       const car = p.ped.vehicle;
       // the client kept playing while disconnected: take its position (movement is client-side anyway)
-      if (car && (!r || r.car !== car.id)) this.sim.exitVehicle(p, true);
+      if (car && (!r || r.car !== car.id)) {
+        // a fresh page (a reload) doesn't know the car: they step out beside it, and it waits for them
+        this.sim.exitVehicle(p, true);
+        if (comesAlong(car)) this.reserve(car, p);
+      }
       if (resumeOk && p.state === 'play') {
         const v = p.ped.vehicle;
         if (v) (v.x = r!.x), (v.y = r!.y);
@@ -446,7 +505,8 @@ export class Room {
       }
       const stored = this.store?.loadProfile(key);
       const profile: Profile = stored?.profile ?? { money: 0, done: [], found: [], cumils: [], stats: {} };
-      const last = this.store?.loadSession(key);
+      const last = this.store?.loadSession(key, this.wall());
+      resumed = last ? 'saved' : 'fresh';
       let x: number | undefined, y: number | undefined, lvl: Level = 0;
       // where to put them: where their client says it is (reconnect after a restart), else where they
       // were when last saved, else the square
@@ -468,13 +528,17 @@ export class Room {
         p.ammo.uzi = last.ammo.uzi;
         p.ammo.shotgun = last.ammo.shotgun;
         p.ped.weapon = last.weapon === 'fist' || p.ammo[last.weapon] > 0 ? last.weapon : 'fist';
-        p.wanted = Math.min(5, Math.max(0, last.wanted));
+        // back within half an hour: the police still remember them; later they've given up
+        if (this.wall() - last.savedAt < WANTED_RESUME_MS) p.wanted = Math.min(5, Math.max(0, last.wanted));
+        // the car they drove off in waits where they left it (not when they've been moved elsewhere)
+        if (last.car && x !== undefined) this.restoreCar(p, last.car);
       }
       s = new Session(key, msg.token, p, this.now());
       this.sessions.set(key, s);
       this.sim.prewarm(p);
     }
     s.conn = c;
+    s.presence = msg.presence === true;
     s.view.reset();
     s.lastReportAt = this.now();
     s.lastPose = null;
@@ -484,7 +548,7 @@ export class Room {
     const p = s.player;
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
-      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed,
+      car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats });
     for (const f of this.features) f.onHello?.(s, isNew, msg);
@@ -548,19 +612,24 @@ export class Room {
       v.horn = rv.horn ? 0.3 : 0;
       v.boosting = rv.boosting;
       v.tyresBurst = rv.tyres ? 1 : 0;
-      v.health = Math.min(rv.health, v.spec.health);
-      v.dmg.front = rv.dmg[0];
-      v.dmg.rear = rv.dmg[1];
-      v.dmg.left = rv.dmg[2];
-      v.dmg.right = rv.dmg[3];
-      v.sinking = rv.sinking;
+      // a shielded player's car takes nothing (rules/Presence.ts): their client stops applying damage
+      // to it, and damage, a fire or sinking it reports anyway doesn't count
+      const shielded = p.shielded;
+      if (!shielded) {
+        v.health = Math.min(rv.health, v.spec.health);
+        v.dmg.front = rv.dmg[0];
+        v.dmg.rear = rv.dmg[1];
+        v.dmg.left = rv.dmg[2];
+        v.dmg.right = rv.dmg[3];
+        v.sinking = rv.sinking;
+      }
       v.nitro = rv.nitro;
       v.skid = rv.skid;
       v.level = r.lvl;
       v.levelInit = true;
       // the client ran the fire countdown; the server blows it up (damage, kill credit) once
-      if (!v.wrecked) v.fire = rv.wrecked ? 0 : rv.fire;
-      if (rv.sinking > 2.5) this.sim.wasted(p);
+      if (!v.wrecked && !shielded) v.fire = rv.wrecked ? 0 : rv.fire;
+      if (rv.sinking > 2.5 && !shielded) this.sim.wasted(p);
       ped.x = v.x;
       ped.y = v.y;
     } else if (!r.veh && !v) {
@@ -714,23 +783,91 @@ export class Room {
     for (const f of this.features) f.onDebug?.(s, m);
   }
 
-  /** remove a player for good (quit, or grace expired). `save` is false only when the caller already
-   *  deleted this session's rows on purpose (GDPR delete): re-saving here would resurrect them. */
-  private drop(s: Session, save = true) {
+  /** Remove a player for good (left, the grace period or the idle timeout over, deleted). `save` is
+   *  false only when the caller already deleted this session's rows on purpose (GDPR delete):
+   *  re-saving here would resurrect them. A pending death or arrest goes through first, and the car
+   *  they drive leaves the city with them (saved with the session; restoreCar brings it back). */
+  private drop(s: Session, save = true, why: DropReason = 'grace') {
+    const p = s.player;
+    if (save) this.settle(p);
+    const car = save && p.ped.vehicle && comesAlong(p.ped.vehicle) ? p.ped.vehicle : null;
     if (save) this.save([s]);
-    for (const f of this.features) f.onDrop?.(s);
-    this.sim.removePlayer(s.player);
+    for (const f of this.features) f.onDrop?.(s, why);
+    this.sim.removePlayer(p);
+    if (car) this.sim.removeVehicle(car);
     this.sessions.delete(s.key);
     this.dirty.delete(s);
+  }
+
+  /** a pending death or arrest goes through before a player leaves (hospital or police station, the
+   *  usual fee, an arrest's guns): leaving mid-death mustn't save them as if nothing had happened */
+  private settle(p: SimPlayer) {
+    if (p.state === 'downed') this.sim.wasted(p);
+    if (p.state === 'wasted' || p.state === 'busted') this.sim.respawn(p, false);
+  }
+
+  /** hold `v` for `p` a while: nobody else can take it (Sim.reservedFromOthers) */
+  private reserve(v: Vehicle, p: SimPlayer) {
+    v.reservedFor = p.id;
+    v.reservedUntil = this.sim.time + this.carHoldS;
+  }
+
+  /** The car `p` drove off with parks where they left it (or a little along the street, if that spot's
+   *  taken by now) and waits for them; they stand beside it. Nothing if there's no room at all. */
+  private restoreCar(p: SimPlayer, saved: SavedCar) {
+    const ped = p.ped;
+    const world = this.sim.world;
+    const ax = Math.cos(saved.a), ay = Math.sin(saved.a);
+    for (const along of [0, 7, -7, 14, -14]) {
+      const v = new Vehicle(saved.kind, ped.x + ax * along, ped.y + ay * along, saved.a, saved.color);
+      v.level = ped.level;
+      v.levelInit = true;
+      if (!this.carFits(v)) continue;
+      v.health = saved.hp;
+      [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right] = saved.dmg;
+      v.parked = true;
+      this.sim.addVehicle(v);
+      this.reserve(v, p);
+      // beside it, as if they'd just got out
+      for (const side of [1, -1]) {
+        const x = v.x + Math.sin(v.angle) * (v.spec.width / 2 + 0.7) * side;
+        const y = v.y - Math.cos(v.angle) * (v.spec.width / 2 + 0.7) * side;
+        if (world.collideCircle(x, y, 0.4, v.level, false)) continue;
+        ped.x = x;
+        ped.y = y;
+        break;
+      }
+      this.sim.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Tvoje auto parkuje vedľa teba.', time: 4, color: '#90caf9' });
+      return;
+    }
+  }
+
+  /** `v` stands clear of walls, water and every other car where it is (a car parked against a kerb or
+   *  another car touches it a little: that's fine) */
+  private carFits(v: Vehicle): boolean {
+    const world = this.sim.world;
+    const r = v.spec.width / 2;
+    for (let i = 0; i < v.circles.length; i++) {
+      const x = v.circleX(i), y = v.circleY(i);
+      if (world.collideCircle(x, y, r - 0.25, v.level, false) || world.inWater(x, y, v.level)) return false;
+    }
+    for (const o of this.sim.vehiclesNear(v.x, v.y, 12)) {
+      if (o.level !== v.level) continue;
+      const ro = o.spec.width / 2;
+      for (let i = 0; i < v.circles.length; i++)
+        for (let j = 0; j < o.circles.length; j++) if (dist(v.circleX(i), v.circleY(i), o.circleX(j), o.circleY(j)) < r + ro - 0.15) return false;
+    }
+    return true;
   }
 
   /** write players' profiles and sessions to the database */
   private save(list: Iterable<Session>) {
     if (!this.store || this.closing) return;
-    const rows = [...list].map((s) => ({ key: s.key, nick: s.player.nick, player: s.player }));
+    const rows = [...list].map((s) => ({ key: s.key, nick: s.player.nick, player: s.player, car: savedCarOf(s.player) }));
     if (!rows.length) return;
     try {
-      this.store.savePlayers(rows);
+      // the room's own clock, which loadSession (accept) compares against
+      this.store.savePlayers(rows, this.wall());
     } catch (e) {
       console.error('saving players failed', e);
     }
@@ -765,7 +902,7 @@ export class Room {
     const t = this.now();
     this.tickNo++;
     for (const s of [...this.sessions.values()]) {
-      if (!s.conn && t - s.disconnectedAt > GRACE_MS) this.drop(s);
+      if (!s.conn && t >= s.dropAt) this.drop(s, true, 'grace');
       else if (s.conn) s.player.afk = t - s.lastReportAt > AFK_MS;
     }
     this.sim.step(dtMs / 1000);
@@ -806,7 +943,9 @@ export class Room {
       for (const s of this.sessions.values()) {
         const p = s.player;
         const f = p.focus();
-        const flags = (p.state === 'downed' ? ROSTER_DOWNED : 0) | (p.voiceOn ? ROSTER_VOICE : 0) | (p.account ? ROSTER_ACCOUNT : 0);
+        const flags =
+          (p.state === 'downed' ? ROSTER_DOWNED : 0) | (p.voiceOn ? ROSTER_VOICE : 0) | (p.account ? ROSTER_ACCOUNT : 0) |
+          (p.away ? ROSTER_AWAY : 0) | (p.shielded ? ROSTER_SHIELD : 0);
         rows.push([p.id, p.nick, Math.round(f.x), Math.round(f.y), p.stars, p.ped.vehicle ? 1 : 0, p.ped.id, p.partyId, flags]);
       }
       // active parties' name tags, from whichever feature tracks them (Party.ts), kept out of Room
@@ -896,7 +1035,19 @@ export class Room {
       c.session = null;
       c.link.close(4007, 'deleted');
     }
-    this.drop(s, false);
+    this.drop(s, false, 'deleted');
+  }
+
+  /** away too long (server/src/features/Presence.ts): out of the city, saved, and told why, so the
+   *  client offers to come back rather than reconnecting on its own */
+  dropIdle(s: Session) {
+    const c = s.conn;
+    if (c) {
+      this.send(c, { t: 'bye', reason: 'idle' });
+      c.session = null;
+      c.link.close(4008, 'idle');
+    }
+    this.drop(s, true, 'idle');
   }
 
   /** wall clock, ms (timestamps, daily rollover) */

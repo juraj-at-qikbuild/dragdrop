@@ -20,6 +20,7 @@ import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
 import { clearIdentity, JOIN_KEY, newToken, saveIdentity, type Identity } from './identity';
 import { accessToken, signOut } from './auth';
+import { goToMenu } from '../boot/links';
 
 /** how often an account's cached access token is refreshed while online (Connection.hello() reads
  *  the cache synchronously, so it can't just await accessToken() itself) */
@@ -59,6 +60,15 @@ export class NetSimHost implements SimHost, NetView {
   private authTimer = 0;
   /** remembered so a rejected rename (`error: nick-taken`) can be reverted; see onMessage()'s 'error' */
   private pendingNick: string | null = null;
+  /** the pause menu is open (Game.setPaused): told to the server, and again after every welcome */
+  private away = false;
+  /** the server takes `away` (its welcome carried `resumed`; servers from before
+   *  docs/plans/pause-resume.md don't, and get none) */
+  serverPresence = false;
+  /** away and safe on the server: nothing can hurt us (src/shared/sim/rules/Presence.ts) */
+  shielded = false;
+  /** how the latest welcome said we came back; null before one, or from an older server */
+  resumed: 'live' | 'saved' | 'fresh' | null = null;
 
   constructor(private game: Game, url: string, private identity: Identity, private claimPending = false) {
     this.nick = identity.nick;
@@ -115,6 +125,7 @@ export class NetSimHost implements SimHost, NetView {
       auth: account ? (this.authToken ?? undefined) : undefined,
       claim: account && this.claimPending ? true : undefined,
       join,
+      presence: true,
     };
   }
 
@@ -151,6 +162,11 @@ export class NetSimHost implements SimHost, NetView {
       p.levelInit = true;
     }
     this.started = true;
+    this.resumed = w.resumed ?? null;
+    this.serverPresence = w.resumed !== undefined;
+    // the server starts every connection out playing: still in the pause menu, say so again
+    this.shielded = false;
+    if (this.away && this.serverPresence) this.conn.send({ t: 'away', on: true });
     this.game.atmos.clock.sync(w.clock);
     if (w.claimed !== undefined) {
       // the attempt (whichever way it went) is used up: don't keep re-sending claim on later hellos
@@ -169,13 +185,18 @@ export class NetSimHost implements SimHost, NetView {
   }
 
   private onFatal(r: FatalReason) {
+    if (r === 'idle') {
+      // away too long: moved out of the city and saved. The presence feature offers to come back.
+      for (const f of this.game.features) f.onMessage?.({ t: 'bye', reason: 'idle' });
+      return;
+    }
     if (r === 'deleted') {
       // the account (and its guest token, just in case it was ever claimed from this device) is gone
       // for good: clear every local trace, then land back on the plain menu, not #online (which would
       // otherwise just reconnect — as a brand-new guest, since there's nothing left to resume)
       void signOut();
       clearIdentity();
-      location.href = location.pathname + location.search;
+      goToMenu();
       return;
     }
     const text =
@@ -331,6 +352,8 @@ export class NetSimHost implements SimHost, NetView {
     const ev = game.events;
     // own car against the mirrored world (mirrors are kinematic: only our car gets pushed)
     if (car) {
+      // shielded: the server counts no damage to our car, so neither do we (bumps still push it)
+      const keep = this.shielded ? { health: car.health, fire: car.fire, dmg: { ...car.dmg } } : null;
       this.physics.step(dt, this.vehicles, this.trams, world, {
         impact: (v, sev) => v === car && ev.crash(v.id, v.x, v.y, sev, -Math.cos(v.angle), -Math.sin(v.angle), sev > 7 ? sev : 0),
         carContact: (a, b, sev, cx, cy, nx, ny) => {
@@ -341,6 +364,11 @@ export class NetSimHost implements SimHost, NetView {
         },
         tramContact: (v, _t, sev) => v === car && ev.crash(v.id, v.x, v.y, sev, 0, 0, 0),
       });
+      if (keep) {
+        car.health = keep.health;
+        car.fire = keep.fire; // Vehicle.damage lights the fuse once health runs out
+        Object.assign(car.dmg, keep.dmg);
+      }
       p.x = car.x;
       p.y = car.y;
       p.level = car.level;
@@ -607,6 +635,9 @@ export class NetSimHost implements SimHost, NetView {
       case 'down':
         this.me.state = e.state;
         break;
+      case 'shield':
+        this.shielded = e.on;
+        break;
       case 'teleport':
         // the server moved us (joining a party): drop the car, snap there, new epoch
         this.releaseCar();
@@ -624,6 +655,17 @@ export class NetSimHost implements SimHost, NetView {
 
   persist() {
     /* the server keeps online progress */
+  }
+
+  setAway(on: boolean) {
+    this.away = on;
+    if (!on) this.shielded = false; // back in control: the server drops the shield at once too
+    if (this.serverPresence) this.conn.send({ t: 'away', on });
+  }
+
+  /** reconnect now instead of waiting out the backoff (the page is back in view, or the network is) */
+  retryNow() {
+    this.conn.retryNow();
   }
 
   setNick(n: string) {

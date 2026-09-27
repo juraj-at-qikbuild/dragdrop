@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Room } from '../src/Room';
 import { RemoteConfig } from '../src/features/RemoteConfig';
+import type { Presence } from '../src/features/Presence';
 import { Supa } from '../src/supa';
 import { disabledSupa, loadWorld } from './helpers';
 
@@ -125,6 +126,17 @@ describe('RemoteConfig', () => {
     expect(rc.get('voice_requires_account')).toBe(false);
     rc.setVoiceRequiresAccountOverride(null);
     expect(rc.get('voice_requires_account')).toBe(true); // back to whatever game_config said
+  });
+
+  it("applies game_config's presence tunables through the Presence feature, skipping bad ones", async () => {
+    const room = testRoom();
+    const { supa } = fakeSupa([{ key: 'presence', value: { grace_s: 60, idle_min: 5, arm_s: 'soon', leave_s: -1 } }]);
+    new RemoteConfig(room, supa);
+    await flushLoad();
+    expect(room.graceMs).toBe(60_000);
+    expect(room.feature<Presence>('presence')!.idleMs).toBe(5 * 60_000);
+    expect(room.presence!.config.armS).toBe(3); // not a number: kept
+    expect(room.leaveUnsafeMs).toBe(10_000); // out of range: kept
   });
 
   it('shutdown() stops the 60s refresh interval', async () => {

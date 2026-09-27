@@ -139,6 +139,13 @@ class Derby extends TimedEvent {
     return this.zones.inZone('derby', x, y);
   }
 
+  /** no shield in the live arena, nor for anyone still in the fight (rules/Presence.ts) */
+  allowShield(p: SimPlayer): boolean {
+    if (this.phase !== 'live' || this.done) return true;
+    const f = p.focus();
+    return !this.inArena(f.x, f.y) && !this.participants.some((pt) => pt.id === p.id && pt.active);
+  }
+
   /** no stars for anything done while inside the live arena (checked live, not off the amnesty poll,
    *  so it can't lag behind: a hit lands and is judged in the same tick) */
   allowCrime(p: SimPlayer): boolean {

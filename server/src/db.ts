@@ -12,8 +12,21 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Profile, SimPlayer } from '../../src/shared/sim/SimPlayer';
 import type { WeaponId } from '../../src/shared/entities/Ped';
-import type { ClockSync } from '../../src/shared/net/protocol';
+import { RESUME_MS, type ClockSync } from '../../src/shared/net/protocol';
 import type { Level } from '../../src/shared/world/World';
+import { SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
+
+/** the car a player was driving when last saved: it leaves the city with them and waits for them
+ *  when they're back (docs/plans/pause-resume.md) */
+export interface SavedCar {
+  kind: VehicleKind;
+  color: string;
+  hp: number;
+  /** [front, rear, left, right], 0..1 */
+  dmg: [number, number, number, number];
+  /** heading, radians */
+  a: number;
+}
 
 export interface SessionRow {
   x: number;
@@ -24,6 +37,8 @@ export interface SessionRow {
   weapon: WeaponId;
   ammo: { pistol: number; uzi: number; shotgun: number };
   wanted: number;
+  /** null: on foot (or in a car that doesn't come along: police, event vehicles) */
+  car: SavedCar | null;
   savedAt: number;
 }
 
@@ -61,10 +76,12 @@ export const MIGRATIONS = [
      nick_lower TEXT NOT NULL UNIQUE,
      created_at INTEGER NOT NULL
    );`,
+  // pausing and coming back (docs/plans/pause-resume.md): the car a player drove off with
+  `ALTER TABLE sessions ADD COLUMN car TEXT;`,
 ];
 
 /** sessions older than this aren't resumed (you start fresh at the square) */
-const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+const SESSION_TTL_MS = RESUME_MS;
 
 /** a guest's player key: the same SHA-256 the `token_hash` column has always stored */
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -101,12 +118,12 @@ export class Store {
         `INSERT INTO players (token_hash, nickname, money, found, cumils, stats, created_at, updated_at) VALUES (@h, @nick, @money, @found, @cumils, @stats, @now, @now)
          ON CONFLICT(token_hash) DO UPDATE SET nickname = @nick, money = @money, found = @found, cumils = @cumils, stats = @stats, updated_at = @now`,
       ),
-      getSession: db.prepare<[string], { x: number; y: number; level: number; health: number; armor: number; weapon: string; ammo: string; wanted: number; saved_at: number }>(
-        'SELECT x, y, level, health, armor, weapon, ammo, wanted, saved_at FROM sessions WHERE token_hash = ?',
+      getSession: db.prepare<[string], { x: number; y: number; level: number; health: number; armor: number; weapon: string; ammo: string; wanted: number; car: string | null; saved_at: number }>(
+        'SELECT x, y, level, health, armor, weapon, ammo, wanted, car, saved_at FROM sessions WHERE token_hash = ?',
       ),
       upsertSession: db.prepare(
-        `INSERT INTO sessions (token_hash, x, y, level, health, armor, weapon, ammo, wanted, saved_at) VALUES (@h, @x, @y, @level, @health, @armor, @weapon, @ammo, @wanted, @now)
-         ON CONFLICT(token_hash) DO UPDATE SET x = @x, y = @y, level = @level, health = @health, armor = @armor, weapon = @weapon, ammo = @ammo, wanted = @wanted, saved_at = @now`,
+        `INSERT INTO sessions (token_hash, x, y, level, health, armor, weapon, ammo, wanted, car, saved_at) VALUES (@h, @x, @y, @level, @health, @armor, @weapon, @ammo, @wanted, @car, @now)
+         ON CONFLICT(token_hash) DO UPDATE SET x = @x, y = @y, level = @level, health = @health, armor = @armor, weapon = @weapon, ammo = @ammo, wanted = @wanted, car = @car, saved_at = @now`,
       ),
       hasPlayer: db.prepare<[string], { x: number }>('SELECT 1 AS x FROM players WHERE token_hash = ?'),
       // copy first (so the new key exists as a parent), THEN rekey sessions, THEN drop the old row:
@@ -148,19 +165,21 @@ export class Store {
     if (!r || now - r.saved_at > SESSION_TTL_MS) return null;
     return {
       x: r.x, y: r.y, level: r.level === 1 || r.level === 2 || r.level === -1 ? r.level : 0, health: r.health, armor: r.armor, weapon: (r.weapon as WeaponId) ?? 'fist',
-      ammo: { pistol: 0, uzi: 0, shotgun: 0, ...safeJson(r.ammo, {}) }, wanted: r.wanted, savedAt: r.saved_at,
+      ammo: { pistol: 0, uzi: 0, shotgun: 0, ...safeJson(r.ammo, {}) }, wanted: r.wanted, car: savedCar(safeJson(r.car ?? 'null', null)), savedAt: r.saved_at,
     };
   }
 
-  /** save a batch of players (profile + session) in one transaction */
-  savePlayers(list: { key: string; nick: string; player: SimPlayer }[], now = Date.now()) {
+  /** save a batch of players (profile + session, with the car they drive when it comes along) in one
+   *  transaction */
+  savePlayers(list: { key: string; nick: string; player: SimPlayer; car?: SavedCar | null }[], now = Date.now()) {
     this.db.transaction(() => {
-      for (const { key: h, nick, player: p } of list) {
+      for (const { key: h, nick, player: p, car } of list) {
         this.q.upsertPlayer.run({ h, nick, money: Math.round(p.profile.money), found: JSON.stringify(p.profile.found), cumils: JSON.stringify(p.profile.cumils), stats: JSON.stringify(p.profile.stats ?? {}), now });
         const f = p.focus();
         this.q.upsertSession.run({
           h, x: f.x, y: f.y, level: p.ped.level, health: p.state === 'play' ? Math.max(1, p.ped.health) : 100, armor: p.ped.armor, weapon: p.ped.weapon,
-          ammo: JSON.stringify({ pistol: p.ammo.pistol, uzi: p.ammo.uzi, shotgun: p.ammo.shotgun }), wanted: p.state === 'play' ? p.wanted : 0, now,
+          ammo: JSON.stringify({ pistol: p.ammo.pistol, uzi: p.ammo.uzi, shotgun: p.ammo.shotgun }), wanted: p.state === 'play' ? p.wanted : 0,
+          car: car ? JSON.stringify(car) : null, now,
         });
       }
     })();
@@ -254,4 +273,16 @@ function safeJson<T>(s: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** a stored car, checked field by field (null when it's missing or doesn't make sense any more) */
+function savedCar(v: unknown): SavedCar | null {
+  if (!v || typeof v !== 'object') return null;
+  const c = v as Partial<SavedCar>;
+  if (typeof c.kind !== 'string' || !(c.kind in SPECS) || c.kind === 'police') return null;
+  if (typeof c.color !== 'string' || c.color.length > 32) return null;
+  if (typeof c.hp !== 'number' || !Number.isFinite(c.hp) || c.hp <= 0 || typeof c.a !== 'number' || !Number.isFinite(c.a)) return null;
+  if (!Array.isArray(c.dmg) || c.dmg.length !== 4 || !c.dmg.every((d) => typeof d === 'number' && Number.isFinite(d))) return null;
+  const dmg = c.dmg.map((d) => Math.max(0, Math.min(1, d))) as SavedCar['dmg'];
+  return { kind: c.kind, color: c.color, hp: Math.min(c.hp, SPECS[c.kind].health), dmg, a: c.a };
 }

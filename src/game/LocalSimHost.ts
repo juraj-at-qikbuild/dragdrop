@@ -110,6 +110,10 @@ export class LocalSimHost implements SimHost {
     applyLive(this.live, e);
   }
 
+  setAway() {
+    /* offline the pause menu freezes the whole world instead (Game.update) */
+  }
+
   persist() {
     this.save();
   }

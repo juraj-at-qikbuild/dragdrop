@@ -5,6 +5,7 @@ import type { SimRule } from './SimRule';
 import { WorldEvents, type RulesMode } from './WorldEvents';
 import { Revive } from './Revive';
 import { Race } from './Race';
+import { Presence } from './Presence';
 import { Jobs } from './jobs/Jobs';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
@@ -26,11 +27,12 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   rules.push(new Jobs(sim));
   rules.push(new VanLoot(sim));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
-  // (minPlayers: 2), and races need two players
+  // (minPlayers: 2), races need two players, and offline the pause menu freezes the world (Presence)
   if (mode === 'server') {
     rules.push(new Revive(sim));
     rules.push(new MostWantedWatch(sim));
     rules.push(new Race(sim));
+    rules.push(new Presence(sim));
   }
   return rules;
 }

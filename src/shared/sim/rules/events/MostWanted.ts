@@ -101,7 +101,7 @@ export class MostWantedWatch implements SimRule {
     let best: SimPlayer | null = null;
     let bestSince = Infinity;
     for (const p of sim.players.values()) {
-      if (!at5.has(p.id) || p.state !== 'play' || !p.connected || p.afk) continue;
+      if (!at5.has(p.id) || p.state !== 'play' || !p.active) continue;
       if (isOnRetriggerCooldown(sim, p.id)) continue;
       const since = this.since.get(p.id) ?? sim.time;
       if (since < bestSince) (bestSince = since), (best = p);
@@ -198,6 +198,11 @@ class MostWanted extends TimedEvent {
   /** no stars for hunting the target: neither hurting nor finishing them off counts as a crime */
   allowCrime(_p: SimPlayer, kind: Crime, target?: SimPlayer): boolean {
     return !(target === this.target && (kind === 'hitPlayer' || kind === 'killPlayer'));
+  }
+
+  /** the whole city is after the target: stepping away is no cover (rules/Presence.ts), even below 5★ */
+  allowShield(p: SimPlayer): boolean {
+    return this.done || p !== this.target;
   }
 
   onRemove(p: SimPlayer) {

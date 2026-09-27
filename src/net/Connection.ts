@@ -2,9 +2,9 @@
 // RTT and server-clock estimation. Knows nothing about game state; NetSimHost/OnlineSession do.
 import type { ClientMsg, ErrorCode, HelloMsg, ServerMsg, WelcomeMsg } from '../shared/net/protocol';
 
-/** why the server won't have this client: refused on hello (ErrorCode), replaced by another tab, or
- *  the account behind this session was deleted */
-export type FatalReason = ErrorCode | 'replaced' | 'deleted';
+/** why the server won't have this client: refused on hello (ErrorCode), replaced by another tab, the
+ *  account behind this session was deleted, or away too long (moved out of the city, saved) */
+export type FatalReason = ErrorCode | 'replaced' | 'deleted' | 'idle';
 
 export type NetState = 'connecting' | 'online' | 'reconnecting' | 'failed' | 'closed';
 
@@ -186,6 +186,11 @@ export class Connection {
           this.fatal('deleted');
           return;
         }
+        if (m.reason === 'idle') {
+          // no automatic reconnect: the player comes back when they choose to (the idle dialog)
+          this.fatal('idle');
+          return;
+        }
         // server restarting (deploy): come back quickly
         this.nextRetryFast = true;
         break;
@@ -223,6 +228,14 @@ export class Connection {
 
   sendBinary(buf: ArrayBufferView | ArrayBuffer) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(buf as ArrayBuffer);
+  }
+
+  /** Reconnect now rather than waiting out the backoff: the page is back in view, or the network is.
+   *  A no-op while a socket is open or opening, after a fatal refusal, or while an auth retry is due. */
+  retryNow() {
+    if (this.stopped || this.ws || this.authRetryPending || !this.everWelcomed) return;
+    clearTimeout(this.retryTimer);
+    this.open();
   }
 
   /** refresh the countdown shown in the HUD */

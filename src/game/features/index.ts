@@ -6,6 +6,7 @@ import { EventsOverlay } from './EventsOverlay';
 import { JobsHud } from './JobsHud';
 import { News } from './News';
 import { PartyUi } from './PartyUi';
+import { PresenceUi } from './PresenceUi';
 import { RaceUi } from './RaceUi';
 import { ReviveUi } from './ReviveUi';
 import { VoiceFeature } from './voice/VoiceFeature';
@@ -22,5 +23,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new News(g));
   out.push(new RaceUi(g));
   out.push(new JobsHud(g));
+  out.push(new PresenceUi(g));
   return out;
 }

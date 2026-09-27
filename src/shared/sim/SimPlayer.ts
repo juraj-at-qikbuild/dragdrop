@@ -86,6 +86,14 @@ export class SimPlayer {
   connected = true;
   /** server: no state reports for a while (tab in the background): not an observer */
   afk = false;
+  /** server: paused, the page hidden, or disconnected and still in the city (rules/Presence.ts) */
+  away = false;
+  /** sim.time `away` last turned on */
+  awaySince = 0;
+  /** away and safe: nothing can hurt, arrest or carjack them (rules/Presence.ts) */
+  shielded = false;
+  /** sim.time this player last hurt, or was hurt by, another player (a carjacking counts) */
+  lastPvpAt = -1e9;
   /** party this player is in (0 = none); set by the server's Party feature */
   partyId = 0;
   /** opted in to voice chat; set by the server's Voice feature */
@@ -126,5 +134,11 @@ export class SimPlayer {
   /** counts as someone NPCs should spawn around / think near */
   get observing() {
     return this.connected && !this.afk;
+  }
+
+  /** counts as taking part: world events, the most-wanted pick, a party's payout split. An away
+   *  player (in the menu) still observes, so the city keeps living around them. */
+  get active() {
+    return this.observing && !this.away;
   }
 }

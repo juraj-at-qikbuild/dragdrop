@@ -20,6 +20,7 @@ import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
 import { drawNametags } from '../render/nametags';
+import { ROSTER_AWAY } from '../shared/net/protocol';
 import { Banners } from '../ui/kit/Banners';
 import { hudLayout, NO_INSETS, type HudLayout, type Insets } from '../ui/layout';
 import { Bubbles } from '../render/bubbles';
@@ -304,6 +305,21 @@ export class Game {
     this.messages.push({ title, text, time, color });
   }
 
+  /** Open or close the pause menu. The one way to pause (Esc/P, the touch ❚❚, the pad's Start, the
+   *  menu's own buttons, the page going hidden), so the menu, the host and the features agree: online
+   *  the server marks the player away (⏸) and shields them when it's safe (docs/plans/pause-resume.md). */
+  setPaused(on: boolean) {
+    if (this.paused === on) return;
+    this.paused = on;
+    this.onPause?.(on);
+    this.host.setAway(on);
+  }
+
+  /** how opaque to draw another player's figure or car: dimmed while they're away (⏸) */
+  private presenceAlpha(playerId: number) {
+    return playerId && (this.host.net?.tagFor(playerId)?.flags ?? 0) & ROSTER_AWAY ? 0.55 : 1;
+  }
+
   /** money for combos and missions (offline only: online the server keeps the books) */
   addMoney(v: number) {
     this.host.styleCash(v);
@@ -449,10 +465,7 @@ export class Game {
     inp.pollPad();
     // Esc closes the city map before it pauses the game
     if (this.showMap && inp.hit('Escape')) this.showMap = false;
-    else if (inp.hit('Escape', 'KeyP')) {
-      this.paused = !this.paused;
-      this.onPause?.(this.paused);
-    }
+    else if (inp.hit('Escape', 'KeyP')) this.setPaused(!this.paused);
     if (inp.hit('KeyM', 'Tab')) {
       this.showMap = !this.showMap;
       if (this.showMap) this.mapView.onOpen();
@@ -897,9 +910,21 @@ export class Game {
     const underground = this.focusLevel() === -1;
     const drawEntities = (level: Level) => {
       for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
-      for (const p of host.peds) if (!p.dead && !p.vehicle && p !== me && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      for (const p of host.peds) {
+        if (p.dead || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
+        // another player who's away (in their pause menu, or disconnected) is drawn dimmed
+        const a = p.playerId ? this.presenceAlpha(p.playerId) : 1;
+        ctx.globalAlpha = a;
+        drawPed(p, ctx, atmos, v.scale);
+        ctx.globalAlpha = 1;
+      }
       for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, underground ? undefined : this.tunnelFade);
-      for (const veh of host.vehicles) if (veh.level === level && inView(veh.x, veh.y, 8)) drawVehicle(veh, ctx, this.time, atmos);
+      for (const veh of host.vehicles) {
+        if (veh.level !== level || !inView(veh.x, veh.y, 8)) continue;
+        ctx.globalAlpha = veh.owner && veh.owner !== host.me.id ? this.presenceAlpha(veh.owner) : 1;
+        drawVehicle(veh, ctx, this.time, atmos);
+        ctx.globalAlpha = 1;
+      }
     };
     if (!underground) {
       for (const veh of host.vehicles) {

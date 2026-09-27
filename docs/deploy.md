@@ -20,6 +20,11 @@ independent pipelines, so trigger both around the same time, ideally at a quiet 
 drops every open socket (clients auto-reconnect on their own within a couple of seconds), and a client
 build takes a minute or two to go live.
 
+Additive changes don't need that lockstep. Pausing, leaving and coming back
+([docs/plans/pause-resume.md](plans/pause-resume.md)) kept protocol 7. A new client sends `away` only to
+a server whose welcome carries `resumed`. A new server times out for idleness only clients whose hello
+said `presence`. So either side can go out first, and an older tab keeps working until it reloads.
+
 ## Local development
 
 ```bash
@@ -41,6 +46,7 @@ npm run smoke         # offline single-player in headless Chromium (no server)
 npm run e2e           # builds the client, starts a server, drives headless Chromium pages
 E2E_PHASE=social npm run e2e     # parties/invite link, revive, Kofolka, a race, voice, the daily puzzle
 E2E_PHASE=accounts npm run e2e   # sign-in, claim and cross-device progress against the real Supabase project
+E2E_PHASE=presence npm run e2e   # the pause menu (away, shielded), leaving, "Pokračovať online", a reload, the idle timeout
 npm run loadtest -- --bots 100 --spread city --duration 60   # bot clients against a running server
 npm --prefix server run bench -- --players 30 --spread city  # simulation only, no networking
 ```
@@ -48,6 +54,13 @@ npm --prefix server run bench -- --players 30 --spread city  # simulation only, 
 `npm run e2e` covers two players seeing each other, shared NPC deaths, PvP damage and wanted stars, a
 server restart that both clients survive with their money intact, and an offline game that opens no
 connection. Start the server with `E2E=1` for the load test, so bots can be handed a pistol.
+
+`E2E_PHASE=presence` (`scripts/e2e-presence.mjs`) runs two pages against one local server:
+- the pause menu, which the other player first sees as ⏸ and then as 🛡;
+- leaving through the confirmation, and one click on "Pokračovať online" back to the same spot;
+- a reload going straight back online as the same figure;
+- a hidden page pausing itself;
+- the idle timeout, shortened to 6 s through `debug.presence`, with its way back.
 
 `E2E_PHASE=social` (`scripts/e2e-social.mjs`) runs three pages against one local server through the social
 features: an invite link placing a friend next to the inviter with friendly fire off, a revive, a forced
@@ -225,12 +238,31 @@ update game_config set value = '["<uuid>", "<uuid>"]'::jsonb where key = 'voice_
 
 -- retune the world-event scheduler; any field left out keeps its current value
 update game_config set value = '{"gap": [420, 660], "enabled": true}'::jsonb where key = 'events';
+
+-- pausing, leaving and coming back (docs/plans/pause-resume.md): this row isn't seeded, so add it
+insert into game_config (key, value) values ('presence', '{"idle_min": 20, "grace_s": 90}'::jsonb)
+  on conflict (key) do update set value = excluded.value;
 ```
 
 The four seeded keys are `voice_enabled` and `voice_requires_account` (booleans), `voice_blocklist` (an
 array of Supabase account ids) and `events` (`gap`/`offlineGap`/`first` as `[min, max]` second pairs,
-`retry` in seconds, `enabled`). A bad or absent field is ignored on its own — it never blocks the rest
-of the row from applying.
+`retry` in seconds, `enabled`).
+
+The optional `presence` key tunes pausing, leaving and coming back. Every field has a hardcoded default
+and an allowed range; a value outside the range keeps whatever applied before.
+
+| Field | Default | Range | What it is |
+|---|---|---|---|
+| `shield` | `true` | | the shield at all |
+| `arm_s` | 3 | 0–60 | seconds away before the shield arms |
+| `pvp_s` | 15 | 0–600 | seconds after PvP damage with no shield, and before leaving is instant again |
+| `grace_s` | 120 | 5–3600 | seconds a dropped player's figure stays in the city |
+| `leave_s` | 10 | 0–120 | seconds the figure stays after leaving while wanted or in a fight |
+| `idle_min` | 15 | 0.05–1440 | minutes away (paused or hidden) before a player is moved out, saved |
+| `seat_min` | 15 | 0–1440 | minutes a party holds a seat |
+| `car_min` | 5 | 0–1440 | minutes a returning player's car is held for them |
+
+A bad or absent field is ignored on its own — it never blocks the rest of the row from applying.
 
 ### Moderation
 
@@ -316,7 +348,9 @@ staying at 1 and `loop.p95` well under 30 ms.
 
 `GET /stats` (loopback or `Authorization: Bearer $STATS_TOKEN`) returns:
 
-- `players` / `connected`: sessions, including the 30 s reconnect grace, and live connections
+- `players` / `connected`: sessions, including the 2-minute reconnect grace, and live connections
+- `away` / `shielded`: players paused, hidden or dropped, and those of them the shield covers
+- `parties` / `heldSeats`: active parties, and seats they're holding for members who left
 - `loop.avg` / `loop.p95` / `loop.max`: tick time in ms over the last few seconds
 - `governor`: 1 is the full city; 0.2 is the floor
 - `vehicles`, `peds`, `trams`, `ids`: entity counts

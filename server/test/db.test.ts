@@ -5,7 +5,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { Room } from '../src/Room';
 import { MIGRATIONS, Store, hashToken } from '../src/db';
-import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
+import { PROTOCOL_VERSION, RESUME_MS } from '../../src/shared/net/protocol';
+import { SPECS } from '../../src/shared/entities/Vehicle';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { FakeClock, FakeLink, TOKEN_A, disabledSupa, loadWorld, stateMsg } from './helpers';
 
@@ -192,6 +193,45 @@ describe('social features store (Phase 0a)', () => {
     });
   });
 
+  it('a session resumes for 24 hours, then no longer (docs/plans/pause-resume.md)', () => {
+    withDb((file) => {
+      const store = new Store(file);
+      store.savePlayers([{ key: 'k1', nick: 'Anon', player: fakePlayer() }], 1000);
+      expect(store.loadSession('k1', 1000 + RESUME_MS - 1)).not.toBeNull();
+      expect(store.loadSession('k1', 1000 + RESUME_MS + 1)).toBeNull();
+      store.close();
+    });
+  });
+
+  it('keeps the car a player drives with their session, and drops one that makes no sense any more', () => {
+    withDb((file) => {
+      const store = new Store(file);
+      const car = { kind: 'sport' as const, color: '#123456', hp: 50, dmg: [0.2, 0, 0.5, 0] as [number, number, number, number], a: 1.5 };
+      store.savePlayers([{ key: 'k1', nick: 'Anon', player: fakePlayer(), car }], 1000);
+      expect(store.loadSession('k1', 1000)!.car).toEqual(car);
+      store.savePlayers([{ key: 'k1', nick: 'Anon', player: fakePlayer() }], 1000); // on foot now
+      expect(store.loadSession('k1', 1000)!.car).toBeNull();
+      store.close();
+
+      // hand-edited or stale rows: a police car, an unknown kind, garbage
+      const raw = new Database(file);
+      const set = raw.prepare('UPDATE sessions SET car = ? WHERE token_hash = ?');
+      const again = () => {
+        const s = new Store(file);
+        const c = s.loadSession('k1', 1000)!.car;
+        s.close();
+        return c;
+      };
+      for (const bad of [JSON.stringify({ ...car, kind: 'police' }), JSON.stringify({ ...car, kind: 'tank' }), JSON.stringify({ ...car, hp: 0 }), '{not json']) {
+        set.run(bad, 'k1');
+        expect(again()).toBeNull();
+      }
+      set.run(JSON.stringify({ ...car, hp: 9999, dmg: [2, -1, 0.5, 0] }), 'k1');
+      expect(again()).toMatchObject({ hp: SPECS.sport.health, dmg: [1, 0, 0.5, 0] }); // clamped
+      raw.close();
+    });
+  });
+
   it('deletePlayer cascades its session row', () => {
     withDb((file) => {
       const store = new Store(file);
@@ -233,6 +273,24 @@ describe('migration', () => {
       const again = new Store(file);
       expect(again.loadProfile('abc')!.profile.money).toBe(42);
       again.close();
+    });
+  });
+
+  it('adds the sessions.car column to a v2 database: existing sessions read back with no car', () => {
+    withDb((file) => {
+      const raw = new Database(file);
+      raw.exec(MIGRATIONS[0]);
+      raw.exec(MIGRATIONS[1]);
+      raw.pragma('user_version = 2');
+      raw.prepare('INSERT INTO players (token_hash, nickname, money, found, cumils, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run('abc', 'Old', 42, '[]', '[]', 0, 0);
+      raw
+        .prepare('INSERT INTO sessions (token_hash, x, y, level, health, armor, weapon, ammo, wanted, saved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run('abc', 1, 2, 0, 80, 0, 'fist', '{}', 0, 5000);
+      raw.close();
+
+      const store = new Store(file); // runs MIGRATIONS[2]
+      expect(store.loadSession('abc', 5000)).toMatchObject({ x: 1, y: 2, health: 80, car: null });
+      store.close();
     });
   });
 });

@@ -126,6 +126,10 @@ export class Vehicle {
   livery: Livery = LIVERY_NONE;
   /** can't be entered at all (the armoured van: rob it by shooting the rear doors instead) */
   locked = false;
+  /** a returning player's car (server/src/Room.ts): only player `reservedFor` may take it until sim
+   *  time `reservedUntil` (Sim.reservedFromOthers); 0 = anyone's */
+  reservedFor = 0;
+  reservedUntil = 0;
   /** bullet-damage multiplier (Combat.applyShot's car branch); 1 = normal, the armoured van is 0.2 */
   armor = 1;
   /** overrides spec.health for this one vehicle's damage-fraction visuals (0 = use spec.health): the

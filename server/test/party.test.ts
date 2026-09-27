@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GRACE_MS, Room } from '../src/Room';
 import { Store, hashToken } from '../src/db';
+import { SEAT_MS, type Party } from '../src/features/Party';
 import { PROTOCOL_VERSION } from '../../src/shared/net/protocol';
 import type { PartyState } from '../../src/shared/sim/rules/types';
 import { dist } from '../../src/shared/util/math';
@@ -349,8 +350,8 @@ describe('Party', () => {
       expect(lastParty(d.link)?.members.find((m) => m.id === pd.id)?.leader).toBe(true);
       expect(room.sim.players.has(pa.id)).toBe(false); // Fero is gone for good
 
-      // Dano mints his own code, then leaves too: with no members left connected, the party
-      // dissolves and takes its (his) invite code down with it
+      // Dano mints his own code, then leaves the party too: his code goes with him. (Fero's seat is
+      // still held, so the party itself lives on until that lapses: see the held-seat tests below.)
       invite(d.conn);
       tick();
       const dCode = lastInvite(d.link)!;
@@ -359,6 +360,89 @@ describe('Party', () => {
       expect(pd.partyId).toBe(0);
       expect(lastParty(d.link)).toBeNull();
       expect(store.getInvite(dCode, room.wallNow())).toBeNull();
+    });
+  });
+
+  it('a member who leaves the city keeps their seat: listed offline, and straight back in when they return', () => {
+    withDb((file) => {
+      const { room, join, invite, tick } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      invite(a.conn);
+      tick();
+      const b = join(TOKEN_B, 'Boris', { join: lastInvite(a.link)! });
+      tick();
+      const partyId = room.sim.players.get(a.id!)!.partyId;
+
+      room.onMessage(b.conn, JSON.stringify({ t: 'leave' })); // Boris leaves the city (not the party)
+      tick();
+      const seat = lastParty(a.link)!.members.find((m) => m.nick === 'Boris')!;
+      expect(seat.online).toBe(false);
+      expect(seat.id).toBeLessThan(0); // a stand-in id: there's no player behind it right now
+
+      const back = join(TOKEN_B, 'Boris'); // a new session, no invite needed
+      tick();
+      expect(room.sim.players.get(back.id!)!.partyId).toBe(partyId);
+      expect(msgTexts(back.link)).toContain('Si späť v partii FERO.');
+      expect(lastParty(a.link)!.members.find((m) => m.nick === 'Boris')).toMatchObject({ id: back.id, online: true });
+    });
+  });
+
+  it('a seat nobody comes back for lapses; a party left with only held seats dissolves when they do', () => {
+    withDb((file) => {
+      const { room, clock, join, invite, tick } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      invite(a.conn);
+      tick();
+      const b = join(TOKEN_B, 'Boris', { join: lastInvite(a.link)! });
+      tick();
+      const party = room.feature<Party>('party')!;
+
+      room.onMessage(b.conn, JSON.stringify({ t: 'leave' }));
+      tick();
+      expect(party.stats().heldSeats).toBe(1);
+      clock.advance(SEAT_MS + 1000);
+      tick(25); // the seats are looked at once a second
+      expect(party.stats().heldSeats).toBe(0);
+      expect(lastParty(a.link)!.members.map((m) => m.nick)).toEqual(['Fero']);
+
+      room.onMessage(a.conn, JSON.stringify({ t: 'leave' })); // now the last one leaves too
+      tick();
+      expect(party.stats()).toMatchObject({ parties: 1, heldSeats: 1 }); // kept for Fero, for now
+      clock.advance(SEAT_MS + 1000);
+      tick(25);
+      expect(party.stats()).toMatchObject({ parties: 0, heldSeats: 0 });
+      join(TOKEN_A, 'Fero');
+      tick();
+      expect(party.stats().parties).toBe(0); // no seat to come back to any more
+    });
+  });
+
+  it('the leader can kick a held seat (by its stand-in id); a deleted account is out at once', () => {
+    withDb((file) => {
+      const { room, join, invite, kick, tick } = setup(file);
+      const a = join(TOKEN_A, 'Fero');
+      invite(a.conn);
+      tick();
+      const code = lastInvite(a.link)!;
+      const b = join(TOKEN_B, 'Boris', { join: code });
+      const c = join(TOKEN_C, 'Cyril', { join: code });
+      tick();
+      const party = room.feature<Party>('party')!;
+
+      room.onMessage(b.conn, JSON.stringify({ t: 'leave' }));
+      tick();
+      const seatId = lastParty(a.link)!.members.find((m) => m.nick === 'Boris')!.id;
+      kick(a.conn, seatId);
+      tick();
+      expect(lastParty(a.link)!.members.some((m) => m.nick === 'Boris')).toBe(false);
+      const back = join(TOKEN_B, 'Boris');
+      tick();
+      expect(room.sim.players.get(back.id!)!.partyId).toBe(0);
+
+      room.dropSession(room.sessionById(c.id!)!); // what accountDelete does
+      tick();
+      expect(party.stats().heldSeats).toBe(0);
+      expect(lastParty(a.link)!.members.map((m) => m.nick)).toEqual(['Fero']);
     });
   });
 

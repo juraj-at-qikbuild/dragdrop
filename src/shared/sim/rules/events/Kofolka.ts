@@ -4,6 +4,7 @@
 // existing rule that a player's car can only be jacked while (nearly) stopped.
 // Plan: docs/plans/social-events.md
 import type { Sim } from '../../Sim';
+import type { SimPlayer } from '../../SimPlayer';
 import { LIVERY_KOFOLKA, LIVERY_NONE, SPECS, Vehicle } from '../../../entities/Vehicle';
 import { linkPoints } from '../../../world/Graph';
 import { dist } from '../../../util/math';
@@ -97,6 +98,12 @@ class Kofolka extends TimedEvent {
 
   protected onLive() {
     this.sim.events.global({ k: 'eventStart', kind: 'kofolka', x: this.van.x, y: this.van.y });
+  }
+
+  /** the van pays its driver by the second: no shield for them (rules/Presence.ts), or pausing in it
+   *  would bank the pot with nobody able to take the van */
+  allowShield(p: SimPlayer): boolean {
+    return this.van.owner !== p.id;
   }
 
   update(dt: number): boolean {

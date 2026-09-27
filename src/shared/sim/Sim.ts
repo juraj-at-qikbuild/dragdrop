@@ -137,6 +137,16 @@ export class Sim {
     this.vehHash.insert(v, v.x, v.y, v.radius);
     return v;
   }
+
+  /** take a car out of the world for good (the server: a leaving player's car goes with them) */
+  removeVehicle(v: Vehicle) {
+    this.vehicles = this.vehicles.filter((q) => q !== v);
+    this.ai.drivers.delete(v);
+    this.byId.delete(v.id);
+    // out of neighbour queries right away too, not only from the next step's rehash (it's rare)
+    this.vehHash.clear();
+    for (const q of this.vehicles) this.vehHash.insert(q, q.x, q.y, q.radius);
+  }
   addPed(p: Ped) {
     if (!p.id) p.id = this.ids.alloc(this.time);
     this.peds.push(p);
@@ -465,6 +475,8 @@ export class Sim {
 
   /** Damage a vehicle. A player's car is simulated by their client, so they are told to apply it. */
   damageVehicle(v: Vehicle, amount: number, byPid = 0, impulse?: { dvx: number; dvy: number; dav: number }) {
+    // a shielded player's car takes nothing: it would burn and blow up under them (wreck())
+    if (v.owner && this.players.get(v.owner)?.shielded) return;
     if (byPid && byPid !== v.owner) (v.lastDamagedBy = byPid), (v.lastDamagedAt = this.time);
     if (v.kinematic && v.owner) {
       this.events.toPlayer(v.owner, { k: 'vehDamage', vehicle: v.id, amount, dvx: impulse?.dvx ?? 0, dvy: impulse?.dvy ?? 0, dav: impulse?.dav ?? 0 });
@@ -497,10 +509,12 @@ export class Sim {
     const ped = p.ped;
     if (!v || p.state !== 'play' || ped.vehicle || v.wrecked || v.sinking || v.level !== ped.level || v.locked) return false;
     if (dist(v.x, v.y, ped.x, ped.y) - v.spec.width / 2 > 4.2 + slack) return false;
+    // a returning player's car waits for them a while (server/src/Room.ts)
+    if (this.reservedFromOthers(v, p)) return false;
     if (v.owner && v.owner !== p.id) {
-      // another player's car: only when it's (nearly) standing still
+      // another player's car: only when it's (nearly) standing still, and never while they're shielded
       const other = this.players.get(v.owner);
-      if (!other || v.speed > 2) return false;
+      if (!other || v.speed > 2 || other.shielded) return false;
       if (this.rules.some((r) => r.allowPvp?.(p, other) === false)) return false;
       this.eject(other, v, ped.x, ped.y);
       this.crime(p, 'carjack');
@@ -523,11 +537,17 @@ export class Sim {
     v.owner = p.id;
     v.kinematic = p.kinematic;
     v.parked = false;
+    v.reservedFor = 0;
     ped.vehicle = v;
     p.lastCar = v;
     this.events.toPlayer(p.id, { k: 'enter', vehicle: v.id, ok: true });
     for (const r of this.rules) r.onEnter?.(p, v);
     return true;
+  }
+
+  /** `v` is a returning player's car, still held for them and not for `p` (server/src/Room.ts) */
+  reservedFromOthers(v: Vehicle, p: SimPlayer): boolean {
+    return !!v.reservedFor && v.reservedFor !== p.id && this.time < v.reservedUntil;
   }
 
   /** throw a player out of their car (carjacked) */
@@ -670,10 +690,14 @@ export class Sim {
    *  Also how a downed player is finished off (a second hit, once `state` is already 'downed'). */
   hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0) {
     if (p.state !== 'play' && p.state !== 'downed') return;
+    // away and safe (rules/Presence.ts): nothing lands, and it's no crime either
+    if (p.shielded) return;
     const attacker = byPid && byPid !== p.id ? this.players.get(byPid) : undefined;
     // parties (and the derby arena) can turn PvP off between a pair, or entirely: no damage, no
     // crime, no credit, not even the coup de grâce on someone already downed
     if (attacker && this.rules.some((r) => r.allowPvp?.(attacker, p) === false)) return;
+    // a fight between players: neither gets the shield for a while (rules/Presence.ts)
+    if (attacker) attacker.lastPvpAt = p.lastPvpAt = this.time;
     if (p.state === 'downed') {
       // the downing already gave someone the kill credit; this is just the finishing blow
       if (dmg > 0) this.wasted(p, attacker);
@@ -734,6 +758,8 @@ export class Sim {
   /** also busts a downed player (Revive): a cop who catches up before a revive or a bleed-out. */
   bust(p: SimPlayer) {
     if (p.state !== 'play' && p.state !== 'downed') return;
+    // the shield needs no stars, so no cop is after a shielded player; this is only a safety net
+    if (p.shielded) return;
     p.ped.downed = false;
     this.setState(p, 'busted');
     p.stateTimer = 4;
@@ -764,7 +790,8 @@ export class Sim {
     this.setState(p, 'play', by);
   }
 
-  respawn(p: SimPlayer) {
+  /** `prewarm`: fill the streets around the hospital or station (skipped for a player who's leaving) */
+  respawn(p: SimPlayer, prewarm = true) {
     const busted = p.state === 'busted';
     const kind = busted ? 'police' : 'hospital';
     const f = p.focus();
@@ -813,7 +840,7 @@ export class Sim {
     this.onProfileChange?.(p);
     p.observer.fx = p.observer.cx = pos.x;
     p.observer.fy = p.observer.cy = pos.y;
-    this.prewarm(p);
+    if (prewarm) this.prewarm(p);
   }
 
   // -------------------------------------------------------------------- money

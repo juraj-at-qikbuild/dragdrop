@@ -334,6 +334,11 @@ export class Race implements SimRule {
     }
   }
 
+  /** no shield while racing, the countdown included (rules/Presence.ts): the race goes on either way */
+  allowShield(p: SimPlayer): boolean {
+    return !this.raceOf(p);
+  }
+
   private busy(p: SimPlayer): boolean {
     return this.pending.some((pd) => pd.from === p || pd.to === p);
   }

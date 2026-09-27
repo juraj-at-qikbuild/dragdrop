@@ -28,6 +28,9 @@ export interface SimRule {
   onAdd?(p: SimPlayer): void;
   /** a player left the world for good */
   onRemove?(p: SimPlayer): void;
+  /** false: `p` can't be shielded while away (rules/Presence.ts), e.g. racing, in the derby arena, the
+   *  most-wanted target, driving the Kofolka van: stepping away mustn't be a way out of those */
+  allowShield?(p: SimPlayer): boolean;
 }
 
 /** Who gets a payout. The server's Party feature splits event and job money among party members

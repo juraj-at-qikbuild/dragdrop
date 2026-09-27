@@ -209,9 +209,22 @@ Hon na Čumila, Obrnené auto and the Vlk/Hopík jobs also run solo, offline. Ev
 Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je? and voice chat — is
 online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
 
+**Stepping away and coming back** ([docs/plans/pause-resume.md](docs/plans/pause-resume.md)). The shared
+city never stops, so online the pause menu (Esc, P, ❚❚, Start, or just switching tabs or apps) is a menu
+over a running city, and says so. Your figure stops and others see ⏸ over it; after 3 s, if you're not
+wanted and haven't fought another player in the last 15 s, nobody can hurt, arrest or carjack you (🛡).
+Racing, the derby, being the most wanted and driving the Kofolka van never get that cover.
+**Odísť z mesta** ends the session: it says what's kept, and your spot, health, weapons, money and the car
+you were driving are saved (a wanted or fighting player's figure stays behind 10 s first). Your party
+holds your seat for 15 minutes. Coming back is one click on **Pokračovať online** in the main menu, and a
+reload or a restored tab goes straight back in: same spot for 24 hours, your car parked beside you, and
+your stars only if you're back within 30 minutes. A dropped connection keeps your figure in the city for
+2 minutes, and 15 minutes away (paused or hidden) moves you out of the city, saved.
+
 The button only shows when the client was built with `VITE_SERVER_URL`. The client and the server must
 speak the same protocol version (now 7): deploy the server (`fly deploy`) together with the client, or
-older clients are refused.
+older clients are refused. (The pausing and coming-back additions kept protocol 7: they're optional on
+both sides, so either one can go out first.)
 
 ```bash
 npm --prefix server install

@@ -1,6 +1,8 @@
 # Plan: pausing, leaving and coming back online (Blava City)
 
-Status: planned, not implemented. The decisions below were confirmed on 27 September 2026.
+Status: implemented, all three phases (27 September 2026). The decisions below were confirmed the
+same day. Where the build differs from this plan, see [As built](#as-built) at the end; the most
+notable change is that the protocol stayed at v7.
 
 ## Context
 
@@ -141,6 +143,9 @@ through) or a rule vetoes it. Because it only arms when the player has no stars,
 never chasing someone they can't catch.
 
 ### Protocol v8
+
+*Superseded: the protocol stayed at v7, with the same messages negotiated as capabilities. See
+[As built](#as-built).*
 
 All wire changes are declared once, up front, as for v7:
 
@@ -321,3 +326,43 @@ Ships on its own. From this phase on, coming back is easy.
 - Moving a live session between devices. An account already takes over its session from another
   device.
 - Notifications while the tab is closed.
+
+## As built
+
+The three phases shipped together. [docs/multiplayer.md](../multiplayer.md) ("Pausing, leaving and
+coming back") describes the result; these are the places where it differs from the plan above.
+
+- **No protocol bump.** Every addition is optional, so the protocol stayed at v7 and each side
+  announces what it understands:
+  - `hello.presence: true` means the client sends `away` and handles `bye: 'idle'`. Only these
+    clients are ever moved out for being idle; an older client wouldn't know what `bye: 'idle'`
+    means.
+  - `welcome.resumed` means the server understands `away`. A client only sends `away` to a server
+    that sets it. Against an older server, the pause note warns "Kým si v menu, dá sa zraniť."
+  - Older clients ignore the two new roster bits and the `shield` event.
+
+  So there's no "Nová verzia hry" at deploy, and the client (Cloudflare) and server (Fly) can
+  deploy in either order.
+- **Tests.** The Phase 1 server tests are in `server/test/presence.test.ts` with the rest, not in
+  `room.test.ts`. The end-to-end run checks ⏸ and 🛡 as B sees them. That shots do nothing is
+  covered by the `hurtPlayer` guard in `test/shared/presence.test.ts`, not end to end.
+- **Short timers for end-to-end runs.** With `E2E=1`, `debug.presence` takes the same fields as the
+  `presence` row in `game_config`. `scripts/e2e-presence.mjs` uses it to shorten the idle timeout.
+- **Shield details.**
+  - The Derby veto covers anyone inside the live arena as well as active participants, so a
+    spectator can't stand shielded in the way.
+  - The client's own-car guard restores the car's health, damage and fire after each physics
+    step. Fire is included because `Vehicle.damage` lights a car at zero health.
+- **Leaving.** `Room.drop()` takes a reason (`left`, `grace`, `idle`, `deleted`, `claimed`) and
+  passes it to `RoomFeature.onDrop`. A party holds the seat for the first three; a deleted or
+  claimed session leaves it at once.
+- **Party seats** use negative ids in the party state, so the panel can list them and a leader can
+  kick them.
+- **The car.**
+  - Someone else trying a reserved car gets "Toto auto čaká na iného hráča.".
+  - A returning car is placed at the saved spot or up to 14 m along the saved heading, as long as
+    it's clear of walls, water and other cars. Otherwise it isn't restored.
+  - `Sim.removeVehicle` rebuilds the vehicle hash, so a car taken out of the city doesn't block
+    the spot for the next one.
+- **Last-session memory** stores `{ mode, online: { at, place } }` and is updated every 10 s rather
+  than every 30 s.

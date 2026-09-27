@@ -9,6 +9,7 @@ import { cleanNick, NICK_MAX, NICK_MIN } from '../shared/net/protocol';
 import { authAvailable, clearPendingPasswordReset, hasStoredSession, resetPassword, signIn, signOut, signUp, updatePassword, user } from '../net/auth';
 import { clearPendingJoin, loadIdentity, newToken, saveIdentity, type Identity } from '../net/identity';
 import { randomNick } from '../net/nicknames';
+import { goOnline, goToMenu } from '../boot/links';
 import { askNick } from './askNick';
 
 declare global {
@@ -51,8 +52,20 @@ export function consumeClaimPending(): boolean {
 let onBeforeReload: (() => void) | undefined;
 function proceedOnline() {
   onBeforeReload?.();
-  location.hash = 'online';
-  location.reload();
+  goOnline();
+}
+
+/** The main menu's "Pokračovať online": a device that already has an identity (a guest, or a
+ *  signed-in account) goes straight back online, skipping the chooser. Switching to an account stays
+ *  one click away in the pause menu (wireAccountPauseControls). */
+export function continueOnline() {
+  onBeforeReload = undefined;
+  proceedOnline();
+}
+
+/** there's an identity to continue with: a stored guest, or a signed-in account */
+export function hasOnlineIdentity(): boolean {
+  return !!loadIdentity() || hasStoredSession();
 }
 
 /** The identity to connect with once online mode has (re)loaded: an account when signed in (rebuilt
@@ -380,7 +393,7 @@ export async function wireAccountPauseControls(game: Game): Promise<void> {
     signOutBtn.onclick = async () => {
       signOutBtn.disabled = true;
       await signOut();
-      location.href = location.pathname + location.search; // drop #online: land on the plain menu
+      goToMenu(); // drop #online: land on the plain menu
     };
     box.appendChild(signOutBtn);
     const deleteBtn = document.createElement('button');

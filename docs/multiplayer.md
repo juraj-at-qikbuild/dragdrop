@@ -141,7 +141,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - The rules code never touches audio or rendering. It emits events (`sim/events.ts`), which `src/game/ClientEvents.ts` turns into effects. On the server, `NetEvents.ts` routes them to the players in range.
 
 ### Networking
-- **Client → server:** binary `STATE` at 20 Hz (pose, weapon, camera extents, plus the car's full state when driving). Everything else is JSON: `hello`, `fire`, `punch`, `enter`, `exit`, `hit`, `horn`, `nick`, `ping`, `leave`.
+- **Client → server:** binary `STATE` at 20 Hz (pose, weapon, camera extents, plus the car's full state when driving). Everything else is JSON: `hello`, `fire`, `punch`, `enter`, `exit`, `hit`, `horn`, `nick`, `ping`, `leave`, `away` (see "Pausing, leaving and coming back" below).
 - **Server → client:** a binary snapshot every tick, with private state followed by entity records. Only records that changed since the last snapshot are sent; the first sighting also carries a static block. Entities beyond 150 m are refreshed at half rate, and ones that leave interest are listed as removals. Events, roster, clock and profile go as JSON. `src/shared/net/codec.ts` does the encoding.
 - **Interest:** 300 m for vehicles, trams, props and helicopters, 200 m for peds, with 30 m of hysteresis.
 - **Density:** players' cameras are the spawn/despawn observers. Each player's share shrinks as more join (`playerScale`), under global caps (`SERVER_CAPS` × `NPC_SCALE`) and a load governor that thins the city when ticks run over budget.
@@ -167,16 +167,17 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - The client keeps an anonymous UUID and a nickname in `localStorage` (`src/net/identity.ts`). The first Online click asks for the nickname; the pause menu can change it.
 - `server/src/db.ts` uses SQLite (WAL) on the Fly volume and stores only a SHA-256 of the token. It has three tables:
   - `players`: nickname, money, landmarks found, Čumils collected
-  - `sessions`: position, health, armour, weapons, wanted level; valid for 2 h
+  - `sessions`: position, health, armour, weapons, wanted level, the car they were driving; valid for
+    24 h (the wanted level for 30 min)
   - `world`: the clock and weather
 - Dirty profiles are written every 5 s, everyone every 30 s, and again on leave and on SIGTERM.
-- A reconnect within 30 s gets the same figure and car back. After a deploy, the saved session (or, failing that, the position the client sends in `resume`) puts players back where they were.
+- A reconnect within 2 minutes gets the same figure and car back. After a deploy, the saved session (or, failing that, the position the client sends in `resume`) puts players back where they were.
 - **Missions are single-player only.** Online, the phone booths say so.
 
 ### Tests and tools
 - `npm test` runs the codec, simulation, room and persistence tests, `test/shared/traffic.test.ts` (stop signs, bus stops, pulling out round a parked car, and a two-minute soak that no car is stuck in), `test/shared/crowd.test.ts` (bodies, guns, seats, tram stops, fights, witnesses, the new states on the wire), `test/shared/street.test.ts` (islands, bumps, gates), plus `test/shared/world.test.ts`, which drives cars, walks figures and runs trams through the real map with the shared collision code (the UFO, passages, both tunnels, walls and fences, fountains, bollards, both decks of Most SNP, piers and traffic lights, lanes and walking lines clear of walls, cul-de-sacs), and `test/shared/vehicle.test.ts`, which measures the car physics on a test track (top speeds, braking distances, cornering grip, stability).
 - `npm run smoke` runs the offline game in headless Chromium.
-- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart. `E2E_PHASE=social` and `E2E_PHASE=accounts` cover the social features and Supabase accounts (see `docs/deploy.md`).
+- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart. `E2E_PHASE=social`, `E2E_PHASE=accounts` and `E2E_PHASE=presence` cover the social features, Supabase accounts, and pausing, leaving and coming back (see `docs/deploy.md`).
 - `npm run loadtest` and `npm --prefix server run bench` measure capacity.
 
 ## Social features: protocol v7
@@ -403,3 +404,85 @@ server's own SQLite, so a join or a tick never waits on the network.
   base `van` kind's 150 HP rather than its true 600; and derby eliminations and the courier/taxi crash
   check both trust the driving client's *reported* `vehicle.health`, the same way collision damage
   always has online — nothing new validates it server-side.
+
+## Pausing, leaving and coming back
+
+The shared city can't stop for one player, so online the pause menu is a menu over a running city.
+What happens around it (while the menu is open, when a player leaves or drops, and when they come back)
+is planned in [plans/pause-resume.md](plans/pause-resume.md). Where the build differs from that plan,
+this section wins.
+
+### Away and the shield
+- **Away.** A player is away while their pause menu is open (`Game.setPaused`, the one pause path: Esc/P,
+  the touch ❚❚, the pad's Start, the menu's buttons, and the page going hidden), and while dropped
+  within the grace period.
+  - `SimHost.setAway` sends `away` (`server/src/features/Presence.ts`). A socket drop counts too, and a
+    hello starts every connection out playing: a client still in its menu says so again.
+  - Away players show as ⏸ (`ROSTER_AWAY`) and are drawn dimmed. `SimPlayer.active` (`observing &&
+    !away`) leaves them out of `WorldEvents.playerCount()`, the most-wanted pick and a party's payout
+    split. They still observe, so the city keeps living around the menu.
+- **The shield** (`src/shared/sim/rules/Presence.ts`, server only) arms after 3 s away. It needs no stars,
+  no PvP damage given or taken for 15 s (`SimPlayer.lastPvpAt`), and the player in play, not drowning,
+  and not in a burning, sinking or wrecked car. A rule can veto it with `SimRule.allowShield`: `Race`
+  while racing, `Derby` in the live arena or for a participant, `MostWanted` for its target (even below
+  5★), `Kofolka` for the van's driver.
+  - A shielded player shows as 🛡 (`ROSTER_SHIELD`) and gets a private `shield` event (the pause menu
+    says whether they're safe).
+  - Guards: `Sim.hurtPlayer` and `Sim.damageVehicle` do nothing to them (no crime, no kill credit),
+    `Sim.bust` and carjacking (`enterVehicle`) are refused, and `Crowd.provoke` won't start a fight
+    (an ongoing one cools off).
+  - Their own car can't be killed from their own client either: `NetSimHost` drops collision damage
+    while shielded, and `Room.applyReport` ignores a reported fire, wreck or sinking. A car exploding
+    under its driver would otherwise bypass `hurtPlayer`.
+  - It drops the moment they resume, gain a star or a rule vetoes it.
+
+### Leaving
+"Hlavné menu" reads **Odísť z mesta** online. It opens a confirmation of what's kept and what's lost,
+then sends `leave` and loads the plain URL (`goToMenu`, `src/boot/links.ts`).
+- `Room` drops a safe player at once. A player in trouble (stars, or PvP within 15 s:
+  `rules/Presence.ts inTrouble`) stays behind, still vulnerable, for 10 s (`Session.dropAt`, the same
+  path a dropped socket takes).
+- `drop()` first settles a pending death or arrest with `respawn` (hospital or police station, the fee,
+  an arrest's guns). Before, `Store.savePlayers` wrote full health and no stars for any state other
+  than playing, so leaving mid-death beat dying.
+- **The car leaves with its driver.** An ordinary car (not police, no livery, not a mission car, not
+  locked, burning, sinking or wrecked) is saved with the session (`sessions.car`, migration 3) and taken
+  out of the city. On return it parks at the saved spot, or up to 14 m along the street if that's taken
+  (`Room.restoreCar`). It's held for its owner for 5 min (`Vehicle.reservedFor/reservedUntil`,
+  `Sim.reservedFromOthers`), and anyone else trying it hears "Toto auto čaká na iného hráča.".
+  - A reload within the grace period (a hello without `resume`) steps the player out beside their car
+    and holds it the same way.
+- **Party seats** (`server/src/features/Party.ts`). A member who leaves, drops or times out keeps their
+  seat for 15 min: listed offline under a negative stand-in id, which `partyKick` accepts too.
+  - A new session under that key goes straight back in.
+  - Leadership passes to a connected member meanwhile.
+  - A party of held seats alone dissolves when the last one lapses.
+  - A deleted account or a guest claimed into an account (`DropReason` 'deleted' / 'claimed') loses the
+    seat at once.
+
+### Coming back
+- **Grace.** A dropped socket keeps the figure for 2 min (`GRACE_MS`), away and shielded when safe.
+  `Connection.retryNow()` reconnects at once when the page is visible again or the browser is back
+  online.
+- **The URL.** Once connected, `markOnline()` puts `#online` back in the URL (the boot strips it). A
+  reload, a restored tab or a phone reopening a discarded page goes straight back online. Every way to
+  the menu loads the plain URL instead.
+- **The menu.** `src/net/lastSession.ts` remembers the last mode and where the player last was online.
+  With an identity on the device, the menu shows **Pokračovať online · Obchodná · pred 12 min** (first
+  when online was played last), which skips the guest/account chooser.
+- **What's kept.** A saved session resumes for 24 h (`RESUME_MS`), its stars only if it was saved less
+  than 30 min ago (`WANTED_RESUME_MS`). `welcome.resumed` ('live', 'saved' or 'fresh') picks the welcome
+  text.
+- **Idle.** 15 min away moves a player out of the city, saved: `bye: 'idle'`, then a dialog with
+  "Vrátiť sa do mesta". The client doesn't reconnect on its own.
+
+### Wire and tunables
+- **No protocol bump.** Everything above is optional on both sides, so it stayed protocol 7 and the
+  client and server can deploy in either order:
+  - `hello.presence` tells the server the client sends `away` and understands `bye: 'idle'`. Older
+    clients never get the idle timeout.
+  - `welcome.resumed` tells the client the server takes `away`. It never sends `away` to an older server,
+    and the pause menu then says the player can be hurt.
+  - The new roster bits and the `shield` event are ignored by clients that don't know them.
+- **Tunables.** Every time and the shield itself are tunables in `game_config`'s `presence` key (see
+  `docs/deploy.md`), applied through `Presence.apply`. In E2E mode, `debug.presence` sets them too.

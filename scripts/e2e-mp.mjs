@@ -198,7 +198,7 @@ async function main() {
   await browser.close();
 }
 
-if (process.env.E2E_PHASE === 'social' || process.env.E2E_PHASE === 'accounts') {
+if (process.env.E2E_PHASE === 'social' || process.env.E2E_PHASE === 'accounts' || process.env.E2E_PHASE === 'presence') {
   // a different harness shape entirely (its own server env, 2-3 pages, no shared-NPC/restart
   // checks): dispatch to the dedicated script so `E2E_PHASE=<phase> npm run e2e` stays the one
   // entry point (docs/plans/social-events.md). Its own top-level flow runs and exits the process.

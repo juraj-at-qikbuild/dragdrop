@@ -561,7 +561,8 @@ export class Crowd {
    *  able-bodied one who isn't hurt too badly already), else they'll run like everybody else. */
   provoke(p: Ped, pl: SimPlayer): boolean {
     const sim = this.sim;
-    if (!p.fighter || p.health < 45 || p.dead || p.vehicle || pl.state !== 'play') return false;
+    // a shielded player (away and safe, rules/Presence.ts) isn't worth picking a fight with
+    if (!p.fighter || p.health < 45 || p.dead || p.vehicle || pl.state !== 'play' || pl.shielded) return false;
     this.hangUp(p);
     p.goal = null;
     p.waitStop = -1;
@@ -581,8 +582,8 @@ export class Crowd {
     p.timer -= dt;
     const t = pl?.ped;
     const d = t ? dist(p.x, p.y, t.vehicle?.x ?? t.x, t.vehicle?.y ?? t.y) : Infinity;
-    if (!pl || !t || pl.state !== 'play' || p.timer <= 0 || d > 25) {
-      // cooled down (or lost them)
+    if (!pl || !t || pl.state !== 'play' || pl.shielded || p.timer <= 0 || d > 25) {
+      // cooled down (or lost them, or they're shielded: no point swinging at them)
       p.state = 'walk';
       p.targetPid = 0;
       p.link = null;

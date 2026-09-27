@@ -74,7 +74,9 @@ export type PrivateEvent =
   /** money from an event, a job, a bounty… (floating text + HUD counter) */
   | { k: 'payout'; amount: number; reason: string; x: number; y: number }
   /** the server moved this player (party join): snap there and tag reports with the new epoch */
-  | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number };
+  | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number }
+  /** away and safe: nobody can hurt, arrest or carjack this player (rules/Presence.ts) */
+  | { k: 'shield'; on: boolean };
 
 export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 

@@ -484,6 +484,29 @@ button small {
 #pause-extra:empty {
   display: none;
 }
+/* online: the city keeps going while the pause menu is open (src/game/features/PresenceUi.ts) */
+.pause-note {
+  margin: -4px 0 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #b0bec5;
+}
+.pause-note .head,
+.pause-note .status {
+  display: block;
+}
+.pause-note .status:empty {
+  display: none;
+}
+.pause-note .status.ok {
+  color: #69f0ae;
+}
+.pause-note .status.wait {
+  color: #ffd740;
+}
+.pause-note .status.warn {
+  color: #ff8a80;
+}
 
 /* ----------------------------------------------------------------- phones and tablets
    `html.touch` is set by TouchControls.ts. */

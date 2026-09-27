@@ -132,6 +132,9 @@ export interface SimHost {
   styleCash(n: number): void;
   /** host-specific reaction to a private event (before the generic effects) */
   onPrivate(e: PrivateEvent): void;
+  /** the pause menu opened or closed (Game.setPaused): offline nothing to do (the menu freezes the
+   *  world), online the server marks the player away (⏸) and shields them when it's safe */
+  setAway(on: boolean): void;
   persist(): void;
   dispose(): void;
 }

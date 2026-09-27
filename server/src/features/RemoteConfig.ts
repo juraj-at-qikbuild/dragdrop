@@ -4,6 +4,7 @@
 // a bad or absent row skips just that one field, never the whole reload.
 import type { Room } from '../Room';
 import type { Supa } from '../supa';
+import type { Presence, PresenceTuning } from './Presence';
 import type { RoomFeature } from './RoomFeature';
 
 /** world-event tunables (game_config's 'events' key); an absent or malformed field just keeps
@@ -21,9 +22,11 @@ export interface Config {
   voice_requires_account: boolean;
   voice_blocklist: string[];
   events: EventsTuning;
+  /** pausing, leaving and coming back: the shield, the grace period, the idle timeout… */
+  presence: PresenceTuning;
 }
 
-const DEFAULTS: Config = { voice_enabled: true, voice_requires_account: true, voice_blocklist: [], events: {} };
+const DEFAULTS: Config = { voice_enabled: true, voice_requires_account: true, voice_blocklist: [], events: {}, presence: {} };
 const REFRESH_MS = 60_000;
 
 type Row = { key: string; value: unknown };
@@ -90,10 +93,15 @@ export class RemoteConfig implements RoomFeature {
           case 'events':
             if (v && typeof v === 'object' && !Array.isArray(v)) next.events = v as EventsTuning;
             break;
+          case 'presence':
+            if (v && typeof v === 'object' && !Array.isArray(v)) next.presence = v as PresenceTuning;
+            break;
         }
       }
       this.values = next;
       this.applyEvents(next.events);
+      // the Presence feature checks every field itself (out of range: kept as it was)
+      this.room.feature<Presence>('presence')?.apply(next.presence);
       for (const fn of this.listeners) fn(next);
     } catch (e) {
       console.error('remote config: fetch failed, keeping the last known values:', e instanceof Error ? e.message : e);

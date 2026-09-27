@@ -110,10 +110,10 @@ export class WorldEvents implements SimRule {
     this.defs.set(def.kind, def);
   }
 
-  /** players who count: connected and not idle (online), or the one local player */
+  /** players who count: connected, not idle and not away (online), or the one local player */
   playerCount() {
     let n = 0;
-    for (const p of this.sim.players.values()) if (p.observing) n++;
+    for (const p of this.sim.players.values()) if (p.active) n++;
     return n;
   }
 
@@ -188,6 +188,9 @@ export class WorldEvents implements SimRule {
   }
   allowCrime(...args: Parameters<NonNullable<SimRule['allowCrime']>>) {
     return this.active.every((e) => e.allowCrime?.(...args) !== false);
+  }
+  allowShield(...args: Parameters<NonNullable<SimRule['allowShield']>>) {
+    return this.active.every((e) => e.allowShield?.(...args) !== false);
   }
   onState(...args: Parameters<NonNullable<SimRule['onState']>>) {
     for (const e of [...this.active]) e.onState?.(...args);

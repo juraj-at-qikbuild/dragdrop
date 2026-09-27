@@ -5,13 +5,17 @@ import type { MapJSON } from './shared/types';
 import { NetSimHost } from './net/NetSimHost';
 import { clearPendingJoin, JOIN_KEY, loadIdentity, newToken, saveIdentity, type Identity } from './net/identity';
 import { randomNick } from './net/nicknames';
-import { parseBootLinks } from './boot/links';
+import { goToMenu, markOnline, parseBootLinks } from './boot/links';
 import { askNick } from './ui/askNick';
 import { addPauseControl, openModal, setPauseOnline, toast } from './ui/kit/dom';
 import { setting } from './ui/kit/settings';
 import { KEYS } from './game/Input';
 import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
-import { completePasswordReset, consumeClaimPending, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls } from './ui/AccountUi';
+import { continueNote, loadLastPlayed, noteOffline, noteOnline } from './net/lastSession';
+import { LIVERY_NONE } from './shared/entities/Vehicle';
+import {
+  completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
+} from './ui/AccountUi';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -140,8 +144,7 @@ async function boot() {
       const b = document.createElement('button');
       b.textContent = label;
       b.onclick = () => {
-        game.paused = false;
-        game.onPause?.(false);
+        game.setPaused(false);
         game.input.press(code);
       };
       addPauseControl(b, { onlineOnly });
@@ -196,11 +199,13 @@ async function boot() {
     $('menu').classList.remove('hidden');
     $('pause').classList.add('hidden');
     $('btn-continue').classList.toggle('hidden', !Game.hasSave() && !game.save.money);
+    refreshOnlineButton();
     game.audio.setStation(null);
     game.audio.engine(0, 0, false);
     game.audio.siren(0);
   };
-  const startGame = (fresh: boolean) => {
+  /** `welcome`: online, the first message (see onlineWelcome) */
+  const startGame = (fresh: boolean, welcome?: [string, string]) => {
     game.audio.init();
     if (fresh) {
       Game.clearSave();
@@ -215,13 +220,29 @@ async function boot() {
     game.cam.y = game.player.y;
     game.prewarm();
     const t = game.touch;
-    if (game.online) game.message('Vitaj v spoločnom meste', t ? 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (žlté tlačidlo pri aute), mapa: ťukni na minimapu.' : 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.', 6);
-    else if (!game.save.done.length && !game.save.found.length)
+    if (game.online) {
+      const [title, text] = welcome ?? onlineWelcome(null, false);
+      game.message(title, text, 6);
+      return;
+    }
+    noteOffline();
+    if (!game.save.done.length && !game.save.found.length)
       game.message(
         'Vitaj v Bratislave',
         t ? 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.' : 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).',
         7,
       );
+  };
+  /** The first message in the shared city: back where they left off, back in the city, or the
+   *  first-time tips. `resumed`: the server's welcome (null from an older server). */
+  const onlineWelcome = (resumed: NetSimHost['resumed'], returning: boolean): [string, string] => {
+    const t = game.touch;
+    if (resumed === 'saved' || resumed === 'live') return ['Vitaj späť!', 'Pokračuješ tam, kde si skončil.'];
+    if (returning) return ['Vitaj späť v meste', t ? 'Mapa: ťukni na minimapu.' : 'Mapa: M.'];
+    return [
+      'Vitaj v spoločnom meste',
+      t ? 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (žlté tlačidlo pri aute), mapa: ťukni na minimapu.' : 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.',
+    ];
   };
 
   $('btn-new').onclick = () => startGame(!!(Game.hasSave() || game.save.money));
@@ -234,31 +255,81 @@ async function boot() {
     $('panel-credits').classList.toggle('hidden');
     $('panel-controls').classList.add('hidden');
   };
-  $('btn-resume').onclick = () => {
-    game.paused = false;
-    $('pause').classList.add('hidden');
-  };
+  $('btn-resume').onclick = () => game.setPaused(false);
   $('btn-mute').onclick = () => {
     game.audio.setMuted(!game.audio.muted);
     $('btn-mute').textContent = game.audio.muted ? 'Zvuk: vypnutý' : 'Zvuk: zapnutý';
   };
   $('btn-quit').onclick = () => {
-    game.paused = false;
-    if (game.online) {
-      // leave the shared world and come back to a fresh offline menu
-      game.host.dispose();
-      location.reload();
-      return;
-    }
+    // online it reads "Odísť z mesta": leaving the shared city, after saying what that keeps
+    if (game.online) return confirmLeave();
+    game.setPaused(false);
     game.persist();
     showMenu();
   };
   // --------------------------------------------------------------- online
   const btnOnline = $('btn-online');
+  const menuButtons = btnOnline.parentElement!;
+  /** "Online" for a new player; "Pokračovať online · Obchodná · pred 12 min" on a device that has
+   *  played online before, first in the menu when online is what it played last */
+  function refreshOnlineButton() {
+    if (!SERVER_URL) return;
+    const known = hasOnlineIdentity();
+    const last = loadLastPlayed();
+    const small = document.createElement('small');
+    small.textContent = ` · ${(known && continueNote(last)) || 'spoločné mesto'}`;
+    btnOnline.replaceChildren(known ? 'Pokračovať online' : 'Online', small);
+    if (known && last?.mode === 'online') menuButtons.prepend(btnOnline);
+    else menuButtons.insertBefore(btnOnline, $('btn-controls'));
+  }
   if (SERVER_URL) btnOnline.classList.remove('hidden');
   btnOnline.onclick = () => {
     game.audio.init();
-    openChooser(); // guest is the default/only option when accounts are off or already resolved
+    // a device that has played online goes straight back; a new one picks guest or account first
+    if (hasOnlineIdentity()) continueOnline();
+    else openChooser(); // guest is the default/only option when accounts are off or already resolved
+  };
+  /** where the player is now, for the menu's "Pokračovať online · Obchodná" */
+  const placeOf = () => game.street.name || game.quarter || game.district || '';
+  /** what leaving keeps and what it ends, going by what the player is in the middle of */
+  const leaveLines = (): string[] => {
+    const host = game.host;
+    // a server that holds party seats, brings cars back and makes a wanted player wait
+    const kept = host instanceof NetSimHost && host.serverPresence;
+    const lines = ['Peniaze, zbrane a miesto sa uložia. Keď sa vrátiš, pokračuješ tu.'];
+    const car = game.player.vehicle;
+    if (kept && car && car.kind !== 'police' && car.livery === LIVERY_NONE && !car.mission) lines.push('Auto odíde s tebou a počká na teba.');
+    if (host.live.party) lines.push(kept ? 'Partia ti podrží miesto 15 minút.' : 'Z partie odídeš.');
+    if (host.live.race) lines.push('Rozbehnutý závod prehráš.');
+    if (host.live.job) lines.push('Práca sa skončí.');
+    if (kept && game.state === 'downed') lines.push('Ležíš zranený: odchodom skončíš v nemocnici.');
+    else if (kept && game.wanted > 0) lines.push('Si hľadaný: tvoja postava zostane v meste ešte 10 sekúnd.');
+    return lines;
+  };
+  const confirmLeave = () => {
+    const body = document.createElement('div');
+    for (const line of leaveLines()) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = line;
+      body.appendChild(p);
+    }
+    openModal({
+      title: 'Odísť z mesta?',
+      body,
+      buttons: [
+        {
+          label: 'Odísť z mesta',
+          primary: true,
+          onClick: () => {
+            noteOnline(placeOf());
+            game.host.dispose(); // sends `leave`
+            goToMenu();
+          },
+        },
+        { label: 'Zostať', onClick: () => {} },
+      ],
+    });
   };
   const btnNick = $('btn-nick');
   btnNick.onclick = async () => {
@@ -316,16 +387,22 @@ async function boot() {
         why === 'version' ? 'Nová verzia hry – obnov stránku.' : why === 'full' ? 'Server je plný. Skús to neskôr.' : 'Server je nedostupný. Skús to neskôr.';
       const back = document.createElement('button');
       back.textContent = 'Späť do menu';
-      back.onclick = () => location.reload();
+      back.onclick = () => goToMenu();
       $('loading').appendChild(back);
       return;
     }
     game.setHost(session);
+    // from here a reload (or a restored tab) comes straight back online
+    markOnline();
+    const last = loadLastPlayed();
+    // the HUD doesn't know the street yet: keep the last one until the next note (every 10 s)
+    noteOnline(last?.online?.place ?? '');
     btnNick.classList.remove('hidden');
+    $('btn-quit').textContent = 'Odísť z mesta';
     setPauseOnline(true);
     void wireAccountPauseControls(game);
     $('loading').classList.add('hidden');
-    startGame(false);
+    startGame(false, onlineWelcome(session.resumed, !!last?.online));
   };
   game.onPause = (p) => $('pause').classList.toggle('hidden', !p);
 
@@ -359,6 +436,23 @@ async function boot() {
   requestAnimationFrame(frame);
 
   addEventListener('beforeunload', () => game.persist());
+  // The page going hidden (another tab, the phone's home screen) opens the pause menu, online and
+  // offline: online the server then knows the player is away. Back in view, the menu is waiting, and a
+  // dropped connection retries at once rather than after its backoff.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (mode === 'play') game.setPaused(true);
+    } else if (game.host instanceof NetSimHost) game.host.retryNow();
+  });
+  addEventListener('online', () => {
+    if (game.host instanceof NetSimHost) game.host.retryNow();
+  });
+  // where they are in the shared city, for the menu's "Pokračovať online" next time
+  const noteHere = () => {
+    if (mode === 'play' && game.online?.status.state === 'online') noteOnline(placeOf());
+  };
+  setInterval(noteHere, 10_000);
+  addEventListener('pagehide', noteHere);
   // browsers only allow audio after a user gesture
   const unlock = () => mode === 'play' && game.audio.init();
   addEventListener('keydown', unlock);

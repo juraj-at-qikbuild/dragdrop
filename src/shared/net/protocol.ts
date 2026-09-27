@@ -15,7 +15,10 @@ import type { DailyState, EventEntry, EventKind, JobKind } from '../sim/rules/ty
  *  v5: levels include 2 (an upper bridge deck), and the city's colliders changed (fountains,
  *  monuments and bollards; lanes fitted to the streets), which client and server must agree on.
  *  v7: world events, parties, accounts, revive, races, jobs, the daily puzzle and voice chat
- *  (docs/plans/social-events.md): new messages, a downed player state, liveries, the golden Čumil. */
+ *  (docs/plans/social-events.md): new messages, a downed player state, liveries, the golden Čumil.
+ *  Pausing and coming back (docs/plans/pause-resume.md) added only optional fields and messages that
+ *  either side can do without, so it stayed v7: `hello.presence` says a client sends `away` and
+ *  understands `bye: 'idle'`, and `welcome.resumed` says the server takes `away`. */
 export const PROTOCOL_VERSION = 7;
 
 /** server simulation / snapshot rate */
@@ -24,6 +27,9 @@ export const TICK_HZ = 20;
 export const INTERP_DELAY_MS = 100;
 /** client state upload rate */
 export const STATE_HZ = 20;
+/** a player who comes back within this long starts where they left (their spot, health, weapons,
+ *  car); later, on the square. Also what the main menu's "Pokračovať online" promises. */
+export const RESUME_MS = 24 * 60 * 60 * 1000;
 
 export type { WeaponId };
 
@@ -58,6 +64,9 @@ export interface HelloMsg {
   auth?: string;
   /** with `auth`: move this device's guest progress (`token`) into the account (once, into an empty one) */
   claim?: boolean;
+  /** this client reports `away` and understands `bye: 'idle'` (older clients don't send it, and are
+   *  never timed out for being idle) */
+  presence?: boolean;
 }
 
 /** WebRTC signalling relayed between two paired players (the server only checks who may talk to whom) */
@@ -97,6 +106,10 @@ export type ClientMsg =
   | { t: 'nick'; nick: string }
   | { t: 'ping'; ct: number }
   | { t: 'leave' }
+  /** the pause menu opened or closed (or the page went hidden): the city keeps going either way, but
+   *  an away player shows as ⏸ and, when it's safe, can't be hurt (docs/plans/pause-resume.md). Sent
+   *  only to a server whose welcome carried `resumed`. */
+  | { t: 'away'; on: boolean }
   // ---- social features (docs/plans/social-events.md)
   /** mint (or re-send) this player's party invite code */
   | { t: 'partyInvite' }
@@ -127,6 +140,9 @@ export type ClientMsg =
       teleport?: [number, number];
       /** make today's puzzle a spot here (tests) */
       daily?: { x: number; y: number; r: number };
+      /** override the presence tunables (server/src/features/Presence.ts PresenceTuning), e.g. a short
+       *  idle timeout for the e2e */
+      presence?: Record<string, number | boolean>;
     };
 
 // ------------------------------------------------------------ server → client (JSON)
@@ -153,6 +169,10 @@ export interface WelcomeMsg {
   account: boolean;
   /** hello.claim was honoured: the guest progress moved into the account */
   claimed?: boolean;
+  /** how this player came back: 'live' (their figure was still in the city: a reconnect, another
+   *  tab), 'saved' (restored from their last session), 'fresh' (a new start on the square). Servers
+   *  from before docs/plans/pause-resume.md leave it out, and don't take `away`. */
+  resumed?: 'live' | 'saved' | 'fresh';
 }
 
 export interface ClockSync {
@@ -182,6 +202,10 @@ export type RosterRow = [number, string, number, number, number, 0 | 1, number, 
 export const ROSTER_DOWNED = 1;
 export const ROSTER_VOICE = 2;
 export const ROSTER_ACCOUNT = 4;
+/** paused, the page hidden, or disconnected and still in the city (⏸) */
+export const ROSTER_AWAY = 8;
+/** away and safe: nobody can hurt, arrest or carjack them (🛡) */
+export const ROSTER_SHIELD = 16;
 /** a party's name tag: [partyId, tag, colour] */
 export type PartyTag = [number, string, string];
 
@@ -205,7 +229,8 @@ export type ServerMsg =
   /** the server rejected an impossible move: go back to this position */
   | { t: 'correct'; x: number; y: number }
   | { t: 'error'; code: ErrorCode }
-  | { t: 'bye'; reason: 'restart' | 'replaced' | 'kicked' | 'deleted' }
+  /** idle: away too long, moved out of the city and saved (only to a client whose hello had `presence`) */
+  | { t: 'bye'; reason: 'restart' | 'replaced' | 'kicked' | 'deleted' | 'idle' }
   | WevMsg
   // ---- voice chat: who to connect to (polite: yield on offer collisions), ICE servers, relayed signals
   | { t: 'voicePeers'; add: { id: number; polite: boolean }[]; del: number[] }

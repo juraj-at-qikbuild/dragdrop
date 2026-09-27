@@ -241,10 +241,10 @@ async function reloadOnline(page, { session, claimPending } = {}) {
       [session ?? null, !!claimPending],
     );
   }
-  // main.ts strips '#online' from the URL right after its first boot (history.replaceState), and
-  // navigating to a URL that only differs by hash from the current one is a same-document
-  // hash-only navigation in the browser — it fires hashchange but never re-runs boot(). Go via a
-  // blank page first so the next goto is a genuine, fresh load.
+  // main.ts strips '#online' from the URL at boot and puts it back once connected (markOnline), and
+  // navigating to a URL that differs only by hash from the current one (or not at all) is a
+  // same-document navigation in the browser — it never re-runs boot(). Go via a blank page first so
+  // the next goto is a genuine, fresh load.
   await page.goto('about:blank');
   await page.goto(`${ORIGIN}/#online`);
 }
