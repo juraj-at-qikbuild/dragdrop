@@ -9,6 +9,7 @@ import { Sim } from '../shared/sim/Sim';
 import type { WorldEvents } from '../shared/sim/rules/WorldEvents';
 import type { Jobs } from '../shared/sim/rules/jobs/Jobs';
 import type { JobKind } from '../shared/sim/rules/types';
+import type { ShopReq, Shops } from '../shared/sim/rules/Shops';
 import { applyLive, emptyLive, type SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
@@ -25,6 +26,11 @@ export class LocalSimHost implements SimHost {
     this.sim = new Sim(world, { events, clock, driveClock: false, rules: 'offline', randomSpawn: true });
     this.me = this.sim.addPlayer({ nick: 'Ty', profile, kinematic: false });
     this.sim.onProfileChange = () => this.save();
+    this.live.catalog = this.shops?.prices ?? null;
+  }
+
+  private get shops() {
+    return this.sim.rule<Shops>('shops');
   }
 
   get vehicles() {
@@ -110,6 +116,10 @@ export class LocalSimHost implements SimHost {
 
   bribe() {
     this.sim.bribe(this.me);
+  }
+
+  shop(req: ShopReq) {
+    this.shops?.act(this.me, req);
   }
 
   onPrivate(e: PrivateEvent) {

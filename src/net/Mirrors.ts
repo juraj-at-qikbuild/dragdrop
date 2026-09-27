@@ -1,7 +1,7 @@
 // Client-side copies of the server's entities. Each mirror is a real Vehicle/Ped/Tram/… instance (so the
 // normal drawing code works unchanged) posed every frame from interpolated snapshots.
 import { Vehicle, SPECS } from '../shared/entities/Vehicle';
-import { Ped, setPlayerLook, applyAppearance } from '../shared/entities/Ped';
+import { Ped, setPlayerLook, setPlayerHat, applyAppearance } from '../shared/entities/Ped';
 import { Tram } from '../shared/entities/Tram';
 import { Prop } from '../shared/entities/Props';
 import { Helicopter } from '../shared/entities/Helicopter';
@@ -157,6 +157,8 @@ export class Mirrors {
       m.obj.mission = !!r.mission;
       m.obj.livery = r.livery ?? 0;
       m.obj.owner = r.owner ?? 0;
+      // of a car's tuning only the neon shows (the rest is its driver's business)
+      m.obj.mods.glow = r.glow ?? 0;
     }
     m.rec = r;
     m.level = level;
@@ -180,12 +182,14 @@ export class Mirrors {
     const p = m.obj;
     if (full) {
       p.playerId = r.playerId ?? 0;
-      if (p.playerId) setPlayerLook(p, r.look ?? 0);
       const outfit = r.swat ? 'swat' : p.kind === 'cop' ? 'police' : p.outfit;
       if (outfit !== p.outfit) {
         p.outfit = outfit;
         applyAppearance(p);
-        if (p.playerId) setPlayerLook(p, r.look ?? 0);
+      }
+      if (p.playerId) {
+        setPlayerLook(p, r.look ?? 0);
+        setPlayerHat(p, r.hat ?? 0);
       }
     }
     // keep the player-only fields: they're only present on player records

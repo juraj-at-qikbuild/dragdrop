@@ -174,6 +174,10 @@ async function main() {
   const phase = Number(process.env.E2E_PHASE ?? 3);
   if (phase >= 2) await import('./e2e-phase2.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
   if (phase >= 3) await import('./e2e-phase3.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
+  // the shops (docs/plans/gameplay.md, Phase 2), last: they take the players round the city (and put
+  // them, and A's money, back as they were). E2E_SHOPS=0 leaves them out
+  const shops = process.env.E2E_SHOPS !== '0';
+  if (shops) await import('./e2e-shops.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
 
   // server restart (fly deploy): both clients reconnect by themselves
   log('restarting server…');
@@ -185,6 +189,7 @@ async function main() {
   check(await online(A, 1), 'A reconnected after a server restart');
   check(await online(B, 1), 'B reconnected after a server restart');
   if (phase >= 3) await import('./e2e-phase3.mjs').then((m) => m.afterRestart({ A, B, check, log, sleep, waitFor }));
+  if (shops) await import('./e2e-shops.mjs').then((m) => m.afterRestart({ A, B, check, log, sleep, waitFor }));
 
   // offline play is untouched: no socket, local NPCs
   const C = await openPlayer(browser, null, 'Offline', errors);

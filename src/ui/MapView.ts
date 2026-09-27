@@ -34,6 +34,8 @@ const ICON_BG: Record<string, string> = {
   // social features' markers (docs/plans/social-events.md)
   kofolka: '#b71c1c', goldenCumil: '#ffc400', armored: '#455a64', derby: '#ff6f00', wanted: '#8e0000', party: '#7c4dff',
   vlk: '#2e7d32', hopik: '#f9a825', race: '#263238', daily: '#0277bd', revive: '#d32f2f', voice: '#00acc1',
+  // the shops (docs/plans/gameplay.md, Phase 2)
+  guns: '#bf360c', clothes: '#ad1457', lawyer: '#4e342e', tuning: '#0277bd', garage: '#33691e',
 };
 
 interface Label {
@@ -855,7 +857,8 @@ export type MapIcon =
   | 'phone' | 'star' | 'starFound' | 'police' | 'fuel' | 'hospital'
   | 'food' | 'cafe' | 'bar' | 'pharmacy' | 'museum' | 'theatre' | 'church' | 'library' | 'view'
   | 'grocery' | 'bakery' | 'bank' | 'post' | 'hotel' | 'wc' | 'taxi' | 'tram'
-  | 'kofolka' | 'goldenCumil' | 'armored' | 'derby' | 'wanted' | 'party' | 'vlk' | 'hopik' | 'race' | 'daily' | 'revive' | 'voice';
+  | 'kofolka' | 'goldenCumil' | 'armored' | 'derby' | 'wanted' | 'party' | 'vlk' | 'hopik' | 'race' | 'daily' | 'revive' | 'voice'
+  | 'guns' | 'clothes' | 'lawyer' | 'tuning' | 'garage';
 
 /** A pulsing ring: a light fill inside a dashed (or solid) stroke that shimmers gently with `t`
  *  (seconds, e.g. `game.time`). Extracted from the police search zone so event/hint zones can reuse it. */
@@ -1147,9 +1150,58 @@ function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k
       ctx.lineTo(x + s * 0.35, y + s * 0.85);
       ctx.stroke();
       return;
+    // ---- the shops (docs/plans/gameplay.md, Phase 2)
+    case 'guns': // a pistol, pointing left
+      ctx.fillRect(x - s * 0.9, y - s * 0.55, s * 1.75, s * 0.42);
+      ctx.moveTo(x + s * 0.2, y - s * 0.2);
+      ctx.lineTo(x + s * 0.8, y - s * 0.2);
+      ctx.lineTo(x + s * 0.6, y + s * 0.8);
+      ctx.lineTo(x + s * 0.05, y + s * 0.8);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    case 'clothes': // a T-shirt
+      ctx.moveTo(x - s * 0.35, y - s * 0.8);
+      ctx.lineTo(x - s * 0.95, y - s * 0.45);
+      ctx.lineTo(x - s * 0.7, y + s * 0.02);
+      ctx.lineTo(x - s * 0.48, y - s * 0.12);
+      ctx.lineTo(x - s * 0.48, y + s * 0.82);
+      ctx.lineTo(x + s * 0.48, y + s * 0.82);
+      ctx.lineTo(x + s * 0.48, y - s * 0.12);
+      ctx.lineTo(x + s * 0.7, y + s * 0.02);
+      ctx.lineTo(x + s * 0.95, y - s * 0.45);
+      ctx.lineTo(x + s * 0.35, y - s * 0.8);
+      ctx.lineTo(x, y - s * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    case 'tuning': // a spanner
+      ctx.lineWidth = Math.max(1, r * 0.26);
+      ctx.moveTo(x - s * 0.7, y + s * 0.7);
+      ctx.lineTo(x + s * 0.2, y - s * 0.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + s * 0.42, y - s * 0.42, s * 0.42, Math.PI * 0.95, Math.PI * 2.55);
+      ctx.stroke();
+      return;
+    case 'garage': // a house with its door
+      ctx.moveTo(x - s * 0.95, y - s * 0.05);
+      ctx.lineTo(x, y - s * 0.9);
+      ctx.lineTo(x + s * 0.95, y - s * 0.05);
+      ctx.lineTo(x + s * 0.95, y + s * 0.85);
+      ctx.lineTo(x - s * 0.95, y + s * 0.85);
+      ctx.closePath();
+      ctx.fill();
+      // the door, in the badge's colour with a white slat or two
+      const white = ctx.fillStyle;
+      ctx.fillStyle = color ?? ICON_BG.garage;
+      ctx.fillRect(x - s * 0.5, y + s * 0.05, s, s * 0.8);
+      ctx.fillStyle = white;
+      for (const k of [0.25, 0.5]) ctx.fillRect(x - s * 0.5, y + s * (0.05 + k), s, s * 0.1);
+      return;
   }
   // everything else: a letter
-  const letter: Record<string, string> = { hotel: 'H', bank: '€', post: '✉', bakery: 'P', wc: 'WC', taxi: 'T', tram: 'Z', police: 'P' };
+  const letter: Record<string, string> = { hotel: 'H', bank: '€', post: '✉', bakery: 'P', wc: 'WC', taxi: 'T', tram: 'Z', police: 'P', lawyer: '§' };
   ctx.font = `800 ${Math.round(r * (kind === 'wc' ? 0.9 : 1.25))}px ${BODY}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

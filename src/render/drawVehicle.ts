@@ -5,7 +5,14 @@ import type { LightLayer } from '../world/Lighting';
 import { LIVERY_ARMORED, LIVERY_DERBY, LIVERY_KOFOLKA, LIVERY_NONE, type Vehicle } from '../shared/entities/Vehicle';
 import { clamp } from '../shared/util/math';
 import { shade } from '../shared/util/color';
+import { NEONS } from '../shared/sim/shops/catalog';
 import { roundRect } from './shapes';
+
+/** '#rrggbb' at alpha `a` */
+function rgba(hex: string, a: number) {
+  const c = parseInt(hex.slice(1), 16);
+  return `rgba(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255},${a})`;
+}
 
 /** brake lights: players' cars only (traffic's constant light dabs on the brakes flashed red like a
  *  police car's lights) */
@@ -37,6 +44,12 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 
   const dmg = v.dmg;
   const k = Math.max(atmos.night, atmos.rain * 0.5);
+  // neon underglow (the Dielňa, docs/plans/gameplay.md Phase 2): lights the street around the car
+  if (v.mods.glow > 0 && k > 0.02) {
+    const c = NEONS[v.mods.glow];
+    L.glow(v.x, v.y, s.length * 0.7, c, 0.75 * k);
+    L.point(v.x, v.y, s.length * 0.55, c, 0.5 * k);
+  }
   if (k > 0.02 && dmg.front <= 0.7) {
     L.cone(noseX, noseY, v.angle, 16, 0.35, '#fff1c8', k);
     L.point(noseX + rx * hw, noseY + ry * hw, 1.8, '#fff1c8', 0.65 * k);
@@ -104,6 +117,22 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   ctx.fillStyle = `rgba(0,0,0,${salpha})`;
   roundRect(ctx, -L / 2 + sx, -W / 2 + sy, L, W, 0.4);
   ctx.fill();
+  // neon underglow (the Dielňa, docs/plans/gameplay.md Phase 2): a pool of colour under the car,
+  // stronger after dark (when emitVehicleLights lights the street with it too)
+  if (v.mods.glow > 0 && !v.wrecked) {
+    const rx = L / 2 + 0.7, ry = W / 2 + 0.7;
+    const c = NEONS[v.mods.glow];
+    ctx.save();
+    ctx.scale(1, ry / rx);
+    const gr = ctx.createRadialGradient(0, 0, rx * 0.4, 0, 0, rx);
+    gr.addColorStop(0, rgba(c, 0.6 + 0.3 * night));
+    gr.addColorStop(1, rgba(c, 0));
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
   if (lift > 0.01) ctx.scale(1 + lift * 0.06, 1 + lift * 0.06);
 
   // wheels (front pair steers)

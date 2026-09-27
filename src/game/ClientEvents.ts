@@ -183,6 +183,15 @@ export class ClientEvents implements SimEvents {
       case 'tyres':
         g.audio.snap();
         break;
+      // the shops (docs/plans/gameplay.md, Phase 2): a purchase rings the till; a car parked in the
+      // garage takes its engine and radio with it
+      case 'shop':
+        if (e.ok) g.audio.cash();
+        break;
+      case 'stored':
+        g.audio.setStation(null);
+        g.audio.engine(0, 0, false);
+        break;
     }
     for (const f of g.features) f.onPrivate?.(e);
   }

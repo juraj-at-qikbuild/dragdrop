@@ -11,7 +11,7 @@ export const BOARD_INFO: Record<BoardId, { label: string; icon: string; about: s
   police: { label: 'Na úteku', icon: '🚨', about: 'Útek polícii, prežitie ako Najhľadanejší a zničené policajné autá.' },
   jobs: { label: 'Práca', icon: '🍔', about: 'Vlk kuriér a Hopík taxi, aj tesné obchádzky počas jazdy.' },
   races: { label: 'Závody', icon: '🏁', about: 'Vyhrané Závody? – dôjsť do cieľa prvý, nie kontumačne.' },
-  city: { label: 'Mesto', icon: '🗺️', about: 'Kde to je?, objavené pamiatky a skrytí Čumili.' },
+  city: { label: 'Mesto', icon: '🗺️', about: 'Kde to je?, objavené pamiatky, skrytí Čumili a zbierka áut.' },
   help: { label: 'Pomoc', icon: '✚', about: 'Hráči postavení na nohy (Dobrý samaritán).' },
 };
 
@@ -26,7 +26,7 @@ export function pointsHelp(): string[] {
     `Najhľadanejší: +${P.wanted} b za minútu na 5★, +${P.escape} b za útek · lovec: ${P.bounty} b + 1 b za každých €${Math.round(1 / P.bountyPerDollar)} odmeny`,
     `Hon na Čumila: +${P.cumil} b · Obrnené auto: +${P.robbery} b za lúpež, +${P.loot} b za balík peňazí`,
     `Útek polícii (naháňačka aspoň ${GETAWAY_MIN_S} s): ${P.getaway.slice(1).join(' / ')} b podľa hviezd · zničené policajné auto +${P.takedown} b`,
-    `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b`,
+    `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b · zbierka áut (všetkých 8 druhov) +${P.collection} b`,
     `Postaviť hráča na nohy: +${P.samaritan} b`,
     'Partia sa delí o body z udalostí a práce rovnako ako o peniaze. Body sa rátajú iba online.',
   ];

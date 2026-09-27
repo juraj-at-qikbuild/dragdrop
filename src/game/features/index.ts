@@ -12,6 +12,7 @@ import { PoliceUi } from './PoliceUi';
 import { PresenceUi } from './PresenceUi';
 import { RaceUi } from './RaceUi';
 import { ReviveUi } from './ReviveUi';
+import { ShopsUi } from './ShopsUi';
 import { VoiceFeature } from './voice/VoiceFeature';
 
 export type { ClientFeature };
@@ -30,5 +31,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new LeaderboardUi(g));
   out.push(new ActivitiesUi(g));
   out.push(new PoliceUi(g));
+  out.push(new ShopsUi(g));
   return out;
 }

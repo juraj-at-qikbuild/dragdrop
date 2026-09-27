@@ -2,7 +2,8 @@
 // simulation running in the page (offline) or the shared world on the server (online, see src/net/).
 import { World, type Level } from '../shared/world/World';
 import { Renderer, type View } from '../world/Renderer';
-import { Input } from './Input';
+import { Input, PAD_PRESS } from './Input';
+import { isModalOpen, padNavigate, type PadNav } from '../ui/kit/dom';
 import { Juice } from './Juice';
 import { Audio } from '../audio/Audio';
 import type { WeaponId } from '../shared/entities/Ped';
@@ -44,6 +45,7 @@ import { ClientEvents } from './ClientEvents';
 import { LocalSimHost } from './LocalSimHost';
 import type { SimHost } from './SimHost';
 import { createClientFeatures, type ClientFeature } from './features';
+import { cleanGear } from '../shared/sim/shops/gear';
 
 /** the offline save: the local player's profile plus the time of day */
 export type SaveData = Profile;
@@ -345,6 +347,8 @@ export class Game {
     } catch {
       /* storage unavailable: play without saving */
     }
+    // what money bought, checked field by field (a hand-edited or older save keeps the rest)
+    if (save.gear !== undefined) save.gear = cleanGear(save.gear);
     return save;
   }
   persist() {
@@ -427,10 +431,15 @@ export class Game {
     if (this.state !== 'play' || this.showMap || this.paused) return null;
     const v = p.vehicle;
     if (v) {
-      // a spray shop just ahead
+      // a spray shop just ahead: on the run it resprays at once; otherwise it's a workshop (the
+      // shops, docs/plans/gameplay.md Phase 2), except on a server from before them
       if (v.speed > 3)
         for (const f of this.world.pois('fuel'))
-          if (dist(f.x, f.y, v.x, v.y) < 26) return { use: false, text: this.wanted > 0 ? 'Zastav v striekarni: nový lak, polícia ťa stratí (€250)' : 'Zastav v striekarni: nový lak a oprava (€250)' };
+          if (dist(f.x, f.y, v.x, v.y) < 26)
+            return {
+              use: false,
+              text: this.wanted > 0 ? 'Zastav v striekarni: nový lak, polícia ťa stratí (€250)' : this.host.live.catalog ? 'Zastav v dielni: lak, oprava, tuning' : 'Zastav v striekarni: nový lak a oprava (€250)',
+            };
       return v.speed < 1 ? { use: true, text: 'Vystúpiť' } : null;
     }
     const car = this.findEnterable();
@@ -478,6 +487,10 @@ export class Game {
     if (this.showMap && !this.paused) this.mapView.update(dt);
     // the shared world can't be paused: online, the menus just take the controls away
     const frozen = this.paused || this.showMap;
+    // a panel open over the game (a shop, the Aktivity…) takes the controls: the keyboard is its own
+    // (openModal), and the pad moves around it instead of the player
+    const modal = isModalOpen();
+    if (modal) this.padModal(dt);
     if (frozen && host.allowsPause) {
       this.audio.engine(0, 0, false);
       this.audio.siren(0);
@@ -494,9 +507,9 @@ export class Game {
     dt = host.allowsTimeScale ? dtReal * this.juice.timeScale(dtReal) : dtReal;
 
     if (host.me.state === 'play') {
-      if (frozen) this.idlePlayer(dt);
+      if (frozen || modal) this.idlePlayer(dt);
       else this.updatePlayer(dt);
-    } else if (host.me.state === 'downed' && !frozen) this.crawlPlayer(dt);
+    } else if (host.me.state === 'downed' && !frozen && !modal) this.crawlPlayer(dt);
     // the pad's button legend: when it's picked up, and on getting in or out of a car
     const pad = inp.pad.active, inCar = !!this.player.vehicle;
     if (pad && (!this.padWas || inCar !== this.carWas)) this.padHints = this.padWas ? 5 : 9;
@@ -707,6 +720,32 @@ export class Game {
         out.push({ key: aimKey(v.id, true), x: v.x, y: v.y, threat: true, player: false });
       }
     return out;
+  }
+
+  /** the stick's direction in a panel last frame, and when holding it moves on again (s) */
+  private stickDir: PadNav | null = null;
+  private stickRepeat = 0;
+
+  /** A panel is open: the pad's d-pad or left stick moves between its controls, A presses one, B
+   *  closes it (padNavigate). The keys those buttons also stand in for are swallowed, so a feature
+   *  doesn't take the same press for its own (the d-pad's radio, jobs, the Aktivity panel). */
+  private padModal(dt: number) {
+    const inp = this.input;
+    if (!inp.pad.active) {
+      this.stickDir = null;
+      return;
+    }
+    let dir: PadNav | null = inp.padHit(12) ? 'up' : inp.padHit(13) ? 'down' : inp.padHit(14) ? 'left' : inp.padHit(15) ? 'right' : null;
+    const { lx, ly } = inp.pad;
+    const stick: PadNav | null = Math.abs(ly) > 0.6 && Math.abs(ly) >= Math.abs(lx) ? (ly < 0 ? 'up' : 'down') : Math.abs(lx) > 0.6 ? (lx < 0 ? 'left' : 'right') : null;
+    if (stick && stick !== this.stickDir) (dir ??= stick), (this.stickRepeat = 0.4);
+    else if (stick && (this.stickRepeat -= dt) <= 0) (dir ??= stick), (this.stickRepeat = 0.15);
+    this.stickDir = stick;
+    const ok = inp.padHit(0), back = inp.padHit(1);
+    for (const [i, code] of Object.entries(PAD_PRESS)) if (+i !== 9 && +i !== 8) inp.hit(code);
+    if (dir) padNavigate(dir);
+    if (ok) padNavigate('ok');
+    if (back) padNavigate('back');
   }
 
   /** online with a menu open: the player stands still / brakes, but the world keeps going */

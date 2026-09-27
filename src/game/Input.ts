@@ -20,6 +20,8 @@ export class Input {
   /** pad buttons held down as keys (see PAD_HELD) */
   private padKeys = new Set<string>();
   private padButtons: boolean[] = [];
+  /** pad buttons pressed since the last frame, by index (a menu reads them: padHit) */
+  private padPressed = new Set<number>();
 
   constructor(canvas: HTMLCanvasElement) {
     addEventListener('keydown', (e) => {
@@ -111,6 +113,13 @@ export class Input {
 
   endFrame() {
     this.pressed.clear();
+    this.padPressed.clear();
+  }
+
+  /** true once per press of pad button `i` (standard mapping: 0 A, 1 B, 12–15 the d-pad up, down,
+   *  left, right), whatever key it also stands in for */
+  padHit(i: number) {
+    return this.padPressed.delete(i);
   }
 
   /** Read the gamepad (call once a frame, before reading input). Buttons act as the keys they stand
@@ -139,6 +148,7 @@ export class Input {
       this.padButtons[i] = b.pressed;
       if (!b.pressed) return;
       any = true;
+      if (!was) this.padPressed.add(i);
       if (!was && PAD_PRESS[i]) this.pressed.add(PAD_PRESS[i]);
       if (PAD_HELD[i]) this.padKeys.add(PAD_HELD[i]);
     });
@@ -190,6 +200,6 @@ export const KEYS = {
 /** Standard-mapping pad buttons that press a key once: Y enter/exit, X horn, B next weapon, Start
  *  pause, Back map, d-pad up radio, d-pad down the Aktivity panel, d-pad right next weapon, d-pad
  *  left jobs. */
-const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: KEYS.activities, 14: KEYS.jobs, 15: 'KeyQ' };
+export const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: KEYS.activities, 14: KEYS.jobs, 15: 'KeyQ' };
 /** ...and ones held like a key: A sprint (nitro in a car), RB handbrake, LB nitro, L3 push-to-talk */
 const PAD_HELD: Record<number, string> = { 0: 'ShiftLeft', 4: 'ShiftLeft', 5: 'Space', 10: KEYS.talk };

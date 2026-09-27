@@ -1,6 +1,6 @@
-// What the police are looking for, in Slovak (docs/plans/gameplay.md, Phase 1): a car's colour and
-// model, declined the way a sentence needs them ("Hľadajú červenú Felíciu", "…biely autobus"), and
-// the police radio's lines. Pure (no DOM), so test/client/police.test.ts can check the grammar.
+// What the police are looking for, in Slovak (docs/plans/gameplay.md, Phases 1 and 2): a car's colour
+// and model, or the clothes of someone on foot, declined the way a sentence needs them ("Hľadajú
+// červenú Felíciu", "…biely autobus", "…modrú bundu so šiltovkou"), and the police radio's lines. Pure (no DOM), so test/client/police.test.ts can check the grammar.
 import type { VehicleKind } from '../../../shared/entities/Vehicle';
 
 type Gender = 'f' | 'm' | 'n';
@@ -68,6 +68,12 @@ function adjective(color: string, g: Gender, acc: boolean) {
   return stem + (short ? ({ ý: 'y', é: 'e', ú: 'u', á: 'a' } as Record<string, string>)[end] : end);
 }
 
+/** a colour as an adjective, masculine or feminine: "červený", "biela" (the workshop's paints, "červený
+ *  lak", and the Butik's jackets, "biela": the same words the police will use for them) */
+export function colorWord(hex: string, g: 'm' | 'f' = 'm'): string {
+  return adjective(hex, g, false);
+}
+
 /** "červenú Felíciu", "biely autobus", "oranžové Porše": whom the police look for (accusative).
  *  The police car keeps its own name (its livery says it all). */
 export function describeCar(kind: VehicleKind, color: string): string {
@@ -83,9 +89,27 @@ export function nameCar(kind: VehicleKind, color: string): string {
   return `${adjective(color, m.g, false)} ${m.nom}`;
 }
 
-/** the chip's first line: what the police are looking for (car 0: the player on foot) */
-export function wantedLine(car: number, kind: string, color: string): string {
-  if (car === 0 || !(kind in MODEL)) return 'Hľadajú ťa pešo';
+/** a hat (HATS, docs/plans/gameplay.md Phase 2) as the police would add it: "so šiltovkou" */
+const HAT_WITH = ['', 'so šiltovkou', 's klobúkom', 's prilbou', 'so šatkou'];
+
+/** "modrú bundu so šiltovkou": whom the police look for on foot, by the clothes they last saw
+ *  (accusative) */
+export function describeClothes(color: string, hat = 0): string {
+  const with_ = HAT_WITH[hat] ?? '';
+  return `${adjective(color, 'f', true)} bundu${with_ ? ` ${with_}` : ''}`;
+}
+
+/** "pešieho podozrivého v modrej bunde so šiltovkou": the same for the police radio */
+export function describeWalker(color: string, hat = 0): string {
+  if (!color) return 'pešieho podozrivého';
+  const with_ = HAT_WITH[hat] ?? '';
+  return `pešieho podozrivého v ${COLORS[colorIndex(color)].stem}ej bunde${with_ ? ` ${with_}` : ''}`;
+}
+
+/** the chip's first line: what the police are looking for (car 0: the player on foot, by their
+ *  clothes when the server says which) */
+export function wantedLine(car: number, kind: string, color: string, hat = 0): string {
+  if (car === 0 || !(kind in MODEL)) return color ? `Hľadajú ${describeClothes(color, hat)}` : 'Hľadajú ťa pešo';
   return `Hľadajú ${describeCar(kind as VehicleKind, color)}`;
 }
 
@@ -95,6 +119,7 @@ export const DISPATCH = {
   lost: (place: string) => `Stratili sme ho ${place}. Prehľadajte okolie.`,
   switched: (what: string) => `Pozor, podozrivý prestúpil! Hľadáme ${what}.`,
   onFoot: () => 'Podozrivý vystúpil, pokračuje pešo.',
+  changed: (what: string) => `Pozor, podozrivý sa prezliekol! Hľadáme ${what}.`,
   found: (place: string) => `Máme ho ${place}! Všetky hliadky tam.`,
   off: () => 'Pátranie odvolané. Späť na hliadky.',
 } as const;

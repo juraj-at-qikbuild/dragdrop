@@ -1,5 +1,5 @@
 // Offline single-player smoke test on the shared simulation: start a game, check NPCs spawn, drive,
-// shoot, get wanted, get police, die and respawn. Run after `vite build`: node scripts/smoke-offline.mjs
+// shoot, get wanted, get police, die and respawn, shop (with a click, and with a gamepad). Run after `vite build`: node scripts/smoke-offline.mjs
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -176,12 +176,71 @@ try {
   await page.evaluate(() => window.game.host.jobStop());
   check(!(await page.evaluate(() => window.game.host.live.job)), 'jobStop ends the shift');
 
+  // the shops (docs/plans/gameplay.md, Phase 2): walking into Poľovnícke potreby opens its panel, a
+  // click buys, Escape closes it (and it stays closed until the next visit)
+  await page.evaluate(() => {
+    const g = window.game;
+    if (g.missions.active) g.missions.fail('');
+    g.save.money = 5000;
+    // every landmark already found: no discovery reward lands on the money checks
+    g.save.found = [...g.world.landmarks.keys()];
+    const l = g.world.landmark('michael');
+    const at = g.world.walkableNear(l.x, l.y);
+    g.player.x = at.x;
+    g.player.y = at.y;
+    g.player.levelInit = false;
+  });
+  const shopOpen = await page.waitForSelector('.kit-shop-card', { timeout: 3000 }).then(() => true, () => false);
+  check(shopOpen && (await page.textContent('.kit-shop-card h2'))?.includes('Poľovnícke potreby'), 'walking into a gun shop opens its panel');
+  if (shopOpen) {
+    await page.click('.kit-shop-row button[data-k="pistol"]');
+    await sleep(300);
+    const bought = await page.evaluate(() => ({ ammo: window.game.ammo.pistol, money: window.game.save.money, status: document.querySelector('.kit-shop-status')?.textContent }));
+    check(bought.ammo >= 36 && bought.money === 4750 && /Pištoľ \+36/.test(bought.status ?? ''), `bought a pistol with a click (${JSON.stringify(bought)})`);
+    await page.keyboard.press('Escape');
+    await sleep(400);
+    check(!(await page.$('.kit-shop-card')) && !(await page.evaluate(() => window.game.paused)), 'Escape closes the shop, not into the pause menu, and it stays closed');
+  }
+  // the Butik with a gamepad (a fake one): the d-pad moves along the jackets, A buys, B leaves
+  await page.evaluate(() => {
+    const pad = { connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    window.__pad = pad;
+    navigator.getGamepads = () => [pad];
+    const g = window.game;
+    const l = g.world.landmark('kamenne');
+    const at = g.world.walkableNear(l.x, l.y);
+    g.player.x = at.x;
+    g.player.y = at.y;
+    g.player.levelInit = false;
+  });
+  const padPress = async (i) => {
+    await page.evaluate((b) => (window.__pad.buttons[b].pressed = true), i);
+    await sleep(120);
+    await page.evaluate((b) => (window.__pad.buttons[b].pressed = false), i);
+    await sleep(120);
+  };
+  if (await page.waitForSelector('.kit-shop-card', { timeout: 3000 }).then(() => true, () => false)) {
+    const look0 = await page.evaluate(() => window.game.player.look);
+    await sleep(100);
+    await padPress(15);
+    const focused = await page.evaluate(() => document.activeElement?.dataset?.k);
+    await padPress(0);
+    await sleep(200);
+    const dressed = await page.evaluate(() => ({ look: window.game.player.look, money: window.game.save.money }));
+    check(focused === 'jacket:1' && dressed.look === 1 && dressed.look !== look0 && dressed.money === 4600, `a gamepad buys a jacket in the Butik (${focused}, ${JSON.stringify(dressed)})`);
+    if (process.env.SMOKE_SHOP_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOP_SHOT });
+    await padPress(1);
+    check(!(await page.$('.kit-shop-card')), 'the pad\'s B leaves the shop');
+  } else check(false, 'walking into the Butik opens its panel');
+  await page.evaluate(() => delete navigator.getGamepads);
+
   // persistence
   const saved = await page.evaluate(() => {
     window.game.persist();
     return JSON.parse(localStorage.getItem('blava-city-save-v1') || 'null');
   });
   check(saved && typeof saved.money === 'number' && typeof saved.clock === 'number', 'progress saved to localStorage');
+  check(saved?.gear?.look === 1, 'the jacket bought is in the save');
 
   if (process.env.SMOKE_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOT });
   check(errors.length === 0, `no page errors${errors.length ? ':\n' + errors.slice(0, 5).join('\n') : ''}`);

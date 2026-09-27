@@ -13,6 +13,8 @@ import type { Observer, PlayerState, Profile } from '../shared/sim/SimPlayer';
 import type { NetStatus } from '../net/Connection';
 import type { RosterRow } from '../shared/net/protocol';
 import type { ChallengeState, DailyState, EventEntry, EventSchedule, JobKind, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
+import type { ShopReq } from '../shared/sim/rules/Shops';
+import type { Prices } from '../shared/sim/shops/catalog';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
 export interface MeView {
@@ -68,6 +70,11 @@ export interface LiveState {
   police: PoliceView | null;
   /** an arrest this player can buy off (Úplatok): the price, and until when (performance.now() ms) */
   bribe: { price: number; until: number } | null;
+  /** the shops' price list (docs/plans/gameplay.md, Phase 2): offline the rule's, online the server's
+   *  `catalog`; null from a server without shops, which then offers none */
+  catalog: Prices | null;
+  /** how the last shop request went, and when (performance.now() ms): the open shop panel shows it */
+  shop: { ok: boolean; text: string; at: number } | null;
 }
 
 /** the `police` private event, as kept: the description (car 0: on foot), whether the player matches
@@ -80,12 +87,14 @@ export interface PoliceView {
   spot: number;
   watched: boolean;
   low: 0 | 1 | 2;
+  /** on foot: the hat they're looking for (HATS; 0 none) */
+  hat: number;
 }
 
 export function emptyLive(): LiveState {
   return {
     events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null,
-    partyTags: new Map(), score: null, police: null, bribe: null,
+    partyTags: new Map(), score: null, police: null, bribe: null, catalog: null, shop: null,
   };
 }
 
@@ -113,13 +122,16 @@ export function applyLive(live: LiveState, e: PrivateEvent) {
       live.revive = e.s;
       break;
     case 'police':
-      live.police = e.car < 0 ? null : { car: e.car, kind: e.kind, color: e.color, match: !!e.m, spot: e.spot, watched: !!e.w, low: e.low };
+      live.police = e.car < 0 ? null : { car: e.car, kind: e.kind, color: e.color, match: !!e.m, spot: e.spot, watched: !!e.w, low: e.low, hat: e.hat ?? 0 };
       break;
     case 'bribe':
       live.bribe = e.price > 0 ? { price: e.price, until: performance.now() + e.t * 1000 } : null;
       break;
     case 'respawn':
       live.bribe = null;
+      break;
+    case 'shop':
+      live.shop = { ok: e.ok, text: e.text, at: performance.now() };
       break;
   }
 }
@@ -167,6 +179,9 @@ export interface SimHost {
   styleCash(n: number): void;
   /** Úplatok: pay off the arrest on offer (LiveState.bribe) */
   bribe(): void;
+  /** the shop the player is in (rules/Shops.ts): buy, park the car in the garage, take one out. The
+   *  answer comes as a `shop` event (LiveState.shop); online, nothing is sent without a catalog. */
+  shop(req: ShopReq): void;
   /** host-specific reaction to a private event (before the generic effects) */
   onPrivate(e: PrivateEvent): void;
   /** the pause menu opened or closed (Game.setPaused): offline nothing to do (the menu freezes the

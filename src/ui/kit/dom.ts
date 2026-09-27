@@ -6,6 +6,8 @@ import './kit.css';
 
 // ------------------------------------------------------------------------------------------- modal
 let openModals = 0;
+/** the open modals, the topmost last (the gamepad drives that one: padNavigate) */
+const stack: { close(): void; el: HTMLElement }[] = [];
 
 /** True while a kit modal is open. `openModal` already stops its own keydown from reaching
  *  Input.ts's window-level listener (see below), so most callers never need this; it's here for a
@@ -59,6 +61,8 @@ export function openModal(opts: ModalOpts): { close(): void; el: HTMLElement } {
     if (closed) return;
     closed = true;
     openModals--;
+    const i = stack.findIndex((m) => m.el === overlay);
+    if (i >= 0) stack.splice(i, 1);
     overlay.remove();
     opts.onClose?.();
   };
@@ -88,11 +92,74 @@ export function openModal(opts: ModalOpts): { close(): void; el: HTMLElement } {
 
   document.body.appendChild(overlay);
   openModals++;
+  const handle = { close, el: overlay };
+  stack.push(handle);
+  guardKeys();
   setTimeout(() => {
     const first = bodyEl.querySelector<HTMLElement>('input, textarea, select');
     (first ?? btnRow.querySelector<HTMLElement>('button.primary'))?.focus();
   }, 0);
-  return { close, el: overlay };
+  return handle;
+}
+
+let guarded = false;
+/** While a modal is open, the keyboard is its own even when the focus has left it (the button that had
+ *  it was rebuilt away, a click on the page around it): the game never sees those keys either, and
+ *  Escape still closes the modal rather than pausing the game under it. */
+function guardKeys() {
+  if (guarded) return;
+  guarded = true;
+  addEventListener(
+    'keydown',
+    (e) => {
+      const top = stack[stack.length - 1];
+      if (!top || (e.target instanceof Node && top.el.contains(e.target))) return;
+      e.stopPropagation();
+      if (e.key === 'Escape') top.close();
+    },
+    { capture: true },
+  );
+}
+
+// ----------------------------------------------------------------------------------- the gamepad
+export type PadNav = 'up' | 'down' | 'left' | 'right' | 'ok' | 'back';
+
+/** Drive the topmost modal with the gamepad (Game calls this while one is open): the d-pad or the
+ *  stick moves the focus to the nearest control that way on screen (so a row of colour swatches is
+ *  walked left and right, a list up and down), A presses the focused control, B closes the modal. */
+export function padNavigate(action: PadNav) {
+  const top = stack[stack.length - 1];
+  if (!top) return;
+  if (action === 'back') return top.close();
+  const items = [...top.el.querySelectorAll<HTMLElement>('button:not([disabled]), input, select, textarea, [tabindex="0"]')].filter(
+    (e) => e.offsetParent !== null || e.getClientRects().length > 0,
+  );
+  if (!items.length) return;
+  // the focus ring shows whatever the browser thinks of a focus moved by script (kit.css)
+  top.el.classList.add('kit-pad');
+  const cur = document.activeElement instanceof HTMLElement && items.includes(document.activeElement) ? document.activeElement : null;
+  if (!cur) return focus(items[0]);
+  if (action === 'ok') return cur.click();
+  const r0 = cur.getBoundingClientRect();
+  const x0 = r0.left + r0.width / 2, y0 = r0.top + r0.height / 2;
+  let best: HTMLElement | null = null, bs = Infinity;
+  for (const e of items) {
+    if (e === cur) continue;
+    const r = e.getBoundingClientRect();
+    const dx = r.left + r.width / 2 - x0, dy = r.top + r.height / 2 - y0;
+    // how far that way (it must be that way at all), and how far off to the side (which counts more)
+    const along = action === 'down' ? dy : action === 'up' ? -dy : action === 'right' ? dx : -dx;
+    const side = action === 'down' || action === 'up' ? Math.abs(dx) : Math.abs(dy);
+    if (along <= 2) continue;
+    const score = along + side * 2.5;
+    if (score < bs) (bs = score), (best = e);
+  }
+  if (best) focus(best);
+}
+
+function focus(e: HTMLElement) {
+  e.focus({ preventScroll: true });
+  e.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 // ------------------------------------------------------------------------------------------- field

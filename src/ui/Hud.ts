@@ -8,6 +8,7 @@ import { activitiesSeen } from '../game/features/activities/seen';
 import { chipLine } from '../game/features/activities/text';
 import { edgePoint, inPlay, type HudLayout, type Rect } from './layout';
 import type { PoliceUi } from '../game/features/PoliceUi';
+import { isModalOpen } from './kit/dom';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -141,7 +142,9 @@ export class Hud {
     const promptY = car ? L.prompt.car : L.prompt.foot;
     const pr = g.prompt();
     if (pr && !(L.touch && pr.use && !g.input.pad.active)) this.drawPrompt(ctx, pr.use, pr.text, L.prompt.cx, promptY, small, L.prompt.w);
-    if (g.padHints > 0) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), !!car, Math.min(1, g.padHints), small);
+    // a panel open over the game (a shop…): what the pad does there (Game.padModal)
+    if (isModalOpen() && g.input.pad.active) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), PAD_MENU, 1, small);
+    else if (g.padHints > 0) this.drawPadLegend(ctx, L.prompt.cx, promptY - (small ? 34 : 42), car ? PAD_CAR : PAD_FOOT, Math.min(1, g.padHints), small);
 
     // street and district name
     ctx.textAlign = L.place.align;
@@ -247,8 +250,7 @@ export class Hud {
   }
 
   /** the gamepad's buttons for what the player is doing (on foot / driving), for a few seconds */
-  private drawPadLegend(ctx: CanvasRenderingContext2D, cx: number, cy: number, car: boolean, alpha: number, small: boolean) {
-    const items = car ? PAD_CAR : PAD_FOOT;
+  private drawPadLegend(ctx: CanvasRenderingContext2D, cx: number, cy: number, items: [string, string][], alpha: number, small: boolean) {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
@@ -614,6 +616,7 @@ export class Hud {
 /** the pad's buttons (standard mapping, Xbox face-button colours) and what they do */
 const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa'], ['↓', 'aktivity']];
 const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'streľba'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
+const PAD_MENU: [string, string][] = [['✚', 'pohyb'], ['A', 'vybrať'], ['B', 'späť']];
 const FACE: Record<string, string> = { A: '#2e9e44', B: '#d83a2e', X: '#2f6fd6', Y: '#e0b100' };
 
 function glyphW(label: string, r: number) {

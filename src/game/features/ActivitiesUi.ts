@@ -57,8 +57,8 @@ export class ActivitiesUi implements ClientFeature {
   update() {
     const g = this.g;
     if (this.panel) {
-      // U itself is caught on the panel (the modal keeps its keys from the game); the pad's d-pad
-      // down comes through Input
+      // U itself is caught on the panel (the modal keeps its keys from the game); on the pad, the
+      // d-pad moves around the panel and B closes it (Game.padModal)
       if (g.input.hit(KEYS.activities)) this.panel.close();
       else if (performance.now() - this.tickedAt >= TICK_MS) this.refresh();
       return;

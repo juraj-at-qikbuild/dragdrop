@@ -500,3 +500,176 @@ kbd.kit-key.pad {
     padding: 5px 8px;
   }
 }
+
+/* a modal driven with the gamepad (dom.ts padNavigate): always show where the focus is */
+.kit-pad :focus {
+  outline: 2px solid #ffd740;
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------ the shops (src/game/features/ShopsUi.ts) */
+.menu-card.small.kit-shop-card {
+  position: relative;
+  width: min(540px, 100%);
+  text-align: left;
+}
+.kit-shop-card h2 {
+  padding-right: 40px;
+}
+.kit-shop-about {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #b0bec5;
+}
+.kit-shop-money {
+  margin: 0 0 8px;
+  font-weight: 800;
+  color: #b2ff59;
+}
+.kit-shop h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 6px;
+  font-family: var(--font-head);
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffd740;
+}
+.kit-shop h3 .price {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #cfd8dc;
+}
+.kit-shop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.kit-shop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.kit-shop-text {
+  flex: 1;
+  min-width: 0;
+}
+.kit-shop-row .name {
+  font-size: 14px;
+  font-weight: 700;
+}
+.kit-shop-row .about {
+  font-size: 12px;
+  color: #b0bec5;
+}
+.kit-shop-row button {
+  padding: 5px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.kit-shop-row button.poor {
+  opacity: 0.55;
+}
+.kit-shop-note {
+  font-size: 12px;
+  font-weight: 700;
+  color: #90a4ae;
+  white-space: nowrap;
+}
+.kit-shop-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: -1px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.kit-shop-swatches,
+.kit-shop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kit-swatch {
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+.kit-swatch.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px #ffd740;
+  cursor: default;
+}
+.kit-swatch.none {
+  background: repeating-linear-gradient(45deg, #37474f 0 4px, #263238 4px 8px);
+}
+.kit-chip {
+  padding: 5px 11px;
+  font-size: 13px;
+  border-radius: 16px;
+}
+.kit-chip.on {
+  background: #ffd740;
+  border-color: #ffd740;
+  color: #1a1a1a;
+  cursor: default;
+}
+.kit-chip.static {
+  display: inline-block;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  color: #78909c;
+  font-family: var(--font-head);
+  font-weight: 700;
+}
+.kit-chip.static.on {
+  background: rgba(178, 255, 89, 0.14);
+  border-color: transparent;
+  color: #b2ff59;
+}
+.kit-shop-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.kit-shop-status {
+  min-height: 1.3em;
+  margin: 12px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.kit-shop-status.ok {
+  color: #b2ff59;
+}
+.kit-shop-status.bad {
+  color: #ff8a80;
+}
+@media (pointer: coarse) {
+  .kit-swatch {
+    width: 40px;
+    height: 40px;
+  }
+  .kit-shop-row button {
+    min-height: 38px;
+  }
+}
+@media (max-height: 480px) {
+  .kit-shop-row {
+    padding: 5px 8px;
+  }
+  .kit-shop h3 {
+    margin-top: 8px;
+  }
+}

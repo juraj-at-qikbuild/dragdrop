@@ -3,12 +3,14 @@
 // mirrors), uploads that state 20× a second, and sends requests (enter a car, fire, …) the server grants.
 import type { Game } from '../game/Game';
 import { applyLive, emptyLive, type MeView, type NetView, type SimHost } from '../game/SimHost';
-import { Ped, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
+import { Ped, setPlayerHat, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
 import { Vehicle } from '../shared/entities/Vehicle';
 import type { Observer } from '../shared/sim/SimPlayer';
 import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent } from '../shared/sim/events';
 import type { JobKind } from '../shared/sim/rules/types';
+import type { ShopReq } from '../shared/sim/rules/Shops';
+import type { Gear } from '../shared/sim/shops/catalog';
 import { VehiclePhysics, pedContact } from '../shared/sim/Physics';
 import { spikeHit } from '../shared/sim/Police';
 import { Writer, Reader, decodeSnapshot, encodeState, MSG_SNAPSHOT, type Snapshot, type StateReport } from '../shared/net/codec';
@@ -146,6 +148,8 @@ export class NetSimHost implements SimHost, NetView {
     p.id = w.ped;
     p.playerId = w.id;
     setPlayerLook(p, w.look);
+    // a server with shops sends its price list right after this (and one without never does)
+    this.live.catalog = null;
     // the server forgot what this client knew: start the mirrors over
     this.mirrors.clear();
     this.queue = [];
@@ -281,6 +285,10 @@ export class NetSimHost implements SimHost, NetView {
         this.me.profile.money = m.money;
         this.me.profile.found = m.found;
         this.me.profile.cumils = m.cumils;
+        if (m.gear) this.applyGear(m.gear);
+        break;
+      case 'catalog':
+        this.live.catalog = m.prices;
         break;
       case 'correct': {
         const p = this.me.ped;
@@ -378,10 +386,8 @@ export class NetSimHost implements SimHost, NetView {
       p.y = car.y;
       p.level = car.level;
       for (const pr of this.mirrors.props)
-        if (pr.kind === 'spike' && pr.active && !car.tyresBurst && pr.level === car.level && spikeHit(pr, car)) {
-          car.tyresBurst = 1;
+        if (pr.kind === 'spike' && pr.active && !car.tyresBurst && pr.level === car.level && spikeHit(pr, car) && car.burstTyres())
           game.message('', 'Klince prepichli pneumatiky!', 2.5, '#ff8a80');
-        }
     } else {
       this.physics.rehash(this.vehicles);
       if (me.state === 'play') {
@@ -574,6 +580,20 @@ export class NetSimHost implements SimHost, NetView {
     if (this.live.bribe) this.conn.send({ t: 'bribe' });
   }
 
+  /** only to a server that sent its price list (LiveState.catalog), so never to one without shops */
+  shop(req: ShopReq) {
+    if (this.live.catalog) this.conn.send({ t: 'shop', ...req });
+  }
+
+  /** what the player owns and wears (the profile, a purchase): our own figure isn't mirrored, so its
+   *  clothes are put on here */
+  private applyGear(g: Gear) {
+    this.me.profile.gear = g;
+    const p = this.me.ped;
+    if (g.look !== undefined) setPlayerLook(p, g.look);
+    setPlayerHat(p, g.hat ?? 0);
+  }
+
   onPrivate(e: PrivateEvent) {
     const p = this.me.ped;
     applyLive(this.live, e);
@@ -589,6 +609,8 @@ export class NetSimHost implements SimHost, NetView {
         v.parked = false;
         v.levelInit = true;
         v.setControls(0, 0, false);
+        // its tuning: a snapshot carries only the neon
+        if (e.mods) v.tune(e.mods);
         p.vehicle = v;
         this.ownCar = v;
         this.me.lastCar = v;
@@ -624,11 +646,29 @@ export class NetSimHost implements SimHost, NetView {
         v.color = e.color;
         v.health = v.spec.health;
         v.fire = -1;
+        v.dmg.front = v.dmg.rear = v.dmg.left = v.dmg.right = 0;
+        v.tyresBurst = 0;
         break;
       }
+      case 'mods': {
+        const v = this.ownCar;
+        if (v && v.id === e.vehicle) v.tune(e.mods);
+        break;
+      }
+      case 'stored':
+        // parked in a garage: the car is gone from the city, and we stand at the door
+        this.releaseCar();
+        this.mirrors.remove(e.vehicle);
+        p.x = e.x;
+        p.y = e.y;
+        p.vx = p.vy = 0;
+        break;
+      case 'gear':
+        this.applyGear(e.g);
+        break;
       case 'tyres': {
         const v = this.ownCar;
-        if (v && v.id === e.vehicle) v.tyresBurst = 1;
+        if (v && v.id === e.vehicle) v.burstTyres();
         break;
       }
       case 'found':

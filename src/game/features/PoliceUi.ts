@@ -21,7 +21,7 @@ import { formatMoney } from '../../shared/util/math';
 import { buttonGlyph, outlined, panel } from '../../ui/Hud';
 import type { Rect } from '../../ui/layout';
 import { roundRect } from '../../render/shapes';
-import { DISPATCH, describeCar, wantedLine } from './police/text';
+import { DISPATCH, describeCar, describeWalker, wantedLine } from './police/text';
 
 const BODY = `'Inter', system-ui, sans-serif`;
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
@@ -47,8 +47,8 @@ interface Unit {
 
 export class PoliceUi implements ClientFeature {
   readonly id = 'police';
-  /** the last `police` status seen, for the radio's "he changed cars" */
-  private prev: { car: number } | null = null;
+  /** the last `police` status seen, for the radio's "he changed cars" (or clothes) */
+  private prev: { car: number; color: string; hat: number } | null = null;
   private lineAt = -Infinity;
   private searchingFor = 0;
   private toldLost = false;
@@ -95,12 +95,15 @@ export class PoliceUi implements ClientFeature {
       if (prev && g.state === 'play') this.say(DISPATCH.off());
       return;
     }
-    this.prev = { car: e.car };
-    const what = e.car === 0 ? 'pešieho podozrivého' : describeCar(e.kind as VehicleKind, e.color);
+    const hat = e.hat ?? 0;
+    this.prev = { car: e.car, color: e.color, hat };
+    const what = e.car === 0 ? describeWalker(e.color, hat) : describeCar(e.kind as VehicleKind, e.color);
     if (!prev) {
       const z = g.searchZone ?? g.focus();
       this.say(DISPATCH.start(what, placeName(g.world, z.x, z.y)), true);
     } else if (prev.car !== e.car) this.say(e.car === 0 ? DISPATCH.onFoot() : DISPATCH.switched(what), true);
+    // new clothes, and they've seen through them (the Butik, docs/plans/gameplay.md Phase 2)
+    else if (e.car === 0 && (prev.color !== e.color || prev.hat !== hat)) this.say(DISPATCH.changed(what), true);
   }
 
   reset() {
@@ -231,7 +234,7 @@ export class PoliceUi implements ClientFeature {
     const pv = g.host.live.police;
     if (!pv || !this.chasing()) return null;
     const seen = !g.host.me.searching;
-    const title = `🚔 ${wantedLine(pv.car, pv.kind, pv.color)}`;
+    const title = `🚔 ${wantedLine(pv.car, pv.kind, pv.color, pv.hat)}`;
     let status: string, color: string;
     if (seen) (status = '● Vidia ťa!'), (color = SEEN);
     else if (pv.watched) (status = '? Obzerajú si ťa…'), (color = WATCH);
