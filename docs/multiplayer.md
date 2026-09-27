@@ -556,3 +556,38 @@ Online it works like everything else in the simulation:
   deploy in either order.
 - **Cost.** Per wanted player per tick: a cone check for each police unit within 75 m, and a raycast only
   for those whose cone holds the player. The helicopter is one distance check.
+
+## The shops
+
+What money buys is planned in [plans/gameplay.md](plans/gameplay.md) (Phase 2). Online it works like
+the police chase: the rules are shared, the server decides.
+
+- **Shared code, server authority.** `src/shared/sim/rules/Shops.ts` is a `SimRule` the server runs
+  with the rest of the `Sim`. A client asks with `{ t: 'shop', op: 'buy' | 'store' | 'take', item?, slot? }`;
+  `server/src/features/Shops.ts` checks its shape and hands it to the rule, which checks everything
+  else: where the player is (`shops/places.ts`, worked out from the map the same way everywhere, with
+  3 m of slack for a report that lags), what they have and what it costs. The answer comes back as a
+  private `shop { ok, text }` event.
+- **Prices.** Defaults in `src/shared/sim/shops/catalog.ts`; `game_config`'s `shops` key overrides any of
+  them (see [deploy.md](deploy.md)). The server sends `{ t: 'catalog', prices }` after every welcome
+  and again to everyone online when a price changes.
+- **Gear.** What a player owns (clothes, garages and the cars in them, the collection, a lawyer) is
+  `Profile.gear`: a JSON `gear` column of the players table, checked field by field when it's read back
+  (`shops/gear.ts`), sent in `profile.gear` and, when it changes, as a private `gear` event.
+- **Tuning belongs to the car.** `Vehicle.mods` changes its physics and what hurts it. Online the
+  driver's client simulates their car, so the server tells it: `mods` when the workshop tunes the car,
+  and the `enter` event carries a tuned car's mods. The neon is the only part others need to see: it
+  rides in spare bits (4–6) of the vehicle record's flag byte. The car that leaves the city with its
+  driver (see above) keeps its mods in `sessions.car`.
+- **The garage.** Parking takes the car off the street (`Sim.removeVehicle`) and sends the driver's
+  client a `stored { vehicle, x, y }` event: it lets go of its car and stands the player at the door.
+  Taking a car out puts it at the door, parked and held for its owner for 90 s (`reservedFor`); they get
+  in as into any car. (A snapshot never carries a player's own car, so the server can't put them
+  straight in one their client has never seen.)
+- **Clothes.** The jacket is the figure's `look` (already on the wire); the hat rides in spare bits
+  (1–3) of the figure record's outfit byte. A static record is re-sent whenever its bytes change, so
+  everyone sees new clothes and a new neon at once.
+- **Still protocol 7.** A client from before ignores the new events and fields, and never sees a
+  `catalog`; a client only sends `shop` to a server that sent one. The spare bits read as zero (no neon,
+  no hat) on either side. Client and server deploy in either order.
+- **Spending** goes to the activity log as `kind = 'shop'`, amount 0, `meta = { spent, item }`.

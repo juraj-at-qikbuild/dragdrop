@@ -106,13 +106,31 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
   minimap, the helicopter's beam drawn where it really is, and a police radio.
 - **Úplatok.** An arrest at 1–2★ can be bought off for €150 a star.
 
+### Money with a purpose ([plans/gameplay.md](plans/gameplay.md), Phase 2)
+- **Shops at real places**, marked in the street and on the maps, each with a panel that opens when
+  the player stops at its door (or pulls up in a car): three gun shops (Poľovnícke potreby), three
+  boutiques (Butik), a lawyer (JUDr. Paragraf), a workshop at every fuel station (Dielňa) and six
+  garages by the spawn places. Prices are tunables (`game_config` `shops` online).
+- **Tuning belongs to the car**: engine I–II, plating I–II, run-flat tyres, nitro tanks I–II, neon in
+  seven colours, and paint of the player's choice with a repair. The car that leaves the city with its
+  driver keeps it.
+- **The garage** keeps up to six cars with their colour, tuning and damage; any of the player's garages
+  gives them back.
+- **Clothes the police look for**: on foot, the description is the jacket and the hat they last saw,
+  and the chip and the police radio say so ("Hľadajú modrú bundu so šiltovkou").
+- **The lawyer** keeps the guns through the next arrest and halves its fee. **A death's fee** lies where
+  the player fell (less €100) for two minutes. **The collection**: all eight kinds of vehicle driven,
+  €1,000 and 100 points.
+- **Panels with a gamepad**: every panel (the shops, Aktivity, the leaderboard…) can be driven with the
+  d-pad or stick, A and B, and a panel takes the controls while it's open.
+
 ## Still open
 
 ### Gameplay
 The next round of gameplay work is planned in five phases in
-[plans/gameplay.md](plans/gameplay.md): the police (1), money (2), driving and new ways around (3),
-fighting alone and together (4) and a city that remembers (5). Several items below are part of it,
-as noted.
+[plans/gameplay.md](plans/gameplay.md): the police (1, done), money (2, done), driving and new ways
+around (3), fighting alone and together (4) and a city that remembers (5). Several items below are
+part of it, as noted.
 
 - **More crimes for witnesses**: hitting people with a car, wrecking cars, fights in public.
 - **Pedestrian lights**: people cross on red. Stand-alone crossings already have a walk phase to
@@ -124,8 +142,6 @@ as noted.
   Slavín and the Radio as destinations.
 - **Tram line numbers**: the tracks know which lines run on them (`Edge.lines`); trams could pick a
   line, follow its route and show its number (one more byte in the tram record).
-- **Something to spend money on** besides the spray shop: a gun shop, a garage that keeps a car
-  (gameplay plan, Phase 2).
 
 ### Controls
 - Remappable keys and a second pad layout (throttle on A, brake on X for pads without analog

@@ -42,7 +42,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 
 A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
 
-The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops, and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
+The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops (the workshops), the gun shops, boutiques, the lawyer and the garages (yours ringed), and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
 
 On foot, WASD is screen-relative by default (W walks up the screen). Set **Chôdza: za kurzorom myši** in the pause menu or the menu's controls panel to walk relative to the mouse instead: W walks towards the cursor, S backs away from it, and A/D strafe around it.
 
@@ -92,7 +92,16 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
   - a chip under the stars says what they're looking for and whether they see you. "!" and "?" mark the units that see you or are looking you over, the minimap shows every unit's cone, and the police radio (*Vysielačka*) follows the chase;
   - at 1–2 stars, an arrest can be bought off (**Úplatok**: F, €150 a star, once in 10 minutes, not after shooting at the police).
 
-  At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
+  On the run, stopping at a *Slovnafta* spray shop (real fuel station locations) still buys a respray for €250 and loses the heat.
+- **Money with a purpose** ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 2). Shops at real places, marked in the street and on the maps. Stop at the door (or pull up in a car) and the shop's panel opens:
+  - **Poľovnícke potreby** (by Michalská brána, Eurovea and Aupark): a pistol, an uzi or a shotgun with a box of ammo, and a bulletproof vest;
+  - **Butik** (Kamenné námestie, Eurovea, Aupark): a jacket in ten colours, and a cap, a hat, a helmet or a scarf. On foot, the police look for the clothes they last saw you in, so a change out of sight works like a change of car;
+  - **JUDr. Paragraf** (by the Primate's Palace): a lawyer for the next arrest, who gets your guns back and halves the fee;
+  - **Dielňa** (the fuel stations): paint of your choice with a full repair, two engine tiers, two tiers of plating, run-flat tyres, two bigger nitro tanks and neon underglow in seven colours. Tuning belongs to the car: leave it in the street and it's gone;
+  - **Garáž** (by six of the places you start from): park the car you drive and take it out again at any of your garages, colour, tuning and dents and all. Two places to start with, up to six;
+  - **Zbierka**: drive every kind of vehicle in the city (all eight, the police car and the bus included) for €1,000, and 100 points online.
+
+  A death leaves its fee where you fell, less the first €100, as cash anyone can pick up for two minutes. The panels work with the mouse, the keyboard, a touch screen and a gamepad (the d-pad or stick moves, A chooses, B leaves). Online, the prices come from the server, which checks every purchase.
 - **Six missions tied to real places**, started from phone booths:
   - taxi fare from the castle to Eurovea;
   - Kofolka delivery to the UFO bridge;
@@ -152,7 +161,8 @@ src/
                        seats, tram stops, reactions, fights, witnesses), police, Pursuit (the
                        police's side of a chase: who sees whom, the description, the search, lying
                        low, bribes) and sight.ts (cones, darkness, the helicopter's view), combat
-                       rules, pickups, clock; phrases.ts (what people say)
+                       rules, pickups, clock; phrases.ts (what people say); shops/ (the catalog,
+                       where the shops are, gear from a save) and rules/Shops.ts (what money buys)
     net/               wire protocol and binary codec
   game/Game.ts         game state, player, wanted level, drawing
   game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online
@@ -171,7 +181,10 @@ src/
   missions/Missions.ts mission definitions and runner
   ui/                  HUD (context prompts, pad legend), minimap and the interactive city map;
                        layout.ts (where the HUD goes, phones included), TouchControls.ts and
-                       TouchTips.ts (the touch screen's controls and first-run tips)
+                       TouchTips.ts (the touch screen's controls and first-run tips); kit/ (panels,
+                       with gamepad navigation)
+  game/features/       the social features' and the gameplay plan's screens: PoliceUi (the chase),
+                       ShopsUi (the shops' signs, map badges and panels), and more
   audio/Audio.ts       WebAudio sound effects and radio
   data/brands.ts       parody brands, radio stations, landmark texts
 server/src/            the multiplayer game server (see docs/multiplayer.md)
@@ -191,8 +204,8 @@ See [ATTRIBUTION.md](ATTRIBUTION.md).
 **Online** in the main menu joins one shared, persistent city: every player sees the same traffic,
 pedestrians, trams and police. Anything that happens to an NPC happens for everyone. Players can drive
 into each other, shoot each other (it's a crime: the police come after you), and each has their own wanted
-level and pursuit. Online progress (money, Čumils, landmarks) is kept on the server, separately from the
-single-player save. Missions are single-player only.
+level and pursuit. Online progress (money, Čumils, landmarks, and what money bought) is kept on the server,
+separately from the single-player save. Missions are single-player only.
 
 On top of that shared world, there's a set of social features (protocol 7):
 

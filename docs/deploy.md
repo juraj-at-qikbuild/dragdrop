@@ -269,6 +269,26 @@ and an allowed range; a value outside the range keeps whatever applied before.
 
 A bad or absent field is ignored on its own — it never blocks the rest of the row from applying.
 
+The optional `shops` key sets the shops' prices (docs/plans/gameplay.md, Phase 2), in whole euros by
+item. It isn't seeded either; an item left out, or not a whole number from 0 to 1,000,000, keeps its
+default (`src/shared/sim/shops/catalog.ts`). Everyone online gets the new price list within the minute:
+
+```sql
+insert into game_config (key, value) values ('shops', '{"pistol": 300, "engine2": 2400}'::jsonb)
+  on conflict (key) do update set value = excluded.value;
+```
+
+| Items | Defaults (€) |
+|---|---|
+| `pistol`, `uzi`, `shotgun`, `vest` | 250, 700, 900, 300 |
+| `jacket`, `hat` | 150, 120 |
+| `lawyer` | 500 |
+| `respray`, `engine1`, `engine2`, `plating1`, `plating2`, `tyres1`, `nitro1`, `nitro2`, `glow` | 250, 900, 1800, 800, 1600, 600, 500, 1000, 400 |
+| `garage`, `slots4`, `slots6` | 2500, 1500, 2500 |
+
+What players spend is logged to `activity` as `kind = 'shop'` with `amount = 0` (so
+`leaderboard_week()` doesn't count it as money earned) and `meta = { spent, item }`.
+
 ### Moderation
 
 Voice/conduct reports (the in-game peers list's **Nahlásiť** button) land in `public.reports`:

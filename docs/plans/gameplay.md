@@ -1,7 +1,8 @@
 # Plan: deeper gameplay, in five phases (Blava City)
 
-Status: Phase 1 implemented (27 September 2026); Phases 2–5 planned. Where the build of Phase 1
-differs from this plan, see [Phase 1 as built](#phase-1-as-built) at the end.
+Status: Phases 1 and 2 implemented (27 September 2026); Phases 3–5 planned. Where the build differs
+from this plan, see [Phase 1 as built](#phase-1-as-built) and [Phase 2 as built](#phase-2-as-built) at
+the end.
 
 This plan is about how the game plays, not about new missions. Every phase builds on systems that
 already exist (the police, the money, the driving model, the crowd, the parties, the leaderboard) and
@@ -60,7 +61,7 @@ How it works today:
 | Phase | Theme | What players get | Wire |
 |---|---|---|---|
 | **1** | Outsmarting the police | Police who look for a car, not a GPS dot. Sight cones that shrink at night and in rain. Lying low. A searchlight you can dodge. What the police know, on the minimap and HUD. Police radio. Bribes. | Protocol 7, optional additions only |
-| **2** | Money with a purpose | A garage and a car collection, tuning, a gun shop, a clothes shop, cash that drops where you die, a lawyer | Protocol bump (tuning and looks on the wire) |
+| **2** | Money with a purpose | A garage and a car collection, tuning, a gun shop, a clothes shop, cash that drops where you die, a lawyer | Protocol 7, optional additions only |
 | **3** | Behind the wheel, and new ways around | Combos that count online, new combo moves, slipstream, damage you feel, sirens and an ambulance, e-scooters and bikes, trams you can ride and drive, swimming and boats | Protocol bump (new vehicle kinds, riding a tram) |
 | **4** | Fighting, alone and together | Passenger seats, players on duty as police, revenge bounties, a dive and cover, weapons with a clear job, knock-downs, shooting the helicopter down | Protocol bump (seats, more weapons) |
 | **5** | A city that remembers | District heat, turf for parties, a time of day that matters, things that just happen, a rank | Optional additions |
@@ -77,6 +78,8 @@ The order is by value and by what each phase needs from the ones before it:
 
 Each phase ships on its own and is split into steps that can each be merged separately. The wire
 changes of a phase that needs a protocol bump are declared once, up front, as they were for v7.
+Wherever a phase can instead add only optional fields and messages, as Phases 1 and 2 do, it stays
+on protocol 7.
 
 ---
 
@@ -275,85 +278,122 @@ changes of a phase that needs a protocol bump are declared once, up front, as th
 
 ## Phase 2: Money with a purpose
 
-Players get things worth buying, at real places: a garage for the cars they're proud of, tuning,
-guns, clothes. Losing money becomes a risk, not a formality.
+Players get things worth buying, at real places: guns, clothes, a lawyer, tuning, and a garage for
+the cars they're proud of. Losing money becomes a risk, not a formality.
+
+### What players get
+
+| Where | What |
+|---|---|
+| **Poľovnícke potreby** (3 gun shops: by Michalská brána, Eurovea, Aupark) | Walk in: a pistol (€250), an uzi (€700) or a shotgun (€900) with a box of ammo, a bulletproof vest (€300). |
+| **Butik** (3 clothes shops: Kamenné námestie, Eurovea, Aupark) | A jacket in any of ten colours (€150), a cap, a hat, a helmet or a scarf (€120). The police look for what the player wore when they last saw them. |
+| **Advokátska kancelária** (by the Primate's Palace) | A lawyer on retainer (€500): the next arrest keeps the guns and halves the fee. |
+| **Dielňa** (the 9 fuel stations, the old spray shops) | Stop in one, not wanted: paint of the player's choice and a repair (€250); engine I–II (€900, €1,800); plating I–II (€800, €1,600); run-flat tyres (€600); a bigger nitro tank I–II (€500, €1,000); neon underglow in seven colours (€400). Wanted, it still resprays at once and loses the police, as before. |
+| **Garáž** (6 doors by the spawn places) | Buy it (€2,500); park a car in it and take it out at any of the player's garages, colour, tuning and damage and all. 2 places, then 4 (€1,500) and 6 (€2,500). |
+| **Zbierka** | Every kind of vehicle driven is ticked off (8 in all). All eight: €1,000 and 100 points, once. |
+| **A death** | The 10% fee lands where the player died, minus its first €100, as cash anyone can pick up for 2 min. |
 
 ### Decisions
 
-1. **Shops are real places.** Each is a spot on the map (a Slovnafta for tuning, a real shop for
-   clothes, a gun shop in an Old Town cellar, garages at real addresses). The player stops in it and
-   a panel opens. Every purchase goes through the sim (`Sim.buy(p, item)`), online as a request the
-   server validates. Prices are `game_config` tunables (`RemoteConfig`).
-2. **A garage keeps cars.** Bought at one of six addresses near the spawn places, first with 2
-   spaces, then 4 and 6.
-   - Drive a car in to store it: kind, colour, tuning and damage are kept.
-   - Take one out at any of the player's garages.
-   - A police car can't be stored. Event vehicles can't either (the Kofolka van, the armoured van,
-     derby cars).
-   - Online the cars live in the server's profile, offline in the save.
-3. **The collection.** Every kind a player has driven (and stored) is ticked off in a "Zbierka" page,
-   with the rare ones picked out: the Porše (4% of traffic), the Tatrovka (3%), and later the
-   ambulance and the scooter. Collecting all of them scores leaderboard points once.
-4. **Tuning at the Slovnafta** (the spray shop grows a menu). Each upgrade has 2–3 tiers:
-   - engine (acceleration, top speed);
-   - armour (damage ×0.75, ×0.55);
-   - run-flat tyres (spikes and shots can't burst them);
-   - a bigger nitro tank (+50%, +100%);
-   - paint of the player's choice, horns, neon underglow (seen at night).
+1. **Shops are places on the map**, drawn on the city map and the minimap and marked in the street.
+   Walking in (on foot) or stopping (in a car) opens the shop's panel. Leaving and coming back opens
+   it again. Every purchase goes through the shared simulation (`rules/Shops.ts`), which checks where the
+   player is, what they have and what it costs; online the server does exactly that with the request.
+2. **Prices are tunables**: defaults in `src/shared/sim/shops/catalog.ts`, and online `game_config`'s
+   `shops` key overrides any of them. The server sends its price list (`catalog`) after every welcome.
+3. **What a player owns is their gear** (`Profile.gear`): clothes, garages and the cars in them, the
+   collection, a lawyer. Offline it's in the save, online in a new `gear` column of the players table.
+   The client hears about changes with a `gear` private event.
+4. **Tuning belongs to the car.** A car's `mods` (engine, plating, tyres, nitro, neon) change how it
+   drives, what hurts it and how it looks. A tuned car left in the street is lost with it: the garage is
+   what keeps it. The car that leaves the city with its driver (docs/plans/pause-resume.md) takes its
+   tuning along.
+   - Engine: acceleration ×1.15 / ×1.3, top speed ×1.06 / ×1.12.
+   - Plating: damage ×0.75 / ×0.55.
+   - Run-flat tyres: spike strips and shots can't burst them.
+   - Nitro tank: lasts ×1.5 / ×2.
+   - Neon: seen by everyone, brightest at night.
+   - Police cars and event vehicles (liveries, mission cars) can't be tuned, garaged or collected
+     beyond being driven once.
+5. **The police look for clothes too.** On foot, the description is the jacket and the hat the police
+   last saw. New clothes bought out of sight count as a different identity, as a new car does (Phase 1's
+   rules: a longer look to recognise, the stars fade faster).
+6. **The garage.** Storing a car takes it off the street (its driver steps out at the door). Taking one out
+   puts it at the door with the player in it, if the door is clear. Cars are shared by all the player's
+   garages. The collection counts every kind of vehicle the player gets into, a police car and a bus
+   included.
+7. **A death drops cash.** Arrests don't: the police keep the fee (half with a lawyer).
+8. **Protocol 7 stays.** Everything is optional, as in Phase 1:
+   - The neon travels in spare bits of the vehicle record's flag byte, the hat in spare bits of the
+     figure record's outfit byte. Older clients ignore both.
+   - A static record is re-sent whenever its bytes change, so a new jacket or neon reaches everyone.
+   - `catalog`, the `gear` event, `profile.gear` and the `enter`/`mods` events' tuning are new messages and
+     fields older clients ignore. A client sends `shop` requests only to a server that sent a `catalog`.
 
-   Tuning belongs to the car. A tuned car left in the street is lost, which is the garage's reason
-   to exist.
-5. **A gun shop** ("Zbrojnica") sells ammo, armour and weapons, so a death no longer means walking
-   to a fixed pickup. Phase 4's new weapons are sold here.
-6. **A clothes shop** changes the player's look (`look` and a hat). On top of Phase 1's
-   description, the police's on-foot description becomes "a figure in a brown jacket": new clothes
-   out of sight count as a different identity, as a new car does.
-7. **Cash drops where you die.** The 10% fee for a death (not for an arrest, which the police keep)
-   lands as a cash pickup at the spot for 2 min, visible to everyone. The player can race back for
-   it, or someone else gets there first.
-   - Anti-farming: nothing drops for the first €100, and a PvP kill within a party drops nothing.
-8. **A lawyer** ("Advokát", €500) covers the next arrest: the guns are kept and the fee halved.
+### Design
 
-### Wire
+- **Shared.**
+  - `src/shared/sim/shops/catalog.ts`: items, default prices, paints, hats, tiers, `Gear`, `Mods`,
+    `StoredCar`.
+  - `src/shared/sim/shops/places.ts`: the shops' places, worked out from the map the same way everywhere.
+  - `src/shared/sim/rules/Shops.ts` (a `SimRule`, offline and online): `act(p, req)` for buying,
+    parking and taking out; the collection (`onEnter`); a player's clothes on arrival (`onAdd`).
+  - `Vehicle.mods` and `tune()`; `burstTyres()` instead of setting `tyresBurst` directly.
+  - `Sim.respawn`: the cash drop and the lawyer. `Pickup.until`: a drop that disappears.
+  - `Pursuit`: the on-foot description (jacket and hat).
+- **Server.** `server/src/features/Shops.ts`:
+  - the `shop` message;
+  - `catalog` after every welcome;
+  - prices from `RemoteConfig`;
+  - spending logged to `activity`.
 
-- `vehicleStatic` gains the visible tuning (underglow, a tuned flag), in the spare bits of the livery
-  byte where possible.
-- `pedStatic` gains the hat, and a ped's static part learns to change: a `rev`, as vehicles have, so
-  a change of clothes reaches everyone.
-- New messages: `buy`, `garageStore`, `garageTake`.
-- Declared together as one protocol bump.
+  `db.ts` gets the `gear` column (and `copyPlayerAs`), `savedCar` its `mods`, `Room` a player's saved
+  look.
+- **Client.**
+  - `src/game/features/ShopsUi.ts`: the markers in the street and on the maps, opening a panel, the
+    panels themselves.
+  - `shops/text.ts`: names and descriptions.
+  - `drawVehicle`: the neon. `drawPed`: the hats.
+  - `LiveState.catalog`.
+  - `Game.prompt`: the workshop hint.
 
 ### Steps
 
-1. Shops: the places, the panel (a `ClientFeature`), `Sim.buy`, the server's `buy` handler, prices in
-   `RemoteConfig`.
-2. The garage and the collection: the profile's `garage` and `seen`, a Supabase or SQLite column
-   online, the save offline.
-3. Tuning: `Vehicle.mods`, applied by the physics (the driver's client simulates its own car, so the
-   server checks mods against the profile), and drawn.
-4. The gun shop and the lawyer.
-5. The clothes shop and the on-foot description.
-6. Cash on death.
-7. Economy telemetry: purchases logged to `activity`, and a first round of tuning the prices against
-   what players earn per hour.
+1. The catalog, the places, `Profile.gear` (save, `gear` column, `profile.gear`, the `gear` event), and
+   the `Shops` rule with the `shop` message and `catalog`.
+2. Poľovnícke potreby and the lawyer, and cash on death.
+3. The Butik: the jacket and the hat on the wire and in the police's description.
+4. The Dielňa: `mods`, the physics, the neon, paint and repair.
+5. The garage and the collection.
+6. Spending in `activity`; docs.
 
 ### Verification
 
-- Shared tests for `Sim.buy`: refusals, the money, the item, offline and online.
-- A stored car comes back with its colour, tuning and damage.
-- Tuning is visible in the physics tests (acceleration, damage taken, a spike strip that doesn't
-  burst run-flats).
-- Server tests for each message: validation and persistence.
-- The description changes with clothes (Phase 1's pursuit tests, extended).
-- Cash on death: the amount, the anti-farm rules, and expiry.
+- `test/shared/shops.test.ts` against the real map:
+  - every shop's place is reachable (walkable, or on a road for the garages and workshops);
+  - buying refuses the wrong place, too little money, a car that can't be tuned or garaged, and a tier
+    already owned;
+  - each item does what it says (ammo, vest, clothes, lawyer, each mod, paint);
+  - the garage keeps and returns a car with its colour, mods and damage;
+  - the collection pays once;
+  - a death drops cash that expires;
+  - an arrest with a lawyer keeps the guns;
+  - clothes change the description.
+- Vehicle tests: the engine's acceleration, plating's damage, run-flat tyres against a spike strip,
+  the bigger tank.
+- `server/test/shops.test.ts`: the `shop` message through the Room, `catalog` after a welcome, gear
+  saved and loaded (the migration), prices from `game_config`.
+- `test/client/`: the shop texts.
+- `npm test`, `npm run build`, `npm run smoke`, `npm run smoke:mobile`, `npm run e2e`.
 
 ### Risks
 
-- **Inflation.** Every price is a tunable, and the telemetry shows earnings per hour before
-  prices are set.
-- **Pay-to-win online.** Tuning helps in races and chases. Race stakes are matched by the
-  challenger's car anyway. If it matters, a race can offer "stock cars only".
-- **Profile size.** Six cars of a few fields each is small. The garage is capped.
+- **Inflation.** Every price is a tunable, and spending is logged next to earning (`activity`).
+- **Pay-to-win online.** Tuning helps in races and chases, as money always could buy a faster car. If
+  it matters, races can later be "stock cars only".
+- **Profile size.** Six stored cars of a few fields each, capped by the slots.
+- **Trust.** A tuned car is still driven by its owner's client, as every car is. The server checks moves
+  against speeds a tuned car can't beat either (`CAR_MAX`).
 
 ---
 
@@ -620,3 +660,51 @@ chase") covers the online side. These are the places where it differs from the p
   - `npm run e2e`, `npm run smoke` and `npm run smoke:mobile` pass.
   - Two checks were run by hand: the police status reaching an online client, and a real arrest by
     server-side police bought off over the wire.
+
+## Phase 2 as built
+
+Phase 2 shipped on protocol 7, with every addition optional as planned. [docs/multiplayer.md](../multiplayer.md)
+("The shops") covers the online side, and [docs/deploy.md](../deploy.md) the `shops` prices in
+`game_config`. These are the places where it differs from the plan above.
+
+- **Opening a shop.** A panel opens for a player who stops there: a car pulled up (under 1 m/s) or
+  someone standing at the door. On foot a shop is its door (3 m), a garage included. Its 9 m zone
+  counts only for a car, so walking past one, or arriving at the spawn place beside it, opens nothing.
+  A panel that was closed opens again after leaving, or when coming back the other way (on foot
+  after driving, or the reverse). `test/shared/shops.test.ts` checks that every spawn place is clear
+  of every door.
+- **Taking a car out of the garage.** It waits at the door, parked and held for its owner for 90 s,
+  instead of starting with them in it: a snapshot never carries a player's own car, so a client can't
+  be put straight into a car it has never seen. Cars held for a player (this one, and a returning
+  player's) are no longer despawned by the AI while held. Parking stands the player at the door, so
+  the garage's panel stays open.
+- **Butik Eurovea** is 28 m west of the gun shop there. The Eurovea landmark is inside the mall, and the
+  planned offset snapped to the gun shop's own spot.
+- **Names.** The Butik names its jackets with the same colour words the police use ("Modrá" in the shop,
+  "Hľadajú modrú bundu" on the chip), so the olive jacket is "Žltá". The paints are named the same way
+  ("Červený lak"). The police radio says when a suspect on foot has changed clothes.
+- **The respray** is a full repair (dents and burst tyres too), also the spray shop's on the run.
+- **Panels and the gamepad.** The shops' panels are the social features' kit modals. Every kit panel
+  (the shops, Aktivity, the leaderboard…) can now be driven with the pad: the d-pad or stick moves to
+  the nearest control that way, A chooses, B leaves. A pad legend says so. An open panel takes the
+  controls, so the pad no longer walks or drives underneath it. On the Aktivity panel, d-pad down now
+  moves instead of closing it; B closes it.
+- **Keys stay with an open panel**, even when the focus has left it: a purchase that rebuilt the panel
+  used to drop the focus to the page, and Escape then paused the game under the panel instead of
+  closing it (`src/ui/kit/dom.ts`).
+- **The neon** is a pool of colour under the car by day and lights the street at night.
+- **Spending** is logged to `activity` as `kind = 'shop'` with amount 0 and `meta = { spent, item }`:
+  `leaderboard_week()` adds up amounts as money earned.
+- **The leaderboard's help** lists the collection's points on the city board.
+- **Test tools.** The test-only `debug` message can park a car beside the player (`car`), for the
+  garage's end-to-end check.
+- **Tests.**
+  - New: `test/shared/shops.test.ts` (the places on the real map, every item, the refusals, the garage,
+    the collection, the cash drop, the lawyer, clothes in the description, prices and saves),
+    `server/test/shops.test.ts` (the messages, the catalog, `game_config`, the activity log, gear and a
+    tuned car across a restart, the migration), `test/client/shops.test.ts` (the words), tuning in
+    `test/shared/vehicle.test.ts`, the neon and hat bits in `test/shared/codec.test.ts`.
+  - `npm run smoke` buys a pistol with a click and a jacket with a (simulated) gamepad; `npm run e2e`
+    now runs `scripts/e2e-shops.mjs`: the price list, clothes another player sees, a garage round trip
+    with two clients, and the gear across a server restart.
+  - `npm test` (the whole suite), `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass.
