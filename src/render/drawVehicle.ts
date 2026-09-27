@@ -7,6 +7,10 @@ import { clamp } from '../shared/util/math';
 import { shade } from '../shared/util/color';
 import { roundRect } from './shapes';
 
+/** brake lights: players' cars only (traffic's constant light dabs on the brakes flashed red like a
+ *  police car's lights) */
+const braking = (v: Vehicle) => v.isPlayer && v.ctrl.throttle < 0 && v.fwdSpeed > 0.5;
+
 /** Headlights, tail/brake lights, police flashers, fire. */
 export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos?: Atmosphere) {
   if (!atmos) return;
@@ -39,11 +43,11 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
     L.point(noseX - rx * hw, noseY - ry * hw, 1.8, '#fff1c8', 0.65 * k);
   }
 
-  const braking = v.ctrl.throttle < 0 && v.fwdSpeed > 0.5;
-  const tailGlow = braking ? 1 : 0.35 * k;
+  const brake = braking(v);
+  const tailGlow = brake ? 1 : 0.35 * k;
   if (tailGlow > 0.02) {
-    L.glow(tailX + rx * hw, tailY + ry * hw, braking ? 1.6 : 1, '#ff2a2a', tailGlow);
-    L.glow(tailX - rx * hw, tailY - ry * hw, braking ? 1.6 : 1, '#ff2a2a', tailGlow);
+    L.glow(tailX + rx * hw, tailY + ry * hw, brake ? 1.6 : 1, '#ff2a2a', tailGlow);
+    L.glow(tailX - rx * hw, tailY - ry * hw, brake ? 1.6 : 1, '#ff2a2a', tailGlow);
   }
   if (k > 0.02) {
     L.point(tailX + rx * hw, tailY + ry * hw, 1.1, '#ff2a2a', 0.5 * k);
@@ -327,8 +331,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.fillStyle = dmg.front > 0.7 ? '#3a352c' : '#fff6c4';
     ctx.fillRect(L / 2 - 0.16, -W / 2 + 0.12, 0.14, 0.38);
     ctx.fillRect(L / 2 - 0.16, W / 2 - 0.5, 0.14, 0.38);
-    const braking = v.ctrl.throttle < 0 && v.fwdSpeed > 0.5;
-    ctx.fillStyle = dmg.rear > 0.7 ? '#3a2c2c' : braking ? '#ff1f1f' : '#9b1111';
+    ctx.fillStyle = dmg.rear > 0.7 ? '#3a2c2c' : braking(v) ? '#ff1f1f' : '#9b1111';
     ctx.fillRect(-L / 2 + 0.02, -W / 2 + 0.12, 0.14, 0.34);
     ctx.fillRect(-L / 2 + 0.02, W / 2 - 0.46, 0.14, 0.34);
     // missing bumper on a badly-hit end
