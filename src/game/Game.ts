@@ -357,8 +357,10 @@ export class Game {
     if (save.gear !== undefined) save.gear = cleanGear(save.gear);
     return save;
   }
+  /** the save was thrown away for a new game (discardSave): this page's game is never written again */
+  private saveDiscarded = false;
   persist() {
-    if (this.onlineMode || this.host.mode !== 'local') return;
+    if (this.onlineMode || this.host.mode !== 'local' || this.saveDiscarded) return;
     this.save.clock = this.atmos.time;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
@@ -379,6 +381,12 @@ export class Game {
     } catch {
       /* ignore */
     }
+  }
+  /** Starting over (main.ts reloads into the new game): the save goes, and the old game doesn't write
+   *  itself back on the way out (beforeunload persists), which kept all its progress before. */
+  discardSave() {
+    this.saveDiscarded = true;
+    Game.clearSave();
   }
 
   resize() {

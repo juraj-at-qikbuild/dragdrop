@@ -209,7 +209,7 @@ async function boot() {
   const startGame = (fresh: boolean, welcome?: [string, string]) => {
     game.audio.init();
     if (fresh) {
-      Game.clearSave();
+      game.discardSave();
       location.hash = 'new';
       location.reload();
       return;
