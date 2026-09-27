@@ -164,9 +164,18 @@ export class Fx {
 
   /** One shot from a toy: a water jet, a stream of bubbles or a burst of confetti along each
    *  pellet's path, and where one ended on a wall or a car (bit set in `sparks`) a splash, a pop or
-   *  paper fluttering down. */
-  shot(x: number, y: number, a: number, ends: number[], sparks: number, w: WeaponId = 'pistol') {
+   *  paper fluttering down. `pour`: the helicopter's bucket instead. */
+  shot(x: number, y: number, a: number, ends: number[], sparks: number, w: WeaponId = 'pistol', pour = false) {
     const ca = Math.cos(a), sa = Math.sin(a);
+    if (pour) {
+      // the helicopter tipping its water bucket: a thick pour and a big splash where it lands
+      for (let i = 0; i + 1 < ends.length; i += 2) {
+        this.tracers.push({ x, y, x2: ends[i], y2: ends[i + 1], life: 0.22, max: 0.22, color: 'rgba(150,210,255,0.75)', width: 0.4 });
+        this.drops(ends[i], ends[i + 1], 10, 4);
+        this.wet(ends[i], ends[i + 1], 0.8, 'rgba(40,70,110,0.32)', 14);
+      }
+      return;
+    }
     this.nozzle(x + ca * 0.05, y + sa * 0.05, a, w);
     for (let i = 0; i + 1 < ends.length; i += 2) {
       const ex = ends[i], ey = ends[i + 1];

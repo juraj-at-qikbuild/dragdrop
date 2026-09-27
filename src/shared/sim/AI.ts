@@ -1247,7 +1247,9 @@ export class AI {
     if (!v) return 0;
     v.siren = true;
     if (swat) {
-      v.color = '#1b1f2a';
+      // the firefighters (hasiči) and their hoses: the police's 5★ unit (docs/plans/non-violent.md)
+      v.color = '#c62828';
+      v.swat = true;
       v.rev++;
       sim.police.swat.add(v);
       if (v.driver) v.driver.outfit = 'swat';

@@ -30,9 +30,11 @@ export class ClientEvents implements SimEvents {
 
   shot(e: ShotFx) {
     if (this.skipOwnShots && e.pid === this.meId) return;
-    this.g.fx.shot(e.x, e.y, e.a, e.ends, e.sparks, e.w);
+    // (the helicopter, the one shooter with no ped, tips its water bucket: docs/plans/non-violent.md)
+    const heli = e.by === 0;
+    this.g.fx.shot(e.x, e.y, e.a, e.ends, e.sparks, e.w, heli);
     const d = this.distTo(e.x, e.y);
-    if (d < 130) this.g.audio.shot(e.w, d);
+    if (d < 130) heli ? this.g.audio.splash(d) : this.g.audio.shot(e.w, d);
     // a mirrored shooter turns to face where they fired
     const shooter = e.by ? this.g.host.pedById(e.by) : null;
     if (shooter && shooter.kinematic) {

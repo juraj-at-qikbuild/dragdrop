@@ -156,6 +156,7 @@ export class Mirrors {
       m.obj.color = r.color ?? m.obj.color;
       m.obj.mission = !!r.mission;
       m.obj.livery = r.livery ?? 0;
+      m.obj.swat = !!r.swat;
       m.obj.owner = r.owner ?? 0;
       // of a car's tuning only the neon shows (the rest is its driver's business)
       m.obj.mods.glow = r.glow ?? 0;

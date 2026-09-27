@@ -4,7 +4,7 @@ import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
 import { LIVERY_ARMORED, LIVERY_DERBY, LIVERY_KOFOLKA, LIVERY_NONE, type Vehicle } from '../shared/entities/Vehicle';
 import { clamp } from '../shared/util/math';
-import { shade } from '../shared/util/color';
+import { shade, shadeHex } from '../shared/util/color';
 import { NEONS } from '../shared/sim/shops/catalog';
 import { roundRect } from './shapes';
 import { drawRider } from './drawPed';
@@ -19,7 +19,7 @@ function rgba(hex: string, a: number) {
  *  police car's lights) */
 const braking = (v: Vehicle) => v.isPlayer && v.ctrl.throttle < 0 && v.fwdSpeed > 0.5;
 
-/** Headlights, tail/brake lights, police flashers, fire. */
+/** Headlights, tail/brake lights, police flashers, a broken-down car's hazard lights. */
 export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos?: Atmosphere) {
   if (!atmos) return;
   const s = v.spec;
@@ -29,18 +29,10 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
   const tailX = v.x - fx * (s.length / 2 - 0.1), tailY = v.y - fy * (s.length / 2 - 0.1);
   const hw = s.width / 2 - 0.18;
 
+  // (a car that gave up, docs/plans/non-violent.md: no fire, its hazard lights blinking)
   if (v.wrecked) {
-    if (v.fire > -1 && Math.random() < 0.7) {
-      const fl = 0.55 + Math.random() * 0.45;
-      L.point(v.x, v.y, 3.2, '#ff5a1f', fl);
-      L.glow(v.x, v.y, 3.5, '#ff8a3d', fl * 0.55);
-    }
+    if (!s.twoWheeler && Math.floor(time * 1.6) % 2 === 0) L.glow(v.x, v.y, 3, '#ffab40', 0.45);
     return;
-  }
-  if (v.fire > 0) {
-    const fl = 0.6 + Math.random() * 0.4;
-    L.point(v.x, v.y, 3.4, '#ff6a00', fl);
-    L.glow(v.x, v.y, 3.5, '#ff7a20', fl * 0.6);
   }
 
   const dmg = v.dmg;
@@ -168,7 +160,8 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   drawWheel(ctx, -wx0, wy0, 0, wheelLen, wheelWid);
 
   const dmg = v.dmg;
-  const body = v.wrecked ? '#2a2623' : v.color;
+  // a car that gave up (docs/plans/non-violent.md) keeps its colour, dull, not charred
+  const body = v.wrecked ? shadeHex(v.color, -0.28) : v.color;
   ctx.save();
   roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
   ctx.clip();
@@ -209,7 +202,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.fillStyle = shade(body, -0.4);
     roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 0.15);
     ctx.fill();
-    ctx.fillStyle = 'rgba(30,15,10,0.35)';
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
     ctx.restore();
   }
@@ -219,14 +212,15 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   roundRect(ctx, -L / 2, -W / 2, L, W, s.kind === 'bus' ? 0.35 : 0.5);
   ctx.stroke();
 
-  const glass = v.wrecked ? '#111' : '#27343f';
+  // (a car that gave up: its windows steamed up)
+  const glass = v.wrecked ? '#9fb3bf' : '#27343f';
   if (s.kind === 'bus') {
     // DPB red/white livery: white belly band, red top/bottom, roof vents, doors
-    ctx.fillStyle = v.wrecked ? '#222' : '#f2f2f2';
+    ctx.fillStyle = v.wrecked ? '#b8b8b8' : '#f2f2f2';
     ctx.fillRect(-L / 2 + 0.6, -W / 2 + 0.25, L - 1.2, W - 0.5);
     ctx.fillStyle = glass;
     ctx.fillRect(L / 2 - 0.55, -W / 2 + 0.2, 0.4, W - 0.4);
-    ctx.fillStyle = v.wrecked ? '#333' : '#c9c9c9';
+    ctx.fillStyle = v.wrecked ? '#9e9e9e' : '#c9c9c9';
     for (let i = 0; i < 3; i++) ctx.fillRect(-L / 2 + 2 + i * 3.4, -0.5, 1.2, 1);
     ctx.fillStyle = body;
     ctx.fillRect(-L / 2 + 0.6, -0.12, L - 1.2, 0.24);
@@ -252,9 +246,24 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   } else if (s.kind === 'van') {
     ctx.fillStyle = glass;
     ctx.fillRect(L / 2 - 1.35, -W / 2 + 0.2, 0.55, W - 0.4);
-    ctx.fillStyle = v.wrecked ? '#333' : '#f5f5f5';
+    ctx.fillStyle = v.wrecked ? '#bdbdbd' : v.swat ? shade(body, -0.12) : '#f5f5f5';
     ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, W - 0.4);
-    if (!v.wrecked) {
+    if (v.swat && !v.wrecked) {
+      // the firefighters (the police's 5★ unit: docs/plans/non-violent.md): a ladder on the roof,
+      // reflective stripes and HASIČI
+      ctx.fillStyle = '#cfd8dc';
+      ctx.fillRect(-L / 2 + 0.45, -0.42, L - 2.1, 0.1);
+      ctx.fillRect(-L / 2 + 0.45, 0.32, L - 2.1, 0.1);
+      for (let x = -L / 2 + 0.6; x < L / 2 - 1.7; x += 0.45) ctx.fillRect(x, -0.42, 0.07, 0.84);
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, 0.14);
+      ctx.fillRect(-L / 2 + 0.25, W / 2 - 0.34, L - 1.8, 0.14);
+      ctx.fillStyle = '#fff';
+      ctx.font = '900 0.5px Arial Black, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('HASIČI', -0.65, -0.62);
+    } else if (!v.wrecked) {
       // roof rack
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 0.05;
@@ -269,7 +278,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   } else if (s.kind === 'ambulance') {
     ctx.fillStyle = glass;
     ctx.fillRect(L / 2 - 1.3, -W / 2 + 0.2, 0.5, W - 0.4);
-    ctx.fillStyle = v.wrecked ? '#333' : '#fafafa';
+    ctx.fillStyle = v.wrecked ? '#bdbdbd' : '#fafafa';
     ctx.fillRect(-L / 2 + 0.2, -W / 2 + 0.18, L - 1.65, W - 0.36);
     if (!v.wrecked) {
       // red stripes down both sides, a red cross on the roof
@@ -331,7 +340,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.closePath();
     ctx.fill();
     // roof
-    ctx.fillStyle = v.wrecked ? '#1c1a18' : shade(body, s.kind === 'police' ? -0.05 : -0.12);
+    ctx.fillStyle = shade(body, s.kind === 'police' ? -0.05 : -0.12);
     roundRect(ctx, -L * 0.26, -W / 2 + 0.2, L * 0.46, W - 0.4, 0.25);
     ctx.fill();
     if (s.kind === 'police' && !v.wrecked) {
@@ -370,13 +379,27 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   // spec.health for a raised-health mission vehicle, e.g. the armoured van)
   const dmgFrac = clamp(1 - v.health / (v.maxHealth || s.health), 0, 1);
   if (v.wrecked) {
-    ctx.fillStyle = 'rgba(20,16,14,0.45)';
+    // gave up in a PUF of foam: suds on the body, the bonnet popped open, the hazard lights on
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
     for (let i = 0; i < 6; i++) {
       const o = DMG_OFFSETS[i];
       ctx.beginPath();
-      ctx.ellipse(o[0] * L * 0.42, o[1] * W * 0.42, o[2] * 0.5, o[2] * 0.32, o[0], 0, Math.PI * 2);
+      ctx.ellipse(o[0] * L * 0.42, o[1] * W * 0.42, o[2] * 0.42, o[2] * 0.3, o[0], 0, Math.PI * 2);
       ctx.fill();
     }
+    if (s.kind !== 'bus') {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(L * 0.18, -W / 2 + 0.1, 0.06, W - 0.2);
+      ctx.fillStyle = shade(v.color, -0.05);
+      roundRect(ctx, L * 0.2, -W / 2 + 0.02, L * 0.3, W - 0.04, 0.2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 0.04;
+      ctx.stroke();
+    }
+    const blink = Math.floor(time * 1.6) % 2 === 0;
+    ctx.fillStyle = blink ? '#ffb300' : '#6d4c00';
+    for (const [x, y] of [[L / 2 - 0.16, -W / 2 + 0.12], [L / 2 - 0.16, W / 2 - 0.26], [-L / 2 + 0.02, -W / 2 + 0.12], [-L / 2 + 0.02, W / 2 - 0.26]] as const) ctx.fillRect(x, y, 0.14, 0.14);
   } else if (dmgFrac > 0.12) {
     const n = Math.min(DMG_OFFSETS.length, 1 + Math.floor(dmgFrac * 6));
     ctx.fillStyle = 'rgba(20,16,14,0.28)';
@@ -691,7 +714,7 @@ function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
   ctx.fillStyle = `rgba(0,20,30,${0.18 + 0.1 * (atmos?.daylight ?? 0.6)})`;
   ctx.fill();
   ctx.restore();
-  const body = v.wrecked ? '#2a2623' : v.color;
+  const body = v.wrecked ? shadeHex(v.color, -0.28) : v.color;
   hull();
   ctx.fillStyle = v.wrecked ? body : bodyGradient(ctx, body);
   ctx.fill();
@@ -703,7 +726,7 @@ function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
   ctx.translate(-0.15, 0);
   ctx.scale(0.8, 0.74);
   hull();
-  ctx.fillStyle = v.wrecked ? '#1e1b19' : police ? '#cfd8dc' : '#c8b49a';
+  ctx.fillStyle = v.wrecked ? '#8d8d8d' : police ? '#cfd8dc' : '#c8b49a';
   ctx.fill();
   ctx.restore();
   if (police && !v.wrecked) {
@@ -720,7 +743,7 @@ function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
   ctx.quadraticCurveTo(L * 0.1, 0, L * 0.02, -W * 0.3);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = v.wrecked ? '#151312' : '#37474f';
+  ctx.fillStyle = v.wrecked ? '#5f6b70' : '#37474f';
   roundRect(ctx, -L * 0.14, -W * 0.28, 0.55, 0.5, 0.1);
   ctx.fill();
   roundRect(ctx, -L * 0.14, W * 0.28 - 0.5, 0.55, 0.5, 0.1);

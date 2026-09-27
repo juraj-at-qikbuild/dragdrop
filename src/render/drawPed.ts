@@ -97,7 +97,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
     const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : 'rest';
     drawBody(ctx, p, pose, swing, b, atmos, arms, punchT);
-    if (armed) drawToy(ctx, p.weapon);
+    if (armed) drawToy(ctx, p.weapon, p.kind === 'cop');
   }
   if (p.mess) drawMess(ctx, p, p.mess, Math.min(1, p.messT / 4));
   if (p.hitFlash > 0) {
@@ -357,13 +357,14 @@ function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
 }
 
 /** the toy in hand (docs/plans/non-violent.md), out along +x from the hands of the arm pose: an
- *  orange water pistol with its blue tank, a pink bubble gun with the wand's ring, a striped
- *  confetti tube */
-function drawToy(ctx: CanvasRenderingContext2D, w: Ped['weapon']) {
+ *  orange water pistol with its blue tank (a cop's is service blue), a pink bubble gun with the
+ *  wand's ring, a striped confetti tube */
+function drawToy(ctx: CanvasRenderingContext2D, w: Ped['weapon'], cop = false) {
   if (w === 'pistol') {
-    ctx.fillStyle = '#ff9800';
+    // (the police's own, service blue)
+    ctx.fillStyle = cop ? '#1e88e5' : '#ff9800';
     ctx.fillRect(0.33, -0.05, 0.2, 0.1);
-    ctx.fillStyle = '#e65100';
+    ctx.fillStyle = cop ? '#0d47a1' : '#e65100';
     ctx.fillRect(0.53, -0.022, 0.05, 0.044);
     ctx.fillStyle = '#4fc3f7';
     ctx.beginPath();
@@ -599,19 +600,17 @@ function drawOutfit(ctx: CanvasRenderingContext2D, p: Ped) {
   if (p.kind === 'cop') {
     const swat = p.outfit === 'swat';
     if (swat) {
-      // black tactical vest covering most of the torso
-      ctx.fillStyle = '#1a1a1a';
+      // a firefighter's jacket (the police's 5★ unit, hasiči: docs/plans/non-violent.md), with
+      // reflective bands
+      ctx.fillStyle = '#263238';
       ctx.beginPath();
-      ctx.ellipse(0, 0, 0.17, 0.28, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 0.18, 0.29, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 0.015;
-      ctx.beginPath();
-      ctx.moveTo(0, -0.26);
-      ctx.lineTo(0, 0.26);
-      ctx.stroke();
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(-0.18, -0.13, 0.36, 0.045);
+      ctx.fillRect(-0.18, 0.09, 0.36, 0.045);
     }
-    ctx.fillStyle = swat ? '#0d0d0d' : '#0c1a45';
+    ctx.fillStyle = swat ? '#c0ca33' : '#0c1a45';
     ctx.fillRect(-0.19, -0.06, 0.38, 0.12);
     ctx.fillStyle = '#c9a227';
     ctx.fillRect(0.06, -0.04, 0.05, 0.05); // badge
@@ -677,13 +676,15 @@ function drawOutfit(ctx: CanvasRenderingContext2D, p: Ped) {
 function drawHair(ctx: CanvasRenderingContext2D, p: Ped) {
   const style = p.hairStyle;
   if (p.kind === 'cop' && p.outfit === 'swat') {
-    // swat helmet: dark dome + visor band
-    ctx.fillStyle = '#0d0d0d';
+    // a firefighter's helmet: a red dome, a ridge, a yellow visor
+    ctx.fillStyle = '#d32f2f';
     ctx.beginPath();
-    ctx.arc(0.02, 0, 0.165, 0, Math.PI * 2);
+    ctx.arc(0.02, 0, 0.17, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2a2a2a';
-    ctx.fillRect(0.1, -0.15, 0.09, 0.3);
+    ctx.fillStyle = '#b71c1c';
+    ctx.fillRect(-0.14, -0.025, 0.3, 0.05);
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillRect(0.11, -0.13, 0.07, 0.26);
     return;
   }
   if (style === 'bald') return;
