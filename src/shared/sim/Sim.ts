@@ -60,6 +60,8 @@ export interface SimOptions {
 const SPRAY_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#263238'];
 /** a getaway is clean (a style move) in a car with at least this much of its health left */
 const CLEAN_GETAWAY_HP = 0.95;
+/** health an ambulance gives back to its driver, per second */
+export const AMBULANCE_HEAL = 2;
 const SPRAY_COST = 250;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
@@ -114,6 +116,8 @@ export class Sim {
   private byId = new Map<number, Vehicle | Ped>();
   /** any player currently wanted (cheap check for AI panic reactions) */
   anyWanted = false;
+  /** a player's car has its siren on (traffic then pulls over for it, wanted or not) */
+  anySiren = false;
   /** integrate traffic far from every camera at half rate (server) */
   coarsePhysics = false;
   /** pluggable rules: world events, revive, races, jobs… (rules/index.ts) */
@@ -205,6 +209,23 @@ export class Sim {
     this.pedHash.query(x, y, r, (p) => out.push(p));
     return out;
   }
+  /** Nothing in the way of `v` where it stands (not yet in the world): walls, water, other cars. A
+   *  car parked against a kerb or another car touches it a little: that's fine. (A car out of a
+   *  garage, an ambulance put down at a hospital.) */
+  clearFor(v: Vehicle): boolean {
+    const r = v.spec.width / 2;
+    for (let i = 0; i < v.circles.length; i++) {
+      const x = v.circleX(i), y = v.circleY(i);
+      if (this.world.collideCircle(x, y, r - 0.25, v.level, false) || this.world.inWater(x, y, v.level)) return false;
+    }
+    for (const o of this.vehiclesNear(v.x, v.y, 14)) {
+      if (o.level !== v.level) continue;
+      for (let i = 0; i < v.circles.length; i++)
+        for (let j = 0; j < o.circles.length; j++) if (dist(v.circleX(i), v.circleY(i), o.circleX(j), o.circleY(j)) < r + o.spec.width / 2 - 0.1) return false;
+    }
+    return true;
+  }
+
   vehiclesNear(x: number, y: number, r: number): Vehicle[] {
     const out: Vehicle[] = [];
     this.vehHash.query(x, y, r, (v) => out.push(v));
@@ -326,8 +347,10 @@ export class Sim {
     if (this.driveClock) this.clock.update(dt);
     Vehicle.env.wet = this.clock.wet;
     this.anyWanted = false;
+    this.anySiren = false;
     for (const p of this.players.values()) {
       if (p.wanted > 0) this.anyWanted = true;
+      if (p.ped.vehicle?.siren) this.anySiren = true;
       if (p.state !== 'play') {
         p.stateTimer -= dt;
         // bleeding out is a death (downed → wasted, then the usual respawn), so rules can tell it from a revive
@@ -349,6 +372,9 @@ export class Sim {
       this.sprayShop(p);
       this.hazards(p, dt);
       this.discover(p);
+      // an ambulance patches its driver up (docs/plans/gameplay.md, Phase 3)
+      const car = p.ped.vehicle;
+      if (car?.kind === 'ambulance' && !car.wrecked && p.ped.health < 100) p.ped.health = Math.min(100, p.ped.health + AMBULANCE_HEAL * dt);
     }
     for (const r of this.rules) r.step?.(dt);
     this.sweepTimer -= dt;
@@ -572,6 +598,8 @@ export class Sim {
     v.kinematic = p.kinematic;
     v.parked = false;
     v.reservedFor = 0;
+    // whoever had its siren on, it's the player's to switch on now (H)
+    v.siren = false;
     ped.vehicle = v;
     p.lastCar = v;
     this.events.toPlayer(p.id, tuned(v.mods) ? { k: 'enter', vehicle: v.id, ok: true, mods: { ...v.mods } } : { k: 'enter', vehicle: v.id, ok: true });

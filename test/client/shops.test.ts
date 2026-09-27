@@ -7,7 +7,7 @@ import {
   placesWord, storedCarLine,
 } from '../../src/game/features/shops/text';
 import { DISPATCH, describeClothes, describeWalker, wantedLine } from '../../src/game/features/police/text';
-import { HATS, MOD_MAX, NEONS, NO_MODS, PAINTS } from '../../src/shared/sim/shops/catalog';
+import { COLLECTION, HATS, MOD_MAX, NEONS, NO_MODS, PAINTS } from '../../src/shared/sim/shops/catalog';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
 
 describe("the shops' words", () => {
@@ -42,8 +42,8 @@ describe("the shops' words", () => {
 
   it('counts garage places and the collection', () => {
     expect([2, 4, 6].map(placesWord)).toEqual(['2 miesta', '4 miesta', '6 miest']);
-    expect(collectionLine(undefined)).toBe('Zbierka 0/8');
-    expect(collectionLine(['hatch', 'bus', 'ufo'])).toBe('Zbierka 2/8');
+    expect(collectionLine(undefined)).toBe(`Zbierka 0/${COLLECTION.length}`);
+    expect(collectionLine(['hatch', 'bus', 'ufo'])).toBe(`Zbierka 2/${COLLECTION.length}`);
   });
 });
 

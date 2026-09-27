@@ -1017,9 +1017,10 @@ export class AI {
     if (Math.abs(diff) > 0.9) desired = Math.min(desired, 4);
     if (!chase) desired = Math.min(desired, v.spec.maxSpeed * 0.5, passCap);
 
-    // civilian traffic reacts to nearby gunfire/explosions and to a siren closing in from behind
-    if (!chase && sim.anyWanted) {
-      const danger = sim.police.nearestDanger(v.x, v.y, 22);
+    // civilian traffic reacts to nearby gunfire/explosions and to a siren closing in from behind (a
+    // player's too, wanted or not: docs/plans/gameplay.md, Phase 3)
+    if (!chase && (sim.anyWanted || sim.anySiren)) {
+      const danger = sim.anyWanted ? sim.police.nearestDanger(v.x, v.y, 22) : null;
       if (danger) {
         desired = Math.min(v.spec.maxSpeed * 0.85, Math.max(desired, desired * 1.8 + 4));
         const away = Math.atan2(v.y - danger.y, v.x - danger.x);
@@ -1083,11 +1084,11 @@ export class AI {
     this.sim.honk(v);
   }
 
-  /** is a siren-on police car (not a player's) closing in from behind this traffic car? */
+  /** is a police car or an ambulance with its siren on (a player's too) closing in from behind? */
   private sirenBehind(v: Vehicle): boolean {
     let found = false;
     this.sim.forVehiclesNear(v.x, v.y, 16, (o) => {
-      if (found || o === v || o.kind !== 'police' || !o.siren || o.isPlayer) return;
+      if (found || o === v || !o.siren || !o.hasSiren || o.wrecked) return;
       const dx = o.x - v.x, dy = o.y - v.y;
       const d2 = dx * dx + dy * dy;
       if (d2 > 256) return;

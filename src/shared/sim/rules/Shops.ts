@@ -6,7 +6,6 @@
 import { Vehicle, SPECS, type VehicleKind } from '../../entities/Vehicle';
 import { PLAYER_SHIRTS, setPlayerHat, setPlayerLook, type WeaponId } from '../../entities/Ped';
 import { LIVERY_NONE } from '../../entities/Vehicle';
-import { dist } from '../../util/math';
 import type { Sim } from '../Sim';
 import type { SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
@@ -282,7 +281,7 @@ export class Shops implements SimRule {
     const c = cars[slot];
     if (!Number.isInteger(slot) || !c) return no('Také auto v garáži nemáš.');
     const v = carFrom(c, place.x, place.y, place.a);
-    if (!this.clear(v)) return no('Pred garážou niečo stojí.');
+    if (!this.sim.clearFor(v)) return no('Pred garážou niečo stojí.');
     v.level = 0;
     v.levelInit = true;
     v.reservedFor = p.id;
@@ -291,20 +290,6 @@ export class Shops implements SimRule {
     cars.splice(slot, 1);
     this.changed(p);
     return yes(`${SPECS[v.kind].name} ťa čaká pred garážou.`);
-  }
-
-  /** nothing in the way of a car put down here: walls, water, other cars */
-  private clear(v: Vehicle): boolean {
-    const world = this.sim.world;
-    const r = v.spec.width / 2;
-    for (let i = 0; i < v.circles.length; i++) {
-      const x = v.circleX(i), y = v.circleY(i);
-      if (world.collideCircle(x, y, r - 0.25, 0, false) || world.inWater(x, y, 0)) return false;
-    }
-    for (const o of this.sim.vehiclesNear(v.x, v.y, 14))
-      for (let i = 0; i < v.circles.length; i++)
-        for (let j = 0; j < o.circles.length; j++) if (dist(v.circleX(i), v.circleY(i), o.circleX(j), o.circleY(j)) < r + o.spec.width / 2 - 0.1) return false;
-    return true;
   }
 
   // ---------------------------------------------------------------------------------- hooks

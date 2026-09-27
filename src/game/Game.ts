@@ -587,8 +587,15 @@ export class Game {
       }
       v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space', 'handbrake'), inp.down('ShiftLeft', 'ShiftRight', 'nitro'));
       if (inp.hit('KeyH')) {
-        this.audio.horn();
-        this.host.horn();
+        // a police car's or an ambulance's siren, on and off (docs/plans/gameplay.md, Phase 3; online
+        // the car's state report carries it); anything else honks
+        if (v.hasSiren && !v.wrecked) {
+          v.siren = !v.siren;
+          this.message('', v.siren ? 'Siréna zapnutá' : 'Siréna vypnutá', 1.4, '#90caf9');
+        } else {
+          this.audio.horn();
+          this.host.horn();
+        }
       }
       if (inp.hit('KeyR') && v.kind !== 'police') {
         this.radio = (this.radio + 1) % (RADIO.length + 1);
@@ -844,7 +851,8 @@ export class Game {
   private updateAudio() {
     const f = this.focus();
     const host = this.host;
-    if (this.wanted > 0) {
+    if (this.player.vehicle?.siren) this.audio.siren(0.85);
+    else if (this.wanted > 0) {
       let nearest = Infinity;
       for (const v of host.vehicles) if (v.kind === 'police' && v.siren && !v.wrecked && !v.isPlayer) nearest = Math.min(nearest, dist(v.x, v.y, f.x, f.y));
       for (const p of host.peds) if (p.kind === 'cop' && !p.dead && !p.vehicle) nearest = Math.min(nearest, dist(p.x, p.y, f.x, f.y));

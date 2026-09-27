@@ -622,7 +622,7 @@ export class Room {
       v.av = rv.av;
       v.steer = rv.steer;
       v.setControls(rv.throttle, rv.steer, rv.handbrake, rv.boost);
-      v.siren = rv.siren && v.kind === 'police';
+      v.siren = rv.siren && v.hasSiren;
       v.horn = rv.horn ? 0.3 : 0;
       v.boosting = rv.boosting;
       v.tyresBurst = rv.tyres ? 1 : 0;

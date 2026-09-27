@@ -28,7 +28,7 @@ export function pointsHelp(): string[] {
     `Najhľadanejší: +${P.wanted} b za minútu na 5★, +${P.escape} b za útek · lovec: ${P.bounty} b + 1 b za každých €${Math.round(1 / P.bountyPerDollar)} odmeny`,
     `Hon na Čumila: +${P.cumil} b · Obrnené auto: +${P.robbery} b za lúpež, +${P.loot} b za balík peňazí`,
     `Útek polícii (naháňačka aspoň ${GETAWAY_MIN_S} s): ${P.getaway.slice(1).join(' / ')} b podľa hviezd · zničené policajné auto +${P.takedown} b`,
-    `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b · zbierka áut (všetkých 8 druhov) +${P.collection} b`,
+    `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b · zbierka (všetky druhy vozidiel) +${P.collection} b`,
     `Postaviť hráča na nohy: +${P.samaritan} b`,
     `Kombo (tesné obchádzky, drifty, skoky…): 1 b za každých €${STYLE_PER_POINT} z jeho výplaty, najviac ${STYLE_POINTS_MAX} b`,
     'Partia sa delí o body z udalostí a práce rovnako ako o peniaze. Body sa rátajú iba online.',

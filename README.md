@@ -99,7 +99,7 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
   - **JUDr. Paragraf** (by the Primate's Palace): a lawyer for the next arrest, who gets your guns back and halves the fee;
   - **Dielňa** (the fuel stations): paint of your choice with a full repair, two engine tiers, two tiers of plating, run-flat tyres, two bigger nitro tanks and neon underglow in seven colours. Tuning belongs to the car: leave it in the street and it's gone;
   - **Garáž** (by six of the places you start from): park the car you drive and take it out again at any of your garages, colour, tuning and dents and all. Two places to start with, up to six;
-  - **Zbierka**: drive every kind of vehicle in the city (all eight, the police car and the bus included) for €1,000, and 100 points online.
+  - **Zbierka**: drive every kind of vehicle in the city (the police car, the bus and the ambulance included) for €1,000, and 100 points online.
 
   A death leaves its fee where you fell, less the first €100, as cash anyone can pick up for two minutes. The panels work with the mouse, the keyboard, a touch screen and a gamepad (the d-pad or stick moves, A chooses, B leaves). Online, the prices come from the server, which checks every purchase.
 - **Six missions tied to real places**, started from phone booths:

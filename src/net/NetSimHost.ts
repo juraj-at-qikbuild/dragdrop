@@ -609,6 +609,8 @@ export class NetSimHost implements SimHost, NetView {
         v.parked = false;
         v.levelInit = true;
         v.setControls(0, 0, false);
+        // the siren is ours to switch on now (the server switched it off: Sim.enterVehicle)
+        v.siren = false;
         // its tuning: a snapshot carries only the neon
         if (e.mods) v.tune(e.mods);
         p.vehicle = v;

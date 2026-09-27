@@ -67,9 +67,11 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
     L.point(tailX - rx * hw, tailY - ry * hw, 1.1, '#ff2a2a', 0.5 * k);
   }
 
-  if (s.kind === 'police' && v.siren) {
+  if (v.hasSiren && v.siren) {
     const on = Math.floor(time * 6) % 2 === 0;
-    const c1 = on ? '#ff1744' : '#2979ff', c2 = on ? '#2979ff' : '#ff1744';
+    // an ambulance flashes blue only
+    const [ca, cb] = s.kind === 'ambulance' ? ['#2979ff', '#82b1ff'] : ['#ff1744', '#2979ff'];
+    const c1 = on ? ca : cb, c2 = on ? cb : ca;
     const lx = v.x + rx * 0.22, ly = v.y + ry * 0.22;
     const rx2 = v.x - rx * 0.22, ry2 = v.y - ry * 0.22;
     L.point(lx, ly, 9, c1, 0.85);
@@ -243,6 +245,26 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
       ctx.fillText('KOFOLKA', -0.65, 0.02);
     }
     mirrors(ctx, L, W, body);
+  } else if (s.kind === 'ambulance') {
+    ctx.fillStyle = glass;
+    ctx.fillRect(L / 2 - 1.3, -W / 2 + 0.2, 0.5, W - 0.4);
+    ctx.fillStyle = v.wrecked ? '#333' : '#fafafa';
+    ctx.fillRect(-L / 2 + 0.2, -W / 2 + 0.18, L - 1.65, W - 0.36);
+    if (!v.wrecked) {
+      // red stripes down both sides, a red cross on the roof
+      ctx.fillStyle = '#e53935';
+      ctx.fillRect(-L / 2 + 0.2, -W / 2, L - 0.4, 0.2);
+      ctx.fillRect(-L / 2 + 0.2, W / 2 - 0.2, L - 0.4, 0.2);
+      ctx.fillRect(-1.2, -0.17, 1.2, 0.34);
+      ctx.fillRect(-0.77, -0.6, 0.34, 1.2);
+      // the light bar over the cab
+      const on = v.siren && Math.floor(time * 7) % 2 === 0;
+      ctx.fillStyle = v.siren ? (on ? '#2979ff' : '#82b1ff') : '#90a4ae';
+      ctx.fillRect(L / 2 - 1.72, -W / 2 + 0.28, 0.3, (W - 0.56) / 2);
+      ctx.fillStyle = v.siren ? (on ? '#82b1ff' : '#2979ff') : '#90a4ae';
+      ctx.fillRect(L / 2 - 1.72, 0, 0.3, (W - 0.56) / 2);
+    }
+    mirrors(ctx, L, W, body);
   } else {
     const k = s.kind === 'sport' ? 0.9 : 1;
     // windscreen with a soft reflection gradient
@@ -343,7 +365,7 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
       ctx.ellipse(o[0] * L * 0.42, o[1] * W * 0.42, o[2] * 0.4, o[2] * 0.26, o[0], 0, Math.PI * 2);
       ctx.fill();
     }
-    if (dmgFrac > 0.45 && s.kind !== 'bus' && s.kind !== 'van') {
+    if (dmgFrac > 0.45 && s.kind !== 'bus' && s.kind !== 'van' && s.kind !== 'ambulance') {
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.lineWidth = 0.03;
       ctx.beginPath();

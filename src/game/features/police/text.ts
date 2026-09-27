@@ -15,6 +15,7 @@ const MODEL: Record<VehicleKind, { acc: string; nom: string; g: Gender }> = {
   bus: { acc: 'autobus', nom: 'autobus', g: 'm' },
   sport: { acc: 'Porše', nom: 'Porše', g: 'n' },
   classic: { acc: 'Tatrovku', nom: 'Tatrovka', g: 'f' },
+  ambulance: { acc: 'sanitku', nom: 'sanitka', g: 'f' },
 };
 
 /** colour adjectives by stem: the endings follow the noun (masculine -ý, neuter -é, feminine -á, and

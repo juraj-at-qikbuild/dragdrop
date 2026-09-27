@@ -108,8 +108,8 @@ export type PriceId = keyof Prices;
 /** what a box of ammo holds, per gun (as the pickups do) */
 export const AMMO_BOX: Record<Exclude<WeaponId, 'fist'>, number> = { pistol: 36, uzi: 120, shotgun: 16 };
 
-/** the collection: every kind there is */
-export const COLLECTION: readonly VehicleKind[] = ['hatch', 'sedan', 'taxi', 'van', 'bus', 'sport', 'classic', 'police'];
+/** the collection: every kind there is (the kinds Phase 3 adds included) */
+export const COLLECTION: readonly VehicleKind[] = ['hatch', 'sedan', 'taxi', 'van', 'bus', 'sport', 'classic', 'police', 'ambulance'];
 /** ...and its one-off reward */
 export const COLLECTION_REWARD = 1000;
 

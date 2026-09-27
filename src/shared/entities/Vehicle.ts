@@ -7,7 +7,9 @@ import { clamp } from '../util/math';
 import type { Ped } from './Ped';
 import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog';
 
-export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic';
+/** New kinds go at the end (docs/plans/gameplay.md, Phase 3): the wire sends a kind as its index in
+ *  SPECS, and a client from before draws one it doesn't know as a sedan. */
+export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance';
 
 /** a located-damage zone: front/rear/left/right of the car's local frame */
 export type DamageZone = 'front' | 'rear' | 'left' | 'right';
@@ -67,6 +69,9 @@ export const SPECS: Record<VehicleKind, CarSpec> = {
     colors: ['#ff6f00', '#212121', '#d50000', '#00bfa5'] },
   classic: { kind: 'classic', name: 'Tatrovka 603', length: 5.1, width: 1.9, maxSpeed: 40, accel: 7, brake: 8.5, grip: 6, mass: 1500, health: 140,
     drive: 'rwd', frontGrip: 1, rearGrip: 0.95, inertia: 0, vCap: 0, colors: ['#111111', '#2b2b2b', '#5d1a1a'] },
+  // docs/plans/gameplay.md, Phase 3: parked at the hospitals, a siren, and it heals its driver
+  ambulance: { kind: 'ambulance', name: 'Sanitka Záchranka', length: 5.6, width: 2.05, maxSpeed: 40, accel: 8, brake: 9, grip: 6.5, mass: 2400, health: 170,
+    drive: 'rwd', frontGrip: 0.9, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#fafafa'] },
 };
 /** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
 const ROLL = 0.15, AERO = 0.00065;
@@ -216,6 +221,11 @@ export class Vehicle {
     return this.spec.kind;
   }
   /** driven by a player (local or remote) */
+  /** a police car or an ambulance: its siren works (a player's too: H, docs/plans/gameplay.md Phase 3) */
+  get hasSiren() {
+    return this.kind === 'police' || this.kind === 'ambulance';
+  }
+
   get isPlayer() {
     return this.owner !== 0;
   }

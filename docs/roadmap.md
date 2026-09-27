@@ -119,7 +119,7 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - **Clothes the police look for**: on foot, the description is the jacket and the hat they last saw,
   and the chip and the police radio say so ("Hľadajú modrú bundu so šiltovkou").
 - **The lawyer** keeps the guns through the next arrest and halves its fee. **A death's fee** lies where
-  the player fell (less €100) for two minutes. **The collection**: all eight kinds of vehicle driven,
+  the player fell (less €100) for two minutes. **The collection**: every kind of vehicle driven,
   €1,000 and 100 points.
 - **Panels with a gamepad**: every panel (the shops, Aktivity, the leaderboard…) can be driven with the
   d-pad or stick, A and B, and a panel takes the controls while it's open.
