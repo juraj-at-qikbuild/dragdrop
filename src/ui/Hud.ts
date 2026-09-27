@@ -625,10 +625,10 @@ export class Hud {
 }
 
 /** the pad's buttons (standard mapping, Xbox face-button colours) and what they do */
-const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa'], ['↓', 'aktivity']];
-const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'streľba'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
+const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'striekanie'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'hračka'], ['⧉', 'mapa'], ['↓', 'aktivity']];
+const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'striekanie'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
 /** on a scooter or a bike: no nitro, no radio, and the horn is a bell */
-const PAD_BIKE: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['X', 'zvonček'], ['RS', 'streľba'], ['Y', 'zosadnúť']];
+const PAD_BIKE: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['X', 'zvonček'], ['RS', 'striekanie'], ['Y', 'zosadnúť']];
 const PAD_MENU: [string, string][] = [['✚', 'pohyb'], ['A', 'vybrať'], ['B', 'späť']];
 const FACE: Record<string, string> = { A: '#2e9e44', B: '#d83a2e', X: '#2f6fd6', Y: '#e0b100' };
 

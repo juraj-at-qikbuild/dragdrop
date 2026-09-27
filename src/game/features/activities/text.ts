@@ -27,9 +27,9 @@ export const EVENT_ORDER: EventKind[] = ['kofolka', 'cumil', 'armored', 'derby',
 export const EVENT_ABOUT: Record<EventKind, { emoji: string; about: string }> = {
   kofolka: { emoji: '🥤', about: `Dodávka plná peňazí. Kto ju šoféruje, zarába ${formatMoney(10)}/s z ${formatMoney(1500)} – kým mu ju niekto nevezme.` },
   cumil: { emoji: '🔍', about: `Zlatý Čumil sa skrýva v kruhu, ktorý sa zmenšuje. Kto sa ho prvý dotkne, berie ${formatMoney(600)}.` },
-  armored: { emoji: '💰', about: `Obrnené auto vozí peniaze medzi bankami. Rozstrieľaj mu zadné dvere a zober ${formatMoney(1200)} (+2★).` },
-  derby: { emoji: '💥', about: `Demolačné derby na parkovisku pri Auparku alebo Eurovei. Traja najlepší si delia až ${formatMoney(2400)}.` },
-  wanted: { emoji: '🚨', about: 'Hráč s 5★ má na hlave odmenu, ktorá rastie. Kto ho zloží, berie ju; keď ujde, polovica je jeho.' },
+  armored: { emoji: '💰', about: `Obrnené auto vozí peniaze medzi bankami. Oblievaj mu zámok na zadných dverách, kým nezhrdzavie, a zober ${formatMoney(1200)} (+2★).` },
+  derby: { emoji: '🎡', about: `Autodróm na parkovisku pri Auparku alebo Eurovei: narážaj do ostatných, kým to ich autá nevzdajú. Traja najlepší si delia až ${formatMoney(2400)}.` },
+  wanted: { emoji: '🚨', about: 'Hráč s 5★ má na hlave odmenu, ktorá rastie. Kto ho premočí do nitky, berie ju; keď ujde, polovica je jeho.' },
 };
 
 /** 1 hráč, 2 hráči, 5 hráčov */

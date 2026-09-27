@@ -34,6 +34,7 @@ export const RADIO: RadioStation[] = [
       'Počasie: v Petržalke fúka, na Hrade fúka viac.',
       'Kofolka – keď ju piješ, nie je čo riešiť. Reklama.',
       'Polícia hlási zvýšený pohyb podozrivých áut v Starom Meste. Zaujímavé.',
+      'Hlásime zvýšený výskyt vodných pištolí v Starom Meste. Dáždniky so sebou!',
     ],
   },
   {
@@ -56,6 +57,7 @@ export const RADIO: RadioStation[] = [
       'Ľudová hudba z Podunajska pre všetkých zatúlaných Blavákov.',
       'Dolinky – oblátky z nížin. Lebo hory sú preceňované.',
       'Na Hlavnom námestí dnes vianočné trhy. Áno, aj v septembri.',
+      'Stánkarka z Hviezdoslavovho námestia odkazuje: lokše sa jedia, nie zbierajú z chodníka!',
     ],
   },
   {
@@ -68,6 +70,9 @@ export const RADIO: RadioStation[] = [
       'Mestská rada schválila štvrtý nový most. Stavať sa začne v roku 2087.',
       'Diskusia: Prečo sa Čumil stále pozerá spod kanála? Experti mlčia.',
       'Halušky u Fera – bryndza, ktorá si ťa nájde.',
+      'Mesto opravilo výtlk. Jeden. Zvyšné si môžete naďalej užívať, najmä keď prší.',
+      'Holuby na Hlavnom námestí opäť porazili autá. Skóre: holuby 12, autá 0.',
+      'Poslucháčka Anka z Ružinova: "Zasa ma ošpliechal z kaluže. Tretí raz tento týždeň!"',
     ],
   },
 ];

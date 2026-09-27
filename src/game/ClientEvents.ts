@@ -218,7 +218,8 @@ export class ClientEvents implements SimEvents {
         break;
       case 'respawn':
         if (e.busted) g.missions.onPlayerDown('busted');
-        g.message(e.busted ? 'Policajná stanica' : 'Nemocnica', `${e.poi}  −${formatMoney(e.fee)}`, 4, '#ffffff');
+        // (soaked through: dried off at the hospital, with a blanket and a cup of tea)
+        g.message(e.busted ? 'Policajná stanica' : 'Nemocnica', e.busted ? `${e.poi}  −${formatMoney(e.fee)}` : `${e.poi}: vysušili ťa a dali ti čaj  −${formatMoney(e.fee)}`, 4, '#ffffff');
         g.cam.x = e.x;
         g.cam.y = e.y;
         g.audio.setStation(null);

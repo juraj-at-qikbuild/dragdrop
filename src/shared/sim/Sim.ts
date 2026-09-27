@@ -876,7 +876,7 @@ export class Sim {
     this.crime(killer, 'killPlayer', null, victim);
     const f = victim.focus();
     this.style(killer, 'ko', f.x, f.y, { label: `${victim.nick}: SPRCHA!` });
-    this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Dostal ťa ${killer.nick}.`, time: 3, color: '#ff8a80' });
+    this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Premočil ťa ${killer.nick}.`, time: 3, color: '#80d8ff' });
     for (const r of this.rules) r.onKill?.(victim, killer);
   }
 
@@ -993,7 +993,7 @@ export class Sim {
     if (died && fee > DROP_KEEP) {
       const at = this.world.walkableNear(died.x, died.y);
       this.dropCash(at.x, at.y, fee - DROP_KEEP, 'death', DROP_LIFE);
-      this.events.toPlayer(p.id, { k: 'msg', title: '', text: `Kde si padol, zostalo ležať €${fee - DROP_KEEP}. Máš ${DROP_LIFE / 60} minúty.`, time: 4, color: '#ffd740' });
+      this.events.toPlayer(p.id, { k: 'msg', title: '', text: `Kde si premokol, vypadlo ti z vreciek €${fee - DROP_KEEP}. Máš ${DROP_LIFE / 60} minúty.`, time: 4, color: '#ffd740' });
     }
     p.diedAt = null;
     p.wanted = 0;
@@ -1011,7 +1011,7 @@ export class Sim {
     if (lawyer) {
       gear!.lawyer = false;
       this.events.toPlayer(p.id, { k: 'gear', g: gear! });
-      this.events.toPlayer(p.id, { k: 'msg', title: 'Advokát', text: 'JUDr. Paragraf ťa vytiahol: zbrane ti nechali, pokuta je polovičná.', time: 4, color: '#b2ff59' });
+      this.events.toPlayer(p.id, { k: 'msg', title: 'Advokát', text: 'JUDr. Paragraf ťa vytiahol: hračky ti nechali, pokuta je polovičná.', time: 4, color: '#b2ff59' });
     }
     // call off the police that were after this player
     this.police.clear(p);

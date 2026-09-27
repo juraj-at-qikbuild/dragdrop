@@ -323,7 +323,7 @@ export class PoliceUi implements ClientFeature {
     ctx.fill();
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
     ctx.textAlign = 'center';
-    outlined(ctx, 'Úplatok: policajt ťa pustí, zbrane ti ostanú.', cx, y + h + (small ? 22 : 26), '#cfd8dc', 3);
+    outlined(ctx, 'Úplatok: policajt ťa pustí, hračky ti ostanú.', cx, y + h + (small ? 22 : 26), '#cfd8dc', 3);
     ctx.restore();
   }
 }

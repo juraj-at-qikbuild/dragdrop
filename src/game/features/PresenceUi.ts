@@ -46,12 +46,12 @@ export class PresenceUi implements ClientFeature {
     if (!(host instanceof NetSimHost)) return ['', '', 'ok'];
     const head = 'Mesto beží ďalej – tvoja postava stojí na mieste.';
     // a server from before the shield: no cover at all
-    if (!host.serverPresence) return [head, 'Kým si v menu, dá sa zraniť.', 'warn'];
+    if (!host.serverPresence) return [head, 'Kým si v menu, môžu ťa obliať.', 'warn'];
     if (host.shielded) return [head, '🛡 V menu si v bezpečí.', 'ok'];
     if (g.state !== 'play') return [head, '', 'ok'];
     if (g.wanted > 0) return [head, '⚠ Polícia ťa hľadá – ani v menu nie si v bezpečí.', 'warn'];
     if (performance.now() - this.pausedAt < (SHIELD_ARM_S + 1) * 1000) return [head, 'O chvíľu budeš v bezpečí…', 'wait'];
-    return [head, '⚠ Teraz nie si v bezpečí: bojuješ, závodíš alebo si v akcii.', 'warn'];
+    return [head, '⚠ Teraz nie si v bezpečí: je z toho vodná bitka, závodíš alebo si v akcii.', 'warn'];
   }
 
   private show(head: string, status: string, tone: Tone) {

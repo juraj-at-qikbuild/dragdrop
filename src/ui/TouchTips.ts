@@ -17,7 +17,7 @@ interface Tip {
 
 const TIPS: Tip[] = [
   { id: 'stick', at: 'idle', when: (g) => !g.player.vehicle, text: () => 'Polož ľavý palec kamkoľvek vľavo a ťahaj. Potlačíš naplno = beh.' },
-  { id: 'fire', at: 'fire', when: (g) => !g.player.vehicle, text: () => 'Podrž: strieľa na najbližší cieľ. Ťahaj z tlačidla: mieriš sám.' },
+  { id: 'fire', at: 'fire', when: (g) => !g.player.vehicle, text: () => 'Podrž: strieka na najbližšieho. Ťahaj z tlačidla: mieriš sám.' },
   { id: 'map', at: 'map', when: (g) => !g.player.vehicle, text: () => 'Ťukni na minimapu: mapa mesta a navigácia. ⏸ pauza a nastavenia.' },
   { id: 'activities', at: 'activities', when: (g) => !g.player.vehicle && !!g.hud.activitiesRect, text: () => 'Ťukni na Aktivity: čo sa deje v meste a čo môžeš robiť – práca, závody, udalosti.' },
   { id: 'use', at: 'use', when: (g) => !g.player.vehicle && !!g.prompt()?.use, text: () => 'Ťukni: nastúpiš do auta (aj cudzieho).' },

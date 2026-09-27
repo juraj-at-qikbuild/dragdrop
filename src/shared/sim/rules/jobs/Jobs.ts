@@ -86,7 +86,7 @@ const TIMEOUT_TEXT: Record<JobKind, string> = {
   taxi: 'Zákazník sa nedočkal a odišiel!',
 };
 const INTERRUPT_TEXT: Record<JobKind, string> = {
-  courier: 'Kuriér skončil v nemocnici, objednávka je preč!',
+  courier: 'Kuriéra premočili do nitky, objednávka je preč!',
   taxi: 'Zákazník si počas jazdy našiel iný odvoz.',
 };
 
