@@ -1,7 +1,7 @@
 # Plan: deeper gameplay, in five phases (Blava City)
 
-Status: planned (27 September 2026). Phase 1 is being built; Phases 2–5 are planned. Where the
-build of Phase 1 differs from this plan, see [Phase 1 as built](#phase-1-as-built) at the end.
+Status: Phase 1 implemented (27 September 2026); Phases 2–5 planned. Where the build of Phase 1
+differs from this plan, see [Phase 1 as built](#phase-1-as-built) at the end.
 
 This plan is about how the game plays, not about new missions. Every phase builds on systems that
 already exist (the police, the money, the driving model, the crowd, the parties, the leaderboard) and
@@ -583,4 +583,40 @@ stays within whatever protocol Phase 4 set.
 
 ## Phase 1 as built
 
-*(Filled in as the steps land.)*
+Phase 1 shipped as planned, on protocol 7. [docs/multiplayer.md](../multiplayer.md) ("The police
+chase") covers the online side. These are the places where it differs from the plan above.
+
+- **Gunfire is heard.** A shot within 20 m of a police unit counts as seen, whichever way the unit faces
+  (`HEAR_SHOT`), so nobody can fire a gun right behind a cop unnoticed. The old radius counted only cops
+  on foot. Police cars count now too, for every crime.
+- **The stars hold while a unit looks the player over.** While a unit that hasn't recognised the player
+  has them in sight, the unseen timer stops.
+- **A report opens the search at once.** When a witness gets through, the search circle opens at the
+  crime scene straight away. The units don't home in on the player for the one step before it opens.
+- **Who counts as police eyes.**
+  - SWAT vans now count. Before, only police-car kinds did.
+  - A roadblock's parked cars have no driver and don't count, but the cops standing at the roadblock do.
+  - Cops on foot more than 80 m beyond the search circle hold their post: a roadblock stays manned
+    during a search.
+- **Recycling police cars.** A car that stops closing in is still recycled once off-screen (after 10 s).
+  While searching, its progress is measured to its search point.
+- **The police radio** also says when they find the player again after losing them. On a phone the
+  arrest takes the radio's slot, so the line is cleared while a bribe is on offer.
+- **Bribes.**
+  - On a touch screen, a "Podplatiť" button appears while an arrest can be bought off (a `busted`
+    touch context).
+  - A job (Vlk, Hopík) still ends at the arrest itself. A bribe saves an offline mission, but not a
+    job.
+- **Shared day curve.** The day's ambient curve moved to `src/shared/sim/Clock.ts` (`AMBIENT_KEYS`,
+  `darkness`). The renderer and the police's sight now use the same curve.
+- **Wording.** `src/game/features/police/text.ts` names each car's colour and model in the right case
+  and gender ("Hľadajú červenú Felíciu", "biely autobus", "oranžové Porše").
+- **Tests.**
+  - New: `test/shared/pursuit.test.ts`, `test/shared/sight.test.ts`, `test/client/police.test.ts` and
+    `server/test/police.test.ts`.
+  - Three existing suites assumed a player standing still keeps their stars, which lying low changed.
+    The Most Wanted and points suites now keep their players on the move. Two derby tests pin the
+    police clock, so the stars wait for the amnesty.
+  - `npm run e2e`, `npm run smoke` and `npm run smoke:mobile` pass.
+  - Two checks were run by hand: the police status reaching an online client, and a real arrest by
+    server-side police bought off over the wire.

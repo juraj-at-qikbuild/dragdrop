@@ -527,3 +527,32 @@ full table of what everything is worth.
 - **Identity.** Scores are keyed by player key. Deleting an account deletes them; claiming a guest
   moves them. A player from before the leaderboard is seeded once, on the all-time boards only, from
   their saved progress.
+
+## The police chase
+
+What the police see and do in a chase is planned in [plans/gameplay.md](plans/gameplay.md) (Phase 1).
+Online it works like everything else in the simulation:
+
+- **Shared code, server authority.** `src/shared/sim/Pursuit.ts` runs on the server with the rest of
+  the `Sim`. It decides who sees each wanted player through `sight.ts`'s cones, what the police are
+  looking for (the description), recognition, the search circle, lying low and the stars fading, and
+  bribes. `AI.ts` and `Police.ts` move the units by what it decides. The client never decides any of
+  it.
+- **What the client gets.**
+  - The search circle and `searching` in the snapshot header, as before.
+  - A private `police` event when what the police know changes: the description, whether the player
+    matches it, recognition progress and whether a unit is looking them over, and lying low. It goes
+    into `LiveState.police`, and `car: -1` ends it.
+  - The helicopter's `tx, ty` (already on the wire) now carry where its searchlight points.
+  - The client draws the sight cones and the "!"/"?" markers itself, from the mirrored units, the
+    shared clock and the same `sight.ts`. So the minimap shows the cones the server decides with,
+    give or take the interpolation delay.
+- **Úplatok over the wire.** `Sim.bust` sends a private `bribe { price, t }` offer when an arrest can be
+  bought off. The client answers with `{ t: 'bribe' }`, which `server/src/features/Police.ts` hands to
+  `Sim.bribe`, and that checks everything again (the offer, the money). A paid bribe sends
+  `bribe { price: 0 }`.
+- **Still protocol 7.** A client from before ignores the new event kinds and is arrested as before. A
+  client only sends `bribe` in answer to an offer, so never to a server from before. Client and server
+  deploy in either order.
+- **Cost.** Per wanted player per tick: a cone check for each police unit within 75 m, and a raycast only
+  for those whose cone holds the player. The helicopter is one distance check.

@@ -21,7 +21,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | --- | --- |
 | WASD / arrows | walk / drive |
 | Mouse + left click | aim + shoot (drive-by when in a car) |
-| F / Enter / E | enter or exit a vehicle (carjacking included) |
+| F / Enter / E | enter or exit a vehicle (carjacking included); when arrested at 1–2★, pay the cop off (**Úplatok**) |
 | Space | handbrake (car) · shoot (on foot) |
 | Shift | run (nitro in a car) |
 | Q, 1–4 | switch weapon |
@@ -82,9 +82,17 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
 - **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and (on players' cars) brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
 - **Traffic AI** on the real road graph, which respects one-way streets, drives on the right, keeps to the real speed limits and stops at the 220 real traffic lights (police in pursuit don't). Cars stop at the real stop signs and go when the junction is clear, give way at give-way signs and wherever a side street meets a bigger road, slow for speed bumps, spread across the marked lanes of multi-lane roads, and buses pull up at the real bus stops. They keep to lanes fitted between the kerbs and walls, pull out round a parked or broken-down car (or a bus at its stop) when the way is clear and wait behind it when it isn't, sort out a nose-to-nose standoff on a narrow street (one backs up and tucks in), turn round in cul-de-sacs instead of driving into them, and a car that gets wedged is towed away out of sight. Parked cars stand at the kerb (on one side only of a narrow street) and fill the mapped parking lots and bays. **Red-and-white trams** run on the actual tram tracks and stop at the real tram stops.
-- **People** walk the sidewalks and footpaths on lines clear of walls, fences and fountains, and make room for each other and for you instead of walking through. They sit on benches, in bus shelters and at café tables, wait at the tram stops and get on the tram (a few get off at each stop), jump out of the way of a car coming at them and step aside when you honk. Barge into someone and they tell you off (tourists in English); point a gun at them and they put their hands up while it stays on them, or run. One in seven able-bodied locals hits back when punched or carjacked. Shoot or steal a car with no police around and a witness gets away and phones them: stop them before they get through, or you're wanted.
+- **People** walk the sidewalks and footpaths on lines clear of walls, fences and fountains, and make room for each other and for you instead of walking through. They sit on benches, in bus shelters and at café tables, wait at the tram stops and get on the tram (a few get off at each stop), jump out of the way of a car coming at them and step aside when you honk. Barge into someone and they tell you off (tourists in English); point a gun at them and they put their hands up while it stays on them, or run. One in seven able-bodied locals hits back when punched or carjacked. Shoot or steal a car where no police can see it and a witness gets away and phones them: stop them before they get through, or you're wanted.
 - **Driving physics.** Cars grip on their tyres (slip angles, weight transfer, about 1 g of cornering at the limit in traffic, less for vans and buses), brake from 100 km/h in 32–44 m with ABS (a bus needs about 56 m), have stability control (the rear-engined Porše much less of it), reach their real top speeds against air drag and reverse at up to about 30 km/h. Cobbles, rain, grass and steps all cost grip. The handbrake still swings the tail round. A player's car grips about twice as hard, steers quicker and has yaw control: at 90 km/h full lock holds a 30 m circle instead of 60 m, and the car stops turning the moment the key is let go. The camera zooms out only gently with speed and looks ahead of the car.
-- **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
+- **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. They act on what they see ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 1):
+  - police cars and cops look through cones that shrink at night and in the rain. The helicopter sees the circle under it by day and only its searchlight after dark, never under a roof, a passage or a bridge deck;
+  - a crime no cop sees (or, for gunfire, hears close by) may still be phoned in by a witness, who sends them to where it happened;
+  - they look for the car they last saw you in. Switch cars out of sight and a unit needs a good look to recognise you, though up close it's instant;
+  - once they've lost you, they search the circle where you were last seen, and the stars flash and fade. They fade faster in a car they're not looking for, faster still lying low (still and out of sight, even inside the circle), fastest in a car park or under cover;
+  - a chip under the stars says what they're looking for and whether they see you. "!" and "?" mark the units that see you or are looking you over, the minimap shows every unit's cone, and the police radio (*Vysielačka*) follows the chase;
+  - at 1–2 stars, an arrest can be bought off (**Úplatok**: F, €150 a star, once in 10 minutes, not after shooting at the police).
+
+  At a *Slovnafta* spray shop (real fuel station locations) you can pay €250 for a respray and lose the heat.
 - **Six missions tied to real places**, started from phone booths:
   - taxi fare from the castle to Eurovea;
   - Kofolka delivery to the UFO bridge;
@@ -141,8 +149,10 @@ src/
     entities/          Vehicle (tyre-model physics with ABS and stability control), Ped, Tram,
                        Helicopter, props
     sim/               Sim: AI (traffic, pedestrians, trams, parking), Crowd (people among people:
-                       seats, tram stops, reactions, fights, witnesses), police, combat rules,
-                       pickups, clock; phrases.ts (what people say)
+                       seats, tram stops, reactions, fights, witnesses), police, Pursuit (the
+                       police's side of a chase: who sees whom, the description, the search, lying
+                       low, bribes) and sight.ts (cones, darkness, the helicopter's view), combat
+                       rules, pickups, clock; phrases.ts (what people say)
     net/               wire protocol and binary codec
   game/Game.ts         game state, player, wanted level, drawing
   game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online

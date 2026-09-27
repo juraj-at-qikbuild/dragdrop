@@ -87,6 +87,25 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
   day's leader on Rádio Kecy. Anti-farmed (hourly caps, no points for forfeits, getaways need a real
   chase), and split by parties like money.
 
+### The police chase ([plans/gameplay.md](plans/gameplay.md), Phase 1)
+- **The police act on what they see.** Before, reinforcements spawned round the player's real
+  position, cops on foot walked straight to them and the helicopter followed them exactly, whether
+  anyone had seen them or not. Now cars and cops look through cones that darkness and rain shorten,
+  and the helicopter sees by day under it and at night only in its beam, never under cover. With
+  nobody seeing the player, every unit searches the circle where they were last seen. Roadblocks
+  go up only just after a sighting.
+- **Crimes need eyes.** A crime counts as seen when a unit has the player in sight (or hears
+  gunfire within 20 m), not whenever a cop is within 45–60 m. A witness's report sends the search to
+  the crime scene, for the car used there; before, it went to wherever the police had last seen the
+  player.
+- **A description.** The police look for the car they last saw the player in. Another car takes a
+  unit 1 s + 1 s per 20 m to recognise, instantly up close, and the stars fade 1.4× as fast.
+- **Lying low.** Still and unseen, the stars fade faster, even inside the circle, and fastest in a
+  car park or under cover.
+- **On screen.** A chip with what the police are looking for, "!"/"?" over units, sight cones on the
+  minimap, the helicopter's beam drawn where it really is, and a police radio.
+- **Úplatok.** An arrest at 1–2★ can be bought off for €150 a star.
+
 ## Still open
 
 ### Gameplay
