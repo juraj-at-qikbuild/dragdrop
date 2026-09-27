@@ -19,7 +19,7 @@ import { Police } from './Police';
 import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
 import { DROP_KEEP, DROP_LIFE, tuned } from './shops/catalog';
 import { STYLE, type Style, type StyleMove } from './rules/Style';
-import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
+import { CombatRules, WEAPONS, type Mess, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
 import { SPAWNS, SPAWN_SPREAD } from '../world/spawns';
@@ -798,9 +798,10 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ health / death
-  /** Damage a player from (fx, fy). `byPid` is the player responsible (PvP), 0 for the world/NPCs.
-   *  Also how a downed player is finished off (a second hit, once `state` is already 'downed'). */
-  hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0) {
+  /** Soak a player from (fx, fy) (docs/plans/non-violent.md: health is how dry they are). `byPid`
+   *  is the player responsible (PvP), 0 for the world/NPCs; `mess` what it leaves them with. Also
+   *  how a downed player is finished off (a second hit, once `state` is already 'downed'). */
+  hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0, mess: Mess = 'water') {
     if (p.state !== 'play' && p.state !== 'downed') return;
     // away and safe (rules/Presence.ts): nothing lands, and it's no crime either
     if (p.shielded) return;
@@ -826,7 +827,7 @@ export class Sim {
     const soak = Math.min(ped.armor, dmg * 0.7);
     ped.armor -= soak;
     ped.health -= dmg - soak;
-    this.events.pedHit(ped.id, ped.x, ped.y, 0.3);
+    this.events.pedHit(ped.id, ped.x, ped.y, 0.3, mess);
     this.events.toPlayer(p.id, { k: 'hurt', dmg, fx, fy });
     if (ped.health <= 0) {
       const killer = attacker ?? (p.lastAttacker && this.time - p.lastAttackedAt < CREDIT_WINDOW ? this.players.get(p.lastAttacker) : undefined);

@@ -77,7 +77,7 @@ export const SLOTS_MAX = 6;
 
 /** Default prices (€). Online, game_config's `shops` overrides any of them (Shops.setPrices). */
 export const PRICES = {
-  // Poľovnícke potreby
+  // Hračkárstvo (the toys: docs/plans/non-violent.md)
   pistol: 250,
   uzi: 700,
   shotgun: 900,
@@ -105,7 +105,7 @@ export const PRICES = {
 export type Prices = typeof PRICES;
 export type PriceId = keyof Prices;
 
-/** what a box of ammo holds, per gun (as the pickups do) */
+/** what a refill holds, per toy (as the pickups do) */
 export const AMMO_BOX: Record<Exclude<WeaponId, 'fist'>, number> = { pistol: 36, uzi: 120, shotgun: 16 };
 
 /** the collection: every kind there is (the kinds Phase 3 adds included) */

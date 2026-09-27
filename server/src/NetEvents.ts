@@ -2,6 +2,7 @@
 // and per-player private events during a tick; Room sends them out after building snapshots.
 import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
 import type { WorldEvent } from '../../src/shared/net/protocol';
+import type { Mess } from '../../src/shared/sim/Combat';
 
 export interface PlacedEvent {
   x: number;
@@ -29,8 +30,8 @@ export class NetEvents implements SimEvents {
   melee(x: number, y: number, hit: boolean) {
     this.add(x, y, { k: 'melee', x: r2(x), y: r2(y), hit: hit ? 1 : 0 });
   }
-  pedHit(id: number, x: number, y: number, size: number) {
-    this.add(x, y, { k: 'pedHit', id, x: r2(x), y: r2(y), s: size });
+  pedHit(id: number, x: number, y: number, size: number, mess?: Mess) {
+    this.add(x, y, mess ? { k: 'pedHit', id, x: r2(x), y: r2(y), s: size, m: mess } : { k: 'pedHit', id, x: r2(x), y: r2(y), s: size });
   }
   spark(x: number, y: number, kind: 0 | 1 | 2) {
     this.add(x, y, { k: 'spark', x: r2(x), y: r2(y), kind });

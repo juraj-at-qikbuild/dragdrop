@@ -483,7 +483,7 @@ export class NetSimHost implements SimHost, NetView {
         ev.melee(e.x, e.y, !!e.hit);
         break;
       case 'pedHit':
-        ev.pedHit(e.id, e.x, e.y, e.s);
+        ev.pedHit(e.id, e.x, e.y, e.s, e.m);
         break;
       case 'spark':
         ev.spark(e.x, e.y, e.kind);

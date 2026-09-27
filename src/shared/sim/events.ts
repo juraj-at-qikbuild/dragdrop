@@ -3,6 +3,7 @@
 // the server batches them into network messages for clients in range (NetEvents).
 import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
+import type { Mess } from './Combat';
 import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
 import type { ScoreSource } from './rules/points';
 import type { Gear, Mods } from './shops/catalog';
@@ -136,8 +137,9 @@ export interface SimEvents {
   shot(e: ShotFx): void;
   /** a punch: landed or whiffed */
   melee(x: number, y: number, hit: boolean): void;
-  /** a ped took a hit: blood (size ~0.3..1) and a hit flash */
-  pedHit(pedId: number, x: number, y: number, size: number): void;
+  /** a ped took a hit (size ~0.3..1): what it left them with (`mess`: wet, soapy, confetti, a
+   *  tickle, a bonk; water when a server from before doesn't say) and a hit flash */
+  pedHit(pedId: number, x: number, y: number, size: number, mess?: Mess): void;
   /** kind: 0 bullet spark, 1 metal (car contact), 2 glass */
   spark(x: number, y: number, kind: 0 | 1 | 2): void;
   explode(x: number, y: number, vehicleId: number, color: string | null): void;

@@ -95,6 +95,10 @@ export class Ped {
   downed = false;
   /** seconds remaining of a white hit-flash; decayed by the renderer */
   hitFlash = 0;
+  /** client only: what the last hit left them with (docs/plans/non-violent.md), and for how many
+   *  more seconds they show it (dripping, soapy, confetti in their hair); decayed by the renderer */
+  mess: 'water' | 'bubbles' | 'confetti' | 'foam' | null = null;
+  messT = 0;
   // navigation on the pedestrian graph
   link: Link | null = null;
   pts: number[] = [];

@@ -8,25 +8,32 @@ import { colorWord } from '../police/text';
 
 /** each kind of shop, generically, and what it's for (the panel's first line) */
 export const SHOP_KIND: Record<ShopKind, { name: string; about: string }> = {
-  guns: { name: 'Poľovnícke potreby', about: 'Zbraň s krabicou nábojov, nepriestrelná vesta.' },
+  guns: { name: 'Hračkárstvo', about: 'Vodná pištoľ, bublinkový samopal a konfety, každé s náplňou. A pršiplášť, nech nezmokneš.' },
   clothes: { name: 'Butik', about: 'Polícia hľadá oblečenie, v ktorom ťa naposledy videla. Prezleč sa, kým sa nepozerá.' },
-  lawyer: { name: 'Advokát', about: 'Pri ďalšom zatknutí ťa JUDr. Paragraf zastúpi: zbrane ti ostanú a pokutu zaplatíš polovičnú.' },
+  lawyer: { name: 'Advokát', about: 'Pri ďalšom zatknutí ťa JUDr. Paragraf zastúpi: hračky ti ostanú a pokutu zaplatíš polovičnú.' },
   tuning: { name: 'Dielňa', about: 'Lak s opravou, výkon, pancier, pneumatiky, nitro a neón. Úpravy patria autu: aby ti ostali, nechaj ho v garáži.' },
   garage: { name: 'Garáž', about: 'Auto, ktoré tu necháš, vyberieš v ktorejkoľvek svojej garáži, s lakom, úpravami aj škrabancami.' },
 };
 
-/** the guns, as the shop names them */
-export const GUN_NAME: Record<Exclude<WeaponId, 'fist'>, string> = { pistol: 'Pištoľ', uzi: 'Samopal', shotgun: 'Brokovnica' };
+/** the toys, as the shop names them (docs/plans/non-violent.md) */
+export const GUN_NAME: Record<Exclude<WeaponId, 'fist'>, string> = { pistol: 'Vodná pištoľ', uzi: 'Bublinkový samopal', shotgun: 'Konfetová brokovnica' };
 
-/** "Pištoľ + 36 nábojov" */
+/** "Vodná pištoľ + 36 striekancov" */
 export function gunLine(w: Exclude<WeaponId, 'fist'>): string {
-  return `${GUN_NAME[w]} + ${AMMO_BOX[w]} ${rounds(AMMO_BOX[w])}`;
+  return `${GUN_NAME[w]} + ${ammoLine(w, AMMO_BOX[w])}`;
 }
 
-/** "36 nábojov", "2 náboje", "1 náboj" */
-function rounds(n: number): string {
-  return n === 1 ? 'náboj' : n >= 2 && n <= 4 ? 'náboje' : 'nábojov';
+/** what a toy's refill holds, counted: "36 striekancov", "2 bublinky", "1 dávka konfiet" */
+export function ammoLine(w: Exclude<WeaponId, 'fist'>, n: number): string {
+  const [one, few, many] = AMMO_WORDS[w];
+  return `${n} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
 }
+
+const AMMO_WORDS: Record<Exclude<WeaponId, 'fist'>, [string, string, string]> = {
+  pistol: ['striekanec', 'striekance', 'striekancov'],
+  uzi: ['bublinka', 'bublinky', 'bubliniek'],
+  shotgun: ['dávka konfiet', 'dávky konfiet', 'dávok konfiet'],
+};
 
 const capital = (w: string) => `${w[0].toUpperCase()}${w.slice(1)}`;
 
@@ -49,8 +56,8 @@ export const MOD_KEYS: readonly ModKey[] = ['engine', 'plating', 'tyres', 'nitro
 /** each upgrade: its name and what it does */
 export const MOD_INFO: Record<ModKey, { name: string; about: string }> = {
   engine: { name: 'Motor', about: 'Rýchlejší rozjazd a vyššia maximálka.' },
-  plating: { name: 'Pancier', about: 'Auto znesie viac nárazov a striel.' },
-  tyres: { name: 'Dojazdové pneumatiky', about: 'Klince ani strely ich neprepichnú.' },
+  plating: { name: 'Pancier', about: 'Auto znesie viac nárazov aj poriadnu oblievačku.' },
+  tyres: { name: 'Dojazdové pneumatiky', about: 'Neprepichnú ich klince ani konfety.' },
   nitro: { name: 'Nádrž na nitro', about: 'Nitro vydrží dlhšie.' },
 };
 

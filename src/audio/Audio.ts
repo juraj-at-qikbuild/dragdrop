@@ -1,7 +1,8 @@
 import type { RadioStation } from '../data/brands';
 import type { WeaponId } from '../shared/entities/Ped';
 
-/** Fully procedural WebAudio sound: engine, siren, weapons and chiptune radio. */
+/** Fully procedural WebAudio sound: engine, siren, the toys (docs/plans/non-violent.md: squirts,
+ *  bubbles, party poppers, boings and a sad trombone) and chiptune radio. */
 export class Audio {
   ctx: AudioContext | null = null;
   private master!: GainNode;
@@ -125,7 +126,7 @@ export class Audio {
     return this.ctx!.currentTime;
   }
 
-  private noiseBurst(dur: number, freq: number, gain: number, q = 1, type: BiquadFilterType = 'lowpass', when = 0) {
+  private noiseBurst(dur: number, freq: number, gain: number, q = 1, type: BiquadFilterType = 'lowpass', when = 0, out?: AudioNode) {
     if (!this.ctx) return;
     const c = this.ctx;
     const src = c.createBufferSource();
@@ -138,7 +139,7 @@ export class Audio {
     const t = when || this.now();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(f).connect(g).connect(when ? this.music : this.sfx);
+    src.connect(f).connect(g).connect(out ?? (when ? this.music : this.sfx));
     src.start(t, Math.random() * 0.5);
     src.stop(t + dur + 0.05);
   }
@@ -164,23 +165,83 @@ export class Audio {
     return Math.max(0, 1 - d / 120);
   }
 
+  /** a toy going off: a squirt of water, a soft plop of bubbles, a party popper */
   shot(w: WeaponId, d = 0) {
     const v = this.vol(d);
     if (!v) return;
-    if (w === 'shotgun') this.noiseBurst(0.35, 1800, 0.9 * v);
-    else if (w === 'uzi') this.noiseBurst(0.08, 3000, 0.45 * v, 1, 'bandpass');
-    else this.noiseBurst(0.16, 2500, 0.7 * v);
+    if (w === 'shotgun') {
+      this.noiseBurst(0.07, 1300, 0.6 * v, 1.5, 'bandpass');
+      this.noiseBurst(0.35, 5500, 0.22 * v, 0.7, 'highpass');
+      this.tone(700, 0.2, 'square', 0.04 * v, 0, undefined, 1.6);
+    } else if (w === 'uzi') this.tone(420 + Math.random() * 600, 0.07, 'sine', 0.16 * v, 0, undefined, 2.2);
+    else {
+      this.noiseBurst(0.15, 3400, 0.4 * v, 2.5, 'bandpass');
+      this.tone(240, 0.06, 'sine', 0.1 * v, 0, undefined, 0.7);
+    }
   }
+  /** a car giving up: a big soft PUF of foam, a glitter of confetti, then a sad trombone */
   explosion(d = 0) {
     const v = this.vol(d * 0.5);
-    this.noiseBurst(1.4, 500, 1.2 * v);
-    this.tone(90, 0.8, 'sine', 0.6 * v, 0, undefined, 0.3);
+    if (!v || !this.ctx) return;
+    this.noiseBurst(0.7, 380, 0.9 * v);
+    const t = this.now();
+    [2637, 2093, 3136, 2349].forEach((f, i) => this.tone(f, 0.12, 'triangle', 0.05 * v, t + 0.08 + i * 0.05));
+    this.sadTrombone(0.5 * v, t + 0.45);
+  }
+  /** wah, wah, wah, waaah */
+  private sadTrombone(v: number, at: number) {
+    if (!this.ctx || v <= 0) return;
+    [311, 294, 277, 262].forEach((f, i) => this.tone(f, i === 3 ? 0.9 : 0.32, 'sawtooth', 0.07 * v, at + i * 0.34, undefined, i === 3 ? 0.94 : 0.97));
   }
   crash(intensity: number) {
     this.noiseBurst(0.25, 900, Math.min(0.9, intensity / 18));
   }
+  /** a tickle landing: a little giggle, hi-hi-hi */
   punch() {
-    this.noiseBurst(0.08, 400, 0.6);
+    if (!this.ctx) return;
+    const t = this.now();
+    [1180, 1320, 1250].forEach((f, i) => this.tone(f + Math.random() * 80, 0.07, 'triangle', 0.08, t + i * 0.08, undefined, 0.85));
+  }
+  /** someone bouncing off a car like a rubber ball */
+  boing(d = 0) {
+    const v = this.vol(d);
+    if (!v || !this.ctx) return;
+    const c = this.ctx, t = this.now();
+    const o = c.createOscillator(), lfo = c.createOscillator(), depth = c.createGain(), g = c.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(110, t);
+    o.frequency.exponentialRampToValueAtTime(330, t + 0.18);
+    lfo.frequency.value = 22;
+    depth.gain.setValueAtTime(60, t);
+    depth.gain.exponentialRampToValueAtTime(1, t + 0.5);
+    lfo.connect(depth).connect(o.frequency);
+    g.gain.setValueAtTime(0.3 * v, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + 0.55);
+    lfo.stop(t + 0.55);
+  }
+  /** a wave of water off a car's wheels (the splash-by) */
+  splash(d = 0) {
+    const v = this.vol(d);
+    if (!v) return;
+    this.noiseBurst(0.45, 1100, 0.55 * v, 0.8, 'bandpass');
+    this.noiseBurst(0.3, 3800, 0.2 * v, 1, 'highpass');
+  }
+  /** a flock of pigeons taking off: FRRR */
+  flutter(d = 0) {
+    const v = this.vol(d);
+    if (!v || !this.ctx) return;
+    const t = this.now();
+    for (let i = 0; i < 9; i++) this.noiseBurst(0.05, 1800 + Math.random() * 1600, 0.2 * v, 2, 'bandpass', t + i * 0.035 + Math.random() * 0.02, this.sfx);
+  }
+  /** a high five: a crisp clap */
+  clap() {
+    if (!this.ctx) return;
+    this.noiseBurst(0.06, 2400, 0.55, 1.2, 'bandpass');
+    this.tone(1568, 0.12, 'triangle', 0.06, this.now() + 0.03);
   }
   /** the suspension bottoming out: a speed bump or a kerb taken fast (k 0..1) */
   thud(k: number) {
@@ -203,9 +264,10 @@ export class Audio {
   whoosh() {
     this.noiseBurst(0.12, 1200, 0.15, 2, 'bandpass');
   }
+  /** someone squealing, a startled "ííí!" (docs/plans/non-violent.md: nobody screams any more) */
   scream() {
     if (!this.ctx) return;
-    this.tone(700 + Math.random() * 300, 0.35, 'sawtooth', 0.08, 0, undefined, 0.6);
+    this.tone(900 + Math.random() * 300, 0.28, 'sine', 0.09, 0, undefined, 1.45);
   }
   pickup() {
     this.tone(880, 0.1, 'square', 0.12);
@@ -229,9 +291,13 @@ export class Audio {
       this.tone(3520, 0.08, 'sine', 0.06, this.ctx ? this.now() + dt : 0);
     });
   }
+  /** good news, or being soaked through or arrested: a sad trombone */
   jingle(good: boolean) {
-    const notes = good ? [523, 659, 784, 1046] : [392, 330, 262, 196];
-    notes.forEach((f, i) => this.tone(f, 0.25, 'square', 0.15, this.ctx ? this.now() + i * 0.14 : 0));
+    if (!good) {
+      if (this.ctx) this.sadTrombone(1.6, this.now());
+      return;
+    }
+    [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.25, 'square', 0.15, this.ctx ? this.now() + i * 0.14 : 0));
   }
 
   engine(speed: number, throttle: number, active: boolean) {

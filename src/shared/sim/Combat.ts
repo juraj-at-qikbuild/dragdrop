@@ -1,6 +1,9 @@
-// Weapons and damage rules: shot tracing, hits, kills and explosions. Visual effects are events (see
-// events.ts); the browser draws them with Fx. A player's shot is traced by their own client against what
-// it sees (`traceShot`) and applied here (`applyShot`), the server first validating the claim.
+// Toys and soaking rules: shot tracing, hits, knock-downs and cars giving up (docs/plans/non-violent.md:
+// nobody gets hurt, everybody gets annoyed). The ids stay the wire's (`fist | pistol | uzi | shotgun`),
+// the toys are what they are now: tickling, a water pistol, a bubble gun and a confetti shotgun. Visual
+// effects are events (see events.ts); the browser draws them with Fx. A player's shot is traced by their
+// own client against what it sees (`traceShot`) and applied here (`applyShot`), the server first
+// validating the claim.
 import type { Level } from '../world/World';
 import type { Ped, WeaponId } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
@@ -8,12 +11,18 @@ import type { World } from '../world/World';
 import { dist } from '../util/math';
 import type { Sim } from './Sim';
 
-export const WEAPONS: Record<WeaponId, { name: string; dmg: number; cd: number; spread: number; range: number; pellets: number }> = {
-  fist: { name: 'Päste', dmg: 34, cd: 0.45, spread: 0, range: 1.4, pellets: 1 },
-  pistol: { name: 'Pištoľ', dmg: 55, cd: 0.3, spread: 0.035, range: 45, pellets: 1 },
-  uzi: { name: 'Samopal', dmg: 28, cd: 0.085, spread: 0.08, range: 38, pellets: 1 },
-  shotgun: { name: 'Brokovnica', dmg: 34, cd: 0.9, spread: 0.22, range: 22, pellets: 6 },
+/** each toy: its name (and what the HUD calls it, `short`), how much it soaks (dmg), cooldown,
+ *  spread, range and pellets */
+export const WEAPONS: Record<WeaponId, { name: string; short: string; dmg: number; cd: number; spread: number; range: number; pellets: number }> = {
+  fist: { name: 'Šteklenie', short: 'Šteklenie', dmg: 34, cd: 0.45, spread: 0, range: 1.4, pellets: 1 },
+  pistol: { name: 'Vodná pištoľ', short: 'Striekačka', dmg: 55, cd: 0.3, spread: 0.035, range: 45, pellets: 1 },
+  uzi: { name: 'Bublinkový samopal', short: 'Bublifuk', dmg: 28, cd: 0.085, spread: 0.08, range: 38, pellets: 1 },
+  shotgun: { name: 'Konfetová brokovnica', short: 'Konfeťák', dmg: 34, cd: 0.9, spread: 0.22, range: 22, pellets: 6 },
 };
+
+/** what each toy leaves on a person it hits (the look ClientEvents gives them) */
+export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'foam';
+export const WEAPON_MESS: Record<WeaponId, Mess> = { fist: 'tickle', pistol: 'water', uzi: 'bubbles', shotgun: 'confetti' };
 export const WEAPON_IDS: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
 
 /** what a pellet ended on */
@@ -155,7 +164,7 @@ export class CombatRules {
       ends.push(pl.hx, pl.hy);
       if (pl.kind === HitKind.Ped) {
         const p = sim.pedById(pl.hit);
-        if (p && !p.dead) this.hurtPed(p, w.dmg, shooter, pid);
+        if (p && !p.dead) this.hurtPed(p, w.dmg, shooter, pid, false, WEAPON_MESS[shot.w]);
       } else if (pl.kind === HitKind.Car) {
         sparks |= 1 << i;
         const car = sim.vehicleById(pl.hit);
@@ -167,11 +176,11 @@ export class CombatRules {
         // but for run-flats (the Dielňa's tuning)
         if (hitsWheel(car, pl.hx, pl.hy) && car.burstTyres() && car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
-        if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid);
+        if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid, false, WEAPON_MESS[shot.w]);
         if (car.isPlayer && car.owner !== pid) {
           // a car keeps most of it off its driver; a scooter's or a bike's rider is out in the open
           const victim = sim.players.get(car.owner);
-          if (victim) sim.hurtPlayer(victim, w.dmg * (car.spec.twoWheeler ? 0.35 : 0.12), shooter.x, shooter.y, pid);
+          if (victim) sim.hurtPlayer(victim, w.dmg * (car.spec.twoWheeler ? 0.35 : 0.12), shooter.x, shooter.y, pid, WEAPON_MESS[shot.w]);
         }
       } else if (pl.kind === HitKind.Wall) sparks |= 1 << i;
     });
@@ -189,23 +198,24 @@ export class CombatRules {
     if (target && !target.dead) this.hurtPed(target, WEAPONS.fist.dmg, shooter, pid, true);
   }
 
-  /** Damage a ped. `by` is who did it (for knock-back direction), `pid` the player responsible (0 =
-   *  NPC); `melee`: a punch (which the odd civilian answers in kind). */
-  hurtPed(p: Ped, dmg: number, by: { x: number; y: number } | null, pid: number, melee = false) {
+  /** Soak a ped. `by` is who did it (for knock-back direction), `pid` the player responsible (0 =
+   *  NPC); `melee`: a tickle (which the odd civilian answers in kind); `mess`: what it leaves them
+   *  with. */
+  hurtPed(p: Ped, dmg: number, by: { x: number; y: number } | null, pid: number, melee = false, mess: Mess = melee ? 'tickle' : 'water') {
     const sim = this.sim;
     if (p.dead) return;
     if (p.playerId) {
       const victim = sim.players.get(p.playerId);
-      if (victim && victim.id !== pid) sim.hurtPlayer(victim, dmg * 0.35, by?.x ?? p.x, by?.y ?? p.y, pid);
+      if (victim && victim.id !== pid) sim.hurtPlayer(victim, dmg * 0.35, by?.x ?? p.x, by?.y ?? p.y, pid, mess);
       return;
     }
     const player = pid ? sim.players.get(pid) ?? null : null;
     p.health -= dmg;
     p.hitFlash = 0.14;
-    sim.events.pedHit(p.id, p.x, p.y, 0.4);
+    sim.events.pedHit(p.id, p.x, p.y, 0.4, mess);
     if (p.health <= 0) {
       p.kill(by?.x ?? p.x, by?.y ?? p.y, 3);
-      sim.events.pedHit(p.id, p.x, p.y, 1);
+      sim.events.pedHit(p.id, p.x, p.y, 1, mess);
       sim.events.pedKilled(p.id, p.x, p.y, pid, 'shot');
       if (player) {
         sim.crime(player, p.kind === 'cop' ? 'killCop' : 'killPed');
@@ -240,7 +250,7 @@ export class CombatRules {
       if (d < 7 && p.level === lvl) {
         if (p.playerId) {
           const victim = sim.players.get(p.playerId);
-          if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid);
+          if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid, 'foam');
         } else {
           p.kill(x, y, 10);
           sim.events.pedKilled(p.id, p.x, p.y, pid, 'blast');
@@ -253,7 +263,7 @@ export class CombatRules {
       const d = dist(v.x, v.y, x, y);
       // a scooter's or a bike's rider is out in the open: the blast reaches them as it would on foot
       const rider = v.spec.twoWheeler && d < 7 ? sim.players.get(v.owner) : undefined;
-      if (rider && rider.ped.vehicle === v) sim.hurtPlayer(rider, 90 * (1 - d / 7), x, y, rider.id === pid ? 0 : pid);
+      if (rider && rider.ped.vehicle === v) sim.hurtPlayer(rider, 90 * (1 - d / 7), x, y, rider.id === pid ? 0 : pid, 'foam');
       if (d < 9) {
         // (a scooter or a bike is thrown, not fired off, and its rider with it: Sim.damageVehicle)
         const k = ((1 - d / 9) * 11) / Math.max(0.6, v.spec.mass / 1200);

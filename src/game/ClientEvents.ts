@@ -3,13 +3,15 @@
 // events here once the entities they refer to have been interpolated to the same moment.
 import type { Game } from './Game';
 import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
-import { WEAPONS } from '../shared/sim/Combat';
+import { WEAPONS, type Mess } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { LANDMARK_INFO, RADIO } from '../data/brands';
 import { clamp, dist, formatMoney } from '../shared/util/math';
 
 /** sounds from further away than this are skipped (online, the world is big) */
 const HEAR_R = 90;
+/** how long someone looks wet, soapy or covered in confetti after a hit (s) */
+const MESS_S = 25;
 
 export class ClientEvents implements SimEvents {
   /** online: the local player's own shots were already shown when fired */
@@ -28,7 +30,7 @@ export class ClientEvents implements SimEvents {
 
   shot(e: ShotFx) {
     if (this.skipOwnShots && e.pid === this.meId) return;
-    this.g.fx.shot(e.x, e.y, e.a, e.ends, e.sparks);
+    this.g.fx.shot(e.x, e.y, e.a, e.ends, e.sparks, e.w);
     const d = this.distTo(e.x, e.y);
     if (d < 130) this.g.audio.shot(e.w, d);
     // a mirrored shooter turns to face where they fired
@@ -45,10 +47,15 @@ export class ClientEvents implements SimEvents {
     else this.g.audio.whoosh();
   }
 
-  pedHit(id: number, x: number, y: number, size: number) {
-    this.g.fx.blood(x, y, size);
+  /** someone got wet, soapy, covered in confetti, tickled or bonked: what flies off them, and how
+   *  they look for a while after (drawPed) */
+  pedHit(id: number, x: number, y: number, size: number, mess: Mess = 'water') {
+    this.g.fx.soak(x, y, size, mess);
     const p = this.g.host.pedById(id);
-    if (p) p.hitFlash = 0.14;
+    if (p) {
+      p.hitFlash = 0.14;
+      if (mess !== 'tickle' && mess !== 'bonk') (p.mess = mess), (p.messT = MESS_S);
+    }
   }
 
   spark(x: number, y: number, kind: 0 | 1 | 2) {
@@ -148,8 +155,8 @@ export class ClientEvents implements SimEvents {
         if (e.kind === 'cash') g.audio.cash();
         else {
           g.audio.pickup();
-          if (e.kind === 'health') g.message('', 'Zdravie doplnené', 1.5, '#69f0ae');
-          else if (e.kind === 'armor') g.message('', 'Nepriestrelná vesta', 1.5, '#90caf9');
+          if (e.kind === 'health') g.message('', 'Uterák – zase si suchý', 1.5, '#69f0ae');
+          else if (e.kind === 'armor') g.message('', 'Pršiplášť', 1.5, '#ffd600');
           else if (e.kind in WEAPONS) g.message('', `${WEAPONS[e.kind as WeaponId].name} +${e.amount}`, 1.5, '#ffffff');
         }
         break;

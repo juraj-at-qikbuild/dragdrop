@@ -16,6 +16,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   const dtMs = last ? now - last : 0;
   lastDraw.set(p, now);
   if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dtMs / 1000);
+  if (p.messT > 0 && (p.messT -= dtMs / 1000) <= 0) p.mess = null;
 
   ctx.save();
   ctx.translate(p.x, p.y);
@@ -137,12 +138,9 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
     const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : 'rest';
     drawBody(ctx, p, pose, swing, b, atmos, arms, punchT);
-    if (armed) {
-      ctx.fillStyle = '#111';
-      if (p.weapon === 'pistol') ctx.fillRect(0.34, -0.045, 0.2, 0.08);
-      else ctx.fillRect(0.3, -0.05, p.weapon === 'shotgun' ? 0.52 : 0.3, 0.09);
-    }
+    if (armed) drawToy(ctx, p.weapon);
   }
+  if (p.mess) drawMess(ctx, p, p.mess, Math.min(1, p.messT / 4));
   if (p.hitFlash > 0) {
     ctx.globalAlpha = Math.min(0.85, p.hitFlash / 0.14);
     ctx.fillStyle = '#fff';
@@ -152,6 +150,53 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+}
+
+/** what a hit left on someone, over the figure (facing +x, scaled), fading out over the last few
+ *  seconds (`k`): wet through (darker, dripping), soapy (suds on the head and shoulders), confetti
+ *  in the hair (docs/plans/non-violent.md) */
+function drawMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['mess']>, k: number) {
+  const t = performance.now() / 1000 + (p.seed % 17);
+  ctx.globalAlpha = k;
+  if (mess === 'water') {
+    // soaked: the clothes a shade darker, a drip falling now and then
+    ctx.fillStyle = 'rgba(20,50,90,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const drip = (t * 1.3) % 1;
+    ctx.fillStyle = 'rgba(170,220,255,0.9)';
+    for (const [dx, dy] of [[-0.12, -0.28], [0.05, 0.3]] as const) {
+      ctx.beginPath();
+      ctx.arc(dx - drip * 0.12, dy + Math.sign(dy) * drip * 0.18, 0.035 * (1 - drip * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (mess === 'bubbles' || mess === 'foam') {
+    // suds on the head and shoulders
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const [dx, dy, r] of [[0.06, -0.08, 0.09], [0.1, 0.06, 0.07], [-0.02, -0.24, 0.08], [-0.04, 0.24, 0.07], [0.12, -0.02, 0.06]] as const) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, r * (1 + 0.08 * Math.sin(t * 3 + dx * 20)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (mess === 'bubbles') {
+      const b = (t * 0.7) % 1;
+      ctx.strokeStyle = 'rgba(225,190,255,0.9)';
+      ctx.lineWidth = 0.015;
+      ctx.beginPath();
+      ctx.arc(0.1 - b * 0.4, -0.2 - b * 0.3, 0.05 + b * 0.03, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else {
+    // confetti: bits of paper stuck all over
+    const colors = ['#ff5252', '#ffeb3b', '#69f0ae', '#40c4ff', '#ff4081', '#b388ff'];
+    for (let i = 0; i < 9; i++) {
+      ctx.fillStyle = colors[(i + p.seed) % colors.length];
+      const a = hashRand(p.seed, 20 + i) * Math.PI * 2, r = 0.05 + hashRand(p.seed, 40 + i) * 0.22;
+      ctx.fillRect(Math.cos(a) * r - 0.02, Math.sin(a) * r * 1.3 - 0.015, 0.045, 0.03);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** Someone swimming (docs/plans/gameplay.md, Phase 3), from above: the head and shoulders out of the
@@ -279,6 +324,59 @@ function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) 
   ctx.fillRect(-1.6, -5, 3.2, 10);
   ctx.fillRect(-5, -1.6, 10, 3.2);
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** the toy in hand (docs/plans/non-violent.md), out along +x from the hands of the arm pose: an
+ *  orange water pistol with its blue tank, a pink bubble gun with the wand's ring, a striped
+ *  confetti tube */
+function drawToy(ctx: CanvasRenderingContext2D, w: Ped['weapon']) {
+  if (w === 'pistol') {
+    ctx.fillStyle = '#ff9800';
+    ctx.fillRect(0.33, -0.05, 0.2, 0.1);
+    ctx.fillStyle = '#e65100';
+    ctx.fillRect(0.53, -0.022, 0.05, 0.044);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.beginPath();
+    ctx.ellipse(0.41, 0, 0.065, 0.045, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (w === 'uzi') {
+    ctx.fillStyle = '#ec407a';
+    ctx.fillRect(0.3, -0.055, 0.26, 0.11);
+    ctx.strokeStyle = '#ab47bc';
+    ctx.lineWidth = 0.035;
+    ctx.beginPath();
+    ctx.arc(0.62, 0, 0.065, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (w === 'shotgun') {
+    ctx.fillStyle = '#7e57c2';
+    ctx.beginPath();
+    ctx.moveTo(0.3, -0.045);
+    ctx.lineTo(0.84, -0.075);
+    ctx.lineTo(0.84, 0.075);
+    ctx.lineTo(0.3, 0.045);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffd54f';
+    for (const x of [0.42, 0.56, 0.7]) ctx.fillRect(x, -0.062, 0.04, 0.124);
+  }
+}
+
+/** a tickling feather held out at (x, y), wiggling as the tickle lands (`t` 1 → 0) */
+function drawFeather(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.sin(t * 18) * 0.5);
+  ctx.fillStyle = '#f8bbd0';
+  ctx.beginPath();
+  ctx.ellipse(0.16, 0, 0.16, 0.05, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 0.015;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0.32, 0);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -412,12 +510,14 @@ function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: numb
     dot(ctx, 0.3, 0, 0.055, p.skin);
     dot(ctx, 0.46, -0.01, 0.055, p.skin);
   } else if (arms === 'punch') {
+    // a tickle (docs/plans/non-violent.md): the arm reaches out, a player's or a cop's with a feather
     const ext = 0.34 + 0.16 * (1 - punchT);
     capsule(ctx, 0, shoulder * 0.8, 0.05 + ext, -0.01, 0.1, sleeve);
     dot(ctx, 0.05 + ext, -0.01, 0.068, p.skin);
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.lineWidth = 0.02;
     ctx.stroke();
+    if (p.kind !== 'civ') drawFeather(ctx, 0.05 + ext, -0.01, punchT);
   }
 
   // head + hair, thin outline for readability at small zoom

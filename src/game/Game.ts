@@ -9,7 +9,7 @@ import { Audio } from '../audio/Audio';
 import type { WeaponId } from '../shared/entities/Ped';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import { MissionManager } from '../missions/Missions';
-import { Hud } from '../ui/Hud';
+import { Hud, drawWeaponIcon } from '../ui/Hud';
 import { MapView } from '../ui/MapView';
 import { Gps } from './Gps';
 import { RADIO, BRAND_COLORS } from '../data/brands';
@@ -1216,19 +1216,18 @@ export class Game {
         ctx.arc(0, 0, 1.15, 0, Math.PI * 2);
         ctx.stroke();
       } else {
+        // a box with what's in it (docs/plans/non-violent.md): a towel, a raincoat, or a toy
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.fillRect(-0.5, -0.4, 1.1, 1);
-        const accent = p.kind === 'health' ? '#e53935' : p.kind === 'armor' ? '#42a5f5' : '#ffd600';
-        ctx.fillStyle = p.kind === 'health' ? '#fafafa' : p.kind === 'armor' ? '#0d2440' : '#37474f';
+        const accent = p.kind === 'health' ? '#29b6f6' : p.kind === 'armor' ? '#fbc02d' : '#ffd600';
+        ctx.fillStyle = p.kind === 'health' ? '#e1f5fe' : p.kind === 'armor' ? '#3e2723' : '#37474f';
         ctx.fillRect(-0.55, -0.55, 1.1, 1.1);
         ctx.strokeStyle = accent;
         ctx.lineWidth = 0.1;
         ctx.strokeRect(-0.55, -0.55, 1.1, 1.1);
-        ctx.fillStyle = accent;
-        ctx.font = '900 0.6px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(p.kind === 'health' ? '+' : p.kind === 'armor' ? 'V' : p.kind === 'pistol' ? 'P' : p.kind === 'uzi' ? 'U' : 'B', 0, 0.04);
+        if (p.kind === 'health') drawTowel(ctx);
+        else if (p.kind === 'armor') drawRaincoat(ctx);
+        else if (p.kind === 'pistol' || p.kind === 'uzi' || p.kind === 'shotgun') drawWeaponIcon(ctx, p.kind, 0, 0, 0.36);
       }
       ctx.restore();
     }
@@ -1475,9 +1474,40 @@ function popScale(t: number): number {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
+/** a folded towel, striped (a health pickup: it dries you) */
+function drawTowel(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fillRect(-0.36, -0.26, 0.72, 0.52);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-0.36, -0.12, 0.72, 0.08);
+  ctx.fillRect(-0.36, 0.08, 0.72, 0.08);
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+  ctx.lineWidth = 0.04;
+  ctx.strokeRect(-0.36, -0.26, 0.72, 0.52);
+}
+
+/** a yellow raincoat with its hood (the armour pickup) */
+function drawRaincoat(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = '#ffd600';
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 0.04;
+  ctx.beginPath();
+  ctx.moveTo(-0.14, -0.2);
+  ctx.lineTo(0.14, -0.2);
+  ctx.lineTo(0.3, 0.36);
+  ctx.lineTo(-0.3, 0.36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, -0.24, 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
 const PICKUP_GLOW: Record<PickupKind, string> = {
   cash: '#69f0ae',
-  health: '#ff5252',
+  health: '#4fc3f7',
   armor: '#42a5f5',
   pistol: '#ffd600',
   uzi: '#ffd600',

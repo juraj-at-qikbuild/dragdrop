@@ -43,7 +43,7 @@ export class Hud {
     this.shownMoney = g.save.money;
   }
 
-  /** red directional arc at the screen edge, pointing toward an attack; call with the world-space angle from the player. */
+  /** a blue directional arc at the screen edge, pointing toward where the water came from; call with the world-space angle from the player. */
   hitFrom(angle: number) {
     this.hits.push({ angle, age: 0 });
     if (this.hits.length > 6) this.hits.shift();
@@ -57,7 +57,8 @@ export class Hud {
     const dt = 1 / 60;
     if (L.stack) g.stackY = L.stack.y;
     if (this.hurt > 0) {
-      ctx.fillStyle = `rgba(200,0,0,${this.hurt * 0.5})`;
+      // a splash of water over the screen (docs/plans/non-violent.md: getting hit is getting wet)
+      ctx.fillStyle = `rgba(40,140,230,${this.hurt * 0.45})`;
       ctx.fillRect(0, 0, W, H);
       this.hurt -= dt;
     }
@@ -441,7 +442,7 @@ export class Hud {
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${small ? 13 : 16}px ${HEAD}`;
     const ammo = w === 'fist' ? '' : `  ${g.ammo[w]}`;
-    outlined(ctx, WEAPONS[w].name + ammo, x + size + 6, y + size / 2, '#fff', 3);
+    outlined(ctx, WEAPONS[w].short + ammo, x + size + 6, y + size / 2, '#fff', 3);
   }
 
   private drawCombo(ctx: CanvasRenderingContext2D, combo: ComboState, x: number, y: number, small: boolean) {
@@ -534,7 +535,7 @@ export class Hud {
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.lineCap = 'round';
-    for (const [w, color] of [[5, 'rgba(0,0,0,0.6)'], [2.5, '#ff5252']] as const) {
+    for (const [w, color] of [[5, 'rgba(0,0,0,0.6)'], [2.5, '#18ffff']] as const) {
       ctx.strokeStyle = color;
       ctx.lineWidth = w;
       for (let i = 0; i < 4; i++) {
@@ -554,7 +555,7 @@ export class Hud {
       const a = Math.min(1, 1 - h.age);
       ctx.save();
       ctx.globalAlpha = a * 0.8;
-      ctx.strokeStyle = '#ff1744';
+      ctx.strokeStyle = '#40c4ff';
       ctx.lineWidth = 14;
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -750,69 +751,116 @@ function drawBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
   void small;
 }
 
-/** simple silhouette icons for the weapon panel, drawn as canvas paths (no images). */
+/** the toys' icons for the weapon panel and the touch button, drawn as canvas paths (no images):
+ *  a tickling feather, a water pistol, a bubble gun with its wand, a confetti tube (docs/plans/non-violent.md) */
 export function drawWeaponIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, cx: number, cy: number, s: number) {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.fillStyle = '#eceff1';
   ctx.strokeStyle = 'rgba(0,0,0,0.7)';
   ctx.lineWidth = s * 0.14;
   ctx.lineJoin = 'round';
-  ctx.beginPath();
+  ctx.lineCap = 'round';
   if (kind === 'fist') {
-    ctx.arc(0, 0, s * 0.72, 0, Math.PI * 2);
+    // a feather, for tickling: a curved quill with soft vanes
+    ctx.rotate(-0.7);
+    ctx.fillStyle = '#f8bbd0';
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.95, 0);
+    ctx.quadraticCurveTo(-s * 0.2, -s * 0.62, s * 0.95, -s * 0.08);
+    ctx.quadraticCurveTo(-s * 0.1, s * 0.5, -s * 0.95, 0);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = s * 0.08;
-    for (const dx of [-0.3, 0, 0.3]) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = s * 0.07;
+    for (const k of [-0.45, -0.1, 0.25]) {
       ctx.beginPath();
-      ctx.moveTo(dx * s, -s * 0.6);
-      ctx.lineTo(dx * s, -s * 0.1);
+      ctx.moveTo(k * s, -s * 0.05);
+      ctx.lineTo((k + 0.18) * s, -s * 0.34);
+      ctx.moveTo(k * s, -s * 0.05);
+      ctx.lineTo((k + 0.16) * s, s * 0.2);
       ctx.stroke();
     }
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = s * 0.09;
+    ctx.beginPath();
+    ctx.moveTo(-s * 1.15, s * 0.06);
+    ctx.quadraticCurveTo(-s * 0.1, -s * 0.12, s * 0.9, -s * 0.08);
+    ctx.stroke();
   } else if (kind === 'pistol') {
-    // slide + barrel
-    ctx.rect(-s * 0.95, -s * 0.16, s * 1.3, s * 0.28);
-    ctx.fill();
-    ctx.stroke();
-    // grip, angled down from the rear of the slide
+    // a water pistol: a round orange body, a clear blue tank on top, a nozzle and a grip
+    ctx.fillStyle = '#ff9800';
     ctx.beginPath();
-    ctx.moveTo(s * 0.1, s * 0.1);
-    ctx.lineTo(s * 0.42, s * 0.1);
-    ctx.lineTo(s * 0.3, s * 0.78);
-    ctx.lineTo(s * 0.02, s * 0.78);
+    ctx.moveTo(-s * 0.2, s * 0.12);
+    ctx.lineTo(s * 0.18, s * 0.12);
+    ctx.lineTo(s * 0.05, s * 0.8);
+    ctx.lineTo(-s * 0.32, s * 0.8);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    // trigger guard
     ctx.beginPath();
-    ctx.arc(-s * 0.02, s * 0.14, s * 0.16, 0, Math.PI);
+    ctx.ellipse(-s * 0.05, 0, s * 0.8, s * 0.26, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.fillStyle = '#ff9800';
+    ctx.fillRect(s * 0.7, -s * 0.08, s * 0.35, s * 0.16);
+    ctx.strokeRect(s * 0.7, -s * 0.08, s * 0.35, s * 0.16);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.beginPath();
+    ctx.ellipse(-s * 0.2, -s * 0.38, s * 0.42, s * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(-s * 0.32, -s * 0.44, s * 0.14, s * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
   } else if (kind === 'uzi') {
-    ctx.rect(-s * 1.05, -s * 0.22, s * 1.5, s * 0.4);
-    ctx.rect(-s * 1.35, -s * 0.08, s * 0.35, s * 0.16);
+    // a bubble gun: a pink body, the wand's ring in front, bubbles floating off it
+    ctx.fillStyle = '#ec407a';
+    ctx.beginPath();
+    ctx.rect(-s * 0.2, s * 0.1, s * 0.3, s * 0.65);
     ctx.fill();
     ctx.stroke();
     ctx.beginPath();
-    ctx.rect(-s * 0.15, s * 0.16, s * 0.28, s * 0.65);
-    ctx.rect(s * 0.25, s * 0.05, s * 0.22, s * 0.3);
+    ctx.ellipse(-s * 0.25, -s * 0.02, s * 0.7, s * 0.26, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.strokeStyle = '#ab47bc';
+    ctx.lineWidth = s * 0.16;
+    ctx.beginPath();
+    ctx.arc(s * 0.62, -s * 0.02, s * 0.24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(179,229,252,0.95)';
+    ctx.lineWidth = s * 0.08;
+    for (const [bx, by, br] of [[0.95, -0.62, 0.2], [0.55, -0.72, 0.13], [1.12, -0.25, 0.1]] as const) {
+      ctx.beginPath();
+      ctx.arc(bx * s, by * s, br * s, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   } else {
-    // shotgun
-    ctx.rect(-s * 1.3, -s * 0.16, s * 1.9, s * 0.3);
-    ctx.fill();
-    ctx.stroke();
+    // a confetti tube: striped, a burst of paper out of its mouth
+    ctx.rotate(-0.25);
+    ctx.fillStyle = '#7e57c2';
     ctx.beginPath();
-    ctx.moveTo(s * 0.6, -s * 0.05);
-    ctx.lineTo(s * 1.15, s * 0.02);
-    ctx.lineTo(s * 1.15, s * 0.18);
-    ctx.lineTo(s * 0.6, s * 0.14);
+    ctx.moveTo(-s * 1.1, -s * 0.18);
+    ctx.lineTo(s * 0.4, -s * 0.3);
+    ctx.lineTo(s * 0.4, s * 0.3);
+    ctx.lineTo(-s * 1.1, s * 0.18);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    ctx.fillStyle = '#ffd54f';
+    for (const k of [-0.75, -0.3, 0.12]) ctx.fillRect(k * s, -s * 0.24, s * 0.14, s * 0.48);
+    const bits = ['#ff5252', '#ffeb3b', '#69f0ae', '#40c4ff', '#ff4081'];
+    bits.forEach((c, i) => {
+      const a = -0.9 + i * 0.45, r = s * (0.7 + (i % 2) * 0.3);
+      ctx.fillStyle = c;
+      ctx.save();
+      ctx.translate(s * 0.45 + Math.cos(a) * r, Math.sin(a) * r);
+      ctx.rotate(a * 2);
+      ctx.fillRect(-s * 0.1, -s * 0.05, s * 0.2, s * 0.1);
+      ctx.restore();
+    });
   }
   ctx.restore();
 }

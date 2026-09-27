@@ -322,8 +322,8 @@ button.primary:hover {
   background: rgba(255, 255, 255, 0.12);
 }
 .t-fire {
-  background: rgba(215, 20, 26, 0.55);
-  border-color: rgba(255, 138, 128, 0.8);
+  background: rgba(3, 155, 229, 0.55);
+  border-color: rgba(128, 222, 234, 0.85);
   font-size: calc(30px * var(--ts));
 }
 .t-weapon {

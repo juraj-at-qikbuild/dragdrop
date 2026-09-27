@@ -7,7 +7,7 @@
 import type { WeaponId } from '../entities/Ped';
 import type { VehicleKind } from '../entities/Vehicle';
 import type { GlobalEvent, PrivateEvent } from '../sim/events';
-import type { PelletReport } from '../sim/Combat';
+import type { Mess, PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
 import type { DailyState, EventEntry, EventKind, EventSchedule, JobKind } from '../sim/rules/types';
 import type { BoardId, ScorePeriod } from '../sim/rules/points';
@@ -220,7 +220,7 @@ export interface ClockSync {
 export type WorldEvent =
   | { k: 'shot'; by: number; pid: number; x: number; y: number; a: number; w: WeaponId; lvl: Level; ends: number[]; sparks: number }
   | { k: 'melee'; x: number; y: number; hit: 0 | 1 }
-  | { k: 'pedHit'; id: number; x: number; y: number; s: number }
+  | { k: 'pedHit'; id: number; x: number; y: number; s: number; m?: Mess }
   | { k: 'spark'; x: number; y: number; kind: 0 | 1 | 2 }
   | { k: 'explode'; x: number; y: number; vid: number; c: string | null }
   | { k: 'crash'; vid: number; x: number; y: number; sev: number; nx: number; ny: number; kick: number }

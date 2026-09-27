@@ -3,7 +3,7 @@
 // (vitest.config.ts): the panels themselves are DOM, checked in the browser (scripts/smoke.mjs).
 import { describe, expect, it } from 'vitest';
 import {
-  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, gunLine, modName, modsLine, paintName,
+  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, ammoLine, collectionLine, condition, gunLine, modName, modsLine, paintName,
   placesWord, storedCarLine,
 } from '../../src/game/features/shops/text';
 import { DISPATCH, describeClothes, describeWalker, wantedLine } from '../../src/game/features/police/text';
@@ -22,12 +22,18 @@ describe("the shops' words", () => {
     expect(paintName('#212121')).toBe('Čierny lak');
   });
 
-  it('every kind of shop says what it is; every gun and upgrade has a name', () => {
+  it('every kind of shop says what it is; every toy and upgrade has a name', () => {
     for (const k of ['guns', 'clothes', 'lawyer', 'tuning', 'garage'] as const) expect(SHOP_KIND[k].name && SHOP_KIND[k].about).toBeTruthy();
+    // the toy shop (docs/plans/non-violent.md): toys and refills, not guns and bullets
+    expect(SHOP_KIND.guns.name).toBe('Hračkárstvo');
     expect(Object.keys(GUN_NAME)).toEqual(['pistol', 'uzi', 'shotgun']);
     expect(MOD_KEYS.every((k) => MOD_INFO[k].name && MOD_MAX[k] >= 1)).toBe(true);
-    expect(gunLine('pistol')).toBe('Pištoľ + 36 nábojov');
-    expect(gunLine('shotgun')).toBe('Brokovnica + 16 nábojov');
+    expect(gunLine('pistol')).toBe('Vodná pištoľ + 36 striekancov');
+    expect(gunLine('uzi')).toBe('Bublinkový samopal + 120 bubliniek');
+    expect(gunLine('shotgun')).toBe('Konfetová brokovnica + 16 dávok konfiet');
+    expect(ammoLine('pistol', 1)).toBe('1 striekanec');
+    expect(ammoLine('uzi', 3)).toBe('3 bublinky');
+    expect(ammoLine('shotgun', 1)).toBe('1 dávka konfiet');
   });
 
   it("a car's tuning, and a car in the garage, in one line", () => {
