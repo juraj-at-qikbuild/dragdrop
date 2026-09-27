@@ -129,8 +129,9 @@ export interface RoomOptions {
   /** the shared Supabase client (server/src/supa.ts); tests inject a disabled or fake-fetch one so
    *  createFeatures() never builds its own and never touches the network */
   supa?: Supa;
-  /** a new player (nowhere saved to put them) starts at a random spawn place (SimOptions.randomSpawn);
-   *  default on. Tests that need players side by side turn it off: then everyone starts on the square */
+  /** a new player (nowhere saved to put them) starts at a random spawn place (SimOptions.randomSpawn),
+   *  else on the square: the real server asks for it (server/src/index.ts); tests start their
+   *  players together */
   randomSpawn?: boolean;
 }
 
@@ -184,7 +185,7 @@ export class Room {
     this.debug = !!opts.debug;
     this.auth = opts.auth ?? null;
     this.wall = opts.wallClock ?? (() => Date.now());
-    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server', downed: true, randomSpawn: opts.randomSpawn ?? true });
+    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server', downed: true, randomSpawn: !!opts.randomSpawn });
     // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
     // watching closely even less
     this.sim.physics.step_ = 1 / 60;

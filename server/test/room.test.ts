@@ -68,7 +68,7 @@ describe('Room', () => {
   });
 
   it('starts each new player at a random one of the spawn places', () => {
-    const { join } = setup();
+    const { join } = setup({ randomSpawn: true });
     const places = new Set<string>();
     for (const [token, nick] of [[TOKEN_A, 'Anna'], [TOKEN_B, 'Boris'], [TOKEN_C, 'Cyril']]) {
       const p = join(token, nick);
@@ -842,9 +842,9 @@ describe('Revive (downed online)', () => {
 });
 
 describe('Race (online)', () => {
-  /** two connected players, close together (both start on the square), each already driving their own car */
+  /** two connected players, close together, each already driving their own car */
   function setupRacers(moneyA = 500, moneyB = 500) {
-    const { room, join, tick } = setup({ randomSpawn: false });
+    const { room, join, tick } = setup();
     const a = join(TOKEN_A, 'Anna');
     const b = join(TOKEN_B, 'Boris');
     room.onMessage(a.conn, stateMsg(a.x!, a.y!));
@@ -940,8 +940,7 @@ describe('Jobs (Vlk courier / Hopík taxi)', () => {
       .filter((e): e is Extract<PrivateEvent, { k: 'payout' }> => e.k === 'payout' && e.reason === reason);
 
   it('job{op:start} leads to job private events, and a finished courier job pays through sim.payout(reason: courier)', () => {
-    // from the square: the offer (and so the pickup it teleports to) depends on where the player starts
-    const { room, join, tick } = setup({ randomSpawn: false });
+    const { room, join, tick } = setup();
     const a = join(TOKEN_A, 'Anna');
     room.onMessage(a.conn, stateMsg(a.x!, a.y!));
     tick(2);

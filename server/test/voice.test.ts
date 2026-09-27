@@ -88,8 +88,7 @@ function setup(extra: Partial<RoomOptions> = {}) {
   // debug:true (teleport) lets one test place a player far away by a known city landmark instead of a
   // made-up coordinate; it also relaxes RemoteConfig's voice_requires_account (the e2e override, see
   // RemoteConfig.ts), which the one test that cares about that override explicitly turns back off
-  // voice pairs players by proximity: both start on the square, side by side
-  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 7, debug: true, supa: disabledSupa(), auth: fakeAuth, randomSpawn: false, ...extra });
+  const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 7, debug: true, supa: disabledSupa(), auth: fakeAuth, ...extra });
   const join = (token: string, nick: string) => {
     const link = new FakeLink();
     const conn = room.onJoin(link);

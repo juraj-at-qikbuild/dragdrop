@@ -243,10 +243,12 @@ try {
   {
     const open = await page.evaluate(() => {
       const g = window.game, v = g.player.vehicle;
-      // a spot with 14 m of room all round, near where we are
+      // a spot with 14 m of room all round, near the main square: the same spot whichever of the
+      // spawn places the game started at (src/shared/world/spawns.ts)
+      const o = g.world.landmark('main');
       for (let r = 0; r < 800; r += 20)
         for (let k = 0; k < 16; k++) {
-          const a = (k / 16) * Math.PI * 2, x = v.x + Math.cos(a) * r, y = v.y + Math.sin(a) * r;
+          const a = (k / 16) * Math.PI * 2, x = o.x + Math.cos(a) * r, y = o.y + Math.sin(a) * r;
           if (g.world.collideCircle(x, y, 14, 0) || g.world.inWater(x, y, 0)) continue;
           v.x = x;
           v.y = y;
