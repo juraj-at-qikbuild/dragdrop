@@ -14,6 +14,7 @@ import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
 import { centroidOf, clearOfPlayers } from './placement';
+import { POINTS } from '../points';
 
 const ANNOUNCE_S = 30;
 const LIVE_MAX_S = 6 * 60;
@@ -243,7 +244,9 @@ class ArmoredVan extends TimedEvent {
     for (const [pid, t] of this.rearHitters) {
       if (now - t > REAR_HITTER_WINDOW) continue;
       const p = sim.players.get(pid);
-      if (p) sim.crime(p, 'robbery');
+      if (!p) continue;
+      sim.crime(p, 'robbery');
+      sim.score(p, POINTS.robbery, 'robbery', v.x, v.y);
     }
     const winner = byPid ? sim.players.get(byPid)?.nick : undefined;
     sim.events.global({ k: 'eventEnd', kind: 'armored', how: 'robbed', winner, amount: SPILL_TOTAL, x: v.x, y: v.y });
@@ -335,6 +338,8 @@ export class VanLoot implements SimRule {
   constructor(private sim: Sim) {}
 
   onPickup(p: SimPlayer, pk: Pickup) {
-    if (pk.tag === 'van') this.sim.crime(p, 'loot');
+    if (pk.tag !== 'van') return;
+    this.sim.crime(p, 'loot');
+    this.sim.score(p, POINTS.loot, 'loot', pk.x, pk.y);
   }
 }

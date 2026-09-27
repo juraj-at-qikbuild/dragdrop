@@ -31,6 +31,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | N | party panel (**Partia**, online) |
 | J | jobs: **Vlk courier / Hopík taxi** |
 | K | **"Kde to je?"** daily photo card (online) |
+| L | leaderboard (**Rebríček**, online) |
 | G | give up while downed (online) |
 | M / Tab | city map (see below) |
 | Mouse wheel | zoom in / out |
@@ -204,10 +205,15 @@ On top of that shared world, there's a set of social features (protocol 7):
 - **Guest or account play**: guests keep today's local-nickname flow; a Supabase account (e-mail +
   password) keeps progress across every device and unlocks voice chat. A guest can claim their
   progress into a fresh account once.
+- **Rebríček** (L, or the pause menu): points for nearly everything above — events, jobs, races,
+  getaways from the police, landmarks and Čumils, reviving others — on boards for today, this week and
+  all time, overall and per kind of thing (Udalosti, Na úteku, Práca, Závody, Mesto, Pomoc). Points
+  float up as you score them, the HUD shows today's total and rank, and Rádio Kecy names the day's
+  leader. See [docs/plans/leaderboard.md](docs/plans/leaderboard.md) for what everything is worth.
 
 Hon na Čumila, Obrnené auto and the Vlk/Hopík jobs also run solo, offline. Everything else above —
-Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je? and voice chat — is
-online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
+Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je?, voice chat and the
+leaderboard — is online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
 
 **Stepping away and coming back** ([docs/plans/pause-resume.md](docs/plans/pause-resume.md)). The shared
 city never stops, so online the pause menu (Esc, P, ❚❚, Start, or just switching tabs or apps) is a menu

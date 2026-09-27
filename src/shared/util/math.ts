@@ -105,3 +105,8 @@ export function ringArea(r: ArrayLike<number>) {
 export function formatMoney(v: number) {
   return '€' + Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
+
+/** leaderboard points, grouped like money: "1 240" */
+export function formatPoints(v: number) {
+  return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}

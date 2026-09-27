@@ -57,10 +57,13 @@ export interface LiveState {
   revive: ReviveState | null;
   /** party tags of everyone online (from the roster): partyId → tag + colour */
   partyTags: Map<number, { tag: string; color: string }>;
+  /** this player's leaderboard points (the server's `score`): today, this week, all time, today's
+   *  rank (0: nothing today) of `n` players. Null offline, and on a server without a leaderboard. */
+  score: { d: number; w: number; a: number; r: number; n: number } | null;
 }
 
 export function emptyLive(): LiveState {
-  return { events: [], eventsAt: 0, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map() };
+  return { events: [], eventsAt: 0, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map(), score: null };
 }
 
 /** seconds left in a world event's phase, now */

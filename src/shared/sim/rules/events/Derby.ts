@@ -13,6 +13,7 @@ import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
 import { bestParkingNear, Zones } from '../Zones';
+import { POINTS } from '../points';
 
 type Site = 'aupark' | 'eurovea';
 
@@ -318,11 +319,18 @@ class Derby extends TimedEvent {
       const p = sim.players.get(pt.id);
       if (!p) continue; // left for good: nobody to pay, but they still get their spot in the news
       sim.payout(p, amount, 'derby', this.cx, this.cy);
+      sim.score(p, POINTS.derby[i], 'derby', this.cx, this.cy);
       if (i === 0) {
         const stats = (p.profile.stats ??= {});
         stats.derbyWins = (stats.derbyWins ?? 0) + 1;
         sim.onProfileChange?.(p);
       }
+    }
+    // leaderboard points for the rest of the field that fought it out (the grace period already
+    // dropped anyone who drove in and straight back out)
+    for (let i = SPLIT.length; i < order.length; i++) {
+      const p = sim.players.get(order[i].id);
+      if (p) sim.score(p, POINTS.derbyField, 'derby', this.cx, this.cy);
     }
     sim.events.global({ k: 'derbyResult', winners, place: this.place });
     this.cleanup();

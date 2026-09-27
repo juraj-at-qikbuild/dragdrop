@@ -1,4 +1,5 @@
-// Pure Europe/Bratislava date/time helpers for the daily puzzle (server/src/features/Daily.ts).
+// Pure Europe/Bratislava date/time helpers for the daily puzzle (server/src/features/Daily.ts) and the
+// leaderboard's days and weeks (server/src/features/Leaderboard.ts).
 // scripts/spots-gen.mjs needs the same "18:00 local -> ISO" conversion but is a plain .mjs script with
 // no TypeScript loader, so it keeps its own copy of bratislavaReveal18's few lines; this is the tested
 // original the copy must keep matching.
@@ -25,6 +26,32 @@ export function bratislavaReveal18(day: string): string {
 export function addDays(day: string, delta: number): string {
   const [y, m, d] = day.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+/** The instant local midnight starts `day` ('YYYY-MM-DD') in Bratislava, ms. The EU's clock changes
+ *  happen at 01:00 UTC, after UTC midnight, so the offset read at UTC midnight is midnight's own. */
+export function bratislavaMidnight(day: string): number {
+  const [y, m, d] = day.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d);
+  return guess - bratislavaOffsetMinutes(guess) * 60_000;
+}
+
+/** The ISO-8601 week `day` falls in, 'YYYY-Www' (weeks start on Monday; week 1 holds the year's first
+ *  Thursday, so the last days of December can belong to the next year's week 1). */
+export function isoWeek(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  // the Thursday of the same week decides the year
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7) + 3);
+  const year = t.getUTCFullYear();
+  const week = 1 + Math.floor((t.getTime() - Date.UTC(year, 0, 1)) / (7 * 86_400_000));
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
+/** the Monday of `day`'s week, 'YYYY-MM-DD' */
+export function weekStart(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return addDays(day, -((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7));
 }
 
 /** Europe/Bratislava's UTC offset in minutes (60 in winter/CET, 120 in summer/CEST) at instant `ms`. */

@@ -117,3 +117,210 @@ button.danger:hover {
   padding: 3px 9px;
   font-size: 12px;
 }
+
+/* Leaderboard panel (src/game/features/LeaderboardUi.ts) */
+.menu-card.small.kit-board-card {
+  width: min(460px, 100%);
+}
+.kit-board-me {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.kit-board-me > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.kit-board-me span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b0bec5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.kit-board-me b {
+  font-family: var(--font-head);
+  font-size: 16px;
+  color: #ffd740;
+  white-space: nowrap;
+}
+.kit-board-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.kit-board-tabs button {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 15px;
+  border-color: transparent;
+  background: none;
+}
+.kit-board-tabs button.on,
+.kit-board-chips button.on {
+  color: #1a1a1a;
+  background: linear-gradient(180deg, #ffe066, #ffc400);
+  border-color: #ffd740;
+}
+.kit-board-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.kit-board-chips button {
+  padding: 4px 10px;
+  font-size: 14px;
+  border-radius: 999px;
+}
+@media (pointer: coarse) {
+  .kit-board-tabs button,
+  .kit-board-chips button {
+    min-height: 36px;
+  }
+}
+.kit-board-about {
+  text-align: center;
+  margin: 8px 0 6px;
+}
+.kit-board-empty {
+  text-align: center;
+  margin: 18px 0;
+}
+.kit-board-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.kit-board-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+}
+.kit-board-list li:nth-child(-n + 3) {
+  background: rgba(255, 214, 0, 0.08);
+}
+.kit-board-list li.me {
+  background: rgba(105, 240, 174, 0.14);
+  box-shadow: inset 3px 0 0 #69f0ae;
+  font-weight: 700;
+}
+.kit-board-list .rank {
+  flex: none;
+  width: 30px;
+  text-align: center;
+  color: #b0bec5;
+  font-weight: 700;
+}
+.kit-board-list .nick {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kit-board-list .acct {
+  margin-left: 5px;
+  font-size: 11px;
+  color: #80d8ff;
+}
+.kit-board-list .online {
+  margin-left: 5px;
+  font-size: 10px;
+  color: #69f0ae;
+}
+.kit-board-list .pts {
+  flex: none;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 16px;
+  color: #ffd740;
+  font-variant-numeric: tabular-nums;
+}
+.kit-board-foot {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #b0bec5;
+  text-align: center;
+}
+.kit-board-foot p {
+  margin: 3px 0 0;
+}
+.kit-board-foot .mine {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.kit-board-help {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: #cfd8dc;
+}
+.kit-board-help summary {
+  cursor: pointer;
+  color: #7fb2ff;
+  text-align: center;
+}
+.kit-board-help ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.kit-board-help li {
+  margin: 3px 0;
+}
+.menu-card.small.kit-board-card {
+  position: relative;
+}
+.kit-board-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 50%;
+}
+/* a phone on its side: the header, tabs and chips take as little height as they can */
+@media (max-height: 480px) {
+  .kit-board-me {
+    margin-bottom: 6px;
+  }
+  .kit-board-me > div {
+    padding: 3px 4px;
+  }
+  .kit-board-chips {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    margin-top: 6px;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .kit-board-chips button {
+    flex: none;
+  }
+  .kit-board-about {
+    display: none;
+  }
+  .kit-board-list {
+    margin-top: 8px;
+  }
+}

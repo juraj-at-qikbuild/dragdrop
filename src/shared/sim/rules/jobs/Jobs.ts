@@ -14,6 +14,7 @@ import type { Vehicle } from '../../../entities/Vehicle';
 import type { SimRule } from '../SimRule';
 import type { JobKind, JobState } from '../types';
 import { clamp, dist, formatMoney } from '../../../util/math';
+import { POINTS, jobPoints } from '../points';
 import { offerCourier, roadMetres } from './courier';
 import { offerDestination, offerFare, spawnBailingPed, spawnFare } from './taxi';
 
@@ -217,6 +218,7 @@ export class Jobs implements SimRule {
     const key = job.kind === 'courier' ? 'deliveries' : 'fares';
     stats[key] = (stats[key] ?? 0) + 1;
     sim.payout(p, pay, job.kind, job.x, job.y);
+    sim.score(p, jobPoints(pay), job.kind, job.x, job.y);
     const verb = job.kind === 'courier' ? 'Doručené!' : 'Odvezené!';
     sim.events.toPlayer(p.id, { k: 'msg', title: '', text: `${verb}  +${formatMoney(pay + job.tips)}`, time: 3, color: '#69f0ae' });
     this.chain(p, job, CHAIN_GAP);
@@ -344,6 +346,7 @@ export class Jobs implements SimRule {
       // `car` may have gone (exited/ejected) since this near miss was queued: fall back to the figure
       const fx = car ? car.x : p.ped.x, fy = car ? car.y : p.ped.y;
       this.sim.payout(p, TIP_VALUE, 'tip', fx, fy); // paid now, not bundled into the final delivery/fare payout
+      this.sim.score(p, POINTS.tip, 'tip', fx, fy);
       this.sim.events.toPlayer(p.id, { k: 'style', label: `TESNE! +${formatMoney(TIP_VALUE)}`, cash: 0, x: fx, y: fy - 1.7 });
     }
   }

@@ -267,7 +267,11 @@ export class NetSimHost implements SimHost, NetView {
       case 'voicePeers':
       case 'voiceIce':
       case 'voiceSig':
+      case 'board':
         for (const f of this.game.features) f.onMessage?.(m);
+        break;
+      case 'score':
+        this.live.score = { d: m.d, w: m.w, a: m.a, r: m.r, n: m.n };
         break;
       case 'clock':
         this.game.atmos.clock.sync(m.c);

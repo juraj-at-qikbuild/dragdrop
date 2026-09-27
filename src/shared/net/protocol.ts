@@ -9,6 +9,7 @@ import type { GlobalEvent, PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
 import type { DailyState, EventEntry, EventKind, JobKind } from '../sim/rules/types';
+import type { BoardId, ScorePeriod } from '../sim/rules/points';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
  *  v4: levels include -1 (in a tunnel).
@@ -18,7 +19,9 @@ import type { DailyState, EventEntry, EventKind, JobKind } from '../sim/rules/ty
  *  (docs/plans/social-events.md): new messages, a downed player state, liveries, the golden Čumil.
  *  Pausing and coming back (docs/plans/pause-resume.md) added only optional fields and messages that
  *  either side can do without, so it stayed v7: `hello.presence` says a client sends `away` and
- *  understands `bye: 'idle'`, and `welcome.resumed` says the server takes `away`. */
+ *  understands `bye: 'idle'`, and `welcome.resumed` says the server takes `away`. The leaderboard
+ *  (docs/plans/leaderboard.md) is optional the same way: a server that keeps one sends `score` right
+ *  after every welcome, and a client only asks for a `board` once it has seen one. */
 export const PROTOCOL_VERSION = 7;
 
 /** server simulation / snapshot rate */
@@ -128,6 +131,8 @@ export type ClientMsg =
   | { t: 'report'; target: number; reason: string }
   /** delete this account and its progress (GDPR) */
   | { t: 'accountDelete' }
+  /** a page of the leaderboard (docs/plans/leaderboard.md): the server answers with `board` */
+  | { t: 'board'; period: ScorePeriod; board: BoardId }
   /** tests only (server started with E2E=1) */
   | {
       t: 'debug';
@@ -143,6 +148,8 @@ export type ClientMsg =
       /** override the presence tunables (server/src/features/Presence.ts PresenceTuning), e.g. a short
        *  idle timeout for the e2e */
       presence?: Record<string, number | boolean>;
+      /** score this many leaderboard points for this source (server/src/features/Leaderboard.ts) */
+      score?: [number, string];
     };
 
 // ------------------------------------------------------------ server → client (JSON)
@@ -209,6 +216,43 @@ export const ROSTER_SHIELD = 16;
 /** a party's name tag: [partyId, tag, colour] */
 export type PartyTag = [number, string, string];
 
+/** a leaderboard row: [rank (ties share one), nick, points, flags (BOARD_*)] */
+export type BoardRow = [number, string, number, number];
+/** leaderboard row flags */
+export const BOARD_ACCOUNT = 1;
+/** in the city right now */
+export const BOARD_ONLINE = 2;
+/** the player who asked */
+export const BOARD_ME = 4;
+
+/** One page of the leaderboard, the answer to a `board` request. */
+export interface BoardMsg {
+  t: 'board';
+  period: ScorePeriod;
+  board: BoardId;
+  /** the top of the board */
+  rows: BoardRow[];
+  /** the asking player's own [rank, points] (rank 0: not on this board yet) */
+  me: [number, number];
+  /** how many players are on this board */
+  n: number;
+  /** the previous day's or week's winner, [nick, points] (none for all-time, or nobody scored) */
+  prev?: [string, number];
+  /** seconds until this day or week is over (none for all-time) */
+  ends?: number;
+}
+
+/** This player's own points, pushed after every welcome, whenever they change, and when a new day
+ *  starts: today, this week, all time, and today's rank (0: nothing today) out of `n` players. */
+export interface ScoreMsg {
+  t: 'score';
+  d: number;
+  w: number;
+  a: number;
+  r: number;
+  n: number;
+}
+
 /** The city-wide state: active world events and today's puzzle. Sent whole (1 Hz, on change, on hello). */
 export interface WevMsg {
   t: 'wev';
@@ -235,7 +279,10 @@ export type ServerMsg =
   // ---- voice chat: who to connect to (polite: yield on offer collisions), ICE servers, relayed signals
   | { t: 'voicePeers'; add: { id: number; polite: boolean }[]; del: number[] }
   | { t: 'voiceIce'; ice: IceServer[] }
-  | { t: 'voiceSig'; from: number; data: VoiceSignal };
+  | { t: 'voiceSig'; from: number; data: VoiceSignal }
+  // ---- the leaderboard (docs/plans/leaderboard.md)
+  | BoardMsg
+  | ScoreMsg;
 
 // ------------------------------------------------------------------ helpers
 export const NICK_MIN = 2;

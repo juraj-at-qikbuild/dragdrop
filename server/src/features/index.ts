@@ -13,9 +13,10 @@ import { Voice } from './Voice';
 import { Race } from './Race';
 import { Jobs } from './Jobs';
 import { Presence } from './Presence';
+import { Leaderboard } from './Leaderboard';
 
 export type { RoomFeature };
-export { Activity, Daily, RemoteConfig, Supa, Voice };
+export { Activity, Daily, Leaderboard, RemoteConfig, Supa, Voice };
 
 export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeature[] {
   // tests inject a disabled (or fake-fetch) Supa through RoomOptions.supa; under vitest the default is
@@ -36,6 +37,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Race(room));
   out.push(new Jobs(room));
   out.push(new Presence(room));
+  out.push(new Leaderboard(room));
   // each feature adds its line here …
   return out;
 }

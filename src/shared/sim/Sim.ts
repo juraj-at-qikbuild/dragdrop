@@ -26,6 +26,7 @@ import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
 import { DOWNED_BLEED, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
 import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
+import { GETAWAY_COOLDOWN_S, GETAWAY_MIN_S, POINTS, getawayPoints, type ScoreSource } from './rules/points';
 
 export type Crime =
   | 'shoot' | 'killPed' | 'killCop' | 'shootCop' | 'carjack' | 'hitCop' | 'stealCop' | 'destroy'
@@ -84,8 +85,11 @@ export class Sim {
   driveClock: boolean;
   /** called when a player's persistent progress changed (save it) */
   onProfileChange?: (p: SimPlayer) => void;
-  /** every share of every payout (the server logs them to Supabase `activity` for the leaderboards) */
+  /** every share of every payout (the server logs them to Supabase `activity`) */
   onPayout?: (p: SimPlayer, amount: number, reason: PayoutReason) => void;
+  /** Leaderboard points (score()): the server's Leaderboard feature counts them and returns how many
+   *  it took (its hourly caps can say 0). Unset offline, where nothing scores. */
+  onScore?: (p: SimPlayer, points: number, source: ScoreSource) => number;
   private pedHash = new SpatialHash<Ped>(16);
   /** vehicles for AI neighbourhood queries (coarser cells than the physics broad phase) */
   private vehHash = new SpatialHash<Vehicle>(25);
@@ -435,7 +439,10 @@ export class Sim {
     }
     if (credit && credit !== owner) {
       this.crime(credit, 'destroy');
-      if (v.kind === 'police' && !v.isPlayer) this.events.toPlayer(credit.id, { k: 'style', label: 'TAKEDOWN!', cash: 60, x: v.x, y: v.y - 2 });
+      if (v.kind === 'police' && !v.isPlayer) {
+        this.events.toPlayer(credit.id, { k: 'style', label: 'TAKEDOWN!', cash: 60, x: v.x, y: v.y - 2 });
+        this.score(credit, POINTS.takedown, 'takedown', v.x, v.y);
+      }
     }
   }
 
@@ -867,6 +874,25 @@ export class Sim {
     }
   }
 
+  /** Award leaderboard points (docs/plans/leaderboard.md): shared out like the money for the sources
+   *  a party splits (the same payout policy), counted by `onScore` (the server; offline nothing is),
+   *  and shown to each player who got some. */
+  score(p: SimPlayer, points: number, source: ScoreSource, x?: number, y?: number) {
+    if (!this.onScore) return;
+    points = Math.round(points);
+    if (!(points > 0)) return;
+    const shares = this.payoutPolicy?.(p, points, source) ?? [{ p, amount: points }];
+    for (const s of shares) {
+      const want = Math.round(s.amount);
+      if (!(want > 0)) continue;
+      const n = this.onScore(s.p, want, source);
+      if (!(n > 0)) continue;
+      const f = s.p.focus();
+      const here = s.p === p && x !== undefined && y !== undefined;
+      this.events.toPlayer(s.p.id, { k: 'points', n, src: source, x: here ? x : f.x, y: here ? y! : f.y });
+    }
+  }
+
   /** Move a player somewhere else (joining a party): out of any car, onto a clear spot, with a new
    *  epoch so their client's reports from the old place are ignored. */
   teleport(p: SimPlayer, x: number, y: number, lvl: Level = 0) {
@@ -940,6 +966,7 @@ export class Sim {
         this.addMoney(p, pk.amount);
         ev.toPlayer(p.id, { k: 'cumil', id: pk.cumil, count: p.profile.cumils.length, reward: pk.amount });
         this.onProfileChange?.(p);
+        this.score(p, POINTS.statue, 'statue', pk.x, pk.y);
         return true;
       case 'goldenCumil':
         // Hon na Čumila (rules/events/CumilHunt.ts): its onPickup hook pays out and ends the event.
@@ -962,8 +989,14 @@ export class Sim {
     if (p.wanted <= 0) {
       p.searchZone = null;
       p.searching = false;
+      // the stars went some other way than a getaway (a respawn, the spray shop, the derby's
+      // amnesty): that chase is over without points
+      p.chaseSince = -1;
+      p.chasePeak = 0;
       return;
     }
+    if (p.chaseSince < 0) p.chaseSince = this.time;
+    p.chasePeak = Math.max(p.chasePeak, p.stars);
     const f = p.focus();
     const fl = p.focusLevel();
     // nobody on the surface can see into a tunnel, nor out of one
@@ -1001,10 +1034,24 @@ export class Sim {
           p.shotCops = false;
           p.searchZone = null;
           this.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Polícia ťa stratila z dohľadu.', time: 2, color: '#90caf9' });
+          this.getaway(p);
         }
       }
     }
     p.searching = !seen;
+  }
+
+  /** Lost the police for good: leaderboard points by the most stars the chase reached, when it lasted
+   *  long enough and the last getaway that scored isn't too recent (no farming a quick star). */
+  private getaway(p: SimPlayer) {
+    const pts = getawayPoints(p.chasePeak);
+    if (pts > 0 && this.onScore && this.time - p.chaseSince >= GETAWAY_MIN_S && this.time - p.lastGetawayAt >= GETAWAY_COOLDOWN_S) {
+      p.lastGetawayAt = this.time;
+      const f = p.focus();
+      this.score(p, pts, 'getaway', f.x, f.y);
+    }
+    p.chaseSince = -1;
+    p.chasePeak = 0;
   }
 
   /** Slovnafta spray shop: repaint + repair + lose the cops */
@@ -1054,6 +1101,7 @@ export class Sim {
       this.addMoney(p, LANDMARK_REWARD);
       this.events.toPlayer(p.id, { k: 'found', id: l.id, reward: LANDMARK_REWARD });
       this.onProfileChange?.(p);
+      this.score(p, POINTS.landmark, 'landmark', l.x, l.y);
     }
   }
 }

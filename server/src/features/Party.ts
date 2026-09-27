@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import type { HelloMsg } from '../../../src/shared/net/protocol';
 import type { PartyMember, PartyState } from '../../../src/shared/sim/rules/types';
 import type { PayoutReason, SimRule } from '../../../src/shared/sim/rules/SimRule';
+import type { ScoreSource } from '../../../src/shared/sim/rules/points';
 import type { SimPlayer } from '../../../src/shared/sim/SimPlayer';
 import { dist } from '../../../src/shared/util/math';
 import type { DropReason, Room, Session } from '../Room';
@@ -21,8 +22,9 @@ const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 const KICK_BAN_MS = 30 * 60 * 1000;
 /** round-robin, read well on the dark map and nametags */
 const PARTY_COLORS = ['#ff5252', '#4fc3f7', '#ffca28', '#66bb6a', '#ba68c8', '#ff8a65', '#4dd0e1', '#f06292'];
-/** reasons a party splits (docs/plans/social-events.md); everything else pays only the earner */
-const SPLIT_REASONS = new Set<PayoutReason>(['kofolka', 'bounty', 'cumil', 'armored', 'derby', 'courier', 'taxi', 'tip']);
+/** reasons a party splits (docs/plans/social-events.md); everything else pays only the earner. The
+ *  leaderboard's points for the same sources split the same way (Sim.score, docs/plans/leaderboard.md). */
+const SPLIT_REASONS = new Set<PayoutReason | ScoreSource>(['kofolka', 'bounty', 'cumil', 'armored', 'derby', 'courier', 'taxi', 'tip']);
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 /** 50 bits of entropy (guessing through hello.join isn't rate-limited); src/boot/links.ts's parser
  *  accepts [a-z0-9]{4,12}, so this fits with room to spare. A 6-char code minted before this change
@@ -346,8 +348,8 @@ export class Party implements RoomFeature {
 
   /** kofolka/bounty/cumil/armored/derby/courier/taxi/tip split evenly among the earner and their
    *  active (connected, not away), play-or-downed party members within 300 m; everything else pays
-   *  only the earner. */
-  private split(p: SimPlayer, amount: number, reason: PayoutReason): { p: SimPlayer; amount: number }[] {
+   *  only the earner. Money and leaderboard points alike. */
+  private split(p: SimPlayer, amount: number, reason: PayoutReason | ScoreSource): { p: SimPlayer; amount: number }[] {
     if (!SPLIT_REASONS.has(reason) || !p.partyId) return [{ p, amount }];
     const party = this.parties.get(p.partyId);
     if (!party) return [{ p, amount }];

@@ -10,6 +10,7 @@ import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
 import { centroidOf, clearOfPlayers } from './placement';
+import { POINTS } from '../points';
 
 const ANNOUNCE_S = 30;
 const LIVE_S = 7 * 60;
@@ -109,6 +110,7 @@ class CumilHunt extends TimedEvent {
     if (pk !== this.pickup) return;
     const sim = this.sim;
     sim.payout(p, REWARD, 'cumil', pk.x, pk.y);
+    sim.score(p, POINTS.cumil, 'cumil', pk.x, pk.y);
     const stats = (p.profile.stats ??= {});
     stats.golden = (stats.golden ?? 0) + 1;
     sim.onProfileChange?.(p);

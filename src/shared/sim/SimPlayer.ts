@@ -94,6 +94,12 @@ export class SimPlayer {
   shielded = false;
   /** sim.time this player last hurt, or was hurt by, another player (a carjacking counts) */
   lastPvpAt = -1e9;
+  /** the police chase now on: when it started (sim.time; -1: none) and the most stars it reached,
+   *  for the leaderboard's getaway points (Sim.updateWanted) */
+  chaseSince = -1;
+  chasePeak = 0;
+  /** sim.time of the last getaway that scored */
+  lastGetawayAt = -1e9;
   /** party this player is in (0 = none); set by the server's Party feature */
   partyId = 0;
   /** opted in to voice chat; set by the server's Voice feature */

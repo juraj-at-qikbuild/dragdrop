@@ -144,6 +144,20 @@ describe('formatNews', () => {
     expect(line.priority).toBe(1);
   });
 
+  it('the leaderboard: a new leader of the day (1) and the day\'s winner (2), with the points in Slovak', () => {
+    const lead = formatNews({ k: 'leader', nick: 'Fero', pts: 1240 }, place)!;
+    assertClean(lead.text);
+    expect(lead.text).toContain('Fero');
+    expect(lead.text).toContain('1 240 bodov');
+    expect(lead.priority).toBe(1);
+    const won = formatNews({ k: 'dayWinner', nick: 'Jožo', pts: 3 }, place)!;
+    assertClean(won.text);
+    expect(won.text).toContain('Jožo');
+    expect(won.text).toContain('3 body');
+    expect(won.priority).toBe(2);
+    expect(formatNews({ k: 'dayWinner', nick: 'Jožo', pts: 1 }, place)!.text).toContain('1 bod');
+  });
+
   it('is deterministic: the same event contents always pick the same variant', () => {
     const e: GlobalEvent = { k: 'mostWanted', nick: 'Fero', x: 7, y: 8, bounty: 1234 };
     expect(formatNews(e, place)!.text).toBe(formatNews({ ...e }, place)!.text);

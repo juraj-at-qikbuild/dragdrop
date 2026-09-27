@@ -240,6 +240,11 @@ export class Juice {
     this.spawnText(x, y - 1, `+€${amount}`, '#69f0ae');
   }
 
+  /** leaderboard points (online): gold, floating a little above where the cash would */
+  pointsText(x: number, y: number, n: number) {
+    this.spawnText(x, y - 2.4, `+${n} b`, '#ffd740');
+  }
+
   explosionNearPlayer(x: number, y: number) {
     const g = this.game;
     const d = dist(x, y, g.player.x, g.player.y);

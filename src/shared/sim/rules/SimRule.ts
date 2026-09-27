@@ -5,6 +5,7 @@ import type { Crime } from '../Sim';
 import type { PlayerState, SimPlayer } from '../SimPlayer';
 import type { Vehicle } from '../../entities/Vehicle';
 import type { Pickup } from '../Pickups';
+import type { ScoreSource } from './points';
 
 export interface SimRule {
   readonly id: string;
@@ -33,9 +34,10 @@ export interface SimRule {
   allowShield?(p: SimPlayer): boolean;
 }
 
-/** Who gets a payout. The server's Party feature splits event and job money among party members
- *  nearby; without a policy the earner gets it all. */
-export type PayoutPolicy = (p: SimPlayer, amount: number, reason: PayoutReason) => { p: SimPlayer; amount: number }[];
+/** Who gets a payout, or a share of leaderboard points (Sim.score). The server's Party feature splits
+ *  event and job money, and the points that come with them, among party members nearby; without a
+ *  policy the earner gets it all. */
+export type PayoutPolicy = (p: SimPlayer, amount: number, reason: PayoutReason | ScoreSource) => { p: SimPlayer; amount: number }[];
 
 /** why money was paid (parties split some of these; `activity` logs them) */
 export type PayoutReason =

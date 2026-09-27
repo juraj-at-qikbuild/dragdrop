@@ -12,6 +12,7 @@ import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
 import { centroidOf, clearOfPlayers } from './placement';
+import { POINTS } from '../points';
 
 const POT = 1500;
 const PAYOUT_PER_SEC = 10;
@@ -131,9 +132,12 @@ class Kofolka extends TimedEvent {
         while (this.payTimer >= 1 && this.pot > 0) {
           this.payTimer -= 1;
           const amount = Math.min(PAYOUT_PER_SEC, this.pot);
+          const before = this.pot;
           this.pot -= amount;
           this.earned.set(owner, (this.earned.get(owner) ?? 0) + amount);
           sim.payout(holder, amount, 'kofolka', this.van.x, this.van.y);
+          // leaderboard points for each $100 the pot drops, to whoever is driving just then
+          if (Math.ceil(before / 100) !== Math.ceil(this.pot / 100)) sim.score(holder, POINTS.kofolka, 'kofolka', this.van.x, this.van.y);
         }
       }
     } else this.payTimer = 0; // nobody driving: don't bank fractional seconds for whoever takes it next
@@ -156,7 +160,9 @@ class Kofolka extends TimedEvent {
 
   private endWon(): false {
     const top = this.topEarner();
-    const winner = top ? this.sim.players.get(top.id)?.nick : undefined;
+    const best = top ? this.sim.players.get(top.id) : undefined;
+    const winner = best?.nick;
+    if (best) this.sim.score(best, POINTS.kofolkaTop, 'kofolka', this.van.x, this.van.y);
     this.sim.events.global({ k: 'eventEnd', kind: 'kofolka', how: 'won', winner, amount: top ? Math.round(top.amount) : 0, x: this.van.x, y: this.van.y });
     this.retire();
     return false;

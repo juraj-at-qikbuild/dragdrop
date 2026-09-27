@@ -7,6 +7,7 @@ import type { PlayerState, SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
 import { dist } from '../../util/math';
 import { DOWNED_BLEED } from '../SimPlayer';
+import { POINTS } from './points';
 
 /** metres a reviver must stay within, continuously, to revive someone (also client-side prediction: ReviveUi) */
 export const REVIVE_RANGE = 2;
@@ -127,6 +128,7 @@ export class Revive implements SimRule {
     this.paidAt.set(by.id, recent);
     this.pairPaidAt.set(pair, sim.time);
     sim.payout(by, SAMARITAN_BONUS, 'samaritan', x, y);
+    sim.score(by, POINTS.samaritan, 'samaritan', x, y);
   }
 
   private deny(by: SimPlayer, text: string) {

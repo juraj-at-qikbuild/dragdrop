@@ -5,7 +5,7 @@
 // Plan: docs/plans/social-events.md ("Rádio Kecy breaking news")
 import type { GlobalEvent } from '../../../shared/sim/events';
 import type { EventKind } from '../../../shared/sim/rules/types';
-import { formatMoney, rng } from '../../../shared/util/math';
+import { formatMoney, formatPoints, rng } from '../../../shared/util/math';
 
 export interface NewsLine {
   text: string;
@@ -192,6 +192,12 @@ function mostWantedEndLines(nick: string, how: MostWantedHow, by: string | undef
 /** `formatNews(e, place)` picks a Slovak DJ line for a city-wide event, or `null` when it isn't worth
  *  breaking in for. `place(x, y)` is `placeName` bound to the world (News.ts supplies it; kept as a
  *  parameter so this stays pure and DOM-free, and testable with a fake). */
+/** "1 bod", "3 body", "1 240 bodov" */
+function points(n: number): string {
+  const word = n === 1 ? 'bod' : n >= 2 && n <= 4 ? 'body' : 'bodov';
+  return `${formatPoints(n)} ${word}`;
+}
+
 export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
   // raceStart/raceResult `dest` is the landmark's display name, in the nominative ("Eurovea"): the
   // lines only use it in apposition ("do cieľa Eurovea"), never after a case-governing preposition
@@ -296,6 +302,24 @@ export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
         `${e.who} je späť na nohách vďaka hráčovi ${e.by} ${at}.`,
       ];
       return { text: pick(variants, `RV:${e.by}:${e.who}:${e.x}:${e.y}`), priority: 1 };
+    }
+    case 'leader': {
+      const pts = points(e.pts);
+      const variants = [
+        `Nový líder dnešného rebríčka je ${e.nick} – ${pts}!`,
+        `${e.nick} sa vyšplhal na čelo dnešného rebríčka, má už ${pts}.`,
+        `Rádio Kecy hlási zmenu na čele: dnes vedie ${e.nick} (${pts}). Kto ho zosadí?`,
+      ];
+      return { text: pick(variants, `LD:${e.nick}:${e.pts}`), priority: 1 };
+    }
+    case 'dayWinner': {
+      const pts = points(e.pts);
+      const variants = [
+        `Deň je za nami a najviac bodov nazbieral ${e.nick}: ${pts}!`,
+        `Včerajším kráľom Blavy je ${e.nick} – ${pts}. Gratulujeme!`,
+        `Rebríček sa začína odznova. Včera vyhral ${e.nick}, ${pts}.`,
+      ];
+      return { text: pick(variants, `DW:${e.nick}:${e.pts}`), priority: 2 };
     }
     default:
       // exhaustive: every GlobalEvent kind is handled above. Kept for a future kind added to the

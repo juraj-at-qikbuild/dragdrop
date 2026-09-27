@@ -1,7 +1,8 @@
 import type { Game } from '../game/Game';
 import { WEAPONS } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
-import { formatMoney } from '../shared/util/math';
+import { formatMoney, formatPoints } from '../shared/util/math';
+import type { LiveState } from '../game/SimHost';
 import { edgePoint, inPlay, type HudLayout } from './layout';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
@@ -23,6 +24,10 @@ export class Hud {
   /** true while the police are actively hunting for the player (no line of sight yet): flashes the stars */
   searching = false;
   private shownMoney = 0;
+  /** today's leaderboard points as shown (they count up like the money), and a glow when they grow */
+  private shownPoints = 0;
+  private lastPoints = 0;
+  private pointsFlash = 0;
   private starPulse = 0;
   private hits: HitIndicator[] = [];
 
@@ -273,11 +278,58 @@ export class Hud {
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color;
     ctx.fillText(text, right - 8, y + h / 2 + 1);
+    const sc = this.g.host.live.score;
+    if (sc && s.state === 'online') this.drawScore(ctx, right, y + h + (small ? 4 : 6), small, sc);
     if (s.state === 'reconnecting') {
       ctx.textAlign = 'center';
       ctx.font = `700 ${small ? 14 : 18}px ${BODY}`;
       outlined(ctx, 'Spojenie prerušené – pripájam sa…', this.g.viewW / 2, this.g.viewH * 0.18, '#ffd740');
     }
+  }
+
+  /** Online, under the connection badge: today's leaderboard points and rank (LeaderboardUi opens
+   *  the whole board: L on a keyboard, "Rebríček" in the pause menu). */
+  private drawScore(ctx: CanvasRenderingContext2D, right: number, y: number, small: boolean, sc: NonNullable<LiveState['score']>) {
+    const dt = 1 / 60;
+    this.shownPoints += (sc.d - this.shownPoints) * 0.15;
+    if (Math.abs(sc.d - this.shownPoints) < 1) this.shownPoints = sc.d;
+    if (sc.d > this.lastPoints) this.pointsFlash = 1;
+    this.lastPoints = sc.d;
+    this.pointsFlash = Math.max(0, this.pointsFlash - dt * 1.2);
+    const rank = sc.r ? ` · ${sc.r}.${small ? '' : ' dnes'}` : small ? '' : ' dnes';
+    const text = `🏆 ${formatPoints(this.shownPoints)} b${rank}`;
+    // a keyboard shows which key opens the board; a touch screen has the pause menu's button
+    const key = this.g.layout.touch ? '' : 'L';
+    ctx.font = `700 ${small ? 11 : 13}px ${BODY}`;
+    const tw = ctx.measureText(text).width;
+    ctx.font = `700 ${small ? 9 : 10}px ${BODY}`;
+    const kw = key ? ctx.measureText(key).width + 12 : 0;
+    const h = small ? 18 : 22;
+    const w = tw + kw + 16;
+    panel(ctx, right - w, y, w, h, h / 2);
+    if (this.pointsFlash > 0) {
+      roundRect(ctx, right - w, y, w, h, h / 2);
+      ctx.strokeStyle = `rgba(255,215,64,${this.pointsFlash})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    if (key) {
+      // the key cap
+      const kx = right - 8 - kw + 4, kh = h - 8;
+      roundRect(ctx, kx, y + 4, kw - 6, kh, 3);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.textAlign = 'center';
+      ctx.fillText(key, kx + (kw - 6) / 2, y + h / 2 + 1);
+      ctx.textAlign = 'right';
+    }
+    ctx.font = `700 ${small ? 11 : 13}px ${BODY}`;
+    ctx.fillStyle = '#ffd740';
+    ctx.fillText(text, right - 8 - kw, y + h / 2 + 1);
   }
 
   private drawObjective(ctx: CanvasRenderingContext2D, text: string, L: HudLayout) {

@@ -10,6 +10,7 @@ import type { RoomFeature } from './RoomFeature';
 import type { ClientMsg, WevMsg } from '../../../src/shared/net/protocol';
 import type { Level } from '../../../src/shared/world/World';
 import { dist } from '../../../src/shared/util/math';
+import { POINTS } from '../../../src/shared/sim/rules/points';
 import { addDays, bratislavaDay } from './dailyTime';
 
 /** how often the boot/date-rollover poll runs outside the tick (the only place this feature awaits I/O) */
@@ -237,6 +238,7 @@ export class Daily implements RoomFeature {
     this.holding.clear();
     // the payout is logged to `activity` like every other one (Sim.onPayout → Room)
     this.room.sim.payout(pl, REWARD, 'daily');
+    this.room.sim.score(pl, POINTS.daily, 'daily');
     pl.profile.stats ??= {};
     pl.profile.stats.dailyWins = (pl.profile.stats.dailyWins ?? 0) + 1;
     this.room.sim.onProfileChange?.(pl);

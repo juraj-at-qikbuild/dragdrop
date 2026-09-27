@@ -7,6 +7,7 @@ import type { SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
 import type { Vehicle } from '../../entities/Vehicle';
 import { dist } from '../../util/math';
+import { POINTS } from './points';
 
 /** metres apart to send a challenge (client-side prediction: RaceUi) */
 export const CHALLENGE_RANGE = 8;
@@ -166,11 +167,11 @@ export class Race implements SimRule {
           continue;
         }
         if (this.reached(race.a.p, race.dest)) {
-          this.finish(race, race.a.p, race.b.p);
+          this.finish(race, race.a.p, race.b.p, 'line');
           continue;
         }
         if (this.reached(race.b.p, race.dest)) {
-          this.finish(race, race.b.p, race.a.p);
+          this.finish(race, race.b.p, race.a.p, 'line');
           continue;
         }
       }
@@ -193,7 +194,7 @@ export class Race implements SimRule {
       }
     }
     const race = this.raceOf(p);
-    if (race) this.finish(race, race.a.p === p ? race.b.p : race.a.p, p);
+    if (race) this.finish(race, race.a.p === p ? race.b.p : race.a.p, p, 'forfeit');
   }
 
   // ----------------------------------------------------------------- destination
@@ -258,7 +259,7 @@ export class Race implements SimRule {
     for (const [racer, other] of [[race.a, race.b], [race.b, race.a]] as const) {
       const v = racer.p.ped.vehicle;
       if (v && dist(v.x, v.y, racer.startX, racer.startY) > FALSE_START_M) {
-        this.finish(race, other.p, racer.p);
+        this.finish(race, other.p, racer.p, 'forfeit');
         return true;
       }
     }
@@ -270,9 +271,10 @@ export class Race implements SimRule {
     return dist(f.x, f.y, dest.x, dest.y) <= FINISH_RADIUS;
   }
 
-  /** `winner` reached the finish, forced a false start, or is the one left when `loser` forfeits by
-   *  leaving the world: pay them, tell the city, clear both HUDs, bump their win count. */
-  private finish(race: ActiveRace, winner: SimPlayer, loser: SimPlayer) {
+  /** `winner` reached the finish ('line'), or `loser` forfeited by a false start or by leaving the
+   *  world: pay them, tell the city, clear both HUDs, bump their win count. Leaderboard points only
+   *  for a paid win at the line: a forfeit is one click away for a second account. */
+  private finish(race: ActiveRace, winner: SimPlayer, loser: SimPlayer, how: 'line' | 'forfeit') {
     this.removeRace(race);
     const sim = this.sim;
     winner.profile.stats ??= {};
@@ -285,6 +287,7 @@ export class Race implements SimRule {
     if (amount > 0) {
       const f = winner.focus();
       sim.payout(winner, amount, 'race', f.x, f.y); // 'race' is never party-split
+      if (how === 'line') sim.score(winner, POINTS.race, 'race', f.x, f.y);
     } else {
       sim.onProfileChange?.(winner); // the win count above still needs saving
       sim.events.toPlayer(winner.id, { k: 'msg', title: '', text: 'Bez odmeny – dnešný limit priateľských závodov je vyčerpaný.', time: 3, color: '#ffd740' });

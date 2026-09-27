@@ -1,7 +1,8 @@
 // SQLite persistence on the Fly volume: online profiles (money, landmarks, Čumils, nickname, social
 // stats), each player's last session (position, health, weapons, wanted level: so a deploy doesn't
 // lose them), world state (clock/weather, and any other cached key/value such as a JWKS), party invite
-// links and account nicknames (docs/plans/social-events.md).
+// links and account nicknames (docs/plans/social-events.md), and the leaderboard's point totals
+// (docs/plans/leaderboard.md).
 // Players and sessions are keyed by **player key**: sha256(guestToken) for a guest (the same hash the
 // `token_hash` column always held, so existing rows keep working with no data migration) or
 // 'acct:'+userId for a Supabase account. `server/src/Room.ts` computes the key; this module never
@@ -78,7 +79,28 @@ export const MIGRATIONS = [
    );`,
   // pausing and coming back (docs/plans/pause-resume.md): the car a player drove off with
   `ALTER TABLE sessions ADD COLUMN car TEXT;`,
+  // the leaderboard (docs/plans/leaderboard.md): point totals per period ('d2026-09-27', 'w2026-W39',
+  // 'all'), board and player, added to as points come in, so a page of a board is one index scan
+  `CREATE TABLE scores (
+     period TEXT NOT NULL,
+     board TEXT NOT NULL,
+     key TEXT NOT NULL,
+     nick TEXT NOT NULL,
+     points INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (period, board, key)
+   ) WITHOUT ROWID;
+   CREATE INDEX scores_top ON scores(period, board, points DESC, updated_at);
+   CREATE INDEX scores_key ON scores(key);`,
 ];
+
+/** a row of a leaderboard: the player key, their nickname (as saved with their profile, else as when
+ *  they last scored) and their points */
+export interface ScoreRow {
+  key: string;
+  nick: string;
+  points: number;
+}
 
 /** sessions older than this aren't resumed (you start fresh at the square) */
 const SESSION_TTL_MS = RESUME_MS;
@@ -150,6 +172,26 @@ export class Store {
          ON CONFLICT(user_id) DO UPDATE SET nick = @nick, nick_lower = @nickLower`,
       ),
       deleteAccount: db.prepare('DELETE FROM accounts WHERE user_id = ?'),
+      addScore: db.prepare(
+        `INSERT INTO scores (period, board, key, nick, points, updated_at) VALUES (@period, @board, @key, @nick, @points, @now)
+         ON CONFLICT(period, board, key) DO UPDATE SET points = points + @points, nick = @nick, updated_at = @now`,
+      ),
+      topScores: db.prepare<[string, string, number], ScoreRow>(
+        `SELECT s.key AS key, COALESCE(p.nickname, s.nick) AS nick, s.points AS points FROM scores s
+         LEFT JOIN players p ON p.token_hash = s.key
+         WHERE s.period = ? AND s.board = ? ORDER BY s.points DESC, s.updated_at ASC LIMIT ?`,
+      ),
+      scoreOf: db.prepare<[string, string, string], { points: number }>('SELECT points FROM scores WHERE period = ? AND board = ? AND key = ?'),
+      scoresAbove: db.prepare<[string, string, number], { n: number }>('SELECT COUNT(*) AS n FROM scores WHERE period = ? AND board = ? AND points > ?'),
+      boardSize: db.prepare<[string, string], { n: number }>('SELECT COUNT(*) AS n FROM scores WHERE period = ? AND board = ?'),
+      hasScores: db.prepare<[string], { x: number }>('SELECT 1 AS x FROM scores WHERE key = ? LIMIT 1'),
+      // 'd…' and 'w…' periods sort by date as plain strings; 'all' sorts before both and stays
+      pruneScores: db.prepare(`DELETE FROM scores WHERE (period >= 'd' AND period < @day) OR (period >= 'w' AND period < @week)`),
+      mergeScores: db.prepare(
+        `INSERT INTO scores (period, board, key, nick, points, updated_at) SELECT period, board, @to, nick, points, updated_at FROM scores WHERE key = @from
+         ON CONFLICT(period, board, key) DO UPDATE SET points = points + excluded.points, updated_at = MAX(updated_at, excluded.updated_at)`,
+      ),
+      deleteScores: db.prepare('DELETE FROM scores WHERE key = ?'),
     };
   }
 
@@ -189,8 +231,12 @@ export class Store {
     return !!this.q.hasPlayer.get(key);
   }
 
+  /** a player's progress and their leaderboard points (GDPR: an account deleting itself) */
   deletePlayer(key: string) {
-    this.q.deletePlayer.run(key);
+    this.db.transaction(() => {
+      this.q.deletePlayer.run(key);
+      this.q.deleteScores.run(key);
+    })();
   }
 
   /** Move a guest's progress under a new key (claiming into an account): only when `toKey` is still
@@ -201,6 +247,9 @@ export class Store {
       this.q.copyPlayerAs.run({ from: fromKey, to: toKey });
       this.q.rekeySessions.run({ from: fromKey, to: toKey });
       this.q.deletePlayer.run(fromKey);
+      // the guest's points come along (added to any the account somehow already has)
+      this.q.mergeScores.run({ from: fromKey, to: toKey });
+      this.q.deleteScores.run(fromKey);
       return true;
     })();
   }
@@ -238,6 +287,47 @@ export class Store {
 
   deleteAccount(userId: string) {
     this.q.deleteAccount.run(userId);
+  }
+
+  // ----------------------------------------------------------------------- leaderboard scores
+  /** Add `points` to `key`'s totals on `board` and on 'all' (a board's points always count on the
+   *  whole board too), in every one of `periods`, in one transaction. */
+  addScore(key: string, nick: string, board: string, points: number, periods: readonly string[], now: number) {
+    this.db.transaction(() => {
+      for (const period of periods) {
+        this.q.addScore.run({ period, board, key, nick, points, now });
+        if (board !== 'all') this.q.addScore.run({ period, board: 'all', key, nick, points, now });
+      }
+    })();
+  }
+
+  /** the top `limit` of a board, most points first (a tie: whoever got there first) */
+  topScores(period: string, board: string, limit: number): ScoreRow[] {
+    return this.q.topScores.all(period, board, limit);
+  }
+
+  scoreOf(period: string, board: string, key: string): number {
+    return this.q.scoreOf.get(period, board, key)?.points ?? 0;
+  }
+
+  /** the rank `points` holds on a board: 1 + how many have more (a tie shares the rank) */
+  rankOf(period: string, board: string, points: number): number {
+    return this.q.scoresAbove.get(period, board, points)!.n + 1;
+  }
+
+  /** how many players are on a board */
+  boardSize(period: string, board: string): number {
+    return this.q.boardSize.get(period, board)!.n;
+  }
+
+  /** whether this player key has ever scored */
+  hasScores(key: string): boolean {
+    return !!this.q.hasScores.get(key);
+  }
+
+  /** forget days before `dayPeriod` and weeks before `weekPeriod` (the all-time totals stay) */
+  pruneScores(dayPeriod: string, weekPeriod: string): number {
+    return this.q.pruneScores.run({ day: dayPeriod, week: weekPeriod }).changes;
   }
 
   // ----------------------------------------------------------------- world (generic key/value store)

@@ -4,6 +4,7 @@
 import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
 import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
+import type { ScoreSource } from './rules/points';
 
 /** News everyone in the city hears about, wherever they are: world events, the most wanted, race
  *  results, the daily puzzle. The radio (Rádio Kecy) and the HUD turn them into lines; `x, y` is
@@ -31,7 +32,12 @@ export type GlobalEvent =
   | { k: 'dailyHint'; level: number; text: string }
   | { k: 'dailySolved'; nick: string }
   | { k: 'dailyAnswer'; x: number; y: number }
-  | { k: 'revived'; by: string; who: string; x: number; y: number };
+  | { k: 'revived'; by: string; who: string; x: number; y: number }
+  // ---- the leaderboard (docs/plans/leaderboard.md; server/src/features/Leaderboard.ts)
+  /** someone took the lead of today's leaderboard */
+  | { k: 'leader'; nick: string; pts: number }
+  /** the day is over: who scored the most */
+  | { k: 'dayWinner'; nick: string; pts: number };
 
 /** Messages meant for one player only (HUD, sounds, their own car). */
 export type PrivateEvent =
@@ -76,7 +82,9 @@ export type PrivateEvent =
   /** the server moved this player (party join): snap there and tag reports with the new epoch */
   | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number }
   /** away and safe: nobody can hurt, arrest or carjack this player (rules/Presence.ts) */
-  | { k: 'shield'; on: boolean };
+  | { k: 'shield'; on: boolean }
+  /** leaderboard points (online only, Sim.score): `n` points for `src`, scored at (x, y) */
+  | { k: 'points'; n: number; src: ScoreSource; x: number; y: number };
 
 export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 

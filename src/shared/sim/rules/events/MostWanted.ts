@@ -11,6 +11,7 @@ import type { SimRule } from '../SimRule';
 import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents';
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
+import { POINTS, bountyPoints } from '../points';
 
 /** how often MostWantedWatch scans for a new target */
 const WATCH_INTERVAL_S = 1;
@@ -149,6 +150,7 @@ class MostWanted extends TimedEvent {
         this.starStep++;
         this.bounty = Math.min(BOUNTY_CAP, this.bounty + BOUNTY_STEP);
         sim.payout(t, INCOME_PER_STEP, 'wanted', x, y);
+        sim.score(t, POINTS.wanted, 'wanted', x, y);
         this.director.changed();
       }
     } else {
@@ -182,6 +184,7 @@ class MostWanted extends TimedEvent {
     ) {
       paid = this.bounty;
       sim.payout(killer, this.bounty, 'bounty', x, y);
+      sim.score(killer, bountyPoints(this.bounty), 'bounty', x, y);
       markPairPaid(sim, killer.id, target.id);
     }
     sim.events.global({ k: 'mostWantedEnd', nick: target.nick, how: 'taken', by: killer.nick, amount: paid, x, y });
@@ -234,7 +237,10 @@ class MostWanted extends TimedEvent {
     const { x, y } = target.focus();
     // only a chase that was actually on pays: otherwise hitting 5★ and hiding at once is free money
     const amount = this.starAccum >= MIN_STAR_TIME_S ? Math.round(this.bounty * ESCAPE_SHARE) : 0;
-    if (amount) sim.payout(target, amount, 'escape', x, y);
+    if (amount) {
+      sim.payout(target, amount, 'escape', x, y);
+      sim.score(target, POINTS.escape, 'escape', x, y);
+    }
     sim.events.global({ k: 'mostWantedEnd', nick: target.nick, how: 'escaped', amount, x, y });
     this.finishChase();
     return false;

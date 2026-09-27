@@ -23,7 +23,11 @@ build takes a minute or two to go live.
 Additive changes don't need that lockstep. Pausing, leaving and coming back
 ([docs/plans/pause-resume.md](plans/pause-resume.md)) kept protocol 7. A new client sends `away` only to
 a server whose welcome carries `resumed`. A new server times out for idleness only clients whose hello
-said `presence`. So either side can go out first, and an older tab keeps working until it reloads.
+said `presence`. So either side can go out first, and an older tab keeps working until it reloads. The
+leaderboard ([docs/plans/leaderboard.md](plans/leaderboard.md)) is the same: a new client asks for boards
+only from a server that has pushed it a `score`, and older clients ignore the new messages. Its SQLite
+table (`scores`, migration 4) is created on the server's first start, and players from before it are
+credited once, on the all-time boards, the first time they come back.
 
 ## Local development
 
@@ -47,6 +51,7 @@ npm run e2e           # builds the client, starts a server, drives headless Chro
 E2E_PHASE=social npm run e2e     # parties/invite link, revive, Kofolka, a race, voice, the daily puzzle
 E2E_PHASE=accounts npm run e2e   # sign-in, claim and cross-device progress against the real Supabase project
 E2E_PHASE=presence npm run e2e   # the pause menu (away, shielded), leaving, "Pokračovať online", a reload, the idle timeout
+E2E_PHASE=board npm run e2e      # points reaching the HUD, the leaderboard panel (L, the pause menu), the leader news
 npm run loadtest -- --bots 100 --spread city --duration 60   # bot clients against a running server
 npm --prefix server run bench -- --players 30 --spread city  # simulation only, no networking
 ```
@@ -104,7 +109,7 @@ because the server bundles `src/shared` and ships `public/data/bratislava.json`.
   counts and traffic; it needs `Authorization: Bearer $STATS_TOKEN` or a loopback request
   (`fly ssh console -C "curl -s localhost:8080/stats"`).
 - **Backups.** Fly takes daily volume snapshots, so check `fly volumes snapshots list`. The database is
-  `/data/blava.db`.
+  `/data/blava.db`; it holds the leaderboard's points too (`scores`).
 
 ### Environment variables
 
@@ -286,7 +291,8 @@ node scripts/supa-check.mjs
 With the secret key, it checks that every table from the migration exists and that `game_config` has
 its four seeded keys. With the publishable key, it checks that anon is denied
 `daily_spot_secrets`/`activity`/`reports`/`game_config` but can read `daily_spots` and call
-`leaderboard_week()`. It also checks that the `spots` Storage bucket exists and is public but can't be
+`leaderboard_week()` (an analytics view over the payouts; the game's own leaderboard is in the server's
+SQLite and doesn't use it). It also checks that the `spots` Storage bucket exists and is public but can't be
 listed by anon, and that the Auth JWKS advertises an ES256 key. Besides `SUPABASE_URL`/
 `SUPABASE_SECRET_KEY` (or their `GTA_BRATISKA_` fallbacks), it needs `SUPABASE_PUBLISHABLE_KEY` (or
 `GTA_BRATISKA_SUPABASE_PUBLISHABLE_KEY`) set — the server itself never uses a publishable key, so this
@@ -359,4 +365,6 @@ staying at 1 and `loop.p95` well under 30 ms.
   wasn't there at the shooter's render time). A steady `badHits` share above a few percent means someone
   is sending forged hits or the tolerance is too tight.
 - `rejected` / `teleports`: invalid messages, and position reports answered with a correction
+- `lbAwards` / `lbCapped` / `lbQueries` / `lbErrors`: leaderboard points counted, awards an hourly cap
+  turned away, board pages served, and database errors (anything but 0 is worth a look in the logs)
 - `mem`: RSS in bytes

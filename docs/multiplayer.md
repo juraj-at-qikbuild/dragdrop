@@ -167,6 +167,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 - The client keeps an anonymous UUID and a nickname in `localStorage` (`src/net/identity.ts`). The first Online click asks for the nickname; the pause menu can change it.
 - `server/src/db.ts` uses SQLite (WAL) on the Fly volume and stores only a SHA-256 of the token. It has three tables:
   - `players`: nickname, money, landmarks found, Čumils collected
+  - `scores`: leaderboard points per day, week and all time (see "Points and the leaderboard" below)
   - `sessions`: position, health, armour, weapons, wanted level, the car they were driving; valid for
     24 h (the wanted level for 30 min)
   - `world`: the clock and weather
@@ -177,7 +178,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
 ### Tests and tools
 - `npm test` runs the codec, simulation, room and persistence tests, `test/shared/traffic.test.ts` (stop signs, bus stops, pulling out round a parked car, and a two-minute soak that no car is stuck in), `test/shared/crowd.test.ts` (bodies, guns, seats, tram stops, fights, witnesses, the new states on the wire), `test/shared/street.test.ts` (islands, bumps, gates), plus `test/shared/world.test.ts`, which drives cars, walks figures and runs trams through the real map with the shared collision code (the UFO, passages, both tunnels, walls and fences, fountains, bollards, both decks of Most SNP, piers and traffic lights, lanes and walking lines clear of walls, cul-de-sacs), and `test/shared/vehicle.test.ts`, which measures the car physics on a test track (top speeds, braking distances, cornering grip, stability).
 - `npm run smoke` runs the offline game in headless Chromium.
-- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart. `E2E_PHASE=social`, `E2E_PHASE=accounts` and `E2E_PHASE=presence` cover the social features, Supabase accounts, and pausing, leaving and coming back (see `docs/deploy.md`).
+- `npm run e2e` starts a real server and drives two browser pages through Online. `scripts/e2e-phase2.mjs` checks shared NPC deaths, and `scripts/e2e-phase3.mjs` checks PvP and progress surviving a server restart. `E2E_PHASE=social`, `E2E_PHASE=accounts`, `E2E_PHASE=presence` and `E2E_PHASE=board` cover the social features, Supabase accounts, pausing, leaving and coming back, and the leaderboard (see `docs/deploy.md`).
 - `npm run loadtest` and `npm --prefix server run bench` measure capacity.
 
 ## Social features: protocol v7
@@ -353,7 +354,8 @@ server's own SQLite, so a join or a tick never waits on the network.
   `profiles` table, since nicknames live in SQLite `accounts` next to the rest of the hot profile;
   **`daily_spots`/`daily_spot_secrets`** for "Kde to je?" (the coordinates are in the second table,
   behind RLS with no policies at all, so only the server's secret key can ever read them);
-  **`activity`**, an append-only log of every payout share and milestone, for the weekly leaderboard;
+  **`activity`**, an append-only log of every payout share and milestone, for analytics (the in-game
+  leaderboard is the server's own, in SQLite: see "Points and the leaderboard" below);
   **`reports`** for moderation; **`game_config`** for remote tunables and kill switches; and the
   `spots` Storage bucket for the daily puzzle's photos. Details and day-to-day operation are in
   `docs/deploy.md`.
@@ -486,3 +488,34 @@ then sends `leave` and loads the plain URL (`goToMenu`, `src/boot/links.ts`).
   - The new roster bits and the `shield` event are ignored by clients that don't know them.
 - **Tunables.** Every time and the shield itself are tunables in `game_config`'s `presence` key (see
   `docs/deploy.md`), applied through `Presence.apply`. In E2E mode, `debug.presence` sets them too.
+
+## Points and the leaderboard
+
+Players score points ("body") for world events, the mini-games, jobs, races, running from the police,
+exploring and reviving others, and compare them on boards for today, this week and all time, overall
+and per kind of thing. Planned and recorded in [plans/leaderboard.md](plans/leaderboard.md), with the
+full table of what everything is worth.
+
+- **Scoring is shared code, counting is the server's.** `Sim.score(p, points, source)` is called
+  wherever an achievement is decided (next to its payout, where there is one). It splits through the
+  party's payout policy like money, asks `Sim.onScore` how many points counted, and sends the player
+  `{ k: 'points' }` for those. Offline `onScore` is unset and nothing scores. The values are in
+  `src/shared/sim/rules/points.ts`.
+- **Totals in SQLite.** `server/src/features/Leaderboard.ts` adds every award to the player's
+  `scores` rows for today, this week (Europe/Bratislava, ISO weeks) and all time, on the source's
+  board and on `all`, in one transaction. A page of a board is one index scan. Days are kept 14 days,
+  weeks 10 weeks.
+- **Guards.** Every source keeps its money's anti-abuse checks. On top: races score only when won at
+  the line, a getaway needs a 30 s chase and 90 s since the last, and repeatable sources have hourly
+  caps per player (`HOURLY_CAP`).
+- **Wire (still protocol 7).** `board { period, board }` → `board { rows: [rank, nick, points,
+  flags][], me, n, prev?, ends? }` (`BOARD_ACCOUNT`, `BOARD_ONLINE`, `BOARD_ME`). `score { d, w, a, r,
+  n }` goes out after every welcome, within a second of a change, every 10 s to everyone while anyone
+  scores (ranks move with others' points), and at midnight. Global events `leader` and `dayWinner` feed
+  Rádio Kecy and the banners. A client asks for boards only once it has seen a `score`, so client and
+  server deploy in either order.
+- **Client.** L or the pause menu's "🏆 Rebríček" opens `LeaderboardUi`'s panel (and pauses, like the
+  menu); the HUD shows today's points and rank under the online badge (`LiveState.score`).
+- **Identity.** Scores are keyed by player key. Deleting an account deletes them; claiming a guest
+  moves them. A player from before the leaderboard is seeded once, on the all-time boards only, from
+  their saved progress.

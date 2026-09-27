@@ -181,6 +181,8 @@ export const KEYS = {
   /** downed: give up and go to hospital */
   giveUp: 'KeyG',
   horn: 'KeyH',
+  /** the leaderboard (online) */
+  board: 'KeyL',
 } as const;
 
 /** Standard-mapping pad buttons that press a key once: Y enter/exit, X horn, B next weapon, Start

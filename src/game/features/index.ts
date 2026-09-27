@@ -4,6 +4,7 @@ import type { ClientFeature } from './ClientFeature';
 import { DailyCard } from './DailyCard';
 import { EventsOverlay } from './EventsOverlay';
 import { JobsHud } from './JobsHud';
+import { LeaderboardUi } from './LeaderboardUi';
 import { News } from './News';
 import { PartyUi } from './PartyUi';
 import { PresenceUi } from './PresenceUi';
@@ -24,5 +25,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new RaceUi(g));
   out.push(new JobsHud(g));
   out.push(new PresenceUi(g));
+  out.push(new LeaderboardUi(g));
   return out;
 }

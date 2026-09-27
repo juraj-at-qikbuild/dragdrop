@@ -81,6 +81,11 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - **Rádio Kecy breaking news**: world events, chases and race/derby results as radio bulletins.
 - **Proximity voice chat**: a WebRTC mesh paired by the server (accounts only), with push-to-talk,
   mute, report and a kill switch.
+- **Rebríček** (the leaderboard, [plans/leaderboard.md](plans/leaderboard.md)): points for 18 kinds of
+  achievement (events, jobs, races, getaways, the city, revives), on boards for today, this week and
+  all time, overall and per kind, with the HUD's running total and rank, rank-up messages and the
+  day's leader on Rádio Kecy. Anti-farmed (hourly caps, no points for forfeits, getaways need a real
+  chase), and split by parties like money.
 
 ## Still open
 
@@ -132,5 +137,11 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
   online, but now with money riding on it. Worth a look if either payout starts attracting complaints.
 - **Party-radio voice** (a stretch goal, not built): party members hearing each other up to 300 m as a
   band-passed "radio", on top of today's proximity mesh.
+- **The leaderboard outside the game.** It's only in game today (L, the pause menu). The main menu
+  (before joining) or a web page would need a read-only HTTP endpoint on the game server. Rewards for
+  the day's and week's winners (a title, a name-tag badge) would give it more pull.
+- **Supabase `leaderboard_week()`** is now unused by the game (the leaderboard is in the server's
+  SQLite). It still counts every party share as its own win and derby 2nd/3rd places as wins; drop or
+  rewrite it in a new migration if anything outside the game is going to read it.
 - **Kde to je? content runs out on 2026-10-26.** 30 days are uploaded (2026-09-27 through 2026-10-26 —
   see `docs/deploy.md`); regenerate more with `npm run spots:gen` before then.
