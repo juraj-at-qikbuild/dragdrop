@@ -516,6 +516,12 @@ export class NetSimHost implements SimHost, NetView {
         if (p) ev.say(e.id, p.x, p.y, e.l);
         break;
       }
+      case 'splash':
+        ev.splash(e.id, e.x, e.y, e.a, e.s);
+        break;
+      case 'five':
+        ev.highFive(e.id, e.x, e.y);
+        break;
     }
   }
 

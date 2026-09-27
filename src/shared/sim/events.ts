@@ -152,6 +152,11 @@ export interface SimEvents {
   horn(vehicleId: number, x: number, y: number): void;
   /** someone says something (a speech bubble): `line` from phrases.ts `pickLine` */
   say(pedId: number, x: number, y: number, line: number): void;
+  /** a player's car splashed someone from a puddle (rules/Splash.ts): the wave from the wheel at
+   *  (x, y) toward `a`, `s` how hard (~0.4..1.2) */
+  splash(pedId: number, x: number, y: number, a: number, s: number): void;
+  /** a fan high-fived a player's car going past, their hands meeting at (x, y) (rules/Splash.ts) */
+  highFive(pedId: number, x: number, y: number): void;
   toPlayer(pid: number, e: PrivateEvent): void;
   /** news for every player, wherever they are */
   global(e: GlobalEvent): void;
@@ -170,6 +175,8 @@ export const nullEvents: SimEvents = {
   bell() {},
   horn() {},
   say() {},
+  splash() {},
+  highFive() {},
   toPlayer() {},
   global() {},
 };

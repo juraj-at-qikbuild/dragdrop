@@ -2,6 +2,7 @@ import type { BuildingJSON, MapJSON, RoadJSON } from '../types';
 import { Graph, linkPoints, type Edge } from './Graph';
 import { TrafficLights, StreetMarks } from './TrafficLights';
 import { Bumps, FURNITURE, F_COLUMN, Gates, Islands } from './Street';
+import { Puddles } from './Puddles';
 import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
 
 /** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on
@@ -159,6 +160,11 @@ interface TubeFit {
 /** Static city data plus spatial queries (collision, water, street names). */
 export class World {
   data: MapJSON;
+  private puddleMap?: Puddles;
+  /** the potholes (výtlky, Puddles.ts: docs/plans/non-violent.md), placed the first time anyone asks */
+  get puddles(): Puddles {
+    return (this.puddleMap ??= new Puddles(this));
+  }
   bounds: BBox;
   names: string[];
   buildings: Building[];

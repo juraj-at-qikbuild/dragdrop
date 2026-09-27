@@ -12,6 +12,8 @@ import { SECONDS_PER_HOUR } from './Clock';
 import { CountGrid, playerScale, targetDensity } from './density';
 import type { Sim } from './Sim';
 import type { SimPlayer } from './SimPlayer';
+import { SAY_DODGE } from './phrases';
+import { FIVE_MAX, type Splash } from './rules/Splash';
 
 export interface Driver {
   mode: 'traffic' | 'police' | 'parked' | 'idle';
@@ -1494,7 +1496,10 @@ export class AI {
       const dx = p.x - p.fleeFrom.x, dy = p.y - p.fleeFrom.y;
       const l = Math.hypot(dx, dy) || 1;
       const x0 = p.x, y0 = p.y;
-      let blocked = p.move(dt, sim.world, (dx / l) * 4.6, (dy / l) * 4.6) && dist(x0, y0, p.x, p.y) < 4.6 * dt * 0.4;
+      // (a dive out of a car's way is a burst faster than running: AI.dodge)
+      const fs = p.dash > 0 ? 7.5 : 4.6;
+      if (p.dash > 0) p.dash -= dt;
+      let blocked = p.move(dt, sim.world, (dx / l) * fs, (dy / l) * fs) && dist(x0, y0, p.x, p.y) < fs * dt * 0.4;
       // ...and nobody flees into the Danube: the river bank stops them like a wall
       if (!blocked && sim.world.inWater(p.x, p.y, p.level) && !sim.world.inWater(x0, y0, p.level)) {
         (p.x = x0), (p.y = y0);
@@ -1584,6 +1589,7 @@ export class AI {
    *  Returns true when they do. */
   private dodge(p: Ped): boolean {
     let best = Infinity, cx = 0, cy = 0, px = 0, py = 0;
+    let by: Vehicle | null = null;
     this.sim.forVehiclesNear(p.x, p.y, 20, (v) => {
       if (v.level !== p.level || v.wrecked || v.parked) return;
       const sp = v.speed;
@@ -1594,9 +1600,13 @@ export class AI {
       if (along < -0.5 || along > sp * 1.3) return;
       const lat = dx * -uy + dy * ux;
       if (Math.abs(lat) > v.spec.width / 2 + 0.8) return;
+      // a fan beside a player's car's line (not right in it) holds a hand out for a high five instead
+      // (rules/Splash.ts)
+      if (p.fan && v.isPlayer && sp <= FIVE_MAX && Math.abs(lat) > v.spec.width / 2 + 0.6 * p.r) return;
       const ttc = Math.max(0, along) / sp;
       if (ttc >= best) return;
       best = ttc;
+      by = v;
       // the nearest point of the car's line, and the way off it (their own side when right on it)
       const side = Math.abs(lat) > 0.2 ? Math.sign(lat) : p.side;
       (cx = p.x - -uy * lat), (cy = p.y - ux * lat);
@@ -1610,12 +1620,15 @@ export class AI {
     p.fleeFrom.y = cy - py;
     // a near miss isn't a panic: no screaming crowd
     p.cooldown = Math.max(p.cooldown, 2.5);
+    // a dive, not a stroll (docs/plans/non-violent.md): a burst of speed, a word about it, and for a
+    // player at the wheel a little something (HOP DO KRÍKA!)
+    p.dash = 0.35;
+    if (this.sim.time - p.saidAt > 3) this.sim.crowd.say(p, SAY_DODGE);
+    const car = by as Vehicle | null;
+    if (car?.isPlayer) this.sim.rule<Splash>('splash')?.dove(p, car);
     return true;
   }
 
-  /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by.
-   *  Downed counts too (Revive): a cop can catch up and bust someone lying there before they're
-   *  revived or bleed out. */
   /** Back on their feet after being knocked down (docs/plans/non-violent.md): dry (health back), and
    *  on their way home to change, saying what they think of it. A civilian hurries off away from what
    *  did it; a cop goes off duty (hurrying off the same way, no chase, no sight, no arrest: as if
@@ -1644,6 +1657,9 @@ export class AI {
     sim.crowd.sayUp(p, p.downMess);
   }
 
+  /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by.
+   *  Downed counts too (Revive): a cop can catch up and bust someone lying there before they're
+   *  revived or freeze. */
   private copTarget(p: Ped): SimPlayer | undefined {
     const sim = this.sim;
     const t = sim.players.get(p.targetPid);

@@ -39,7 +39,9 @@ export type Crime =
   /** hurting / killing another player (online) */
   | 'hitPlayer' | 'killPlayer'
   /** the armoured van (ArmoredVan.ts): bursting its rear doors, then taking its spilled cash */
-  | 'robbery' | 'loot';
+  | 'robbery' | 'loot'
+  /** soaking a cop from a puddle (rules/Splash.ts): "pokropenie verejného činiteľa" */
+  | 'splashCop';
 
 export interface SimOptions {
   rng?: Rng;
@@ -767,6 +769,9 @@ export class Sim {
         break;
       case 'loot':
         if (now > cd) this.raise(p, 1, kind, 10);
+        break;
+      case 'splashCop':
+        if (now > cd) this.raise(p, 1, kind, 5);
         break;
     }
   }

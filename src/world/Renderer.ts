@@ -1,5 +1,5 @@
 import { BARRIERS, POSTS, deckLevel, type World, type Building } from '../shared/world/World';
-import { bboxOf, bboxHit, rng, pointInRings, type BBox } from '../shared/util/math';
+import { bboxOf, bboxHit, rng, pointInRings, walkPolyline, type BBox } from '../shared/util/math';
 import { ROOF_ADS, BRAND_COLORS } from '../data/brands';
 import { Atmosphere } from './Atmosphere';
 import type { LightLayer } from './Lighting';
@@ -178,6 +178,11 @@ interface Chunk {
   manholePath?: Path2D;
   /** puddle shapes along roads; only filled at runtime when atmos.wet > 0.3 */
   puddlePath?: Path2D;
+  /** the potholes (výtlky, world.puddles: docs/plans/non-violent.md): their broken rims, the water
+   *  in the ones that never dry, and in the others when it's wet */
+  potholeRim?: Path2D;
+  potholeAlways?: Path2D;
+  potholeRain?: Path2D;
   /** walls, fences and hedges by barrier kind (see World.BARRIERS) */
   barriers?: (Path2D | undefined)[];
   /** bollards, blocks, planters, statues and columns: flat x, y, radius, kind (see World.POSTS) */
@@ -250,25 +255,6 @@ const PLACE_SIGNS: Record<string, [string, string, string]> = {
   post: ['Pošta', '#ef8a1e', '#1b3f8b'],
   library: ['Knižnica', '#5d4037', '#ffffff'],
 };
-
-/** Walk a flat [x0,y0,x1,y1,...] polyline at a fixed arc-length step, calling
- *  fn(x, y, nx, ny) at each sample (nx,ny = unit normal to the segment). */
-function walkPolyline(p: ArrayLike<number>, step: number, start: number, fn: (x: number, y: number, nx: number, ny: number) => void) {
-  let carry = start;
-  for (let i = 0; i < p.length - 2; i += 2) {
-    const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3];
-    const segLen = Math.hypot(bx - ax, by - ay);
-    if (segLen < 1e-3) continue;
-    const dx = (bx - ax) / segLen, dy = (by - ay) / segLen;
-    const nx = -dy, ny = dx;
-    let d = carry;
-    while (d < segLen) {
-      fn(ax + dx * d, ay + dy * d, nx, ny);
-      d += step;
-    }
-    carry = d - segLen;
-  }
-}
 
 /** Point at arc-length `dist` from the start of a flat polyline, plus its direction. */
 function pointAlong(p: ArrayLike<number>, dist: number): { x: number; y: number; dx: number; dy: number } {
@@ -496,6 +482,17 @@ export class Renderer {
           }
         });
       }
+    }
+    // the potholes (world.puddles): the same places the simulation splashes from
+    for (const h of w.puddles.holes) {
+      const hc = this.chunkAt({ x0: h.x, y0: h.y, x1: h.x, y1: h.y }, map);
+      const a = Math.atan2(h.uy, h.ux);
+      const rim = (hc.potholeRim ??= new Path2D());
+      rim.moveTo(h.x + h.ux * (h.hl + 0.12), h.y + h.uy * (h.hl + 0.12));
+      rim.ellipse(h.x, h.y, h.hl + 0.12, h.hw + 0.1, a, 0, Math.PI * 2);
+      const water = h.always ? (hc.potholeAlways ??= new Path2D()) : (hc.potholeRain ??= new Path2D());
+      water.moveTo(h.x + h.ux * h.hl, h.y + h.uy * h.hl);
+      water.ellipse(h.x, h.y, h.hl, h.hw, a, 0, Math.PI * 2);
     }
 
     // raised traffic islands: grass or paving inside a light kerb, with a dark lip where it drops
@@ -1096,6 +1093,22 @@ export class Renderer {
     if (wantTex) {
       ctx.fillStyle = 'rgba(35,33,30,0.55)';
       for (const c of vis) if (c.manholePath) ctx.fill(c.manholePath);
+    }
+    // the potholes: a dark broken rim, and water in them (the ones that never dry always; the rest
+    // once it's wet), catching the sky by day and the street lamps by night
+    if (detail) {
+      ctx.fillStyle = 'rgba(28,26,24,0.5)';
+      for (const c of vis) if (c.potholeRim) ctx.fill(c.potholeRim);
+      const night = this.atmos.night;
+      ctx.fillStyle = night > 0.3 ? 'rgba(52,64,90,0.85)' : 'rgba(120,150,170,0.85)';
+      for (const c of vis) if (c.potholeAlways) ctx.fill(c.potholeAlways);
+      if (wet > 0.3) {
+        ctx.globalAlpha = Math.min(1, (wet - 0.3) * 2.5);
+        for (const c of vis) if (c.potholeRain) ctx.fill(c.potholeRain);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = night > 0.3 ? 'rgba(255,210,150,0.25)' : 'rgba(235,245,250,0.35)';
+      for (const c of vis) if (c.potholeAlways) ctx.fill(c.potholeAlways);
     }
     // puddles: baked shapes along roads, only shown once it's actually wet; reflect
     // the sky (lighter) by day, or a faint warm glint (from streetlights) by night

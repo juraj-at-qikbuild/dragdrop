@@ -57,6 +57,12 @@ export class NetEvents implements SimEvents {
   say(id: number, x: number, y: number, line: number) {
     this.add(x, y, { k: 'say', id, l: line });
   }
+  splash(id: number, x: number, y: number, a: number, s: number) {
+    this.add(x, y, { k: 'splash', id, x: r2(x), y: r2(y), a: r2(a), s: r2(s) });
+  }
+  highFive(id: number, x: number, y: number) {
+    this.add(x, y, { k: 'five', id, x: r2(x), y: r2(y) });
+  }
   global(e: GlobalEvent) {
     this.globals.push(e);
   }

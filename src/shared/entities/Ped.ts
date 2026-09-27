@@ -45,6 +45,8 @@ export interface PedGoal {
 }
 
 const FIGHTERS = new Set<Archetype>(['casual', 'worker', 'student', 'jogger']);
+/** the share of each kind of passer-by who holds a hand out for a high five (Ped.fan) */
+const FANS: Partial<Record<Archetype, number>> = { student: 0.5, tourist: 0.4, jogger: 0.35, casual: 0.1 };
 
 /** stable per-seed pseudo-random in [0, 1) (the dazed pose, build) */
 export function hashRand(seed: number, salt: number) {
@@ -99,6 +101,12 @@ export class Ped {
    *  Nobody who's leaving counts again: no reward for knocking them down twice, no witness, no fight,
    *  no chase; they're gone once no player sees them (AI.populate). */
   leaving = false;
+  /** sim only (rules/Splash.ts): until when they're too wet to be splashed again, and when they last
+   *  high-fived a player's car */
+  wetUntil = -1e9;
+  fiveAt = -1e9;
+  /** diving out of a car's way: seconds left of the dive's burst of speed (AI.dodge) */
+  dash = 0;
   /** true while surrendering / being arrested-at-gunpoint */
   handsUp = false;
   /** a player lying wounded, waiting to be revived (online) */
@@ -109,6 +117,11 @@ export class Ped {
    *  more seconds they show it (dripping, soapy, confetti in their hair); decayed by the renderer */
   mess: 'water' | 'bubbles' | 'confetti' | 'foam' | null = null;
   messT = 0;
+  /** client only: seconds left of cheering after a high five (both arms up), decayed by the renderer */
+  cheerT = 0;
+  /** client only: a fan's hand held out for a player's car coming past (the world angle it points
+   *  at; NaN: none), set each frame by Game */
+  hand = NaN;
   // navigation on the pedestrian graph
   link: Link | null = null;
   pts: number[] = [];
@@ -156,6 +169,12 @@ export class Ped {
 
   get dazed() {
     return this.state === 'dazed';
+  }
+
+  /** holds a hand out for a player's car going past: a high five (rules/Splash.ts). By seed and
+   *  archetype, so every client knows who without being told. */
+  get fan() {
+    return this.kind === 'civ' && hashRand(this.seed, 29) < (FANS[this.archetype] ?? 0);
   }
 
   /** one in seven of the able-bodied: goes for a player who picks a fight, instead of running */

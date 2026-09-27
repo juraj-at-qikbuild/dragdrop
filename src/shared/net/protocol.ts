@@ -228,7 +228,10 @@ export type WorldEvent =
   | { k: 'scream'; x: number; y: number }
   | { k: 'bell'; x: number; y: number }
   | { k: 'horn'; vid: number; x: number; y: number }
-  | { k: 'say'; id: number; l: number };
+  | { k: 'say'; id: number; l: number }
+  // (optional kinds, still protocol 7: an older client ignores them; docs/plans/non-violent.md)
+  | { k: 'splash'; id: number; x: number; y: number; a: number; s: number }
+  | { k: 'five'; id: number; x: number; y: number };
 
 /** roster row: [id, nick, x, y, wanted, inCar, pedId, partyId (0 = none), flags (ROSTER_*)] */
 export type RosterRow = [number, string, number, number, number, 0 | 1, number, number, number];

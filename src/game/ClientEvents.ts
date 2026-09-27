@@ -12,6 +12,8 @@ import { clamp, dist, formatMoney } from '../shared/util/math';
 const HEAR_R = 90;
 /** how long someone looks wet, soapy or covered in confetti after a hit (s) */
 const MESS_S = 25;
+/** what a fan says after a high five (client only: docs/plans/non-violent.md) */
+const CHEERS = ['Plácni si!', 'Jééé!', 'To bolo super!', 'Ešte raz!', 'High five!', 'Poďme, Slovensko!'];
 
 export class ClientEvents implements SimEvents {
   /** online: the local player's own shots were already shown when fired */
@@ -123,6 +125,30 @@ export class ClientEvents implements SimEvents {
 
   say(pedId: number, x: number, y: number, line: number) {
     if (this.distTo(x, y) < 50) this.g.bubbles.add(pedId, x, y, line);
+  }
+
+  /** a player's car splashed someone from a puddle (docs/plans/non-violent.md: ŠPLECH!) */
+  splash(pedId: number, x: number, y: number, a: number, s: number) {
+    const d = this.distTo(x, y);
+    if (d > 70) return;
+    this.g.fx.wave(x, y, a, s);
+    this.g.audio.splash(d);
+    const p = this.g.host.pedById(pedId);
+    if (p) (p.mess = 'water'), (p.messT = MESS_S), (p.hitFlash = 0.14);
+  }
+
+  /** a fan high-fived a player's car going past (PLÁCNI SI!): a clap, stars, and they cheer */
+  highFive(pedId: number, x: number, y: number) {
+    const d = this.distTo(x, y);
+    if (d > 70) return;
+    this.g.fx.stars(x, y, 5);
+    this.g.fx.pop(x, y);
+    if (d < 50) this.g.audio.clap();
+    const p = this.g.host.pedById(pedId);
+    if (p) {
+      p.cheerT = 1.2;
+      this.g.bubbles.addText(pedId, p.x, p.y, CHEERS[(p.seed + Math.floor(this.g.time)) % CHEERS.length]);
+    }
   }
 
   /** city-wide news: the features (radio, HUD, map) take it from here */

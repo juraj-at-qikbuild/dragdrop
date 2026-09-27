@@ -6,7 +6,8 @@ import { Input, PAD_PRESS } from './Input';
 import { isModalOpen, padNavigate, type PadNav } from '../ui/kit/dom';
 import { Juice } from './Juice';
 import { Audio } from '../audio/Audio';
-import type { WeaponId } from '../shared/entities/Ped';
+import type { Ped, WeaponId } from '../shared/entities/Ped';
+import { FIVE_GAP, FIVE_MAX, FIVE_MIN, besideCar } from '../shared/sim/rules/Splash';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import { MissionManager } from '../missions/Missions';
 import { Hud, drawWeaponIcon } from '../ui/Hud';
@@ -560,7 +561,7 @@ export class Game {
     host.setObserver(this.observer());
     host.update(dt);
     for (const f of this.features) f.update?.(dt);
-    this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus());
+    this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus(), this.atmos.wet);
     this.updateStreet(dt);
     this.fx.update(dt);
     this.missions.enabled = host.missionsEnabled;
@@ -1034,8 +1035,11 @@ export class Game {
     const underground = this.focusLevel() === -1;
     const drawEntities = (level: Level) => {
       for (const p of host.peds) if (p.dazed && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      // players' cars in view: a fan beside one coming past holds a hand out (rules/Splash.ts)
+      const playerCars = host.vehicles.filter((c) => c.isPlayer && c.level === level && !c.wrecked && inView(c.x, c.y, 20));
       for (const p of host.peds) {
         if (p.dazed || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
+        p.hand = playerCars.length && p.fan && (p.state === 'walk' || p.state === 'idle') ? fanHand(p, playerCars) : NaN;
         // another player who's away (in their pause menu, or disconnected) is drawn dimmed
         const a = p.playerId ? this.presenceAlpha(p.playerId) : 1;
         ctx.globalAlpha = a;
@@ -1472,6 +1476,20 @@ export class Game {
 function popScale(t: number): number {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+}
+
+/** Where a fan holds their hand out (a world angle) for the nearest player's car coming past close
+ *  enough for a high five (rules/Splash.ts: the same speeds and gap, a little ahead of it), or NaN. */
+function fanHand(p: Ped, cars: readonly Vehicle[]): number {
+  for (const c of cars) {
+    const sp = c.speed;
+    if (sp < FIVE_MIN || sp > FIVE_MAX) continue;
+    const { along, lat, gap } = besideCar(c, p.x, p.y, p.r);
+    if (gap <= 0 || gap > FIVE_GAP + 1 || along < -c.spec.length / 2 || along > c.spec.length / 2 + sp * 1.2) continue;
+    // toward the car's near side, where the hands will meet
+    return Math.atan2(c.y - p.y, c.x - p.x) + (lat >= 0 ? 0.25 : -0.25);
+  }
+  return NaN;
 }
 
 /** a folded towel, striped (a health pickup: it dries you) */

@@ -19,12 +19,8 @@ export function heightBin(b: Building): number {
 const neighbour = (o: Building) => !o.hidden && (o.solid || o.part);
 
 /** cheap deterministic hash -> [0,1) */
-export function hash01(a: number, b: number) {
-  let h = (a * 374761393 + b * 668265263) ^ ((a << 13) | 0);
-  h = Math.imul(h ^ (h >>> 15), 2246822519);
-  h ^= h >>> 13;
-  return ((h >>> 0) % 10000) / 10000;
-}
+import { hash01 } from '../shared/util/math';
+export { hash01 };
 
 /** Floats per wall piece: the original edge's start (ax, ay), unit direction (ux, uy), outward
  *  normal (nx, ny) and length L; the piece's range u0..u1 (metres along that edge); the height

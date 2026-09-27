@@ -217,6 +217,16 @@ export class Fx {
     this.particles.push({ x, y, vx, vy: vy - rand(0.2, 0.8), life: rand(0.6, 1.4), max: 1.4, size, grow: 0.05, color: pick(['#b3e5fc', '#f8bbd0', '#e1bee7', '#c8e6c9']), alphaMax: 0.9, top: true, kind: 'bubble' });
   }
 
+  /** the wave a car's wheel throws out of a puddle toward `a` (the splash-by), `s` how hard (~0.4..1.2) */
+  wave(x: number, y: number, a: number, s: number) {
+    for (let i = 0; i < 12 + Math.round(s * 14); i++) {
+      const b = a + rand(-0.55, 0.55), sp = rand(2, 7) * s;
+      this.particles.push({ x: x + rand(-0.2, 0.2), y: y + rand(-0.2, 0.2), vx: Math.cos(b) * sp, vy: Math.sin(b) * sp - rand(0, 1.5), life: rand(0.35, 0.7), max: 0.7, size: rand(0.07, 0.16), grow: 0.25, color: 'rgba(200,230,250,0.8)', alphaMax: 1, top: true, kind: 'splash' });
+    }
+    this.particles.push({ x, y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, life: 0.4, max: 0.4, size: 0.3, grow: 4, color: 'rgba(225,242,255,0.7)', alphaMax: 1, top: true, kind: 'ring' });
+    this.wet(x + Math.cos(a) * 1.2, y + Math.sin(a) * 1.2, 0.9, 'rgba(40,70,110,0.28)', 12);
+  }
+
   /** a bubble popping: a quick white ring */
   pop(x: number, y: number) {
     this.particles.push({ x, y, vx: 0, vy: 0, life: 0.18, max: 0.18, size: 0.08, grow: 1.6, color: 'rgba(255,255,255,0.9)', alphaMax: 1, top: true, kind: 'ring' });

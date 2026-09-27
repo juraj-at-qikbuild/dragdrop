@@ -9,7 +9,7 @@ import type { Fx } from './Fx';
 export class EntityFx {
   private wasSinking = new WeakSet<Vehicle>();
 
-  update(dt: number, vehicles: readonly Vehicle[], fx: Fx, world: World, focus: { x: number; y: number }) {
+  update(dt: number, vehicles: readonly Vehicle[], fx: Fx, world: World, focus: { x: number; y: number }, wet = 0) {
     for (const v of vehicles) {
       const s = v.spec;
       const c = Math.cos(v.angle), sn = Math.sin(v.angle);
@@ -29,6 +29,12 @@ export class EntityFx {
           if (v.speed > 6 && Math.random() < dt * v.speed * 0.25) fx.splash(v.x + c * s.length * 0.4, v.y + sn * s.length * 0.4);
         } else {
           if (world.surfaceAt(v.x, v.y) === 'offroad' && Math.random() < dt * v.speed * 0.2) fx.dust(v.x - c * s.length * 0.4, v.y - sn * s.length * 0.4);
+          // spray off the wheels on a wet road, or through a pothole that never dries (docs/plans/non-violent.md)
+          if (v.speed > 6 && !s.twoWheeler && Math.random() < dt * v.speed * 0.5) {
+            const side = Math.random() < 0.5 ? 1 : -1;
+            const wx = v.x - c * s.length * 0.32 - sn * side * s.width * 0.5, wy = v.y - sn * s.length * 0.32 + c * side * s.width * 0.5;
+            if (wet > 0.35 || world.puddles.at(wx, wy, 0.2, true) >= 0) fx.drops(wx, wy, 2, 2);
+          }
           if (v.ctrl.throttle > 0.5 && !s.twoWheeler && Math.random() < dt * 3) fx.exhaustPuff(v.x - c * s.length * 0.5, v.y - sn * s.length * 0.5, v.angle);
         }
       }

@@ -16,6 +16,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   const dtMs = last ? now - last : 0;
   lastDraw.set(p, now);
   if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dtMs / 1000);
+  if (p.cheerT > 0) p.cheerT = Math.max(0, p.cheerT - dtMs / 1000);
   if (p.messT > 0 && (p.messT -= dtMs / 1000) <= 0) p.mess = null;
 
   ctx.save();
@@ -54,7 +55,11 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   const moving = Math.min(1, speed);
   const running = speed > 2.2;
   const strideMul = running ? 1.35 : 1;
-  const pose = poseOf(p, speed);
+  // (a fan who just high-fived a car cheers, both arms up: docs/plans/non-violent.md)
+  const pose = p.cheerT > 0 ? 'hands' : poseOf(p, speed);
+  // a fan holding a hand out for a player's car coming past; someone diving out of a car's way
+  const five = !Number.isNaN(p.hand);
+  const diving = p.kind === 'civ' && p.state === 'flee' && speed > 5.2;
   // shadow, offset along the sun
   let shx = 0.08, shy = 0.1;
   if (atmos) {
@@ -84,7 +89,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   // a punch thrown (players and cops: their cooldown; civilians only while fighting)
   const punchT = p.weapon === 'fist' && p.cooldown > 0 && (p.kind !== 'civ' || pose === 'fight') ? Math.min(1, p.cooldown / 0.45) : 0;
   // the crowd (unarmed, in a still pose) is drawn from the sprite cache
-  const cacheable = !armed && punchT <= 0 && p.hitFlash <= 0 && pose !== 'fight';
+  const cacheable = !armed && punchT <= 0 && p.hitFlash <= 0 && pose !== 'fight' && !five && !diving;
   if (cacheable) {
     const swingQ = pose === 'walk' || pose === 'run' ? Math.round((p.walkPhase % (Math.PI * 2)) * 6 / Math.PI) : 0;
     const buildQ = Math.round(b * 20);
@@ -95,7 +100,9 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     });
   } else {
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
-    const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : 'rest';
+    const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : five ? 'five' : diving ? 'dive' : 'rest';
+    // a dive: stretched out flat, arms first
+    if (diving) ctx.scale(1.25, 0.85);
     drawBody(ctx, p, pose, swing, b, atmos, arms, punchT);
     if (armed) drawToy(ctx, p.weapon, p.kind === 'cop');
   }
@@ -237,7 +244,7 @@ export function drawRider(ctx: CanvasRenderingContext2D, p: Ped, bar: number, se
 type Pose = 'stand' | 'walk' | 'run' | 'sit' | 'phone' | 'fight' | 'hands';
 /** what the arms do when not in the pose's own way: hang and swing, hold a gun, throw a punch,
  *  keep a fighting guard */
-type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard' | 'hug';
+type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard' | 'hug' | 'five' | 'dive';
 
 function poseOf(p: Ped, speed: number): Pose {
   if (p.state === 'sit') return 'sit';
@@ -535,6 +542,20 @@ function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: numb
     capsule(ctx, 0, -shoulder * 0.8, 0.46, -0.01, 0.1, sleeve);
     dot(ctx, 0.3, 0, 0.055, p.skin);
     dot(ctx, 0.46, -0.01, 0.055, p.skin);
+  } else if (arms === 'five') {
+    // a hand held out toward a car coming past (p.hand, a world angle), palm open; the other hangs
+    const la = p.hand - p.angle, side = Math.sin(la) >= 0 ? 1 : -1;
+    capsule(ctx, tx, -side * shoulder, 0.02, -side * 0.31, 0.105, sleeve);
+    dot(ctx, 0.02, -side * 0.31, 0.052, p.skin);
+    const hx = tx + Math.cos(la) * 0.46, hy = side * shoulder * 0.6 + Math.sin(la) * 0.3;
+    capsule(ctx, tx, side * shoulder, hx, hy, 0.105, sleeve);
+    dot(ctx, hx, hy, 0.075, p.skin);
+  } else if (arms === 'dive') {
+    // both arms reaching forward, as into a bush
+    capsule(ctx, tx, -shoulder, 0.48, -0.14, 0.105, sleeve);
+    capsule(ctx, tx, shoulder, 0.48, 0.14, 0.105, sleeve);
+    dot(ctx, 0.48, -0.14, 0.055, p.skin);
+    dot(ctx, 0.48, 0.14, 0.055, p.skin);
   } else if (arms === 'hug') {
     // arms wrapped round themselves, freezing
     capsule(ctx, tx, -shoulder, tx + 0.16, 0.12, 0.1, sleeve);
