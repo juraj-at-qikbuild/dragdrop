@@ -47,9 +47,10 @@ export class Juice {
     this.trauma = clamp(this.trauma + t, 0, 1);
   }
 
-  /** eased speed look-ahead: smoother than snapping straight to velocity*k */
-  leadOffset(v: Vehicle | null, dt: number): { x: number; y: number } {
-    const wx = v ? v.vx * 0.75 : 0, wy = v ? v.vy * 0.75 : 0;
+  /** eased speed look-ahead, at most `mx`, `my` metres each way (smoother than snapping straight to
+   *  velocity*k), plus the distance a camera easing after it at `follow` (1/s) trails a car by */
+  leadOffset(v: Vehicle | null, dt: number, mx: number, my: number, follow: number): { x: number; y: number } {
+    const wx = v ? clamp(v.vx * 0.75, -mx, mx) + v.vx / follow : 0, wy = v ? clamp(v.vy * 0.75, -my, my) + v.vy / follow : 0;
     const k = Math.min(1, dt * 2.5);
     this.leadX = lerp(this.leadX, wx, k);
     this.leadY = lerp(this.leadY, wy, k);

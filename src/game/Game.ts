@@ -52,13 +52,18 @@ const SAVE_KEY = 'blava-city-save-v1';
 /** a plain hold of the touch fire button shoots after this long (s), see `touchShooting` */
 const TOUCH_FIRE_DELAY = 0.1;
 /** camera zoom: metres across the short side of the screen on foot */
-const CAM_FOOT_M = 38;
+const CAM_FOOT_M = 32;
 /** ...closer on a phone, where everything is a quarter of the size it is on a monitor */
-const CAM_FOOT_M_PHONE = 32;
+const CAM_FOOT_M_PHONE = 27;
 /** in a vehicle, zoomed out by this factor at a standstill... */
 const CAM_CAR_ZOOM = 0.84;
-/** ...and further with speed: the view doubles at this speed (m/s) */
-const CAM_SPEED_ZOOM = 28;
+/** ...and further with speed, gently (the view doubles at this speed, m/s: 180 km/h), so the car
+ *  stays big enough to steer by; the look-ahead below shows the road coming */
+const CAM_SPEED_ZOOM = 50;
+/** the look-ahead leaves the car at most this fraction of the way from the middle to the edge */
+const CAM_LEAD_MAX = 0.55;
+/** how quickly the camera eases after where it's aimed (1/s) */
+const CAM_FOLLOW = 5;
 
 export interface Msg {
   title: string;
@@ -814,8 +819,10 @@ export class Game {
   private updateCamera(dt: number) {
     const v = this.player.vehicle;
     const f = this.focus();
-    const lead = this.juice.leadOffset(v, dt); // smoothly-eased speed look-ahead
-    const k = Math.min(1, dt * 5);
+    // smoothly-eased speed look-ahead that keeps the car well clear of the screen's edge
+    const s = this.cam.scale;
+    const lead = this.juice.leadOffset(v, dt, (CAM_LEAD_MAX * this.viewW) / 2 / s, (CAM_LEAD_MAX * this.viewH) / 2 / s, CAM_FOLLOW);
+    const k = Math.min(1, dt * CAM_FOLLOW);
     this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
     this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
     // the mouse wheel zooms in and out around the automatic zoom (unless it's zooming the map)
