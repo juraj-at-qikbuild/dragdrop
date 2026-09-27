@@ -13,6 +13,7 @@ import { KEYS } from './game/Input';
 import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
 import { continueNote, loadLastPlayed, noteOffline, noteOnline } from './net/lastSession';
 import { LIVERY_NONE } from './shared/entities/Vehicle';
+import { spawnAt } from './shared/world/spawns';
 import {
   completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
 } from './ui/AccountUi';
@@ -226,12 +227,16 @@ async function boot() {
       return;
     }
     noteOffline();
-    if (!game.save.done.length && !game.save.found.length)
+    if (!game.save.done.length && !game.save.found.length) {
+      // where the game put them (a random spawn place)
+      const at = spawnAt(game.player.x, game.player.y);
+      const where = at ? `${at.name}. ` : '';
       game.message(
         'Vitaj v Bratislave',
-        t ? 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.' : 'Hlavné námestie. Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).',
+        t ? `${where}Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.` : `${where}Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).`,
         7,
       );
+    }
   };
   /** The first message in the shared city: back where they left off, back in the city, or the
    *  first-time tips. `resumed`: the server's welcome (null from an older server). */

@@ -95,6 +95,7 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
 - **Collectibles.** There are 10 hidden **Čumil** statues and 52 landmarks to discover.
 - **Parody brands.** Rooftop ads and shop signs use spoofs (Kofolka, Strieborný Bažant, Dolinky, Billka, Starbáks, Slovnafta…). No real logos are used.
 - **Procedural audio.** Engine, siren, weapons and four radio stations (*Rádio Expreso*, *Fan Rádio*, *Rádio Dévin Folk*, *Rádio Kecy*) with Slovak DJ chatter.
+- **Ten places to start.** A new game, and a first visit online, begins at one of ten places round the city picked at random: Hlavné námestie, Hviezdoslavovo námestie, Námestie SNP, Hodžovo námestie, Slovenský rozhlas, Medická záhrada, Sky Park, Eurovea, Sad Janka Kráľa or Podhradie (`src/shared/world/spawns.ts`). Online, a returning player comes back where they left off, and an invited friend next to whoever invited them.
 - **Saving.** Progress is saved in `localStorage`.
 
 ## Map data pipeline

@@ -22,7 +22,7 @@ export class LocalSimHost implements SimHost {
   readonly live = emptyLive();
 
   constructor(world: World, events: SimEvents, profile: Profile, clock: Clock, private save: () => void) {
-    this.sim = new Sim(world, { events, clock, driveClock: false, rules: 'offline' });
+    this.sim = new Sim(world, { events, clock, driveClock: false, rules: 'offline', randomSpawn: true });
     this.me = this.sim.addPlayer({ nick: 'Ty', profile, kinematic: false });
     this.sim.onProfileChange = () => this.save();
   }

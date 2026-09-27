@@ -9,6 +9,7 @@ import { HitKind } from '../../src/shared/sim/Combat';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, flush, loadWorld, stateMsg } from './helpers';
 import type { Ped } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
+import { spawnAt } from '../../src/shared/world/spawns';
 import type { AuthVerifier } from '../src/auth-types';
 import { Store, hashToken } from '../src/db';
 import { TimedEvent, type WorldEventDef } from '../../src/shared/sim/rules/WorldEvents';
@@ -64,6 +65,19 @@ describe('Room', () => {
     expect(w.ped).toBeGreaterThan(0);
     expect(w.nick).toBe('Jožo');
     expect(a.link.last('profile').money).toBe(0);
+  });
+
+  it('starts each new player at a random one of the spawn places', () => {
+    const { join } = setup();
+    const places = new Set<string>();
+    for (const [token, nick] of [[TOKEN_A, 'Anna'], [TOKEN_B, 'Boris'], [TOKEN_C, 'Cyril']]) {
+      const p = join(token, nick);
+      const at = spawnAt(p.x!, p.y!);
+      expect(at, nick).not.toBe(null);
+      places.add(at!.name);
+    }
+    // (not everyone on the same one)
+    expect(places.size).toBeGreaterThan(1);
   });
 
   it('rejects a protocol version mismatch and bad hellos', () => {
@@ -828,9 +842,9 @@ describe('Revive (downed online)', () => {
 });
 
 describe('Race (online)', () => {
-  /** two connected players, close together, each already driving their own car */
+  /** two connected players, close together (both start on the square), each already driving their own car */
   function setupRacers(moneyA = 500, moneyB = 500) {
-    const { room, join, tick } = setup();
+    const { room, join, tick } = setup({ randomSpawn: false });
     const a = join(TOKEN_A, 'Anna');
     const b = join(TOKEN_B, 'Boris');
     room.onMessage(a.conn, stateMsg(a.x!, a.y!));
@@ -926,7 +940,8 @@ describe('Jobs (Vlk courier / Hopík taxi)', () => {
       .filter((e): e is Extract<PrivateEvent, { k: 'payout' }> => e.k === 'payout' && e.reason === reason);
 
   it('job{op:start} leads to job private events, and a finished courier job pays through sim.payout(reason: courier)', () => {
-    const { room, join, tick } = setup();
+    // from the square: the offer (and so the pickup it teleports to) depends on where the player starts
+    const { room, join, tick } = setup({ randomSpawn: false });
     const a = join(TOKEN_A, 'Anna');
     room.onMessage(a.conn, stateMsg(a.x!, a.y!));
     tick(2);

@@ -22,9 +22,11 @@ console.log(`integrations: supabase ${config.supabaseUrl && config.supabaseSecre
 // for tests/local dev without a project) means every account hello gets 'auth-unavailable'
 const auth = config.supabaseUrl && !config.authDisabled ? createSupabaseVerifier({ url: config.supabaseUrl, store }) : null;
 console.log(`auth: ${auth ? 'yes' : 'no'}`);
+// the e2e scripts' players start on the square together, where they can see each other; real
+// players start at a random spawn place
 const room = new Room({
   world, store, maxPlayers: config.maxPlayers, tickBudgetMs: config.tickBudgetMs, debug: config.e2e,
-  caps: scaleCaps(SERVER_CAPS, config.npcScale), auth: auth ?? undefined,
+  caps: scaleCaps(SERVER_CAPS, config.npcScale), auth: auth ?? undefined, randomSpawn: !config.e2e,
 });
 const originOk = originMatcher(config.allowedOrigins);
 

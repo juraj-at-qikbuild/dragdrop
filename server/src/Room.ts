@@ -129,6 +129,9 @@ export interface RoomOptions {
   /** the shared Supabase client (server/src/supa.ts); tests inject a disabled or fake-fetch one so
    *  createFeatures() never builds its own and never touches the network */
   supa?: Supa;
+  /** a new player (nowhere saved to put them) starts at a random spawn place (SimOptions.randomSpawn);
+   *  default on. Tests that need players side by side turn it off: then everyone starts on the square */
+  randomSpawn?: boolean;
 }
 
 export class Room {
@@ -181,7 +184,7 @@ export class Room {
     this.debug = !!opts.debug;
     this.auth = opts.auth ?? null;
     this.wall = opts.wallClock ?? (() => Date.now());
-    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server', downed: true });
+    this.sim = new Sim(opts.world, { rng: new Rng(opts.seed), events: this.events, caps: opts.caps ?? SERVER_CAPS, extrapolatePlayers: true, rules: 'server', downed: true, randomSpawn: opts.randomSpawn ?? true });
     // AI traffic doesn't need the 120 Hz a player's car gets on their client, and traffic nobody is
     // watching closely even less
     this.sim.physics.step_ = 1 / 60;
@@ -509,7 +512,7 @@ export class Room {
       resumed = last ? 'saved' : 'fresh';
       let x: number | undefined, y: number | undefined, lvl: Level = 0;
       // where to put them: where their client says it is (reconnect after a restart), else where they
-      // were when last saved, else the square
+      // were when last saved, else a random spawn place (randomSpawn)
       if (r && resumeOk) (x = r.x), (y = r.y), (lvl = asLevel(r.lvl));
       else if (last) (x = last.x), (y = last.y), (lvl = last.level);
       if (x !== undefined && y !== undefined) {

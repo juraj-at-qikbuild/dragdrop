@@ -19,6 +19,7 @@ import { Police } from './Police';
 import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
+import { SPAWNS, SPAWN_SPREAD } from '../world/spawns';
 import { Clock } from './Clock';
 import { IdPool } from './IdPool';
 import { nullEvents, type SimEvents } from './events';
@@ -48,6 +49,9 @@ export interface SimOptions {
   rules?: RulesMode;
   /** lethal damage downs a player (revivable) instead of killing them outright (online) */
   downed?: boolean;
+  /** a new player given no position starts at a random one of the city's spawn places (SPAWNS), not
+   *  at Hlavné námestie (a real game's hosts: tests keep everyone on the square) */
+  randomSpawn?: boolean;
 }
 
 const SPRAY_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#263238'];
@@ -109,6 +113,8 @@ export class Sim {
   payoutPolicy?: PayoutPolicy;
   /** lethal damage downs players instead of killing them (SimOptions.downed) */
   downed: boolean;
+  /** SimOptions.randomSpawn */
+  randomSpawn: boolean;
 
   constructor(world: World, opts: SimOptions = {}) {
     this.world = world;
@@ -124,6 +130,7 @@ export class Sim {
     this.combat = new CombatRules(this);
     for (const p of placePickups(world)) this.pickups.push({ ...p, id: this.ids.alloc(0) });
     this.downed = !!opts.downed;
+    this.randomSpawn = !!opts.randomSpawn;
     if (opts.rules) this.rules.push(...createRules(this, opts.rules));
   }
 
@@ -219,12 +226,20 @@ export class Sim {
   }
 
   // ------------------------------------------------------------------ players
-  /** Add a player. Their figure starts next to Hlavné námestie unless a position is given. */
+  /** Add a player. Their figure starts at a random spawn place (randomSpawn), else next to Hlavné
+   *  námestie, unless a position is given. */
   addPlayer(o: { id?: number; nick: string; look?: number; profile: Profile; kinematic: boolean; x?: number; y?: number }): SimPlayer {
     const id = o.id ?? this.nextPlayerId++;
     this.nextPlayerId = Math.max(this.nextPlayerId, id + 1);
     let x = o.x, y = o.y;
-    if (x === undefined || y === undefined) {
+    if ((x === undefined || y === undefined) && this.randomSpawn) {
+      const s = this.rng.pick(SPAWNS);
+      // a step aside when someone's already standing there
+      let taken = false;
+      for (const q of this.players.values()) if (dist(q.ped.x, q.ped.y, s.x, s.y) < 1.5) taken = true;
+      const a = this.rng.next() * Math.PI * 2, r = taken ? 2 + this.rng.next() * (SPAWN_SPREAD - 2) : 0;
+      ({ x, y } = this.world.clearSpot(s.x + Math.cos(a) * r, s.y + Math.sin(a) * r));
+    } else if (x === undefined || y === undefined) {
       const main = this.world.landmark('main');
       const s = this.world.walkableNear(main.x, main.y);
       // spread arrivals a little so players don't stand inside each other
