@@ -63,10 +63,30 @@ export interface LiveState {
   /** this player's leaderboard points (the server's `score`): today, this week, all time, today's
    *  rank (0: nothing today) of `n` players. Null offline, and on a server without a leaderboard. */
   score: { d: number; w: number; a: number; r: number; n: number } | null;
+  /** what the police know in the chase now on (the `police` event, docs/plans/gameplay.md): null
+   *  without one, and from a server that doesn't say */
+  police: PoliceView | null;
+  /** an arrest this player can buy off (Úplatok): the price, and until when (performance.now() ms) */
+  bribe: { price: number; until: number } | null;
+}
+
+/** the `police` private event, as kept: the description (car 0: on foot), whether the player matches
+ *  it, recognition (0..1) and whether a unit is looking them over, and lying low (2: in a hideout) */
+export interface PoliceView {
+  car: number;
+  kind: string;
+  color: string;
+  match: boolean;
+  spot: number;
+  watched: boolean;
+  low: 0 | 1 | 2;
 }
 
 export function emptyLive(): LiveState {
-  return { events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map(), score: null };
+  return {
+    events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null,
+    partyTags: new Map(), score: null, police: null, bribe: null,
+  };
 }
 
 /** seconds left in a world event's phase, now */
@@ -91,6 +111,15 @@ export function applyLive(live: LiveState, e: PrivateEvent) {
       break;
     case 'revive':
       live.revive = e.s;
+      break;
+    case 'police':
+      live.police = e.car < 0 ? null : { car: e.car, kind: e.kind, color: e.color, match: !!e.m, spot: e.spot, watched: !!e.w, low: e.low };
+      break;
+    case 'bribe':
+      live.bribe = e.price > 0 ? { price: e.price, until: performance.now() + e.t * 1000 } : null;
+      break;
+    case 'respawn':
+      live.bribe = null;
       break;
   }
 }
@@ -136,6 +165,8 @@ export interface SimHost {
   jobStop(): void;
   /** combo cash (offline only) */
   styleCash(n: number): void;
+  /** Úplatok: pay off the arrest on offer (LiveState.bribe) */
+  bribe(): void;
   /** host-specific reaction to a private event (before the generic effects) */
   onPrivate(e: PrivateEvent): void;
   /** the pause menu opened or closed (Game.setPaused): offline nothing to do (the menu freezes the

@@ -21,7 +21,9 @@ import type { BoardId, ScorePeriod } from '../sim/rules/points';
  *  either side can do without, so it stayed v7: `hello.presence` says a client sends `away` and
  *  understands `bye: 'idle'`, and `welcome.resumed` says the server takes `away`. The leaderboard
  *  (docs/plans/leaderboard.md) is optional the same way: a server that keeps one sends `score` right
- *  after every welcome, and a client only asks for a `board` once it has seen one. */
+ *  after every welcome, and a client only asks for a `board` once it has seen one. So is the police's
+ *  side of a chase (docs/plans/gameplay.md, Phase 1): the `police` and `bribe` private events are new
+ *  kinds older clients ignore, and a client only sends `bribe` in answer to a `bribe` offer. */
 export const PROTOCOL_VERSION = 7;
 
 /** server simulation / snapshot rate */
@@ -125,6 +127,8 @@ export type ClientMsg =
   | { t: 'job'; op: 'start' | 'stop'; kind?: JobKind }
   /** downed: skip the wait and go to hospital */
   | { t: 'giveUp' }
+  /** Úplatok: pay off the arrest the server offered (private event `bribe`) */
+  | { t: 'bribe' }
   /** voice chat opt-in/out (accounts only) */
   | { t: 'voice'; on: boolean }
   | { t: 'voiceSig'; to: number; data: VoiceSignal }

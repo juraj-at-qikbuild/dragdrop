@@ -108,6 +108,10 @@ export class LocalSimHost implements SimHost {
     this.sim.addMoney(this.me, n);
   }
 
+  bribe() {
+    this.sim.bribe(this.me);
+  }
+
   onPrivate(e: PrivateEvent) {
     applyLive(this.live, e);
   }

@@ -569,6 +569,11 @@ export class NetSimHost implements SimHost, NetView {
     /* combo cash is offline only */
   }
 
+  /** only ever in answer to the server's offer (LiveState.bribe), so never to a server without them */
+  bribe() {
+    if (this.live.bribe) this.conn.send({ t: 'bribe' });
+  }
+
   onPrivate(e: PrivateEvent) {
     const p = this.me.ped;
     applyLive(this.live, e);

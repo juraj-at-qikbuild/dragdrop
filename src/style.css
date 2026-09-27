@@ -246,7 +246,7 @@ button.primary:hover {
   display: block;
 }
 #touch.sticking .t-idle,
-#touch:is([data-ctx='off'], [data-ctx='map']) :is(.t-zone, .t-idle, .t-stick) {
+#touch:is([data-ctx='off'], [data-ctx='map'], [data-ctx='busted']) :is(.t-zone, .t-idle, .t-stick) {
   display: none;
 }
 /* classic driving: the stick only steers, so it reads as a left-right track */

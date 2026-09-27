@@ -152,11 +152,13 @@ export class ClientEvents implements SimEvents {
         break;
       case 'down':
         g.rumble(1, 1, 650);
-        // missions are offline only, where nobody is ever just downed
-        if (e.state !== 'downed') g.missions.onPlayerDown(e.state);
+        // missions are offline only, where nobody is ever just downed. An arrest fails one only at
+        // the station (the respawn below): until then it can still be bought off (Úplatok)
+        if (e.state === 'wasted') g.missions.onPlayerDown('wasted');
         g.audio.jingle(false);
         break;
       case 'respawn':
+        if (e.busted) g.missions.onPlayerDown('busted');
         g.message(e.busted ? 'Policajná stanica' : 'Nemocnica', `${e.poi}  −${formatMoney(e.fee)}`, 4, '#ffffff');
         g.cam.x = e.x;
         g.cam.y = e.y;

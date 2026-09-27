@@ -8,6 +8,7 @@ import { JobsHud } from './JobsHud';
 import { LeaderboardUi } from './LeaderboardUi';
 import { News } from './News';
 import { PartyUi } from './PartyUi';
+import { PoliceUi } from './PoliceUi';
 import { PresenceUi } from './PresenceUi';
 import { RaceUi } from './RaceUi';
 import { ReviveUi } from './ReviveUi';
@@ -28,5 +29,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new PresenceUi(g));
   out.push(new LeaderboardUi(g));
   out.push(new ActivitiesUi(g));
+  out.push(new PoliceUi(g));
   return out;
 }

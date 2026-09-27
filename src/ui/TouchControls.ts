@@ -13,7 +13,8 @@ import { drawWeaponIcon } from './Hud';
 import type { HudLayout } from './layout';
 import { TouchTips } from './TouchTips';
 
-type Ctx = 'off' | 'foot' | 'car-d' | 'car-c' | 'downed' | 'map';
+/** busted: an arrest that can still be bought off (Úplatok, src/game/features/PoliceUi.ts) */
+type Ctx = 'off' | 'foot' | 'car-d' | 'car-c' | 'downed' | 'busted' | 'map';
 
 /** How a control behaves: `press` a key once, `hold` a code while down (`key` also pressed once on
  *  the way down), `act` call a function, or one of the special ones handled below. */
@@ -96,6 +97,7 @@ export class TouchControls {
     this.add('horn', 'hold', '📣', { code: KEYS.horn, key: KEYS.horn, in: car, label: 'Klaksón', cls: 't-small' });
     this.add('talk', 'hold', '🎙', { code: KEYS.talk, in: play, label: 'Hovoriť', cls: 't-small' });
     this.add('giveup', 'press', 'Vzdať sa', { code: KEYS.giveUp, in: ['downed'], label: 'Vzdať sa', cls: 't-use' });
+    this.add('bribe', 'press', 'Podplatiť', { code: 'KeyF', in: ['busted'], label: 'Podplatiť policajta', cls: 't-use' });
     this.add('mapClose', 'press', '✕', { code: 'KeyM', in: ['map'], label: 'Zavrieť mapu', cls: 't-mapbtn' });
     this.add('zoomIn', 'act', '+', { act: () => g.mapView.zoomBy(1.4), in: ['map'], label: 'Priblížiť', cls: 't-mapbtn' });
     this.add('zoomOut', 'act', '−', { act: () => g.mapView.zoomBy(1 / 1.4), in: ['map'], label: 'Oddialiť', cls: 't-mapbtn' });
@@ -312,6 +314,10 @@ export class TouchControls {
     if (!g.running || g.paused || isModalOpen() || g.input.pad.active) return 'off';
     if (g.showMap) return 'map';
     if (g.state === 'downed') return 'downed';
+    if (g.state === 'busted') {
+      const offer = g.host.live.bribe;
+      return offer && performance.now() < offer.until && g.save.money >= offer.price ? 'busted' : 'off';
+    }
     if (g.state !== 'play') return 'off';
     if (g.player.vehicle) return g.driveControls === 'classic' ? 'car-c' : 'car-d';
     return 'foot';
@@ -450,6 +456,7 @@ export class TouchControls {
         this.pill('use', ax - 10 * ts, ay - 196 * ts);
       },
       downed: () => this.pill('giveup', ax - 10 * ts, ay - 40 * ts),
+      busted: () => this.pill('bribe', ax - 10 * ts, ay - 40 * ts),
     };
     // the map's buttons: close top-right, zoom and "where am I" down the right edge
     const mb = 46 * ts, mx = L.W - L.padR - mb - 4;
@@ -458,7 +465,7 @@ export class TouchControls {
     this.placeCluster();
   }
 
-  private spots: { foot: () => void; car: (classic: boolean) => void; downed: () => void } | null = null;
+  private spots: { foot: () => void; car: (classic: boolean) => void; downed: () => void; busted: () => void } | null = null;
 
   /** the cluster's spots for the current context (the same button sits elsewhere on foot and driving) */
   private placeCluster() {
@@ -467,6 +474,7 @@ export class TouchControls {
     const c = this.ctx;
     if (c === 'car-d' || c === 'car-c') s.car(c === 'car-c');
     else if (c === 'downed') s.downed();
+    else if (c === 'busted') s.busted();
     else s.foot();
   }
 

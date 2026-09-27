@@ -7,6 +7,7 @@ import { liveForecast } from '../game/features/activities/forecast';
 import { activitiesSeen } from '../game/features/activities/seen';
 import { chipLine } from '../game/features/activities/text';
 import { edgePoint, inPlay, type HudLayout, type Rect } from './layout';
+import type { PoliceUi } from '../game/features/PoliceUi';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -122,6 +123,10 @@ export class Hud {
       return spot ?? { x: right - w, y: colY };
     });
     if (!L.touch) colY += this.activitiesRect.h + gap;
+    // what the police know, while wanted (PoliceUi): under the stars' column, or in the touch stack
+    const police = g.features.find((f) => f.id === 'police') as PoliceUi | undefined;
+    const chip = police?.drawChip(ctx, small, (w, h) => g.stackSpot(h) ?? { x: right - w, y: colY });
+    if (chip && !L.touch) colY += chip.h + gap;
     const combo = (g as unknown as { combo?: ComboState }).combo;
     if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, right - topW + 8, L.touch ? top + topH + gap + netH + 8 : colY + (small ? 8 : 10), small);
 
@@ -697,7 +702,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 /** glassy dark panel: subtle vertical gradient, hairline border, faint inner top highlight. */
-function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 10) {
+export function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r = 10) {
   roundRect(ctx, x, y, w, h, r);
   const grad = ctx.createLinearGradient(x, y, x, y + h);
   grad.addColorStop(0, 'rgba(32,34,42,0.68)');
