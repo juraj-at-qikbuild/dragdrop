@@ -1,6 +1,6 @@
 # Blava City
 
-A top-down open-world crime game in the style of the classic 2D GTA games, set on the **real streets of Bratislava**. Every street, building, tram track, bridge and park comes from OpenStreetMap. The playable area covers the Old Town, the castle hill up to Slavín and the Slovak Radio, the Danube riverside and the northern edge of Petržalka (about 3.3 × 2.8 km).
+A top-down open-world mischief game in the style of the classic 2D GTA games, set on the **real streets of Bratislava**, where **nobody gets hurt**: the guns are water pistols, bubble guns and confetti, and people get soaked, sit down dazed, grumble and go home to change ([docs/plans/non-violent.md](docs/plans/non-violent.md)). Every street, building, tram track, bridge and park comes from OpenStreetMap. The playable area covers the Old Town, the castle hill up to Slavín and the Slovak Radio, the Danube riverside and the northern edge of Petržalka (about 3.3 × 2.8 km).
 
 Built with TypeScript, Vite and a custom Canvas2D engine. There is no backend; the output is a static site.
 
@@ -20,11 +20,11 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | Key | Action |
 | --- | --- |
 | WASD / arrows | walk / drive |
-| Mouse + left click | aim + shoot (drive-by when in a car) |
+| Mouse + left click | aim + squirt (from the car window when in a car) |
 | F / Enter / E | enter or exit a vehicle (carjacking included), get on a scooter or a bike, get on a tram at a stop or take the cab of a stopped one, get off; when arrested at 1–2★, pay the cop off (**Úplatok**) |
-| Space | handbrake (car) · shoot (on foot) |
+| Space | handbrake (car) · squirt (on foot) |
 | Shift | run (nitro in a car) |
-| Q, 1–4 | switch weapon |
+| Q, 1–4 | switch toy |
 | R | next radio station |
 | H | horn (a bell on a scooter, a bike or in a tram's cab) · the siren on and off in a police car or an ambulance · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
 | V | push-to-talk voice chat (online, signed-in accounts only) |
@@ -38,11 +38,11 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | Mouse wheel | zoom in / out |
 | Esc / P | pause |
 
-**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks (rings the bell, or switches a police car's or an ambulance's siren), B switches weapons, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (squirts on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and squirts from the car when pushed hard), X honks (rings the bell, or switches a police car's or an ambulance's siren), B switches toys, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
 
-A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get on a scooter or a tram, steal a tram, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
+A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get on a scooter or a tram, steal a tram, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, a car giving up nearby, every squirt, speed bumps and kerbs.
 
-The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops (the workshops), the gun shops, boutiques, the lawyer and the garages (yours ringed), and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
+The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops (the workshops), the toy shops, boutiques, the lawyer and the garages (yours ringed), and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
 
 On foot, WASD is screen-relative by default (W walks up the screen). Set **Chôdza: za kurzorom myši** in the pause menu or the menu's controls panel to walk relative to the mouse instead: W walks towards the cursor, S backs away from it, and A/D strafe around it.
 
@@ -53,8 +53,8 @@ In a car, steering in reverse works like a real car: steer right and the tail sw
 | Control | Action |
 | --- | --- |
 | Left thumb, anywhere on the left | a stick appears under it: walk or drive; pushed all the way, run |
-| 🎯 (held) | shoot at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line |
-| Weapon button | next weapon (it shows the one in hand and the ammo) |
+| 💦 (held) | squirt at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line |
+| Toy button | next toy (it shows the one in hand and the refills left) |
 | Yellow button | says what it does and does it: get in, pull a driver out, steal a police car, get out |
 | BRZDA · RUČNÁ · N₂O | brake (held at a standstill: reverse) · handbrake · nitro, with its charge |
 | 📣 · 📻 | horn (held next to another player's car: a race challenge) · next radio station |
@@ -87,33 +87,34 @@ The game is paused while the cards are open (online the player is away, and shie
   - piers and pontoons on the Danube are walkable, and the river itself can be swum (briefly) or crossed by boat;
   - mall corridors, garage ramps and rooftop paths are left out, so nobody walks or drives through Nivy, Aupark or Eurovea.
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
-- **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and (on players' cars) brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
+- **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and (on players' cars) brake lights, DPB-liveried trams with pantographs, plus water jets, soap bubbles, confetti, steam, feathers and foam.
 - **Traffic AI** on the real road graph, which respects one-way streets, drives on the right, keeps to the real speed limits and stops at the 220 real traffic lights (police in pursuit don't). Cars stop at the real stop signs and go when the junction is clear, give way at give-way signs and wherever a side street meets a bigger road, slow for speed bumps, spread across the marked lanes of multi-lane roads, and buses pull up at the real bus stops. They keep to lanes fitted between the kerbs and walls, pull out round a parked or broken-down car (or a bus at its stop) when the way is clear and wait behind it when it isn't, sort out a nose-to-nose standoff on a narrow street (one backs up and tucks in), turn round in cul-de-sacs instead of driving into them, and a car that gets wedged is towed away out of sight. Parked cars stand at the kerb (on one side only of a narrow street) and fill the mapped parking lots and bays. **Red-and-white trams** run on the actual tram tracks and stop at the real tram stops.
-- **People** walk the sidewalks and footpaths on lines clear of walls, fences and fountains, and make room for each other and for you instead of walking through. They sit on benches, in bus shelters and at café tables, wait at the tram stops and get on the tram (a few get off at each stop), jump out of the way of a car coming at them and step aside when you honk. Barge into someone and they tell you off (tourists in English); point a gun at them and they put their hands up while it stays on them, or run. One in seven able-bodied locals hits back when punched or carjacked. Shoot or steal a car where no police can see it and a witness gets away and phones them: stop them before they get through, or you're wanted.
+- **People** walk the sidewalks and footpaths on lines clear of walls, fences and fountains, and make room for each other and for you instead of walking through. They sit on benches, in bus shelters and at café tables, wait at the tram stops and get on the tram (a few get off at each stop), jump out of the way of a car coming at them and step aside when you honk. Barge into someone and they tell you off (tourists in English); point a toy at them and they put their hands up while it stays on them ("Len nie na vlasy!"), or run. One in seven able-bodied locals tickles back when tickled or carjacked. Squirt someone or steal a car where no police can see it and a witness gets away and phones them: stop them before they get through, or you're wanted.
+- **Nobody gets hurt** ([docs/plans/non-violent.md](docs/plans/non-violent.md)). The toys: *Šteklenie* (tickling), *Vodná pištoľ*, *Bublinkový samopal* (its last hit floats someone off in a giant bubble) and *Konfetová brokovnica*. Someone soaked through, tickled till they sit down, bounced off a car (BOING, a star, never a reward) or caught next to a car giving up sits dazed on the pavement with stars going round their head, gets up dry, says what they think of it and goes home to change; a cop goes off duty. Instead of road kills: drive through a puddle next to someone and soak them (**ŠPLECH!**; any road in the rain, else the potholes that never dry), high-five the fans holding a hand out as you pass (**PLÁCNI SI!**), make someone dive into a bush at the last second (**HOP DO KRÍKA!**), plough through a lokše or langoš stall (**MOJE LOKŠE!**), or just scatter the pigeons on the squares.
 - **Driving physics.** Cars grip on their tyres (slip angles, weight transfer, about 1 g of cornering at the limit in traffic, less for vans and buses), brake from 100 km/h in 32–44 m with ABS (a bus needs about 56 m), have stability control (the rear-engined Porše much less of it), reach their real top speeds against air drag and reverse at up to about 30 km/h. Cobbles, rain, grass and steps all cost grip. The handbrake still swings the tail round. A player's car grips about twice as hard, steers quicker and has yaw control: at 90 km/h full lock holds a 30 m circle instead of 60 m, and the car stops turning the moment the key is let go. The camera zooms out only gently with speed and looks ahead of the car.
-- **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and shoot at 3+ stars. They act on what they see ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 1):
+- **A wanted system (1–5 stars).** Police chase you through the real street network, get out and arrest you, and squirt at 3+ stars (service water pistols; at 5 stars the firefighters, and the helicopter tips a water bucket). They act on what they see ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 1):
   - police cars and cops look through cones that shrink at night and in the rain. The helicopter sees the circle under it by day and only its searchlight after dark, never under a roof, a passage or a bridge deck;
-  - a crime no cop sees (or, for gunfire, hears close by) may still be phoned in by a witness, who sends them to where it happened;
+  - a crime no cop sees (or, for squirting, hears close by) may still be phoned in by a witness, who sends them to where it happened;
   - they look for the car they last saw you in. Switch cars out of sight and a unit needs a good look to recognise you, though up close it's instant;
   - once they've lost you, they search the circle where you were last seen, and the stars flash and fade. They fade faster in a car they're not looking for, faster still lying low (still and out of sight, even inside the circle), fastest in a car park or under cover;
   - a chip under the stars says what they're looking for and whether they see you. "!" and "?" mark the units that see you or are looking you over, the minimap shows every unit's cone, and the police radio (*Vysielačka*) follows the chase;
-  - at 1–2 stars, an arrest can be bought off (**Úplatok**: F, €150 a star, once in 10 minutes, not after shooting at the police).
+  - at 1–2 stars, an arrest can be bought off (**Úplatok**: F, €150 a star, once in 10 minutes, not after soaking the police).
 
   On the run, stopping at a *Slovnafta* spray shop (real fuel station locations) still buys a respray for €250 and loses the heat.
 - **Money with a purpose** ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 2). Shops at real places, marked in the street and on the maps. Stop at the door (or pull up in a car) and the shop's panel opens:
-  - **Poľovnícke potreby** (by Michalská brána, Eurovea and Aupark): a pistol, an uzi or a shotgun with a box of ammo, and a bulletproof vest;
+  - **Hračkárstvo** (by Michalská brána, Eurovea and Aupark): a water pistol, a bubble gun or a confetti shotgun with a refill, and a raincoat (*Pršiplášť*);
   - **Butik** (Kamenné námestie, Eurovea, Aupark): a jacket in ten colours, and a cap, a hat, a helmet or a scarf. On foot, the police look for the clothes they last saw you in, so a change out of sight works like a change of car;
-  - **JUDr. Paragraf** (by the Primate's Palace): a lawyer for the next arrest, who gets your guns back and halves the fee;
+  - **JUDr. Paragraf** (by the Primate's Palace): a lawyer for the next arrest, who gets your toys back and halves the fee;
   - **Dielňa** (the fuel stations): paint of your choice with a full repair, two engine tiers, two tiers of plating, run-flat tyres, two bigger nitro tanks and neon underglow in seven colours. Tuning belongs to the car: leave it in the street and it's gone;
   - **Garáž** (by six of the places you start from): park the car you drive and take it out again at any of your garages, colour, tuning and dents and all. Two places to start with, up to six;
   - **Zbierka**: drive every kind of vehicle in the city, all 13 (the police car, the bus, the ambulance, a scooter, a bike, a boat and the police boat included) for €1,000, and 100 points online.
 
-  A death leaves its fee where you fell, less the first €100, as cash anyone can pick up for two minutes. The panels work with the mouse, the keyboard, a touch screen and a gamepad (the d-pad or stick moves, A chooses, B leaves). Online, the prices come from the server, which checks every purchase.
+  Getting soaked through leaves its fee where you went down, less the first €100, as cash anyone can pick up for two minutes. The panels work with the mouse, the keyboard, a touch screen and a gamepad (the d-pad or stick moves, A chooses, B leaves). Online, the prices come from the server, which checks every purchase.
 - **Behind the wheel, and new ways around** ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 3):
-  - **Style**, online too: near misses, drifts, road kills, takedowns and the new moves (*WRONG WAY* down a one-way street, *AIR* off a bump taken fast, *RED LIGHT* at speed, *THREAD THE NEEDLE* flat out through a building's passage, *TRAM DODGE*, a *CLEAN GETAWAY* in an undamaged car) chain into a combo, up to ×5, that pays when it ends and scores on the **Štýl** board;
+  - **Style**, online too: near misses, drifts, splashes, high fives, last-second dives, stalls, police cars sidelined and the new moves (*WRONG WAY* down a one-way street, *AIR* off a bump taken fast, *RED LIGHT* at speed, *THREAD THE NEEDLE* flat out through a building's passage, *TRAM DODGE*, a *CLEAN GETAWAY* in an undamaged car) chain into a combo, up to ×5, that pays when it ends and scores on the **Štýl** board;
   - **slipstream** close behind a bus, a van or a tram (a little more top speed, and the nitro fills much faster), and **damage you feel**: a dented side pulls the steering, and a smoking engine loses power;
-  - **sirens**: H in a police car or an ambulance, and traffic pulls over. An **ambulance** waits at every hospital and patches its driver up, 2 HP a second;
-  - **scooters and bikes** (*Bolťák* e-scooters at the bike-share docks, bikes at the stands): 25 and 30 km/h, through the bollard rows police cars can't pass. A hard knock throws the rider off, and shots reach them;
+  - **sirens**: H in a police car or an ambulance, and traffic pulls over. An **ambulance** waits at every hospital and dries its driver off, 2 HP a second;
+  - **scooters and bikes** (*Bolťák* e-scooters at the bike-share docks, bikes at the stands): 25 and 30 km/h, through the bollard rows police cars can't pass. A hard knock throws the rider off, and a squirt reaches them;
   - **trams**: ride one (on at a stop, off at the next: the police take twice as long to pick you out of the passengers), or steal one from its cab and drive it on its tracks (throttle, brake, A/D for the branch at a junction, H for the bell);
   - **the Danube**: swim (20 s at a third of walking pace; cops on foot stop at the bank), take a boat moored at a pier, and at 4★ a police boat comes after you on the water.
 - **Six missions tied to real places**, started from phone booths:
@@ -125,7 +126,7 @@ The game is paused while the cards are open (online the player is away, and shie
   - a finale in Sad Janka Kráľa.
 - **Collectibles.** There are 10 hidden **Čumil** statues and 52 landmarks to discover.
 - **Parody brands.** Rooftop ads and shop signs use spoofs (Kofolka, Strieborný Bažant, Dolinky, Billka, Starbáks, Slovnafta…). No real logos are used.
-- **Procedural audio.** Engine, siren, weapons and four radio stations (*Rádio Expreso*, *Fan Rádio*, *Rádio Dévin Folk*, *Rádio Kecy*) with Slovak DJ chatter.
+- **Procedural audio.** Engine, siren, the toys (squirts, bubble plops, party poppers, a boing, a sad trombone) and four radio stations (*Rádio Expreso*, *Fan Rádio*, *Rádio Dévin Folk*, *Rádio Kecy*) with Slovak DJ chatter.
 - **Ten places to start.** A new game, and a first visit online, begins at one of ten places round the city picked at random: Hlavné námestie, Hviezdoslavovo námestie, Námestie SNP, Hodžovo námestie, Slovenský rozhlas, Medická záhrada, Sky Park, Eurovea, Sad Janka Kráľa or Podhradie (`src/shared/world/spawns.ts`). Online, a returning player comes back where they left off, and an invited friend next to whoever invited them.
 - **Saving.** Progress is saved in `localStorage`.
 
@@ -169,14 +170,18 @@ src/
     world/TrafficLights.ts  stop lines and signal phases from the real traffic lights; stop and give-way
                        signs, bumps and bus stops on the car graph
     world/Street.ts    traffic islands, speed bumps, lift gates, street furniture
+    world/Puddles.ts   the potholes (výtlky) a car's wheel splashes people from
+    world/Stalls.ts    the market stalls a car can plough through (MOJE LOKŠE!)
     entities/          Vehicle (tyre-model physics with ABS and stability control), Ped, Tram,
                        Helicopter, props
     sim/               Sim: AI (traffic, pedestrians, trams, parking), Crowd (people among people:
                        seats, tram stops, reactions, fights, witnesses), police, Pursuit (the
                        police's side of a chase: who sees whom, the description, the search, lying
-                       low, bribes) and sight.ts (cones, darkness, the helicopter's view), combat
-                       rules, pickups, clock; phrases.ts (what people say); shops/ (the catalog,
-                       where the shops are, gear from a save) and rules/Shops.ts (what money buys)
+                       low, bribes) and sight.ts (cones, darkness, the helicopter's view), the toys
+                       and who gets soaked (Combat.ts), pickups, clock; phrases.ts (what people
+                       say); shops/ (the catalog, where the shops are, gear from a save) and
+                       rules/Shops.ts (what money buys); rules/Splash.ts (the splash, the high five,
+                       the dive: what replaced road kills)
     net/               wire protocol and binary codec
   game/Game.ts         game state, player, wanted level, drawing
   game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online
@@ -189,9 +194,11 @@ src/
   world/BuildingGeometry.ts  exposed wall pieces (party walls hidden, archways cut) and roof slopes
   world/Textures.ts    procedural surface textures (asphalt, cobbles, grass, roof tiles…)
   world/Atmosphere.ts  time of day, sun, ambient colour, rain
-  world/Lighting.ts    light map (lamps, headlights, explosions) multiplied over the world
+  world/Lighting.ts    light map (lamps, headlights, flashes) multiplied over the world
+  world/Pigeons.ts     the flocks on the squares (client only)
   world/Weather.ts     rain streaks, splashes, lightning
-  render/              vehicles, peds, trams, props, name tags, speech bubbles, WebGL PostFX
+  render/              vehicles, peds, trams, props, market stalls, name tags, speech bubbles, WebGL
+                       PostFX
   missions/Missions.ts mission definitions and runner
   ui/                  HUD (context prompts, pad legend), minimap and the interactive city map;
                        layout.ts (where the HUD goes, phones included), TouchControls.ts and
@@ -217,7 +224,7 @@ See [ATTRIBUTION.md](ATTRIBUTION.md).
 
 **Online** in the main menu joins one shared, persistent city: every player sees the same traffic,
 pedestrians, trams and police. Anything that happens to an NPC happens for everyone. Players can drive
-into each other, shoot each other (it's a crime: the police come after you), and each has their own wanted
+into each other, soak each other (it's a crime: the police come after you), and each has their own wanted
 level and pursuit. Online progress (money, Čumils, landmarks, and what money bought) is kept on the server,
 separately from the single-player save. Missions are single-player only.
 
@@ -226,14 +233,15 @@ On top of that shared world, there's a set of social features (protocol 7):
 - **World events**, announced on the map and by Rádio Kecy: **Horúca Kofolka** (a delivery van full of
   cash — whoever drives it earns from the pot until it's drained, wrecked or time runs out),
   **Najhľadanejší** (the first player to hit 5★ gets a bounty that grows every minute, paid to whoever
-  takes them down), **Hon na Čumila** (a golden Čumil hides somewhere in the city behind a shrinking,
-  jittered hint circle), **Obrnené auto** (an armoured cash van drives bank to bank — shoot out its
-  rear doors before it delivers) and **Derby na parkovisku** (a demolition derby in a parking lot,
-  alternating between Aupark and Eurovea).
+  soaks them through), **Hon na Čumila** (a golden Čumil hides somewhere in the city behind a shrinking,
+  jittered hint circle), **Obrnené auto** (an armoured cash van drives bank to bank — squirt its
+  rear doors' lock until it rusts, before it delivers) and **Derby na parkovisku** (an autodróm in a
+  parking lot, bump the others until their cars give up, alternating between Aupark and Eurovea).
 - **Partia**: invite a friend with a share-able link and they spawn right next to you. Members share
   event/job payouts, can't hurt or jack each other's cars, and show a `[TAG]` on nametags and the map.
-- **Revive**: downed rather than killed outright, another player standing close by can revive you for
-  a "Dobrý samaritán" bonus, or give up to go straight to hospital.
+- **Revive**: soaked through, you're down and freezing rather than out at once; another player standing
+  close by can blow-dry you back up for a "Dobrý samaritán" bonus, or give up to go and dry off at the
+  hospital.
 - **Kde to je?**: a daily close-up photo of somewhere in the city; the first player to stand on the
   spot wins $1,000.
 - **Závod?**: pull up next to another player and hold the horn to challenge them to a race to a
@@ -269,7 +277,7 @@ city never stops, so online the pause menu (Esc, P, ❚❚, Start, or just switc
 over a running city, and says so. Your figure stops and others see ⏸ over it; after 3 s, if you're not
 wanted and haven't fought another player in the last 15 s, nobody can hurt, arrest or carjack you (🛡).
 Racing, the derby, being the most wanted and driving the Kofolka van never get that cover.
-**Odísť z mesta** ends the session: it says what's kept, and your spot, health, weapons, money and the car
+**Odísť z mesta** ends the session: it says what's kept, and your spot, health, toys, money and the car
 you were driving are saved (a wanted or fighting player's figure stays behind 10 s first). Your party
 holds your seat for 15 minutes. Coming back is one click on **Pokračovať online** in the main menu, and a
 reload or a restored tab goes straight back in: same spot for 24 hours, your car parked beside you, and

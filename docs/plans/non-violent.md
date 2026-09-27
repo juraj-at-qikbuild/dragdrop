@@ -1,7 +1,7 @@
 # Plan: mischief instead of violence ("Šibalstvo namiesto násilia", Blava City)
 
-Status: planned (27 September 2026). Built as one change, in the order of the steps below; see
-[As built](#as-built) at the end for where the build differs.
+Status: built (27 September 2026), as one change in the order of the steps below. See
+[As built](#as-built) at the end for where the build differs from the plan.
 
 ## Context
 
@@ -56,7 +56,7 @@ nobody gets hurt any more, and it has to stay cheeky rather than turn sweet.
 2. **Nobody dies.**
    - A pedestrian at zero health is **down**: sitting dazed on the pavement with little birds circling.
      After a few seconds they get up, grumble and walk off or run away.
-   - The wire's `dead` slot means "down" now (no new state, no protocol bump).
+   - The wire's `dead` slot is `dazed` now (no new state, no protocol bump).
    - Blood becomes water and soap that dry out. Bodies, blood pools, scorch marks and screams are gone.
 3. **The player:**
    - "ZOŠROTOVANÝ" becomes **"PREMOČENÝ DO NITKY"**.
@@ -94,9 +94,9 @@ nobody gets hurt any more, and it has to stay cheeky rather than turn sweet.
    - **MOJE LOKŠE!** (stalls): a few Christmas-market and langoš stalls at named places. A car
      ploughing through one sends food flying and pays a combo move. The stall is rebuilt after a
      while.
-8. **Combo labels in Slovak** for everything new or renamed: ŠPLECH!, PREMOČENÝ!, POLICAJT V SPRCHE!,
-   ODSTAVENÝ!, ZĽAKOL SA!, BOING!, PLÁCNI SI!, MOJE LOKŠE!. The driving moves (NEAR MISS, DRIFT…)
-   stay as they are for now.
+8. **Combo labels in Slovak** for everything new or renamed, and without gender (a label pops up
+   over a man or a woman alike): ŠPLECH!, SPRCHA!, POLICAJT V SPRCHE!, ODSTAVENÉ!, HOP DO KRÍKA!,
+   BOING!, PLÁCNI SI!, MOJE LOKŠE!. The driving moves (NEAR MISS, DRIFT…) stay as they are for now.
 9. **One version for everyone.** The online world is shared, so there's no family-mode toggle. The
    violent version lives on in git history.
 10. **Wire.** Only optional additions, so it stays on protocol 7:
@@ -111,9 +111,10 @@ nobody gets hurt any more, and it has to stay cheeky rather than turn sweet.
 | Päste / Pištoľ / Samopal / Brokovnica | Šteklenie / Vodná pištoľ / Bublinkový samopal / Konfetová brokovnica |
 | Nepriestrelná vesta | Pršiplášť |
 | Poľovnícke potreby | Hračkárstvo |
-| KILL / cop KILL | PREMOČENÝ! / POLICAJT V SPRCHE! |
+| KILL / cop KILL | SPRCHA!, BUBLI-BUBLI!, KONFETY!, ŠTEKLI-ŠTEKLI! (by the toy) / POLICAJT V SPRCHE! and co. |
 | ROADKILL | ŠPLECH! (a close pass) / BOING! (contact, no combo) |
-| TAKEDOWN! | ODSTAVENÝ! |
+| TAKEDOWN! | ODSTAVENÉ! |
+| K.O. {nick} | {nick}: SPRCHA! |
 | ZOŠROTOVANÝ | PREMOČENÝ DO NITKY |
 | "Nestrieľajte!", "Mám deti!" | "Len nie na vlasy!", "Mám v tom mobil!" |
 | "Tu sa strieľa!" | "Tu sa strieka!" |
@@ -182,4 +183,63 @@ Each step leaves `npm test` and `npm run build` green.
 
 ## As built
 
-_(filled in when the change lands)_
+Built in seven commits on protocol 7, as planned, with only optional additions on the wire. These are
+the places where it differs from the plan above, or goes further.
+
+- **The state is `dazed`, not `down`** (`Ped.dazed`, `knockDown`, `dazedTime`, `pedDazed`), so it
+  can't be read as the player's `downed`. `Sim.knockDown` is the only way into it. Someone sits there
+  4–7 s (`dazeTime`, from their seed). A driver knocked down at the wheel stops the car, comes round
+  and gets out. Carjacking a dazed driver just puts them on the pavement.
+- **Leaving** (from the Plan agent's review). Someone who got up heads home to change (`Ped.leaving`).
+  - They're gone once no player's camera sees them, and they never count twice.
+  - Knocking them down again is a crime but pays nothing: one reward a person, their wallet included.
+  - A cop who got up is off duty: out of the chase, the sight cones and the armed cops. Soaking a cop
+    still takes them out of the chase, as killing one did.
+  - Someone leaving doesn't witness, fight back or put their hands up, and doesn't spread panic.
+- **The slide respects the world.** Thrown people slide against walls and stop at the water's edge;
+  the old corpse slide went through both.
+- **Traffic and trams wait** for someone sitting dazed in the road. A car only nudges them aside, and
+  never bounces them twice.
+- **Labels by toy, without gender**: SPRCHA!, BUBLI-BUBLI!, KONFETY!, ŠTEKLI-ŠTEKLI! and the cop
+  versions (`Style.SOAK_LABEL`). The dive is HOP DO KRÍKA!, not ZĽAKOL SA!.
+- **BOING.** A car or a tram that hits someone costs a star (the crimes keep their ids) and shows a
+  "BOING!" that banks nothing. It also voids a splash, high five or dive still being confirmed
+  (`Style.voidPending`).
+- **Getting-up lines** are one say category (7), grouped by what knocked them down (`pickUpLine`).
+  That stays inside the old line encoding. A splash reuses the wet group.
+- **The potholes** (`world.puddles`): 463 on the map, 180 of them never dry. The splash counts any
+  paved road once `Clock.wet` ≥ 0.35. Cars throw spray off their wheels in the same places.
+- **The splash, the high five and the dive** are one rule, `rules/Splash.ts`.
+  - The splash: at least 8 m/s, within 2.8 m of the car's side, once per person every 30 s. A cop is
+    the new crime `splashCop` (+1★).
+  - The high five: 4–16 m/s, within 1 m, once per fan every 40 s.
+  - The dive: €5, at most every 2 s.
+  - A fan (`Ped.fan`, by seed and archetype) beside a player's car's line doesn't dive. Clients raise
+    the fan's hand themselves (`besideCar`).
+- **The stalls** (`world.stalls`): five, at Hviezdoslavovo, Kamenné, Eurovea, Námestie SNP and
+  Hodžovo námestie. The market hall's square had no free spot. A stall is back 120 s after being
+  knocked over. Knocking one over is the `destroy` crime (+0.6★), as making a car give up is.
+- **The pigeons**: a flock at ten squares, gone after dark. Besides cars and runners, a squirt, a
+  PUF, a splash, a horn and a stall going over also send them off.
+- **The firefighters** carry the `Vehicle.swat` flag (from the snapshot's existing swat bit on a
+  mirror): a red van with a ladder and HASIČI. The helicopter's water bucket hangs under it, and its
+  shots are water whatever it fires.
+- **The car that gives up**: `shadeHex`, because `shade`'s `rgb()` can't be shaded again (the roof went
+  black). The PUF's jolt is softer and its slow-motion shorter.
+- **Rádio Kecy** jokes about the potholes, the pigeons and the puddles. The page's description says
+  it's a mischief game where nobody gets hurt.
+- **Not done, for later**:
+  - the hat blown off in the draught;
+  - refilling the water pistol at fountains and hydrants;
+  - a city-wide Easter water fight;
+  - the driving moves' labels in Slovak;
+  - Phase 4 of [gameplay.md](gameplay.md), rewritten as toys (a squeaky hammer, a soap bomb, an egg,
+    a foam cannon that grounds the helicopter, an umbrella).
+- **Verification.**
+  - `npm test`: 63 files, 732 tests. New: `test/shared/dazed.test.ts`, `splash.test.ts` (with the
+    potholes), `stalls.test.ts` and `test/client/pigeons.test.ts`.
+  - `npm run build` and the server's `tsc --noEmit` pass.
+  - `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass, the e2e including a civilian
+    soaked by one player sitting dazed for the other.
+  - Screenshots checked by hand: the toys, the dazed poses and the bubble float, a car that gave up,
+    the firefighters, the potholes, a fan's hand, a stall knocked over and the pigeons.

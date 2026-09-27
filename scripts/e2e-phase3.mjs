@@ -1,4 +1,4 @@
-// Phase 3 checks: server-validated PvP (shooting another player hurts them and makes you wanted) and
+// Phase 3 checks: server-validated PvP (squirting another player soaks them and makes you wanted) and
 // persistence (money survives a server restart).
 
 export async function run({ A, B, check, log, sleep }) {
@@ -50,9 +50,9 @@ export async function run({ A, B, check, log, sleep }) {
   await sleep(800);
   const hpAfter = await B.evaluate(() => window.game.player.health);
   const aWanted = await A.evaluate(() => window.game.wanted);
-  log(`B health ${hpBefore} -> ${hpAfter}, A wanted ${aWanted}`);
-  check(hpAfter < hpBefore, 'shooting another player hurts them (server-side)');
-  check(aWanted >= 1, `PvP makes the shooter wanted (${aWanted})`);
+  log(`B dry ${hpBefore} -> ${hpAfter}, A wanted ${aWanted}`);
+  check(hpAfter < hpBefore, 'squirting another player soaks them (server-side)');
+  check(aWanted >= 1, `PvP makes the squirter wanted (${aWanted})`);
 
   // money to check after the restart
   await A.evaluate(() => window.game.host.conn.send({ t: 'debug', money: 7777 }));

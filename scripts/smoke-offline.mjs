@@ -350,7 +350,7 @@ try {
   await page.evaluate(() => window.game.host.jobStop());
   check(!(await page.evaluate(() => window.game.host.live.job)), 'jobStop ends the shift');
 
-  // the shops (docs/plans/gameplay.md, Phase 2): walking into Poľovnícke potreby opens its panel, a
+  // the shops (docs/plans/gameplay.md, Phase 2): walking into the Hračkárstvo (the toy shop) opens its panel, a
   // click buys, Escape closes it (and it stays closed until the next visit)
   await page.evaluate(() => {
     const g = window.game;
@@ -365,12 +365,12 @@ try {
     g.player.levelInit = false;
   });
   const shopOpen = await page.waitForSelector('.kit-shop-card', { timeout: 3000 }).then(() => true, () => false);
-  check(shopOpen && (await page.textContent('.kit-shop-card h2'))?.includes('Poľovnícke potreby'), 'walking into a gun shop opens its panel');
+  check(shopOpen && (await page.textContent('.kit-shop-card h2'))?.includes('Hračkárstvo'), 'walking into the toy shop opens its panel');
   if (shopOpen) {
     await page.click('.kit-shop-row button[data-k="pistol"]');
     await sleep(300);
     const bought = await page.evaluate(() => ({ ammo: window.game.ammo.pistol, money: window.game.save.money, status: document.querySelector('.kit-shop-status')?.textContent }));
-    check(bought.ammo >= 36 && bought.money === 4750 && /Pištoľ \+36/.test(bought.status ?? ''), `bought a pistol with a click (${JSON.stringify(bought)})`);
+    check(bought.ammo >= 36 && bought.money === 4750 && /Vodná pištoľ \+36/.test(bought.status ?? ''), `bought a water pistol with a click (${JSON.stringify(bought)})`);
     await page.keyboard.press('Escape');
     await sleep(400);
     check(!(await page.$('.kit-shop-card')) && !(await page.evaluate(() => window.game.paused)), 'Escape closes the shop, not into the pause menu, and it stays closed');

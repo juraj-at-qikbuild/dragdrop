@@ -147,21 +147,26 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - **The Danube.** Swim for 20 s (it used to drown a player in 1.5 s), take a boat moored at a pier, and
   at 4★ the police boat comes after a player on the water. A car in the river lets its driver out.
 - **Getting into a car at a shop's door** no longer opens the shop's panel.
+- **Nobody gets hurt** ([plans/non-violent.md](plans/non-violent.md)). The weapons are toys (tickling,
+  a water pistol, a bubble gun, a confetti shotgun) and the gun shop a toy shop. Nobody dies: someone
+  soaked through, tickled, bounced off a car or caught by a car giving up sits dazed and gets up again,
+  and no blood, bodies or fire are left behind. A car at 0 HP gives up in a PUF of foam; the police
+  squirt back, with firefighters at 5★ and a helicopter with a water bucket. Road kills are gone:
+  splash people from a puddle or a pothole, high-five the fans, make someone dive for a bush, plough
+  through a market stall, scatter the pigeons.
 
 ## Still open
 
 ### Gameplay
 The next round of gameplay work is planned in five phases in
 [plans/gameplay.md](plans/gameplay.md): the police (1, done), money (2, done), driving and new ways
-around (3, done), fighting alone and together (4) and a city that remembers (5). Several items below are
+around (3, done), water fights alone and together (4) and a city that remembers (5). Several items below are
 part of it, as noted.
 
-- **More crimes for witnesses**: hitting people with a car, wrecking cars, fights in public.
+- **More crimes for witnesses**: bouncing people off a car (a BOING), wrecking cars, water fights in
+  public.
 - **Pedestrian lights**: people cross on red. Stand-alone crossings already have a walk phase to
   obey; junctions would need one.
-- **Knocked down, not always killed** (gameplay plan, Phase 4): any car touching someone at over
-  16 km/h kills them (below that it just pushes them aside). In between, a knock-down (they fall,
-  get up and shout) would fit the new reactions.
 - **Missions using the new places**: deliveries to real restaurants, a taxi fare from a real address,
   Slavín and the Radio as destinations.
 - **Tram line numbers**: the tracks know which lines run on them (`Edge.lines`); trams could pick a
