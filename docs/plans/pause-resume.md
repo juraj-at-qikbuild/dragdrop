@@ -1,5 +1,7 @@
 # Plan: pausing, leaving and coming back online (Blava City)
 
+Status: planned, not implemented. The decisions below were confirmed on 27 September 2026.
+
 ## Context
 
 Online players come back often, step away for a minute (the door, a message, another tab) and
@@ -64,7 +66,7 @@ The end state, once all three phases are in:
 | **Tab closed, connection lost, page discarded** | Nothing to do: the game reconnects on its own, or on the next visit | The figure stays 2 min, marked ⏸ (and 🛡 if safe), then leaves as above. |
 | **Coming back** | After a reload or a restored tab, straight back in. On a new visit, one click on "Pokračovať online · Obchodná · pred 12 min" | Same spot within 24 h, same party within 15 min, and the car parked alongside. "Vitaj späť!" replaces the first-time welcome. |
 
-## Decisions (recommended defaults, to confirm)
+## Decisions
 
 1. **Leaving while wanted or in a fight takes 10 s.**
    - After `leave`, the server keeps the figure in the city for 10 s, still vulnerable.
@@ -73,7 +75,7 @@ The end state, once all three phases are in:
    - *Today:* leaving is instant and escapes all of it.
 2. **`#online` stays in the URL while playing.** A reload or a restored tab goes straight back
    online, and a new visit lands on the menu with "Pokračovať online".
-   - *Alternative:* rejoin automatically on any visit soon after a drop. That's guesswork and can
+   - *Rejected:* rejoining automatically on any visit soon after a drop. That's guesswork and can
      surprise.
 3. **A player's spot is kept for 24 h** (was 2 h), **and their stars for 30 min.** After half an
    hour, the police have given up.
@@ -85,8 +87,8 @@ The end state, once all three phases are in:
    - isn't racing, in the derby, the most-wanted target or holding the Kofolka van (those rules
      veto it).
 
-   *Alternatives:* never protect, which keeps pausing cosmetic and punishes stepping away; or
-   always protect, which is a free exit from any fight.
+   *Rejected:* never protecting, which keeps pausing cosmetic and punishes stepping away; and
+   always protecting, which is a free exit from any fight.
 5. **A dropped player's figure stays 2 min** (was 30 s). That's enough for a phone switching apps or
    a tram through a tunnel, and it's protected if safe.
 6. **15 min away moves a player out of the city** (paused, hidden or AFK), saved. This frees slots
