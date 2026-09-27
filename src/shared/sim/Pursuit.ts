@@ -22,11 +22,13 @@ import type { Sim } from './Sim';
 import type { PlayerState, SimPlayer } from './SimPlayer';
 
 /** what the police are looking for: the car they last saw the player in (its id, 0: on foot), and its
- *  kind and colour then (for the HUD and the police radio) */
+ *  kind and colour then (for the HUD and the police radio). On foot, `color` is the jacket's and `hat`
+ *  what they had on their head (docs/plans/gameplay.md, Phase 2: new clothes are a new description). */
 export interface Desc {
   car: number;
   kind: VehicleKind | null;
   color: string;
+  hat?: number;
 }
 
 /** below this speed (m/s) a player is standing still */
@@ -91,13 +93,15 @@ export class Pursuit {
   /** the description the police would give of `p` right now: the car they're in, or on foot */
   current(p: SimPlayer): Desc {
     const v = p.ped.vehicle;
-    return v ? { car: v.id, kind: v.kind, color: v.color } : { car: 0, kind: null, color: '' };
+    return v ? { car: v.id, kind: v.kind, color: v.color } : { car: 0, kind: null, color: p.ped.shirt, hat: p.ped.hat };
   }
 
-  /** does `p` look like what the police are looking for? */
+  /** does `p` look like what the police are looking for? On foot: the same jacket and hat (a
+   *  description from before anyone noted the clothes matches anyone on foot) */
   matches(p: SimPlayer): boolean {
-    const v = p.ped.vehicle;
-    return v ? v.id === p.desc.car && v.color === p.desc.color : p.desc.car === 0;
+    const v = p.ped.vehicle, d = p.desc;
+    if (v) return v.id === d.car && v.color === d.color;
+    return d.car === 0 && (!d.color || (d.color === p.ped.shirt && (d.hat ?? 0) === p.ped.hat));
   }
 
   /** The police know where `p` is and what they're in: a crime, a sighting, a mission or event
@@ -260,10 +264,10 @@ export class Pursuit {
     }
     const m = this.matches(p) ? 1 : 0, w = watched ? 1 : 0;
     const spot = Math.round(clamp(p.spot, 0, 1) * 10) / 10;
-    const key = `${p.desc.car}|${p.desc.color}|${m}|${spot}|${w}|${p.low}`;
+    const key = `${p.desc.car}|${p.desc.color}|${p.desc.hat ?? 0}|${m}|${spot}|${w}|${p.low}`;
     if (key === p.policeKey) return;
     p.policeKey = key;
-    this.sim.events.toPlayer(p.id, { k: 'police', car: p.desc.car, kind: p.desc.kind ?? '', color: p.desc.color, m, spot, w, low: p.low });
+    this.sim.events.toPlayer(p.id, { k: 'police', car: p.desc.car, kind: p.desc.kind ?? '', color: p.desc.color, hat: p.desc.hat, m, spot, w, low: p.low });
   }
 
   // ---------------------------------------------------------------- Úplatok

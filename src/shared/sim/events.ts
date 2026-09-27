@@ -5,6 +5,7 @@ import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
 import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
 import type { ScoreSource } from './rules/points';
+import type { Gear, Mods } from './shops/catalog';
 
 /** News everyone in the city hears about, wherever they are: world events, the most wanted, race
  *  results, the daily puzzle. The radio (Rádio Kecy) and the HUD turn them into lines; `x, y` is
@@ -57,8 +58,9 @@ export type PrivateEvent =
   /** downed: lying on the ground, waiting for a revive (online), see Revive */
   | { k: 'down'; state: 'wasted' | 'busted' | 'downed' }
   | { k: 'respawn'; x: number; y: number; busted: boolean; poi: string; fee: number; epoch: number }
-  /** answer to an enter-vehicle request */
-  | { k: 'enter'; vehicle: number; ok: boolean }
+  /** answer to an enter-vehicle request; `mods`: the car's tuning, when it has any (online the
+   *  driver's client simulates the car, and a snapshot carries only its neon) */
+  | { k: 'enter'; vehicle: number; ok: boolean; mods?: Mods }
   /** thrown out of your car (carjacked) */
   | { k: 'eject'; vehicle: number; x: number; y: number }
   /** the server damaged the car you drive (explosion, gunfire): apply it to your simulation */
@@ -91,10 +93,20 @@ export type PrivateEvent =
    *  looking for, its kind and colour; 0 = on foot, -1 = the chase is over), whether the player
    *  matches it (m), how far a unit looking them over has got to recognising them (spot, 0..1) and
    *  whether one is looking now (w), and lying low (0, 1, 2 in a hideout). */
-  | { k: 'police'; car: number; kind: string; color: string; m: 0 | 1; spot: number; w: 0 | 1; low: 0 | 1 | 2 }
+  | { k: 'police'; car: number; kind: string; color: string; hat?: number; m: 0 | 1; spot: number; w: 0 | 1; low: 0 | 1 | 2 }
   /** Úplatok: an arrest the player can buy off for `price` within `t` s (answer with `bribe`);
    *  price 0: the offer is gone (paid) */
-  | { k: 'bribe'; price: number; t: number };
+  | { k: 'bribe'; price: number; t: number }
+  // ---- what money buys (docs/plans/gameplay.md, Phase 2; rules/Shops.ts). Optional both ways, like
+  // the above: a server from before never sends them
+  /** the player's gear changed (clothes, garages and their cars, the collection, a lawyer) */
+  | { k: 'gear'; g: Gear }
+  /** how a shop request went (the open shop panel shows it) */
+  | { k: 'shop'; ok: boolean; text: string }
+  /** the workshop tuned the car you drive: apply it to your simulation */
+  | { k: 'mods'; vehicle: number; mods: Mods }
+  /** you parked the car you drove in a garage: it's gone, you stand at (x, y) */
+  | { k: 'stored'; vehicle: number; x: number; y: number };
 
 export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 

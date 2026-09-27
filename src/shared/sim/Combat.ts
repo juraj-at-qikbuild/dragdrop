@@ -163,11 +163,9 @@ export class CombatRules {
         const carDmg = w.dmg * 0.35 * car.armor;
         sim.damageVehicle(car, carDmg, pid);
         for (const r of sim.rules) r.onVehicleHit?.(car, carDmg, pid, pl.hx, pl.hy);
-        // a pellet near a wheel bursts the tyres, for any car (Horúca Kofolka's box-in-and-ram dynamic)
-        if (hitsWheel(car, pl.hx, pl.hy)) {
-          car.tyresBurst = 1;
-          if (car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
-        }
+        // a pellet near a wheel bursts the tyres, for any car (Horúca Kofolka's box-in-and-ram dynamic),
+        // but for run-flats (the Dielňa's tuning)
+        if (hitsWheel(car, pl.hx, pl.hy) && car.burstTyres() && car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
         if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid);
         if (car.isPlayer && car.owner !== pid) {

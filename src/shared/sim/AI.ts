@@ -225,7 +225,8 @@ export class AI {
     // despawn what no player is near any more
     const gone = new Set<Ped>();
     sim.vehicles = sim.vehicles.filter((v) => {
-      if (v.isPlayer || v.mission || v.kinematic) return true;
+      // (a car held for a player, back from a break or out of their garage, waits for them)
+      if (v.isPlayer || v.mission || v.kinematic || (v.reservedFor && sim.time < v.reservedUntil)) return true;
       if (this.retire.has(v)) {
         this.retire.delete(v);
         if (v.driver && !v.driver.playerId) gone.add(v.driver);

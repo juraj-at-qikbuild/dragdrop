@@ -7,6 +7,7 @@ import { Revive } from './Revive';
 import { Race } from './Race';
 import { Presence } from './Presence';
 import { Jobs } from './jobs/Jobs';
+import { Shops } from './Shops';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
@@ -23,9 +24,11 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   director.register(DERBY_DEF);
   director.register(ARMORED_DEF);
   const rules: SimRule[] = [director];
-  // both modes: courier and taxi jobs; the armoured van's spilled cash (it outlives the event)
+  // both modes: courier and taxi jobs; the armoured van's spilled cash (it outlives the event); what
+  // money buys (docs/plans/gameplay.md, Phase 2)
   rules.push(new Jobs(sim));
   rules.push(new VanLoot(sim));
+  rules.push(new Shops(sim));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), races need two players, and offline the pause menu freezes the world (Presence)
   if (mode === 'server') {

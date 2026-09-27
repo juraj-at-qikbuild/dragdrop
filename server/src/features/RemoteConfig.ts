@@ -1,5 +1,5 @@
 // game_config from Supabase: remote tunables and kill switches for voice chat and the world-event
-// director, loaded at boot and refreshed every minute (docs/plans/social-events.md). Falls back to
+// director (and the shops' prices), loaded at boot and refreshed every minute (docs/plans/social-events.md). Falls back to
 // hardcoded defaults when Supabase is unset, unreachable, or a value is missing or the wrong shape —
 // a bad or absent row skips just that one field, never the whole reload.
 import type { Room } from '../Room';
@@ -24,9 +24,12 @@ export interface Config {
   events: EventsTuning;
   /** pausing, leaving and coming back: the shield, the grace period, the idle timeout… */
   presence: PresenceTuning;
+  /** the shops' prices, by item (docs/plans/gameplay.md, Phase 2): the Shops feature takes any item
+   *  with a sane price and keeps the default for the rest */
+  shops: Record<string, unknown>;
 }
 
-const DEFAULTS: Config = { voice_enabled: true, voice_requires_account: true, voice_blocklist: [], events: {}, presence: {} };
+const DEFAULTS: Config = { voice_enabled: true, voice_requires_account: true, voice_blocklist: [], events: {}, presence: {}, shops: {} };
 const REFRESH_MS = 60_000;
 
 type Row = { key: string; value: unknown };
@@ -95,6 +98,9 @@ export class RemoteConfig implements RoomFeature {
             break;
           case 'presence':
             if (v && typeof v === 'object' && !Array.isArray(v)) next.presence = v as PresenceTuning;
+            break;
+          case 'shops':
+            if (v && typeof v === 'object' && !Array.isArray(v)) next.shops = v as Record<string, unknown>;
             break;
         }
       }

@@ -5,6 +5,7 @@
 import type { Level, Surface, World } from '../world/World';
 import { clamp } from '../util/math';
 import type { Ped } from './Ped';
+import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog';
 
 export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic';
 
@@ -148,6 +149,13 @@ export class Vehicle {
   /** nitro charge 0..1 */
   nitro = 1;
   boosting = false;
+  /** tuning (docs/plans/gameplay.md, Phase 2: the Dielňa): set with `tune`, which works out what it
+   *  does to the engine */
+  mods: Mods = { ...NO_MODS };
+  /** the engine's pull and top speed with the tuning (see `tune`) */
+  private accelK = 1;
+  private topK = 1;
+  private vCapT: number;
   /** seconds left of the body's bounce after a jolt (a speed bump, a kerb), for drawing */
   bounce = 0;
   /** how hard that jolt was, 0..1 */
@@ -169,6 +177,7 @@ export class Vehicle {
     this.angle = angle;
     this.color = color;
     this.health = this.spec.health;
+    this.vCapT = this.spec.vCap;
     const r = this.spec.width / 2;
     const n = Math.max(2, Math.ceil(this.spec.length / this.spec.width));
     this.circles = [];
@@ -189,6 +198,24 @@ export class Vehicle {
   /** driven by a player (local or remote) */
   get isPlayer() {
     return this.owner !== 0;
+  }
+
+  /** Fit tuning (a copy is kept): the engine's pull and top speed, and the speed its pull fades out at
+   *  so that it still meets the drag right at the new top speed (as SPECS works vCap out). */
+  tune(m: Mods) {
+    this.mods = { ...m };
+    const e = ENGINE[Math.max(0, Math.min(ENGINE.length - 1, m.engine))];
+    this.accelK = e.accel;
+    this.topK = e.top;
+    const top = this.spec.maxSpeed * e.top, accel = this.spec.accel * e.accel;
+    this.vCapT = top / (1 - drag(top) / accel);
+  }
+
+  /** Burst the tyres (a spike strip, a shot at a wheel): not run-flats. Returns whether they burst. */
+  burstTyres(): boolean {
+    if (this.mods.tyres > 0 || this.tyresBurst) return false;
+    this.tyresBurst = 1;
+    return true;
   }
 
   circleAt(i: number): [number, number] {
@@ -227,9 +254,9 @@ export class Vehicle {
     const wheels = airborne ? 0.08 : 1;
     const tyreMul = this.tyresBurst ? 0.45 : 1;
 
-    // nitro
+    // nitro (a bigger tank lasts longer)
     if (c.boost && this.nitro > 0) {
-      this.nitro = Math.max(0, this.nitro - 0.35 * dt);
+      this.nitro = Math.max(0, this.nitro - (0.35 / TANK[this.mods.nitro]) * dt);
       this.boosting = true;
     } else {
       this.boosting = false;
@@ -239,8 +266,8 @@ export class Vehicle {
     const boostTop = this.boosting ? 1.25 : 1;
     const dmgTop = 1 - 0.2 * this.dmg.front;
     const dmgSteer = 1 - 0.35 * this.dmg.front;
-    const vCap = s.vCap * boostTop * dmgTop;
-    const maxSpeed = s.maxSpeed * boostTop * dmgTop;
+    const vCap = this.vCapT * boostTop * dmgTop;
+    const maxSpeed = s.maxSpeed * this.topK * boostTop * dmgTop;
     /** reverse gear tops out around 30 km/h */
     const revMax = Math.min(8.5, s.maxSpeed * 0.25);
 
@@ -257,7 +284,7 @@ export class Vehicle {
     const abs = 1 - 0.3 * Math.min(1, Math.abs(this.steer));
     let ax = 0, braking = 0;
     if (tIn > 0 && vF < -0.5) (ax = s.brake * muLong * tIn * abs), (braking = tIn * abs); // reversing: brake first
-    else if (tIn > 0) ax = s.accel * tIn * boostAccel * Math.sqrt(muLong) * Math.max(0, 1 - Math.max(0, vF) / vCap);
+    else if (tIn > 0) ax = s.accel * this.accelK * tIn * boostAccel * Math.sqrt(muLong) * Math.max(0, 1 - Math.max(0, vF) / vCap);
     else if (tIn < 0 && vF > 0.5) (ax = s.brake * muLong * tIn * abs), (braking = -tIn * abs);
     else if (tIn < 0) ax = vF > -revMax ? s.accel * 0.5 * muLong * tIn : 0;
     else ax = -Math.sign(vF) * Math.min(Math.abs(vF) / dt, ENGINE_BRAKE);
@@ -434,7 +461,7 @@ export class Vehicle {
 
   damage(amount: number) {
     if (this.wrecked) return;
-    this.health -= amount;
+    this.health -= amount * PLATING[this.mods.plating];
     if (this.health <= 0 && this.fire < 0) this.fire = 3.5;
   }
 

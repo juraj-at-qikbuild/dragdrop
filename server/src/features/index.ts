@@ -15,6 +15,7 @@ import { Jobs } from './Jobs';
 import { Presence } from './Presence';
 import { Leaderboard } from './Leaderboard';
 import { Police } from './Police';
+import { Shops } from './Shops';
 
 export type { RoomFeature };
 export { Activity, Daily, Leaderboard, RemoteConfig, Supa, Voice };
@@ -40,6 +41,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Presence(room));
   out.push(new Leaderboard(room));
   out.push(new Police(room));
+  out.push(new Shops(room, remoteConfig));
   // each feature adds its line here …
   return out;
 }

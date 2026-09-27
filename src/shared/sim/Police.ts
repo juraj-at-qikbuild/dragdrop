@@ -247,8 +247,8 @@ export class Police {
       sim.forVehiclesNear(p.x, p.y, p.len + 2, (v) => {
         // players' own cars are checked by their clients (spikeCheck), which simulate them
         if (!p.active || v.wrecked || v.kinematic || v.level !== p.level || v.tyresBurst) return;
-        if (!spikeHit(p, v)) return;
-        v.tyresBurst = 1;
+        // run-flat tyres (the Dielňa's tuning) roll straight over it
+        if (!spikeHit(p, v) || !v.burstTyres()) return;
         p.hits++;
         if (p.hits >= 3) p.active = false;
         if (v.owner) sim.events.toPlayer(v.owner, { k: 'msg', title: '', text: 'Klince prepichli pneumatiky!', time: 2.5, color: '#ff8a80' });

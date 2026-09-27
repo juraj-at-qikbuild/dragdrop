@@ -3,8 +3,8 @@ import {
   Ent, Reader, Writer, decodeSnapshot, decodeState, encodeSnapshotHeader, encodeState, entityHead, pedDynamic, pedStatic,
   tramDynamic, vehicleDynamic, vehicleStatic, type StateReport,
 } from '../../src/shared/net/codec';
-import { Vehicle } from '../../src/shared/entities/Vehicle';
-import { Ped } from '../../src/shared/entities/Ped';
+import { LIVERY_ARMORED, Vehicle } from '../../src/shared/entities/Vehicle';
+import { Ped, setPlayerHat } from '../../src/shared/entities/Ped';
 import { Tram } from '../../src/shared/entities/Tram';
 
 describe('codec', () => {
@@ -111,6 +111,41 @@ describe('codec', () => {
     w.u16(0);
     const s = decodeSnapshot(new Reader(w.finish()));
     expect(s.ents.map((e) => e.level)).toEqual([-1, 0, 1, 2]);
+  });
+
+  it("carries a car's neon and a player's hat in spare bits of their static records, beside what was there", () => {
+    const w = new Writer(16);
+    encodeSnapshotHeader(w, 1, 0, 0, { health: 100, armor: 0, wanted: 0, state: 'play', stateTimer: 0, searching: false, shotCops: false, money: 0, ammo: [0, 0, 0], epoch: 0, zone: null });
+    const at = w.n;
+    w.u16(3);
+    const v = new Vehicle('van', 1, 2, 0, '#b71c1c');
+    v.id = 40;
+    v.mission = true;
+    v.livery = LIVERY_ARMORED;
+    v.mods.glow = 7;
+    entityHead(w, v.id, Ent.Vehicle, true, 0);
+    vehicleStatic(w, v, true);
+    vehicleDynamic(w, v);
+    const p = new Ped('player', 3, 4, 5);
+    p.id = 41;
+    p.playerId = 2;
+    setPlayerHat(p, 3);
+    entityHead(w, p.id, Ent.Ped, true, 0);
+    pedStatic(w, p);
+    pedDynamic(w, p, 0);
+    const cop = new Ped('cop', 5, 6, 9);
+    cop.id = 42;
+    cop.outfit = 'swat';
+    entityHead(w, cop.id, Ent.Ped, true, 0);
+    pedStatic(w, cop);
+    pedDynamic(w, cop, 0);
+    w.patchU16(at, 3);
+    w.u16(0);
+    const [ev, ep, ec] = decodeSnapshot(new Reader(w.finish())).ents;
+    if (ev.type !== Ent.Vehicle || ep.type !== Ent.Ped || ec.type !== Ent.Ped) throw new Error('entity types');
+    expect(ev.v).toMatchObject({ glow: 7, mission: true, swat: true, livery: LIVERY_ARMORED });
+    expect(ep.v).toMatchObject({ hat: 3, swat: false });
+    expect(ec.v).toMatchObject({ hat: 0, swat: true });
   });
 
   it('rejects truncated messages', () => {

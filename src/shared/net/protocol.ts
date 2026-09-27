@@ -5,11 +5,13 @@
 //  - Hot path in binary (see codec.ts): the client's STATE at 20 Hz, the server's SNAPSHOT every tick.
 //  - Everything else is JSON text frames: handshake, requests (enter/exit/fire…), events, roster, clock.
 import type { WeaponId } from '../entities/Ped';
+import type { VehicleKind } from '../entities/Vehicle';
 import type { GlobalEvent, PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
 import type { DailyState, EventEntry, EventKind, EventSchedule, JobKind } from '../sim/rules/types';
 import type { BoardId, ScorePeriod } from '../sim/rules/points';
+import type { Gear, Prices } from '../sim/shops/catalog';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
  *  v4: levels include -1 (in a tunnel).
@@ -23,7 +25,10 @@ import type { BoardId, ScorePeriod } from '../sim/rules/points';
  *  (docs/plans/leaderboard.md) is optional the same way: a server that keeps one sends `score` right
  *  after every welcome, and a client only asks for a `board` once it has seen one. So is the police's
  *  side of a chase (docs/plans/gameplay.md, Phase 1): the `police` and `bribe` private events are new
- *  kinds older clients ignore, and a client only sends `bribe` in answer to a `bribe` offer. */
+ *  kinds older clients ignore, and a client only sends `bribe` in answer to a `bribe` offer. And so
+ *  are the shops (Phase 2): a server that has them sends a `catalog` after every welcome, a client only
+ *  sends `shop` once it has seen one, and the rest (gear, a car's tuning, a hat) rides in fields and
+ *  spare snapshot bits an older client never reads. */
 export const PROTOCOL_VERSION = 7;
 
 /** server simulation / snapshot rate */
@@ -129,6 +134,9 @@ export type ClientMsg =
   | { t: 'giveUp' }
   /** Úplatok: pay off the arrest the server offered (private event `bribe`) */
   | { t: 'bribe' }
+  /** the shop the player is in (docs/plans/gameplay.md, Phase 2; rules/Shops.ts): buy `item`, park the
+   *  car in the garage, or take the car in garage place `slot` out. Only to a server that sent a `catalog`. */
+  | { t: 'shop'; op: 'buy' | 'store' | 'take'; item?: string; slot?: number }
   /** voice chat opt-in/out (accounts only) */
   | { t: 'voice'; on: boolean }
   | { t: 'voiceSig'; to: number; data: VoiceSignal }
@@ -154,6 +162,8 @@ export type ClientMsg =
       presence?: Record<string, number | boolean>;
       /** score this many leaderboard points for this source (server/src/features/Leaderboard.ts) */
       score?: [number, string];
+      /** park a car of this kind beside the player (the garage's e2e, scripts/e2e-shops.mjs) */
+      car?: VehicleKind;
     };
 
 // ------------------------------------------------------------ server → client (JSON)
@@ -275,7 +285,11 @@ export type ServerMsg =
   | { t: 'ev'; st: number; e: WorldEvent[]; p: PrivateEvent[]; g?: GlobalEvent[] }
   | { t: 'roster'; ps: RosterRow[]; pt?: PartyTag[] }
   | { t: 'clock'; c: ClockSync }
-  | { t: 'profile'; money: number; found: string[]; cumils: number[]; stats?: Record<string, number> }
+  /** gear: what money bought (docs/plans/gameplay.md, Phase 2), from a server with shops */
+  | { t: 'profile'; money: number; found: string[]; cumils: number[]; stats?: Record<string, number>; gear?: Gear }
+  /** the shops' price list (a server with shops sends it after every welcome, and again whenever
+   *  game_config changes a price) */
+  | { t: 'catalog'; prices: Prices }
   | { t: 'pong'; ct: number; st: number }
   /** the server rejected an impossible move: go back to this position */
   | { t: 'correct'; x: number; y: number }

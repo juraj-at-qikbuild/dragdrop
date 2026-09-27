@@ -17,7 +17,9 @@ export type ScoreSource =
   // the city: Kde to je?, landmarks, the ten hidden Čumil statues
   | 'daily' | 'landmark' | 'statue'
   // Dobrý samaritán
-  | 'samaritan';
+  | 'samaritan'
+  // the garage's collection: every kind of vehicle driven (docs/plans/gameplay.md, Phase 2)
+  | 'collection';
 
 /** the boards: every point counts on 'all' and on its source's own board */
 export const BOARDS = ['all', 'events', 'police', 'jobs', 'races', 'city', 'help'] as const;
@@ -31,7 +33,7 @@ export const SOURCE_BOARD: Record<ScoreSource, Exclude<BoardId, 'all'>> = {
   wanted: 'police', escape: 'police', getaway: 'police', takedown: 'police',
   courier: 'jobs', taxi: 'jobs', tip: 'jobs',
   race: 'races',
-  daily: 'city', landmark: 'city', statue: 'city',
+  daily: 'city', landmark: 'city', statue: 'city', collection: 'city',
   samaritan: 'help',
 };
 
@@ -74,6 +76,8 @@ export const POINTS = {
   statue: 40,
   /** reviving another player, when the Dobrý samaritán bonus pays */
   samaritan: 25,
+  /** the collection complete: every kind of vehicle driven (once) */
+  collection: 100,
 };
 
 /** a getaway only counts after a chase this long (seconds from the first star) */

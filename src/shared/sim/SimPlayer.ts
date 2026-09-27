@@ -6,6 +6,7 @@ import type { Helicopter } from '../entities/Helicopter';
 import type { Prop } from '../entities/Props';
 import type { Level } from '../world/World';
 import type { Desc } from './Pursuit';
+import type { Gear } from './shops/catalog';
 
 /** downed: lying wounded, revivable by another player until they bleed out (online; see Revive) */
 export type PlayerState = 'play' | 'wasted' | 'busted' | 'downed';
@@ -23,6 +24,9 @@ export interface Profile {
   clock?: number;
   /** counters for the social features (golden Čumils, deliveries, fares, races and daily puzzles won…) */
   stats?: Record<string, number>;
+  /** what money bought (docs/plans/gameplay.md, Phase 2): clothes, garages and their cars, the
+   *  collection, a lawyer */
+  gear?: Gear;
 }
 
 /** A player's view of the world: focus (their ped/car) and camera rectangle, in metres. */
@@ -86,6 +90,8 @@ export class SimPlayer {
    *  last one bought off */
   bribeOffer = 0;
   bribeAt = -1e9;
+  /** where they last died: a death's fee drops there (docs/plans/gameplay.md, Phase 2) */
+  diedAt: { x: number; y: number } | null = null;
   shotCops = false;
   crimeCooldown = new Map<string, number>();
   ammo: Record<WeaponId, number> = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };

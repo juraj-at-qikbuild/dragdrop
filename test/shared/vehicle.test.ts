@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../../src/shared/world/World';
 import { Vehicle, SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
+import { NO_MODS, type Mods } from '../../src/shared/sim/shops/catalog';
 import type { MapJSON } from '../../src/shared/types';
 
 const track = (() => {
@@ -138,5 +139,73 @@ describe('Vehicle', () => {
       expect(run(k, 100, 3, (t) => [t < 0.2 ? 1 : 0, t > 0.2 && t < 1.2 ? 1 : 0], true).slip, k).toBeLessThan(20);
       expect(run(k, 80, 3, (t) => [-1, t < 1.5 ? 1 : 0], true).slip, k).toBeLessThan(45);
     }
+  });
+});
+
+describe('Tuning (the Dielňa, docs/plans/gameplay.md Phase 2)', () => {
+  const tuned = (kind: VehicleKind, m: Partial<Mods>) => {
+    const v = new Vehicle(kind, -4900, 0, 0, '#fff');
+    v.tune({ ...NO_MODS, ...m });
+    return v;
+  };
+  /** seconds from standing to 72 km/h at full throttle */
+  const to72 = (v: Vehicle) => {
+    let t = 0;
+    while (v.speed < 20 && t < 30) {
+      v.setControls(1, 0, false);
+      v.update(dt, track);
+      t += dt;
+    }
+    return t;
+  };
+
+  it('the engine: quicker off the line, and a top speed 6 % and 12 % higher, no more', () => {
+    for (const k of kinds) {
+      const [t0, t1, t2] = [0, 1, 2].map((e) => to72(tuned(k, { engine: e })));
+      expect(t1).toBeLessThan(t0 * 0.92);
+      expect(t2).toBeLessThan(t1 * 0.94);
+      for (const [engine, top] of [[1, 1.06], [2, 1.12]] as const) {
+        const v = tuned(k, { engine });
+        for (let t = 0; t < 70; t += dt) {
+          v.setControls(1, 0, false);
+          v.update(dt, track);
+        }
+        expect(v.speed, `${k} engine ${engine}`).toBeGreaterThan(SPECS[k].maxSpeed * top * 0.97);
+        expect(v.speed, `${k} engine ${engine}`).toBeLessThan(SPECS[k].maxSpeed * top * 1.01);
+      }
+    }
+  });
+
+  it('plating: the same hit takes 25 % and 45 % less', () => {
+    const hp = [0, 1, 2].map((plating) => {
+      const v = tuned('sedan', { plating });
+      v.damage(40);
+      return v.spec.health - v.health;
+    });
+    expect(hp).toEqual([40, 30, 22]);
+  });
+
+  it('run-flat tyres don\'t burst', () => {
+    expect(tuned('hatch', {}).burstTyres()).toBe(true);
+    const v = tuned('hatch', { tyres: 1 });
+    expect(v.burstTyres()).toBe(false);
+    expect(v.tyresBurst).toBe(0);
+  });
+
+  it('a bigger nitro tank lasts half as long again, and twice as long', () => {
+    const lasts = (nitro: number) => {
+      const v = tuned('sport', { nitro });
+      v.nitro = 1;
+      let t = 0;
+      while (v.nitro > 0 && t < 30) {
+        v.setControls(1, 0, false, true);
+        v.update(dt, track);
+        t += dt;
+      }
+      return t;
+    };
+    const [a, b, c] = [0, 1, 2].map(lasts);
+    expect(b / a).toBeCloseTo(1.5, 1);
+    expect(c / a).toBeCloseTo(2, 1);
   });
 });

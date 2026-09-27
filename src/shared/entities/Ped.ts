@@ -6,6 +6,7 @@ import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
 import { Rng } from '../util/Rng';
 import { shade } from '../util/color';
+import { HATS } from '../sim/shops/catalog';
 
 export type PedKind = 'player' | 'civ' | 'cop';
 /** 'sit' on a bench or a café chair, 'phone' calling the police about a player, 'fight' squaring up
@@ -103,8 +104,9 @@ export class Ped {
   shotAt = 0;
   /** the player this figure belongs to (0 = NPC) */
   playerId = 0;
-  /** player figures: index into PLAYER_SHIRTS */
+  /** player figures: index into PLAYER_SHIRTS, and the hat (an index into HATS, 0 = none) */
   look = 0;
+  hat = 0;
   /** posed from outside the local simulation (a mirror, or a player on the server): never moved by AI */
   kinematic = false;
   /** cops: the player they are after (0 = whoever is nearest and wanted); a civilian in a fight:
@@ -277,4 +279,11 @@ export function applyAppearance(p: Ped) {
 export function setPlayerLook(p: Ped, look: number) {
   p.look = look;
   p.shirt = PLAYER_SHIRTS[look % PLAYER_SHIRTS.length];
+}
+
+/** a player figure's headwear (the Butik, docs/plans/gameplay.md Phase 2): an index into HATS */
+export function setPlayerHat(p: Ped, hat: number) {
+  const h = Math.max(0, Math.min(HATS.length - 1, Math.round(hat) || 0));
+  p.hat = h;
+  p.hairStyle = HATS[h];
 }

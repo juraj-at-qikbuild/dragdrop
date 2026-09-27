@@ -17,6 +17,7 @@ import { AI } from './AI';
 import { Crowd } from './Crowd';
 import { Police } from './Police';
 import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
+import { DROP_KEEP, DROP_LIFE, tuned } from './shops/catalog';
 import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
@@ -97,6 +98,8 @@ export class Sim {
   /** Leaderboard points (score()): the server's Leaderboard feature counts them and returns how many
    *  it took (its hourly caps can say 0). Unset offline, where nothing scores. */
   onScore?: (p: SimPlayer, points: number, source: ScoreSource) => number;
+  /** money spent in a shop (rules/Shops.ts): the server logs it next to what's earned */
+  onSpend?: (p: SimPlayer, amount: number, item: string) => void;
   private pedHash = new SpatialHash<Ped>(16);
   /** vehicles for AI neighbourhood queries (coarser cells than the physics broad phase) */
   private vehHash = new SpatialHash<Vehicle>(25);
@@ -568,7 +571,7 @@ export class Sim {
     v.reservedFor = 0;
     ped.vehicle = v;
     p.lastCar = v;
-    this.events.toPlayer(p.id, { k: 'enter', vehicle: v.id, ok: true });
+    this.events.toPlayer(p.id, tuned(v.mods) ? { k: 'enter', vehicle: v.id, ok: true, mods: { ...v.mods } } : { k: 'enter', vehicle: v.id, ok: true });
     for (const r of this.rules) r.onEnter?.(p, v);
     return true;
   }
@@ -783,6 +786,8 @@ export class Sim {
    *  who's responsible, if anyone (for the state-change hook: parties, the most-wanted chase…). */
   wasted(p: SimPlayer, by?: SimPlayer) {
     if (p.state !== 'play' && p.state !== 'downed') return;
+    const f = p.focus();
+    p.diedAt = { x: f.x, y: f.y };
     this.setState(p, 'wasted', by);
     p.stateTimer = 4;
     p.ped.health = 0;
@@ -871,8 +876,19 @@ export class Sim {
     ped.state = 'walk';
     ped.downed = false;
     ped.levelInit = false;
-    const fee = Math.round(p.profile.money * 0.1);
+    // a lawyer on retainer (docs/plans/gameplay.md, Phase 2) halves an arrest's fee and keeps the guns
+    const gear = p.profile.gear;
+    const lawyer = busted && !!gear?.lawyer;
+    const fee = Math.round(p.profile.money * 0.1 * (lawyer ? 0.5 : 1));
     this.addMoney(p, -fee);
+    // a death's fee isn't gone: it lies where they died (all but the first €100), for anyone to take
+    const died = !busted && p.diedAt;
+    if (died && fee > DROP_KEEP) {
+      const at = this.world.walkableNear(died.x, died.y);
+      this.dropCash(at.x, at.y, fee - DROP_KEEP, 'death', DROP_LIFE);
+      this.events.toPlayer(p.id, { k: 'msg', title: '', text: `Kde si padol, zostalo ležať €${fee - DROP_KEEP}. Máš ${DROP_LIFE / 60} minúty.`, time: 4, color: '#ffd740' });
+    }
+    p.diedAt = null;
     p.wanted = 0;
     p.shotCops = false;
     p.drown = 0;
@@ -881,9 +897,14 @@ export class Sim {
     p.spot = 0;
     p.low = 0;
     p.still = 0;
-    if (busted) {
+    if (busted && !lawyer) {
       p.ammo = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
       ped.weapon = 'fist';
+    }
+    if (lawyer) {
+      gear!.lawyer = false;
+      this.events.toPlayer(p.id, { k: 'gear', g: gear! });
+      this.events.toPlayer(p.id, { k: 'msg', title: 'Advokát', text: 'JUDr. Paragraf ťa vytiahol: zbrane ti nechali, pokuta je polovičná.', time: 4, color: '#b2ff59' });
     }
     // call off the police that were after this player
     this.police.clear(p);
@@ -968,9 +989,10 @@ export class Sim {
     this.events.toPlayer(p.id, { k: 'teleport', x: pos.x, y: pos.y, lvl, epoch: p.epoch });
   }
 
-  /** `tag`: where it came from, for rules that care (e.g. 'van' for the armoured van's spilled cash) */
-  dropCash(x: number, y: number, amount: number, tag?: string) {
-    this.pickups.push({ id: this.ids.alloc(this.time), x, y, kind: 'cash', amount, respawn: 0, hidden: 0, cumil: -1, tag });
+  /** `tag`: where it came from, for rules that care (e.g. 'van' for the armoured van's spilled cash).
+   *  `life`: gone after this long (s), else it lies there until someone takes it. */
+  dropCash(x: number, y: number, amount: number, tag?: string, life?: number) {
+    this.pickups.push({ id: this.ids.alloc(this.time), x, y, kind: 'cash', amount, respawn: 0, hidden: 0, cumil: -1, tag, until: life ? this.time + life : undefined });
   }
 
   // ------------------------------------------------------------------ pickups
@@ -982,6 +1004,11 @@ export class Sim {
         continue;
       }
       if (pk.hidden < 0) continue;
+      if (pk.until !== undefined && this.time >= pk.until) {
+        pk.hidden = -1;
+        removed = true;
+        continue;
+      }
       for (const p of this.players.values()) {
         if (p.state !== 'play') continue;
         if (pk.cumil >= 0 && p.profile.cumils.includes(pk.cumil)) continue;
@@ -1058,10 +1085,11 @@ export class Sim {
     p.chasePeak = 0;
   }
 
-  /** Slovnafta spray shop: repaint + repair + lose the cops */
+  /** Slovnafta spray shop, for a player on the run: repaint + repair + lose the cops, as they stop. Not
+   *  wanted, the workshop there is a shop (rules/Shops.ts: paint of their choice, tuning). */
   private sprayShop(p: SimPlayer) {
     const v = p.ped.vehicle;
-    if (!v || v.speed >= 3 || p.sprayCooldown > 0) return;
+    if (!v || p.wanted <= 0 || v.speed >= 3 || p.sprayCooldown > 0) return;
     for (const fuel of this.world.pois('fuel')) {
       if (dist(fuel.x, fuel.y, v.x, v.y) > 12) continue;
       p.sprayCooldown = 6;
@@ -1075,6 +1103,8 @@ export class Sim {
       if (!v.kinematic) {
         v.health = v.spec.health;
         v.fire = -1;
+        v.dmg.front = v.dmg.rear = v.dmg.left = v.dmg.right = 0;
+        v.tyresBurst = 0;
       }
       v.color = color;
       v.rev++;

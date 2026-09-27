@@ -23,6 +23,8 @@ export interface Pickup {
   cumil: number;
   /** where it came from, for rules that care (e.g. 'van' for the armoured van's spilled cash); not sent */
   tag?: string;
+  /** a one-off that doesn't lie there for ever (a death's dropped cash): gone at this sim.time */
+  until?: number;
 }
 
 /** reward for each Čumil statue */

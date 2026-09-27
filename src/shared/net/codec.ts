@@ -322,7 +322,8 @@ export function vehicleStatic(w: Writer, v: Vehicle, swat: boolean) {
   w.u8((c >> 16) & 255);
   w.u8((c >> 8) & 255);
   w.u8(c & 255);
-  w.u8((v.mission ? 1 : 0) | (swat ? 2 : 0) | ((v.livery & 3) << 2));
+  // bits 4-6: the neon underglow (docs/plans/gameplay.md, Phase 2), which clients from before ignore
+  w.u8((v.mission ? 1 : 0) | (swat ? 2 : 0) | ((v.livery & 3) << 2) | ((v.mods.glow & 7) << 4));
   w.u16(v.owner);
 }
 
@@ -348,7 +349,9 @@ export function vehicleDynamic(w: Writer, v: Vehicle) {
 export function pedStatic(w: Writer, p: Ped) {
   w.u8(PED_KINDS.indexOf(p.kind));
   w.u32(p.seed);
-  w.u8(p.outfit === 'swat' ? 1 : 0);
+  // bits 1-3: a player's hat (docs/plans/gameplay.md, Phase 2); clients from before read the byte as
+  // "SWAT" only when it's exactly 1, which a hat never makes it
+  w.u8((p.outfit === 'swat' ? 1 : 0) | ((p.hat & 7) << 1));
   w.u8(p.look);
   w.u16(p.playerId);
 }
@@ -416,6 +419,8 @@ export interface VehicleRec {
   mission?: boolean;
   swat?: boolean;
   livery?: Livery;
+  /** neon underglow (an index into NEONS, 0 = none) */
+  glow?: number;
   owner?: number;
   x: number;
   y: number;
@@ -443,6 +448,8 @@ export interface PedRec {
   kind?: 'civ' | 'cop' | 'player';
   seed?: number;
   swat?: boolean;
+  /** a player's hat (an index into HATS) */
+  hat?: number;
   look?: number;
   playerId?: number;
   x: number;
@@ -537,6 +544,7 @@ function decodeEntity(r: Reader): EntityRec {
         v.mission = !!(b & 1);
         v.swat = !!(b & 2);
         v.livery = ((b >> 2) & 3) as Livery;
+        v.glow = (b >> 4) & 7;
         v.owner = r.u16();
       }
       v.x = r.pos();
@@ -567,7 +575,9 @@ function decodeEntity(r: Reader): EntityRec {
       if (full) {
         v.kind = PED_KINDS[r.u8()] ?? 'civ';
         v.seed = r.u32();
-        v.swat = r.u8() === 1;
+        const ob = r.u8();
+        v.swat = (ob & 1) === 1;
+        v.hat = (ob >> 1) & 7;
         v.look = r.u8();
         v.playerId = r.u16();
       }

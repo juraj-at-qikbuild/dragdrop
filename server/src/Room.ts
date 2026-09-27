@@ -16,6 +16,7 @@ import { LIVERY_NONE, SPECS, Vehicle } from '../../src/shared/entities/Vehicle';
 import { inTrouble, type Presence } from '../../src/shared/sim/rules/Presence';
 import { Rng } from '../../src/shared/util/Rng';
 import { dist } from '../../src/shared/util/math';
+import { tuned } from '../../src/shared/sim/shops/catalog';
 import { NetEvents } from './NetEvents';
 import { ClientView, SnapshotBuilder } from './snapshot';
 import { History } from './history';
@@ -64,7 +65,7 @@ function comesAlong(v: Vehicle): boolean {
 function savedCarOf(p: SimPlayer): SavedCar | null {
   const v = p.ped.vehicle;
   if (!v || !comesAlong(v)) return null;
-  return { kind: v.kind, color: v.color, hp: Math.max(1, Math.min(v.health, SPECS[v.kind].health)), dmg: [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right], a: v.angle };
+  return { kind: v.kind, color: v.color, hp: Math.max(1, Math.min(v.health, SPECS[v.kind].health)), dmg: [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right], a: v.angle, ...(tuned(v.mods) ? { mods: { ...v.mods } } : {}) };
 }
 
 export interface Conn {
@@ -199,6 +200,12 @@ export class Room {
     this.sim.onPayout = (p, amount, reason) => {
       const s = this.sessionOf(p);
       if (s) this.activity?.log(reason, s, amount);
+    };
+    // and every purchase beside them (features/Shops.ts): as `shop` with amount 0 and the sum in meta,
+    // since leaderboard_week() adds up amounts as money earned
+    this.sim.onSpend = (p, amount, item) => {
+      const s = this.sessionOf(p);
+      if (s) this.activity?.log('shop', s, 0, { spent: Math.round(amount), item });
     };
     const c = this.store?.loadClock();
     if (c) {
@@ -554,7 +561,7 @@ export class Room {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
       car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
     });
-    this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats });
+    this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats, gear: p.profile.gear ?? {} });
     for (const f of this.features) f.onHello?.(s, isNew, msg);
     this.send(c, this.wevMsg());
   }
@@ -787,6 +794,13 @@ export class Room {
     if (typeof m.hp === 'number') p.ped.health = m.hp;
     if (m.event) this.director?.start(m.event);
     if (m.teleport) this.sim.teleport(p, m.teleport[0], m.teleport[1], 0);
+    if (typeof m.car === 'string' && m.car in SPECS && !p.ped.vehicle) {
+      const at = this.sim.world.clearSpot(p.ped.x + 3.5, p.ped.y, 3.2);
+      const v = this.sim.addVehicle(new Vehicle(m.car, at.x, at.y, 0, SPECS[m.car].colors[0]));
+      v.level = p.ped.level;
+      v.levelInit = true;
+      v.parked = true;
+    }
     for (const f of this.features) f.onDebug?.(s, m);
   }
 
@@ -832,6 +846,7 @@ export class Room {
       if (!this.carFits(v)) continue;
       v.health = saved.hp;
       [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right] = saved.dmg;
+      if (saved.mods) v.tune(saved.mods);
       v.parked = true;
       this.sim.addVehicle(v);
       this.reserve(v, p);

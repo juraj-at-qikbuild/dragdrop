@@ -1,5 +1,5 @@
 // SQLite persistence on the Fly volume: online profiles (money, landmarks, Čumils, nickname, social
-// stats), each player's last session (position, health, weapons, wanted level: so a deploy doesn't
+// stats, gear), each player's last session (position, health, weapons, wanted level: so a deploy doesn't
 // lose them), world state (clock/weather, and any other cached key/value such as a JWKS), party invite
 // links and account nicknames (docs/plans/social-events.md), and the leaderboard's point totals
 // (docs/plans/leaderboard.md).
@@ -16,6 +16,8 @@ import type { WeaponId } from '../../src/shared/entities/Ped';
 import { RESUME_MS, type ClockSync } from '../../src/shared/net/protocol';
 import type { Level } from '../../src/shared/world/World';
 import { SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
+import { cleanMods, tuned, type Mods } from '../../src/shared/sim/shops/catalog';
+import { cleanGear } from '../../src/shared/sim/shops/gear';
 
 /** the car a player was driving when last saved: it leaves the city with them and waits for them
  *  when they're back (docs/plans/pause-resume.md) */
@@ -27,6 +29,8 @@ export interface SavedCar {
   dmg: [number, number, number, number];
   /** heading, radians */
   a: number;
+  /** its tuning (docs/plans/gameplay.md, Phase 2), when it has any */
+  mods?: Mods;
 }
 
 export interface SessionRow {
@@ -92,6 +96,9 @@ export const MIGRATIONS = [
    ) WITHOUT ROWID;
    CREATE INDEX scores_top ON scores(period, board, points DESC, updated_at);
    CREATE INDEX scores_key ON scores(key);`,
+  // what money buys (docs/plans/gameplay.md, Phase 2): clothes, garages and the cars in them, the
+  // collection, a lawyer (JSON, checked field by field on load: shops/gear.ts cleanGear)
+  `ALTER TABLE players ADD COLUMN gear TEXT NOT NULL DEFAULT '{}';`,
 ];
 
 /** a row of a leaderboard: the player key, their nickname (as saved with their profile, else as when
@@ -133,12 +140,12 @@ export class Store {
   private prepare() {
     const db = this.db;
     return {
-      getPlayer: db.prepare<[string], { nickname: string; money: number; found: string; cumils: string; stats: string }>(
-        'SELECT nickname, money, found, cumils, stats FROM players WHERE token_hash = ?',
+      getPlayer: db.prepare<[string], { nickname: string; money: number; found: string; cumils: string; stats: string; gear: string }>(
+        'SELECT nickname, money, found, cumils, stats, gear FROM players WHERE token_hash = ?',
       ),
       upsertPlayer: db.prepare(
-        `INSERT INTO players (token_hash, nickname, money, found, cumils, stats, created_at, updated_at) VALUES (@h, @nick, @money, @found, @cumils, @stats, @now, @now)
-         ON CONFLICT(token_hash) DO UPDATE SET nickname = @nick, money = @money, found = @found, cumils = @cumils, stats = @stats, updated_at = @now`,
+        `INSERT INTO players (token_hash, nickname, money, found, cumils, stats, gear, created_at, updated_at) VALUES (@h, @nick, @money, @found, @cumils, @stats, @gear, @now, @now)
+         ON CONFLICT(token_hash) DO UPDATE SET nickname = @nick, money = @money, found = @found, cumils = @cumils, stats = @stats, gear = @gear, updated_at = @now`,
       ),
       getSession: db.prepare<[string], { x: number; y: number; level: number; health: number; armor: number; weapon: string; ammo: string; wanted: number; car: string | null; saved_at: number }>(
         'SELECT x, y, level, health, armor, weapon, ammo, wanted, car, saved_at FROM sessions WHERE token_hash = ?',
@@ -151,8 +158,8 @@ export class Store {
       // copy first (so the new key exists as a parent), THEN rekey sessions, THEN drop the old row:
       // players/sessions has no ON UPDATE CASCADE, so updating a PK in place would trip the FK check
       copyPlayerAs: db.prepare(
-        `INSERT INTO players (token_hash, nickname, money, found, cumils, stats, created_at, updated_at)
-         SELECT @to, nickname, money, found, cumils, stats, created_at, updated_at FROM players WHERE token_hash = @from`,
+        `INSERT INTO players (token_hash, nickname, money, found, cumils, stats, gear, created_at, updated_at)
+         SELECT @to, nickname, money, found, cumils, stats, gear, created_at, updated_at FROM players WHERE token_hash = @from`,
       ),
       rekeySessions: db.prepare('UPDATE sessions SET token_hash = @to WHERE token_hash = @from'),
       deletePlayer: db.prepare('DELETE FROM players WHERE token_hash = ?'),
@@ -199,7 +206,10 @@ export class Store {
   loadProfile(key: string): { nick: string; profile: Profile } | null {
     const r = this.q.getPlayer.get(key);
     if (!r) return null;
-    return { nick: r.nickname, profile: { money: r.money, done: [], found: safeJson(r.found, []), cumils: safeJson(r.cumils, []), stats: safeJson(r.stats, {}) } };
+    return {
+      nick: r.nickname,
+      profile: { money: r.money, done: [], found: safeJson(r.found, []), cumils: safeJson(r.cumils, []), stats: safeJson(r.stats, {}), gear: cleanGear(safeJson(r.gear, {})) },
+    };
   }
 
   loadSession(key: string, now = Date.now()): SessionRow | null {
@@ -216,7 +226,10 @@ export class Store {
   savePlayers(list: { key: string; nick: string; player: SimPlayer; car?: SavedCar | null }[], now = Date.now()) {
     this.db.transaction(() => {
       for (const { key: h, nick, player: p, car } of list) {
-        this.q.upsertPlayer.run({ h, nick, money: Math.round(p.profile.money), found: JSON.stringify(p.profile.found), cumils: JSON.stringify(p.profile.cumils), stats: JSON.stringify(p.profile.stats ?? {}), now });
+        this.q.upsertPlayer.run({
+          h, nick, money: Math.round(p.profile.money), found: JSON.stringify(p.profile.found), cumils: JSON.stringify(p.profile.cumils), stats: JSON.stringify(p.profile.stats ?? {}),
+          gear: JSON.stringify(p.profile.gear ?? {}), now,
+        });
         const f = p.focus();
         this.q.upsertSession.run({
           h, x: f.x, y: f.y, level: p.ped.level, health: p.state === 'play' ? Math.max(1, p.ped.health) : 100, armor: p.ped.armor, weapon: p.ped.weapon,
@@ -374,5 +387,6 @@ function savedCar(v: unknown): SavedCar | null {
   if (typeof c.hp !== 'number' || !Number.isFinite(c.hp) || c.hp <= 0 || typeof c.a !== 'number' || !Number.isFinite(c.a)) return null;
   if (!Array.isArray(c.dmg) || c.dmg.length !== 4 || !c.dmg.every((d) => typeof d === 'number' && Number.isFinite(d))) return null;
   const dmg = c.dmg.map((d) => Math.max(0, Math.min(1, d))) as SavedCar['dmg'];
-  return { kind: c.kind, color: c.color, hp: Math.min(c.hp, SPECS[c.kind].health), dmg, a: c.a };
+  const mods = cleanMods(c.mods);
+  return { kind: c.kind, color: c.color, hp: Math.min(c.hp, SPECS[c.kind].health), dmg, a: c.a, ...(tuned(mods) ? { mods } : {}) };
 }
