@@ -60,6 +60,14 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
   forever (the reverse steering had the wrong sign). Now a K-turn, a real brake (it had none: 97 m to
   coast to a stop from 15 m/s), and a classic scheme with pedals (`test/client/touchDrive.test.ts`).
 
+### The first start
+- **An introduction for newcomers** (`src/game/features/OnboardingUi.ts`). Before, a first game opened with one line of text: find a phone booth or steal a car. Nothing said what the world events were, and the Aktivity panel only pulsed in a corner. Now a newcomer gets three short cards over the paused city:
+  - the controls to know, for the keyboard, the pad or touch;
+  - the world events, with what's on now (and a GPS button) or what's coming;
+  - everything else to do, ending at the Aktivity panel.
+- It shows once per device for online and for offline play, and only to players with nothing to show yet (online: the server's profile). The pause menu brings it back. A one-time tip at the first world event points a player who never opened Aktivity at it. Checked by `npm run smoke` and `npm run smoke:mobile`, which run it with `?intro=1`.
+- **"Nová hra" over a save starts afresh.** It used to clear the save and reload, but the page wrote the old game back into the save as it unloaded, so the old money, landmarks and purchases came back.
+
 ### Social features (protocol v7)
 - **Five server-run world events**, announced on the map and by Rádio Kecy: Horúca Kofolka (a cash van
   to drive), Najhľadanejší (a bounty on the first player to hit 5★), Hon na Čumila (a golden statue

@@ -345,7 +345,8 @@ button.danger:hover {
     margin-top: 0;
   }
 }
-.kit-act-x {
+.kit-act-x,
+.kit-intro-x {
   position: absolute;
   top: 10px;
   right: 10px;
@@ -498,6 +499,201 @@ kbd.kit-key.pad {
 @media (max-height: 480px) {
   .kit-act-row {
     padding: 5px 8px;
+  }
+}
+/* the pad's face buttons in their colours, as the HUD draws them */
+kbd.kit-key.pad[data-face='A'] {
+  background: #2e9e44;
+}
+kbd.kit-key.pad[data-face='B'] {
+  background: #d83a2e;
+}
+kbd.kit-key.pad[data-face='X'] {
+  background: #2f6fd6;
+}
+kbd.kit-key.pad[data-face='Y'] {
+  background: #e0b100;
+  color: #1a1a1a;
+}
+
+/* The introduction (src/game/features/OnboardingUi.ts): three short cards, wide enough that a phone on
+   its side shows each one whole */
+.menu-card.small.kit-intro-card {
+  position: relative;
+  width: min(680px, 100%);
+  text-align: left;
+}
+.kit-intro-card h2 {
+  padding-right: 40px;
+}
+.kit-intro-lead {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #e8eaed;
+}
+.kit-intro-keys,
+.kit-intro-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.kit-intro-keys {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.kit-intro-keys li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+.kit-intro-keys .cap {
+  flex: none;
+  min-width: 46px;
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+}
+.kit-intro-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffd740;
+}
+.kit-intro-grid {
+  grid-template-columns: 1fr;
+}
+/* side by side in even rows (OnboardingUi.grid sets --cols) */
+@media (min-width: 540px) {
+  .kit-intro-grid {
+    grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  }
+}
+.kit-intro-grid li {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 1px 8px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 3px 0 0 var(--c, transparent);
+}
+.kit-intro-grid .ic {
+  grid-row: 1 / span 2;
+  align-self: start;
+  text-align: center;
+  font-size: 18px;
+}
+.kit-intro-grid b {
+  min-width: 0;
+  font-size: 14px;
+}
+.kit-intro-grid .about {
+  grid-column: 2 / 4;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b0bec5;
+}
+.kit-intro-more {
+  margin: 8px 0 0;
+}
+.kit-intro .hint.small {
+  font-size: 12px;
+}
+/* what's on now (or coming), and the way to the Aktivity panel */
+.kit-intro-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 3px 0 0 var(--c, #ffd740);
+  font-size: 14px;
+  font-weight: 700;
+}
+.kit-intro-now button {
+  padding: 5px 12px;
+  font-size: 14px;
+}
+/* (kept in view at the card's bottom edge on a screen too small for the whole card) */
+.kit-intro-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 8px;
+  background: linear-gradient(180deg, rgba(13, 14, 18, 0), rgb(13, 14, 18) 8px);
+}
+.kit-intro-foot button {
+  min-width: 112px;
+}
+.kit-intro-foot .kit-intro-skip {
+  border-color: transparent;
+  background: none;
+  color: #b0bec5;
+}
+.kit-intro-dots {
+  display: flex;
+  gap: 7px;
+}
+.kit-intro-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+.kit-intro-dots i.on {
+  background: #ffd740;
+}
+@media (pointer: coarse) {
+  .kit-intro-now button {
+    min-height: 36px;
+  }
+}
+/* a phone on its side: every card whole, without scrolling */
+@media (max-height: 480px) {
+  .kit-intro-card h2 {
+    margin-bottom: 6px;
+  }
+  .kit-intro-lead {
+    margin-bottom: 6px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .kit-intro-keys li,
+  .kit-intro-grid li {
+    padding: 4px 8px;
+  }
+  .kit-intro-grid b {
+    font-size: 13px;
+  }
+  .kit-intro-opt {
+    display: none;
+  }
+  .kit-intro-note,
+  .kit-intro-now {
+    margin-top: 6px;
+  }
+  .kit-intro-now {
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .kit-intro-foot {
+    margin-top: 2px;
+    padding-top: 6px;
   }
 }
 

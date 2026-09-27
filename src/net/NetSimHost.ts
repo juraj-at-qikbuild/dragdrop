@@ -5,7 +5,7 @@ import type { Game } from '../game/Game';
 import { applyLive, emptyLive, type MeView, type NetView, type SimHost } from '../game/SimHost';
 import { Ped, setPlayerHat, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
 import { FALL_GRACE, FALL_KNOCK, Vehicle } from '../shared/entities/Vehicle';
-import type { Observer } from '../shared/sim/SimPlayer';
+import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent } from '../shared/sim/events';
 import type { JobKind } from '../shared/sim/rules/types';
@@ -78,6 +78,10 @@ export class NetSimHost implements SimHost, NetView {
   shielded = false;
   /** how the latest welcome said we came back; null before one, or from an older server */
   resumed: 'live' | 'saved' | 'fresh' | null = null;
+  /** the server's `profile` (sent right after every welcome) as it first came, before anything found
+   *  or earned since: an account's progress from its other devices too. Null until it comes (the
+   *  introduction for newcomers waits for it, OnboardingUi). */
+  firstProfile: Profile | null = null;
 
   constructor(private game: Game, url: string, private identity: Identity, private claimPending = false) {
     this.nick = identity.nick;
@@ -296,6 +300,7 @@ export class NetSimHost implements SimHost, NetView {
         this.me.profile.found = m.found;
         this.me.profile.cumils = m.cumils;
         if (m.gear) this.applyGear(m.gear);
+        this.firstProfile ??= { money: m.money, done: [], found: [...m.found], cumils: [...m.cumils], gear: m.gear };
         break;
       case 'catalog':
         this.live.catalog = m.prices;

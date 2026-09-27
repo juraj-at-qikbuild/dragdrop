@@ -7,6 +7,7 @@ import { EventsOverlay } from './EventsOverlay';
 import { JobsHud } from './JobsHud';
 import { LeaderboardUi } from './LeaderboardUi';
 import { News } from './News';
+import { OnboardingUi } from './OnboardingUi';
 import { PartyUi } from './PartyUi';
 import { PoliceUi } from './PoliceUi';
 import { PresenceUi } from './PresenceUi';
@@ -30,6 +31,7 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new PresenceUi(g));
   out.push(new LeaderboardUi(g));
   out.push(new ActivitiesUi(g));
+  out.push(new OnboardingUi(g));
   out.push(new PoliceUi(g));
   out.push(new ShopsUi(g));
   return out;

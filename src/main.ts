@@ -14,6 +14,8 @@ import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from '
 import { continueNote, loadLastPlayed, noteOffline, noteOnline } from './net/lastSession';
 import { LIVERY_NONE } from './shared/entities/Vehicle';
 import { spawnAt } from './shared/world/spawns';
+import type { OnboardingUi, Welcome } from './game/features/OnboardingUi';
+import { markIntro } from './game/features/onboarding/seen';
 import {
   completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
 } from './ui/AccountUi';
@@ -193,6 +195,8 @@ async function boot() {
   let mode: 'menu' | 'play' = 'menu';
   let attractT = 0;
   const attractPath = ['castle', 'cathedral', 'snp', 'eurovea', 'blue', 'michael', 'main'].map((id) => game.world.landmark(id));
+  /** the greeting as the player comes into the city, and a newcomer's introduction before it */
+  const onboarding = game.features.find((f) => f.id === 'onboarding') as OnboardingUi;
 
   const showMenu = () => {
     mode = 'menu';
@@ -206,9 +210,11 @@ async function boot() {
     game.audio.siren(0);
   };
   /** `welcome`: online, the first message (see onlineWelcome) */
-  const startGame = (fresh: boolean, welcome?: [string, string]) => {
+  const startGame = (fresh: boolean, welcome?: Welcome) => {
     game.audio.init();
     if (fresh) {
+      // starting over: they've played before, so the new game starts without the introduction
+      markIntro('offline');
       game.discardSave();
       location.hash = 'new';
       location.reload();
@@ -222,8 +228,7 @@ async function boot() {
     game.prewarm();
     const t = game.touch;
     if (game.online) {
-      const [title, text] = welcome ?? onlineWelcome(null, false);
-      game.message(title, text, 6);
+      onboarding.greet(welcome ?? onlineWelcome(null, false));
       return;
     }
     noteOffline();
@@ -231,23 +236,27 @@ async function boot() {
       // where the game put them (a random spawn place)
       const at = spawnAt(game.player.x, game.player.y);
       const where = at ? `${at.name}. ` : '';
-      game.message(
-        'Vitaj v Bratislave',
-        t ? `${where}Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.` : `${where}Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).`,
-        7,
-      );
+      onboarding.greet({
+        title: 'Vitaj v Bratislave',
+        text: t ? `${where}Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.` : `${where}Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).`,
+        secs: 7,
+        newcomer: true,
+      });
     }
   };
   /** The first message in the shared city: back where they left off, back in the city, or the
-   *  first-time tips. `resumed`: the server's welcome (null from an older server). */
-  const onlineWelcome = (resumed: NetSimHost['resumed'], returning: boolean): [string, string] => {
+   *  first-time tips (a newcomer, who may get the introduction first). `resumed`: the server's welcome
+   *  (null from an older server). */
+  const onlineWelcome = (resumed: NetSimHost['resumed'], returning: boolean): Welcome => {
     const t = game.touch;
-    if (resumed === 'saved' || resumed === 'live') return ['Vitaj späť!', 'Pokračuješ tam, kde si skončil.'];
-    if (returning) return ['Vitaj späť v meste', t ? 'Mapa: ťukni na minimapu.' : 'Mapa: M.'];
-    return [
-      'Vitaj v spoločnom meste',
-      t ? 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (žlté tlačidlo pri aute), mapa: ťukni na minimapu.' : 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.',
-    ];
+    if (resumed === 'saved' || resumed === 'live') return { title: 'Vitaj späť!', text: 'Pokračuješ tam, kde si skončil.', secs: 6, newcomer: false };
+    if (returning) return { title: 'Vitaj späť v meste', text: t ? 'Mapa: ťukni na minimapu.' : 'Mapa: M.', secs: 6, newcomer: false };
+    return {
+      title: 'Vitaj v spoločnom meste',
+      text: t ? 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (žlté tlačidlo pri aute), mapa: ťukni na minimapu.' : 'Všetci hráči sú v jednej Bratislave. Ukradni si auto (F), mapa: M.',
+      secs: 6,
+      newcomer: true,
+    };
   };
 
   $('btn-new').onclick = () => startGame(!!(Game.hasSave() || game.save.money));

@@ -1,5 +1,6 @@
 // Offline single-player smoke test on the shared simulation: start a game, check NPCs spawn, drive,
-// shoot, get wanted, get police, die and respawn, shop (with a click, and with a gamepad). Run after `vite build`: node scripts/smoke-offline.mjs
+// shoot, get wanted, get police, die and respawn, shop (with a click, and with a gamepad), and a new
+// player's introduction. Run after `vite build`: node scripts/smoke-offline.mjs
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -414,6 +415,67 @@ try {
   });
   check(saved && typeof saved.money === 'number' && typeof saved.clock === 'number', 'progress saved to localStorage');
   check(saved?.gear?.look === 1, 'the jacket bought is in the save');
+
+  // the introduction (src/game/features/OnboardingUi.ts): a new player's first game opens it by itself
+  // (an automated browser only gets it with ?intro=1, so this page passes for a person), three cards,
+  // the greeting once it's closed, the pause menu brings it back, the first world event brings a tip,
+  // and starting over doesn't show it again
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 600 } });
+    await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }));
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errors.push(e.message + '\n' + e.stack));
+    await p.goto(`http://localhost:${PORT}/?t=12`);
+    await p.waitForFunction(() => !document.getElementById('menu')?.classList.contains('hidden'), null, { timeout: 30000 });
+    await p.click('#btn-new');
+    const opened = await p.waitForSelector('.kit-intro-card', { timeout: 5000 }).then(() => true, () => false);
+    const card = () => p.evaluate(() => ({ title: document.querySelector('.kit-intro-card h2')?.textContent, items: [...document.querySelectorAll('.kit-intro-grid b')].map((b) => b.textContent) }));
+    check(opened && (await p.evaluate(() => window.game.paused)), 'a new player\'s first game opens the introduction, paused');
+    const cards = [await card()];
+    for (let i = 0; i < 2; i++) {
+      await p.keyboard.press('ArrowRight');
+      cards.push(await card());
+    }
+    const titles = cards.map((c) => c.title).join(' | ');
+    check(titles === 'Vitaj v Bratislave | Udalosti v meste | Čo môžeš robiť', `→ pages through its three cards (${titles})`);
+    check(cards[1].items.join() === 'Hon na Čumila,Obrnené auto', `offline, the world events card has the two that run alone (${cards[1].items.join(', ')})`);
+    await p.keyboard.press('ArrowLeft');
+    check((await card()).title === 'Udalosti v meste', '← goes back a card');
+    await p.keyboard.press('ArrowRight');
+    await p.keyboard.press('Enter'); // "Hrať!" has the focus
+    await sleep(200);
+    const after = await p.evaluate(() => ({ open: !!document.querySelector('.kit-intro-card'), paused: window.game.paused, msg: window.game.messages.map((m) => m.text).join(' / ') }));
+    check(!after.open && !after.paused && after.msg.includes('telefónnu búdku'), `"Hrať!" closes it into the game, with the greeting (${after.msg})`);
+    await p.keyboard.press('Escape');
+    await sleep(150);
+    await p.evaluate(() => [...document.querySelectorAll('#pause button')].find((b) => b.textContent.includes('Úvod do hry'))?.click());
+    const again = await p.evaluate(() => ({ open: !!document.querySelector('.kit-intro-card'), menu: !document.getElementById('pause').classList.contains('hidden') }));
+    await p.keyboard.press('Escape');
+    await sleep(150);
+    const back = await p.evaluate(() => ({ open: !!document.querySelector('.kit-intro-card'), menu: !document.getElementById('pause').classList.contains('hidden'), paused: window.game.paused }));
+    check(again.open && !again.menu && !back.open && back.menu && back.paused, '"📖 Úvod do hry" in the pause menu opens it again, and Escape goes back to the menu');
+    await p.click('#btn-resume');
+    const started = await p.evaluate(() => !!window.game.host.sim.rule('worldEvents').start('cumil'));
+    const tip = await p.waitForFunction(() => window.game.messages.some((m) => m.text.startsWith('💡')), null, { timeout: 10000 }).then(() => true, () => false);
+    const why = tip ? '' : JSON.stringify(await p.evaluate(() => ({ paused: window.game.paused, state: window.game.state, events: window.game.host.live.events.length, messages: window.game.messages.map((m) => m.text), seen: localStorage.getItem('blava-city-onboarding-v1') })));
+    check(started && tip, `the first world event brings a tip about the Aktivity panel ${why}`);
+    // starting over: a new game (the old one isn't written back over it on the way out), and it starts
+    // without the introduction
+    await p.evaluate(() => {
+      window.game.save.done.push('smoke');
+      window.game.persist();
+    });
+    await p.keyboard.press('Escape');
+    await p.click('#btn-quit');
+    // (a new game over a save reloads the page)
+    await Promise.all([p.waitForEvent('load', { timeout: 30000 }), p.click('#btn-new')]);
+    await p.waitForFunction(() => window.game?.running, null, { timeout: 30000 });
+    await sleep(1000);
+    const over = await p.evaluate(() => ({ open: !!document.querySelector('.kit-intro-card'), done: window.game.save.done, msg: window.game.messages.map((m) => m.title).join(' / '), seen: localStorage.getItem('blava-city-onboarding-v1') }));
+    check(!over.done.length, `"Nová hra" over a save starts afresh (${JSON.stringify(over.done)})`);
+    check(!over.open && over.msg.includes('Vitaj v Bratislave') && over.seen?.includes('offline'), `starting over, only the greeting (${JSON.stringify(over)})`);
+    await ctx.close();
+  }
 
   if (process.env.SMOKE_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOT });
   check(errors.length === 0, `no page errors${errors.length ? ':\n' + errors.slice(0, 5).join('\n') : ''}`);

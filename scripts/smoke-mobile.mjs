@@ -1,7 +1,8 @@
 // Touch smoke test on an emulated phone (landscape, then upright): the touch controls show, the stick
 // walks and runs, the fire button locks onto someone, the use button gets into a car, both driving
 // schemes drive, a stick pointed backwards turns the car around, BRAKE stops it, the pause button and
-// the minimap work. Real multi-touch through the DevTools protocol. Screenshots land in $SHOTS (if set).
+// the minimap work, and a new player's introduction fits the phone on its side. Real multi-touch
+// through the DevTools protocol. Screenshots land in $SHOTS (if set).
 // Run after `vite build`: node scripts/smoke-mobile.mjs
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -371,6 +372,43 @@ try {
   }
   check(land.errors.length === 0, 'no page errors (landscape)' + (land.errors.length ? '\n' + land.errors.join('\n') : ''));
   await land.ctx.close();
+
+  // ------------------------------------------------------------------ the introduction
+  // (src/game/features/OnboardingUi.ts; ?intro=1: an automated browser doesn't get it otherwise) on a
+  // phone on its side: each card whole, without scrolling, and a thumb goes through to the game
+  {
+    const ctx = await browser.newContext({ ...devices['Pixel 7 landscape'], deviceScaleFactor: 1 });
+    const p = await ctx.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message + '\n' + e.stack));
+    await p.goto(`http://localhost:${PORT}/?t=12&touch=1&intro=1`);
+    await p.waitForFunction(() => !document.getElementById('menu')?.classList.contains('hidden'), null, { timeout: 30000 });
+    const thumb = touchscreen(await ctx.newCDPSession(p));
+    const tapIn = async (sel) => {
+      const r = await p.evaluate((s) => {
+        const b = document.querySelector(s)?.getBoundingClientRect();
+        return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null;
+      }, sel);
+      if (r) await thumb.tap(r.x, r.y);
+    };
+    await tapIn('#btn-new');
+    const opened = await until(p, () => !!document.querySelector('.kit-intro-card'), null, 8000);
+    check(!!opened, 'the introduction opens on a phone');
+    const cards = [];
+    for (let i = 0; i < 3 && opened; i++) {
+      await sleep(200);
+      cards.push(await p.evaluate(() => {
+        const c = document.querySelector('.kit-intro-card');
+        return { title: c.querySelector('h2').textContent, whole: c.scrollHeight <= c.clientHeight + 1 && c.getBoundingClientRect().bottom <= innerHeight };
+      }));
+      await shot(p, `land-intro-${i + 1}`);
+      await tapIn('.kit-intro-foot button.primary');
+    }
+    check(cards.length === 3 && cards.every((c) => c.whole), `each of its cards fits the screen (${cards.map((c) => `${c.title}: ${c.whole ? 'whole' : 'scrolls'}`).join(', ')})`);
+    check(!!(await until(p, () => !window.game.paused && document.getElementById('touch').dataset.ctx === 'foot')), '"Hrať!" goes on to the game, controls and all');
+    check(errors.length === 0, 'no page errors (the introduction)' + (errors.length ? '\n' + errors.join('\n') : ''));
+    await ctx.close();
+  }
 
   // ------------------------------------------------------------------ upright
   const up = await boot(browser, devices['Pixel 7'], 'portrait');
