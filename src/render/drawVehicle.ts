@@ -53,20 +53,30 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
     }
     return;
   }
+  // a boat: navigation lights after dark (red to port, green to starboard, white astern), and the
+  // police boat's searchlight ahead; its flashers are a police car's (below)
+  if (s.boat) {
+    if (k > 0.02) {
+      L.point(noseX - rx * 0.5 - fx * 0.8, noseY - ry * 0.5 - fy * 0.8, 1.2, '#ff3d3d', 0.6 * k);
+      L.point(noseX + rx * 0.5 - fx * 0.8, noseY + ry * 0.5 - fy * 0.8, 1.2, '#4cff7a', 0.6 * k);
+      L.point(tailX, tailY, 1, '#fff6e0', 0.5 * k);
+      if (s.kind === 'policeboat') L.cone(noseX, noseY, v.angle, 26, 0.22, '#f4f9ff', 0.9 * k);
+    }
+  }
   // neon underglow (the Dielňa, docs/plans/gameplay.md Phase 2): lights the street around the car
-  if (v.mods.glow > 0 && k > 0.02) {
+  else if (v.mods.glow > 0 && k > 0.02) {
     const c = NEONS[v.mods.glow];
     L.glow(v.x, v.y, s.length * 0.7, c, 0.75 * k);
     L.point(v.x, v.y, s.length * 0.55, c, 0.5 * k);
   }
-  if (k > 0.02 && dmg.front <= 0.7) {
+  if (k > 0.02 && dmg.front <= 0.7 && !s.boat) {
     L.cone(noseX, noseY, v.angle, 16, 0.35, '#fff1c8', k);
     L.point(noseX + rx * hw, noseY + ry * hw, 1.8, '#fff1c8', 0.65 * k);
     L.point(noseX - rx * hw, noseY - ry * hw, 1.8, '#fff1c8', 0.65 * k);
   }
 
-  const brake = braking(v);
-  const tailGlow = brake ? 1 : 0.35 * k;
+  const brake = braking(v) && !s.boat;
+  const tailGlow = s.boat ? 0 : brake ? 1 : 0.35 * k;
   if (tailGlow > 0.02) {
     L.glow(tailX + rx * hw, tailY + ry * hw, brake ? 1.6 : 1, '#ff2a2a', tailGlow);
     L.glow(tailX - rx * hw, tailY - ry * hw, brake ? 1.6 : 1, '#ff2a2a', tailGlow);
@@ -93,6 +103,7 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
   const s = v.spec;
   if (s.twoWheeler) return drawTwoWheeler(v, ctx, atmos);
+  if (s.boat) return drawBoat(v, ctx, time, atmos);
   const L = s.length, W = s.width;
   ctx.save();
   ctx.translate(v.x, v.y);
@@ -619,6 +630,116 @@ function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D, atmos?: Atmos
     const at = bike ? -0.12 : -0.08;
     ctx.translate(at, 0);
     drawRider(ctx, v.driver, head - at, bike);
+  }
+  ctx.restore();
+}
+
+/** A boat from above (docs/plans/gameplay.md, Phase 3): its wake and bow wave when it's moving, a
+ *  hull with a pointed bow round a lighter deck, the windscreen and the seats, the outboard, whoever's
+ *  at the wheel; the police boat white with a blue stripe and a light bar. */
+function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
+  const s = v.spec, L = s.length, W = s.width;
+  const police = s.kind === 'policeboat';
+  ctx.save();
+  ctx.translate(v.x, v.y);
+  ctx.rotate(v.angle);
+  const k = Math.min(1, v.speed / 14);
+  if (v.speed > 1 && !v.wrecked) {
+    // the wake spreading out astern, fading as it goes, with foam along its edges; and the bow wave
+    const end = -L / 2 - 2.5 - 7 * k, spread = W * 0.6 + 1.6 * k;
+    const g = ctx.createLinearGradient(-L / 2, 0, end, 0);
+    g.addColorStop(0, `rgba(255,255,255,${0.1 + 0.25 * k})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-L / 2 + 0.3, -W * 0.3);
+    ctx.lineTo(end, -spread);
+    ctx.lineTo(end, spread);
+    ctx.lineTo(-L / 2 + 0.3, W * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 0.18;
+    ctx.beginPath();
+    ctx.moveTo(-L / 2 + 0.3, -W * 0.35);
+    ctx.lineTo(end, -spread);
+    ctx.moveTo(-L / 2 + 0.3, W * 0.35);
+    ctx.lineTo(end, spread);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + 0.35 * k})`;
+    ctx.lineWidth = 0.14;
+    ctx.beginPath();
+    for (const side of [-1, 1]) {
+      ctx.moveTo(L / 2 + 0.15, 0);
+      ctx.quadraticCurveTo(L * 0.25, side * (W / 2 + 0.4), -L * 0.15, side * (W / 2 + 0.3 + 0.8 * k));
+    }
+    ctx.stroke();
+  }
+  const hull = () => {
+    ctx.beginPath();
+    ctx.moveTo(-L / 2, -W / 2 + 0.12);
+    ctx.lineTo(L * 0.1, -W / 2);
+    ctx.quadraticCurveTo(L * 0.42, -W * 0.4, L / 2, 0);
+    ctx.quadraticCurveTo(L * 0.42, W * 0.4, L * 0.1, W / 2);
+    ctx.lineTo(-L / 2, W / 2 - 0.12);
+    ctx.closePath();
+  };
+  // a shadow on the water, just off the hull
+  ctx.save();
+  ctx.translate(0.15, 0.22);
+  hull();
+  ctx.fillStyle = `rgba(0,20,30,${0.18 + 0.1 * (atmos?.daylight ?? 0.6)})`;
+  ctx.fill();
+  ctx.restore();
+  const body = v.wrecked ? '#2a2623' : v.color;
+  hull();
+  ctx.fillStyle = v.wrecked ? body : bodyGradient(ctx, body);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 0.08;
+  ctx.stroke();
+  // the deck inside the gunwale
+  ctx.save();
+  ctx.translate(-0.15, 0);
+  ctx.scale(0.8, 0.74);
+  hull();
+  ctx.fillStyle = v.wrecked ? '#1e1b19' : police ? '#cfd8dc' : '#c8b49a';
+  ctx.fill();
+  ctx.restore();
+  if (police && !v.wrecked) {
+    ctx.fillStyle = '#1e5bb8';
+    ctx.fillRect(-L / 2, -W / 2 + 0.02, L * 0.6, 0.2);
+    ctx.fillRect(-L / 2, W / 2 - 0.22, L * 0.6, 0.2);
+  }
+  // the windscreen, the seats, the outboard
+  ctx.fillStyle = 'rgba(30,50,70,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(L * 0.08, -W * 0.32);
+  ctx.quadraticCurveTo(L * 0.16, 0, L * 0.08, W * 0.32);
+  ctx.lineTo(L * 0.02, W * 0.3);
+  ctx.quadraticCurveTo(L * 0.1, 0, L * 0.02, -W * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = v.wrecked ? '#151312' : '#37474f';
+  roundRect(ctx, -L * 0.14, -W * 0.28, 0.55, 0.5, 0.1);
+  ctx.fill();
+  roundRect(ctx, -L * 0.14, W * 0.28 - 0.5, 0.55, 0.5, 0.1);
+  ctx.fill();
+  ctx.fillStyle = '#1b1b1b';
+  roundRect(ctx, -L / 2 - 0.4, -0.28, 0.5, 0.56, 0.12);
+  ctx.fill();
+  if (police && !v.wrecked) {
+    // the light bar over the console, lit while the siren's on
+    const on = v.siren && Math.floor(time * 6) % 2 === 0;
+    ctx.fillStyle = v.siren ? (on ? '#ff1744' : '#7f1d1d') : '#5c1a1a';
+    ctx.fillRect(-0.1, -0.45, 0.28, 0.42);
+    ctx.fillStyle = v.siren ? (on ? '#1e3a8a' : '#2979ff') : '#1a2a5c';
+    ctx.fillRect(-0.1, 0.03, 0.28, 0.42);
+  }
+  // whoever's at the wheel, seated behind the windscreen
+  if (v.driver && !v.wrecked) {
+    ctx.translate(-L * 0.06, -W * 0.14);
+    drawRider(ctx, v.driver, 0.55, true);
   }
   ctx.restore();
 }

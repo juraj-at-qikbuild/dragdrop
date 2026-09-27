@@ -17,7 +17,8 @@ function track() {
   return w;
 }
 const dt = 1 / 120;
-const kinds = Object.keys(SPECS) as VehicleKind[];
+/** everything that drives on the streets (a boat's on the water: test/shared/danube.test.ts) */
+const kinds = (Object.keys(SPECS) as VehicleKind[]).filter((k) => !SPECS[k].boat);
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const deg = (a: number) => (Math.abs(a) * 180) / Math.PI;
 

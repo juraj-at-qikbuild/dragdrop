@@ -202,6 +202,54 @@ try {
     await page.evaluate(() => (window.game.wanted = 0));
   }
 
+  // the Danube (docs/plans/gameplay.md, Phase 3): swimming for a moment, then a boat off the pier
+  const river = await page.evaluate(() => {
+    const g = window.game, w = g.world, p = g.player;
+    const m = w.moorings(5.6, 2.2);
+    if (!m.length) return null;
+    p.x = m[0];
+    p.y = m[1];
+    p.level = 0;
+    p.levelInit = true;
+    return { x: m[0], y: m[1], a: m[2] };
+  });
+  if (!river) check(false, 'a mooring on the Danube');
+  else {
+    await sleep(2500);
+    const swam = await page.evaluate(() => ({ swimT: window.game.swimT, state: window.game.state }));
+    check(swam.swimT > 1.5 && swam.state === 'play', `swimming in the Danube (${JSON.stringify(swam)})`);
+    await page.evaluate(({ x, y, a }) => {
+      const g = window.game, sim = g.host.sim;
+      const V = sim.vehicles[0].constructor;
+      const b = sim.addVehicle(new V('boat', x, y, a, '#fafafa'));
+      b.parked = true;
+      g.player.x = x - Math.sin(a) * 2;
+      g.player.y = y + Math.cos(a) * 2;
+    }, river);
+    await sleep(200);
+    await page.keyboard.press('KeyF');
+    await sleep(300);
+    check(await page.evaluate(() => window.game.player.vehicle?.kind === 'boat'), 'got into a boat from the water with F');
+    await page.keyboard.down('KeyW');
+    await sleep(2000);
+    await page.keyboard.up('KeyW');
+    const boated = await page.evaluate(({ x, y }) => {
+      const g = window.game, v = g.player.vehicle;
+      return v && { d: Math.hypot(v.x - x, v.y - y), afloat: g.world.inWater(v.x, v.y, 0), sinking: v.sinking };
+    }, river);
+    check(!!boated && boated.d > 3 && boated.afloat && boated.sinking === 0, `the boat goes, on the water (${JSON.stringify(boated)})`);
+    await page.keyboard.press('KeyF');
+    await sleep(300);
+    check(await page.evaluate(() => !window.game.player.vehicle && window.game.state === 'play'), 'off the boat with F');
+    // back on dry land for what follows
+    await page.evaluate(() => {
+      const g = window.game, s = g.world.walkableNear(g.player.x, g.player.y);
+      g.player.x = s.x;
+      g.player.y = s.y;
+    });
+    await sleep(300);
+  }
+
   // shoot the nearest civilian with a pistol
   const shot = await page.evaluate(async () => {
     const g = window.game, p = g.player;

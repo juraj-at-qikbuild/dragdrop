@@ -92,7 +92,8 @@ export class VehiclePhysics {
       const sp = v.speed;
       if (sp > fastest) fastest = sp;
       if (v.levelInit || v.kinematic) continue;
-      v.level = world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
+      // (a boat is on the water, under any bridge)
+      v.level = v.spec.boat ? 0 : world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
       v.levelInit = true;
     }
     // a player's car behind a bus, a van or a tram gets its slipstream (the server's players drive
@@ -119,7 +120,7 @@ export class VehiclePhysics {
           h = STEP * 2;
         }
         // per substep: the water check inside update() must see the deck level for this position
-        world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
+        if (!v.spec.boat) world.updateLevel(v, v.vx, v.vy, v.spec.width / 2, !v.sinking);
         const impact = v.update(h, world);
         if (impact > 6) hooks.impact?.(v, impact);
         knocked(v, impact);

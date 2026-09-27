@@ -18,6 +18,8 @@ const MODEL: Record<VehicleKind, { acc: string; nom: string; g: Gender }> = {
   ambulance: { acc: 'sanitku', nom: 'sanitka', g: 'f' },
   scooter: { acc: 'kolobežku', nom: 'kolobežka', g: 'f' },
   bike: { acc: 'bicykel', nom: 'bicykel', g: 'm' },
+  boat: { acc: 'čln', nom: 'čln', g: 'm' },
+  policeboat: { acc: 'policajný čln', nom: 'policajný čln', g: 'm' },
 };
 
 /** colour adjectives by stem: the endings follow the noun (masculine -ý, neuter -é, feminine -á, and
@@ -81,14 +83,14 @@ export function colorWord(hex: string, g: 'm' | 'f' = 'm'): string {
  *  The police car keeps its own name (its livery says it all). */
 export function describeCar(kind: VehicleKind, color: string): string {
   const m = MODEL[kind] ?? MODEL.sedan;
-  if (kind === 'police') return m.acc;
+  if (kind === 'police' || kind === 'policeboat') return m.acc;
   return `${adjective(color, m.g, true)} ${m.acc}`;
 }
 
 /** "červená Felícia": the same, in the nominative */
 export function nameCar(kind: VehicleKind, color: string): string {
   const m = MODEL[kind] ?? MODEL.sedan;
-  if (kind === 'police') return m.nom;
+  if (kind === 'police' || kind === 'policeboat') return m.nom;
   return `${adjective(color, m.g, false)} ${m.nom}`;
 }
 

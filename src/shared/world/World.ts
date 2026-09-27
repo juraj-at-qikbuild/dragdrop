@@ -1412,6 +1412,41 @@ export class World {
     this.waterCols = cols;
   }
 
+  /** Does a boat `len` long and `width` wide fit at (x, y) facing `a`, all of it on open water? */
+  afloat(x: number, y: number, a: number, len: number, width: number): boolean {
+    const ux = Math.cos(a), uy = Math.sin(a);
+    for (let k = -2; k <= 2; k++) {
+      const cx = x + (ux * k * len) / 4.4, cy = y + (uy * k * len) / 4.4;
+      if (!this.inWater(cx, cy, 0)) return false;
+      if (Math.abs(k) === 2 && (!this.inWater(cx - (uy * width) / 2, cy + (ux * width) / 2, 0) || !this.inWater(cx + (uy * width) / 2, cy - (ux * width) / 2, 0))) return false;
+    }
+    return true;
+  }
+
+  /** Where a boat `len` × `width` can lie along a pier (docs/plans/gameplay.md, Phase 3): beside the
+   *  longest side of each pier or pontoon that has open water off it, lined up with it (flat x, y,
+   *  angle; at most one a pier). */
+  moorings(len: number, width: number): number[] {
+    const out: number[] = [];
+    const off = width / 2 + 0.5;
+    for (const p of this.piers) {
+      const r = p.rings[0];
+      let best: number[] | null = null, bl = 0;
+      for (let i = 0; i < r.length - 2; i += 2) {
+        const L = Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
+        if (L < len * 0.8 || L <= bl) continue;
+        const ux = (r[i + 2] - r[i]) / L, uy = (r[i + 3] - r[i + 1]) / L, a = Math.atan2(uy, ux);
+        const mx = (r[i] + r[i + 2]) / 2, my = (r[i + 1] + r[i + 3]) / 2;
+        for (const side of [1, -1]) {
+          const x = mx - uy * off * side, y = my + ux * off * side;
+          if (this.afloat(x, y, a, len, width)) (best = [x, y, a]), (bl = L);
+        }
+      }
+      if (best) out.push(...best);
+    }
+    return out;
+  }
+
   /** On a pier or pontoon (a walkable deck over the water). */
   onPier(x: number, y: number) {
     for (const p of this.piers) {
@@ -1584,14 +1619,17 @@ export class World {
    *  between it and the car, and not inside a building: beside a car pressed against a wall it lies
    *  further through the wall than a figure is wide, so on its own it looks clear. The car's own
    *  spot when there's none. */
-  exitSpot(v: { x: number; y: number; angle: number; level: Level; spec: { width: number; length: number } }, side = 1) {
+  exitSpot(v: { x: number; y: number; angle: number; level: Level; spec: { width: number; length: number } }, side = 1, wet = false) {
     const fx = Math.cos(v.angle), fy = Math.sin(v.angle), lv = v.level;
-    for (const [dx, dy, edge] of [[fy * side, -fx * side, v.spec.width / 2], [-fy * side, fx * side, v.spec.width / 2], [-fx, -fy, v.spec.length / 2], [fx, fy, v.spec.length / 2]]) {
-      const x = v.x + dx * (edge + 0.7), y = v.y + dy * (edge + 0.7);
-      if (this.collideCircle(x, y, 0.4, lv, false) || this.collideCircle(v.x + dx * (edge + 0.3), v.y + dy * (edge + 0.3), 0.4, lv, false)) continue;
-      if (this.inWater(x, y, lv) || (lv !== -1 && this.insideSolid(x, y))) continue;
-      return { x, y };
-    }
+    const sides = [[fy * side, -fx * side, v.spec.width / 2], [-fy * side, fx * side, v.spec.width / 2], [-fx, -fy, v.spec.length / 2], [fx, fy, v.spec.length / 2]];
+    // dry land first; off a boat (`wet`) into the water beside it when there's none
+    for (const water of wet ? [false, true] : [false])
+      for (const [dx, dy, edge] of sides) {
+        const x = v.x + dx * (edge + 0.7), y = v.y + dy * (edge + 0.7);
+        if (this.collideCircle(x, y, 0.4, lv, false) || this.collideCircle(v.x + dx * (edge + 0.3), v.y + dy * (edge + 0.3), 0.4, lv, false)) continue;
+        if ((!water && this.inWater(x, y, lv)) || (lv !== -1 && this.insideSolid(x, y))) continue;
+        return { x, y };
+      }
     return { x: v.x, y: v.y };
   }
 

@@ -63,6 +63,8 @@ const CAM_FOOT_M_PHONE = 27;
 const CAM_CAR_ZOOM = 0.84;
 /** ...and aboard a tram, this much further out again */
 const CAM_TRAM_ZOOM = 0.8;
+/** swimming pace (m/s): a third of walking */
+const SWIM_SPEED = 4.6 / 3;
 /** ...and further with speed, gently (the view doubles at this speed, m/s: 180 km/h), so the car
  *  stays big enough to steer by; the look-ahead below shows the road coming */
 const CAM_SPEED_ZOOM = 50;
@@ -425,6 +427,9 @@ export class Game {
   readonly touch = isTouchDevice();
   /** seconds left showing the gamepad's button legend (on picking up the pad, or getting in or out) */
   padHints = 0;
+  /** seconds this player has been swimming (docs/plans/gameplay.md, Phase 3; 0: not in the water):
+   *  the HUD's breath bar. The simulation's own count (Sim.hazards) is the one that drowns them */
+  swimT = 0;
   private padWas = false;
   private carWas = false;
 
@@ -461,7 +466,8 @@ export class Game {
     if (car) {
       // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)
       const occupied = car.driver ? car.driver !== p : !car.parked && !car.owner && !car.wrecked;
-      const text = car.owner && car.owner !== this.host.me.id ? (car.spec.twoWheeler ? 'Zhodiť jazdca' : 'Vyhodiť vodiča') : occupied ? (car.kind === 'police' ? 'Vytiahnuť policajta' : 'Vytiahnuť vodiča') : car.kind === 'police' ? 'Ukradnúť policajné auto' : car.spec.twoWheeler ? 'Nasadnúť' : 'Nastúpiť';
+      const cops = car.kind === 'police' || car.kind === 'policeboat';
+      const text = car.owner && car.owner !== this.host.me.id ? (car.spec.twoWheeler ? 'Zhodiť jazdca' : 'Vyhodiť vodiča') : occupied ? (cops ? 'Vytiahnuť policajta' : 'Vytiahnuť vodiča') : car.kind === 'police' ? 'Ukradnúť policajné auto' : car.kind === 'policeboat' ? 'Ukradnúť policajný čln' : car.spec.twoWheeler ? 'Nasadnúť' : 'Nastúpiť';
       return { use: true, text };
     }
     if (this.missions.enabled && !this.missions.active)
@@ -575,6 +581,8 @@ export class Game {
   private updatePlayer(dt: number) {
     const p = this.player;
     const inp = this.input;
+    const swim = !p.vehicle && !this.host.live.tram && this.state === 'play' && this.world.inWater(p.x, p.y, p.level);
+    this.swimT = swim ? this.swimT + dt : 0;
     if (inp.mouseX !== this.lastMouse.x || inp.mouseY !== this.lastMouse.y) {
       this.lastMouseMove = this.time;
       this.lastMouse = { x: inp.mouseX, y: inp.mouseY };
@@ -685,7 +693,8 @@ export class Game {
     const len = Math.hypot(ax.x, ax.y);
     // touch: the stick walks up to 85% of its throw and runs past it
     const stick = inp.touch.move.on;
-    const run = inp.down('ShiftLeft', 'ShiftRight') || (stick && len > 0.85) ? 7.2 : 4.6;
+    // swimming: a third of walking pace, and no running
+    const run = swim ? SWIM_SPEED : inp.down('ShiftLeft', 'ShiftRight') || (stick && len > 0.85) ? 7.2 : 4.6;
     const push = stick ? Math.min(1, len / 0.85) : Math.min(1, len);
     const vx = len ? (ax.x / len) * run * push : 0;
     const vy = len ? (ax.y / len) * run * push : 0;
@@ -700,7 +709,8 @@ export class Game {
     else if (cursorMode) p.angle = heading;
     else if (!inp.pad.active && !inp.touch.active && (this.time - this.lastMouseMove < 3 || inp.mouseDown)) p.angle = this.aimAngle(p.x, p.y);
     if (p.cooldown > 0) p.cooldown -= dt;
-    const firing = inp.mouseDown || inp.down('Space', 'ControlLeft') || touchShoot || (inp.pad.active && inp.pad.rt > 0.5);
+    // (nor any shooting or punching in the water)
+    const firing = !swim && (inp.mouseDown || inp.down('Space', 'ControlLeft') || touchShoot || (inp.pad.active && inp.pad.rt > 0.5));
     if (firing && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
       p.cooldown = WEAPONS[p.weapon].cd;
       if (p.weapon === 'fist') this.host.punch(traceMelee(this.host.peds, p, p.angle)?.id ?? 0);
@@ -1021,7 +1031,8 @@ export class Game {
         // another player who's away (in their pause menu, or disconnected) is drawn dimmed
         const a = p.playerId ? this.presenceAlpha(p.playerId) : 1;
         ctx.globalAlpha = a;
-        drawPed(p, ctx, atmos, v.scale);
+        // (another player swimming: docs/plans/gameplay.md, Phase 3)
+        drawPed(p, ctx, atmos, v.scale, !!p.playerId && this.world.inWater(p.x, p.y, p.level));
         ctx.globalAlpha = 1;
       }
       for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, underground ? undefined : this.tunnelFade);
@@ -1349,7 +1360,7 @@ export class Game {
     // the player is drawn above roofs as a subtle marker when hidden under buildings
     const p = this.player;
     // (inside a tram, nobody sees them: rules/Trams.ts)
-    if (!p.vehicle && !this.host.live.tram) drawPed(p, ctx, this.atmos, this.cam.scale);
+    if (!p.vehicle && !this.host.live.tram) drawPed(p, ctx, this.atmos, this.cam.scale, this.swimT > 0);
     if (this.state !== 'play') return;
     const f = this.focus();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';

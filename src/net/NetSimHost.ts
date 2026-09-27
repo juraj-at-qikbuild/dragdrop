@@ -400,6 +400,8 @@ export class NetSimHost implements SimHost, NetView {
       for (const pr of this.mirrors.props)
         if (pr.kind === 'spike' && pr.active && !car.tyresBurst && pr.level === car.level && spikeHit(pr, car) && car.burstTyres())
           game.message('', 'Klince prepichli pneumatiky!', 2.5, '#ff8a80');
+      // a car going under: out, and swim for it (Sim.updateVehicles does it offline)
+      if (car.sinking > 1 && !car.spec.boat) this.requestExit();
       // on a scooter or a bike: a hard knock throws us off, and so does it breaking under us (the
       // server's Sim.fallOff does it offline; here we simulate the ride, so we decide and say so)
       if (car.spec.twoWheeler) {
@@ -561,8 +563,9 @@ export class NetSimHost implements SimHost, NetView {
     const v = this.ownCar;
     if (!v) return;
     const p = this.me.ped;
-    // the same spot the offline game (and the server, given none) steps out onto
-    const s = this.game.world.exitSpot(v);
+    // the same spot the offline game (and the server, given none) steps out onto: off a boat, or out
+    // of a sinking car, into the water if there's no dry land by it
+    const s = this.game.world.exitSpot(v, 1, !!v.spec.boat || v.sinking > 0);
     p.x = s.x;
     p.y = s.y;
     const full: VehFull = {

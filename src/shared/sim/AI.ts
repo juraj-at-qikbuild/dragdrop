@@ -254,7 +254,7 @@ export class AI {
       const d = this.drivers.get(v);
       if (d?.mode === 'traffic') traffic++, g.add(v.x, v.y, C_TRAFFIC);
       // (the scooters and bikes at the docks and stands are rules/Bikes.ts's, not parked cars)
-      else if (v.parked && !v.spec.twoWheeler) parked++, g.add(v.x, v.y, C_PARKED);
+      else if (v.parked && !v.spec.twoWheeler && !v.spec.boat) parked++, g.add(v.x, v.y, C_PARKED);
       if (d?.mode === 'police' && v.driver && !v.driver.dead && !v.wrecked) police++;
     }
     for (const p of sim.peds) if (p.kind === 'civ' && !p.vehicle && !p.dead) peds++, g.add(p.x, p.y, C_PEDS);
@@ -292,7 +292,7 @@ export class AI {
         if (v.isPlayer || v.mission || v.kinematic || sim.visibleToAny(v.x, v.y, 15)) continue;
         const d = this.drivers.get(v);
         if (t > 0 && d?.mode === 'traffic') (this.retire.add(v), t--);
-        else if (p > 0 && v.parked && !v.driver && !v.spec.twoWheeler) (this.retire.add(v), p--);
+        else if (p > 0 && v.parked && !v.driver && !v.spec.twoWheeler && !v.spec.boat) (this.retire.add(v), p--);
       }
     if (q > 0) {
       const gone = new Set<Ped>();
@@ -411,7 +411,7 @@ export class AI {
       for (let i = 0; i < max + 40 && local() < max && global() < cap; i++) spawn();
     };
     const civList = () => sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead);
-    const parkedList = () => sim.vehicles.filter((v) => v.parked && !v.spec.twoWheeler);
+    const parkedList = () => sim.vehicles.filter((v) => v.parked && !v.spec.twoWheeler && !v.spec.boat);
     const trafficList = () => sim.vehicles.filter((v) => this.drivers.get(v)?.mode === 'traffic');
     count(() => within(civList(), 200), density.peds, () => civList().length, sim.caps.peds, () => void this.spawnPed(x, y, 4, 150));
     count(() => within(parkedList(), 260), density.parked, () => parkedList().length, sim.caps.parked, () => void this.spawnParked(x, y, 8, 200));
@@ -1662,7 +1662,10 @@ export class AI {
     }
     if (d > 1.1) {
       const sp = p.speed * (pl.vehicle ? 0.8 : 1);
-      p.move(dt, sim.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp);
+      const vx = ((tx - p.x) / d) * sp, vy = ((ty - p.y) / d) * sp;
+      // (a cop on foot stops at the water's edge: docs/plans/gameplay.md, Phase 3)
+      if (sim.world.inWater(p.x + vx * 0.3, p.y + vy * 0.3, p.level)) p.move(dt, sim.world, 0, 0);
+      else p.move(dt, sim.world, vx, vy);
     }
     // busted when touching the player on foot (or stopped car), or within reach of one lying downed;
     // aboard a tram (rules/Trams.ts), from beside it once it's stopped (its body keeps cops that far)

@@ -1,5 +1,6 @@
 import type { Game } from '../game/Game';
 import { WEAPONS } from '../shared/sim/Combat';
+import { SWIM_S } from '../shared/sim/Sim';
 import type { WeaponId } from '../shared/entities/Ped';
 import { formatMoney, formatPoints } from '../shared/util/math';
 import type { LiveState } from '../game/SimHost';
@@ -75,6 +76,9 @@ export class Hud {
     const car = g.player.vehicle;
     const armor = g.player.armor;
     if (armor > 0) topH += small ? 12 : 14;
+    // swimming (docs/plans/gameplay.md, Phase 3): the breath left
+    const swim = g.swimT > 0;
+    if (swim) topH += small ? 12 : 14;
     panel(ctx, right - topW, top, topW, topH);
 
     // money
@@ -107,6 +111,11 @@ export class Hud {
     by += 13;
     if (armor > 0) {
       drawBar(ctx, bx, by, bw, 7, Math.max(0, armor / 100), '#90caf9', 'rgba(0,0,0,0.5)', '🛡', small);
+      by += 11;
+    }
+    if (swim) {
+      const left = Math.max(0, 1 - g.swimT / SWIM_S);
+      drawBar(ctx, bx, by, bw, 7, left, left > 0.3 || Math.floor(g.time * 4) % 2 ? '#4fc3f7' : '#01579b', 'rgba(0,0,0,0.5)', '🫧', small);
       by += 11;
     }
 

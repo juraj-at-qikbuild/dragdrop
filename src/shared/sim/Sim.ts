@@ -64,6 +64,10 @@ const SPRAY_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#f9a825', '#eeeeee', '#2
 const CLEAN_GETAWAY_HP = 0.95;
 /** health an ambulance gives back to its driver, per second */
 export const AMBULANCE_HEAL = 2;
+/** how long a player can swim before they drown (s; docs/plans/gameplay.md, Phase 3) */
+export const SWIM_S = 20;
+/** a car this long under water (s) lets its driver out to swim for it */
+const SINK_OUT = 1;
 const SPRAY_COST = 250;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
@@ -456,11 +460,13 @@ export class Sim {
       }
       // a player's own car: their client runs its fire countdown and sinking, and reports the result
       if (v.fire > -1 && v.fire <= 0 && !v.wrecked) this.wreck(v);
-      if (v.sinking > 2.5 && !v.kinematic) {
+      // a car going under: a player gets out and swims for it (their client does, online); anyone
+      // else goes down with it
+      if (v.sinking > SINK_OUT && !v.kinematic) {
         const owner = this.players.get(v.owner);
-        if (owner && owner.ped.vehicle === v) this.wasted(owner);
-        if (v.driver && !v.driver.playerId) gone.add(v.driver);
+        if (owner && owner.ped.vehicle === v) this.exitVehicle(owner, true);
       }
+      if (v.sinking > 2.5 && !v.kinematic && v.driver && !v.driver.playerId) gone.add(v.driver);
     }
     if (gone.size) this.peds = this.peds.filter((p) => !gone.has(p));
     this.vehicles = this.vehicles.filter((v) => {
@@ -615,7 +621,7 @@ export class Sim {
       } else d.state = 'chase';
       this.crime(p, 'carjack', d);
     }
-    if (v.kind === 'police') this.crime(p, 'stealCop');
+    if (v.kind === 'police' || v.kind === 'policeboat') this.crime(p, 'stealCop');
     this.ai.drivers.delete(v);
     v.driver = ped;
     v.owner = p.id;
@@ -664,7 +670,8 @@ export class Sim {
     const ped = p.ped;
     const v = ped.vehicle;
     if (!v) return;
-    const s = at ?? this.world.exitSpot(v);
+    // (off a boat mid-river, or out of a sinking car: into the water, to swim)
+    const s = at ?? this.world.exitSpot(v, 1, !!v.spec.boat || v.sinking > 0);
     ped.x = s.x;
     ped.y = s.y;
     this.releaseCar(p, v);
@@ -1201,10 +1208,10 @@ export class Sim {
   /** drowning in the Danube */
   private hazards(p: SimPlayer, dt: number) {
     const ped = p.ped;
-    // (aboard a tram over the Danube isn't in it: rules/Trams.ts)
+    // swimming: SWIM_S of it, then they drown (aboard a tram over the Danube isn't in it: rules/Trams.ts)
     if (!ped.vehicle && !ped.aboard && this.world.inWater(ped.x, ped.y, ped.level)) {
       p.drown += dt;
-      if (p.drown > 1.5) this.wasted(p);
+      if (p.drown > SWIM_S) this.wasted(p);
     } else p.drown = 0;
   }
 

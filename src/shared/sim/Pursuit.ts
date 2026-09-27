@@ -159,7 +159,7 @@ export class Pursuit {
     };
     sim.forVehiclesNear(f.x, f.y, SIGHT.car.range + 5, (v) => {
       if (v.wrecked || v.isPlayer || !v.driver || v.driver.dead || !(anyCar || v.siren) || !sightOk(v.level)) return;
-      if (v.kind !== 'police' && !sim.police.swat.has(v)) return;
+      if (v.kind !== 'police' && v.kind !== 'policeboat' && !sim.police.swat.has(v)) return;
       const heard = dist(v.x, v.y, f.x, f.y);
       if (heard <= hear) return saw(heard, SIGHT.car.near);
       const d = inSight(v.x, v.y, v.angle, SIGHT.car, env.scale, f.x, f.y, target);

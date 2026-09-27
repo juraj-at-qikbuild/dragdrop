@@ -9,7 +9,7 @@ import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog'
 
 /** New kinds go at the end (docs/plans/gameplay.md, Phase 3): the wire sends a kind as its index in
  *  SPECS, and a client from before draws one it doesn't know as a sedan. */
-export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance' | 'scooter' | 'bike';
+export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance' | 'scooter' | 'bike' | 'boat' | 'policeboat';
 
 /** a located-damage zone: front/rear/left/right of the car's local frame */
 export type DamageZone = 'front' | 'rear' | 'left' | 'right';
@@ -49,6 +49,9 @@ export interface CarSpec {
   /** a scooter or a bike (docs/plans/gameplay.md, Phase 3): narrow enough for a bollard row, no nitro,
    *  no fire, and the rider is out in the open (shots and knocks reach them) */
   twoWheeler?: boolean;
+  /** a boat (docs/plans/gameplay.md, Phase 3): kept to the water (land is a wall to it), and it
+   *  doesn't sink */
+  boat?: boolean;
 }
 
 // All vehicles are parody models, loosely styled on cars you see on Bratislava streets.
@@ -81,6 +84,12 @@ export const SPECS: Record<VehicleKind, CarSpec> = {
     drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#34d186'], twoWheeler: true },
   bike: { kind: 'bike', name: 'Favoritka', length: 1.75, width: 0.6, maxSpeed: 8.5, accel: 2.8, brake: 5.5, grip: 7, mass: 95, health: 45,
     drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#1565c0', '#c62828', '#212121', '#f9a825', '#2e7d32', '#eeeeee'], twoWheeler: true },
+  // docs/plans/gameplay.md, Phase 3: moored at the piers on the Danube, loose on the water (it slides
+  // round a bend), and the brake is the propeller in reverse. The police boat comes at 4★
+  boat: { kind: 'boat', name: 'Motorový čln', length: 5.6, width: 2.2, maxSpeed: 17, accel: 4.5, brake: 3.5, grip: 3.2, mass: 1100, health: 110,
+    drive: 'rwd', frontGrip: 1, rearGrip: 0.8, inertia: 0, vCap: 0, colors: ['#fafafa', '#1565c0', '#c62828', '#263238'], boat: true },
+  policeboat: { kind: 'policeboat', name: 'Policajný čln', length: 6.2, width: 2.4, maxSpeed: 18, accel: 5, brake: 4, grip: 3.5, mass: 1400, health: 170,
+    drive: 'rwd', frontGrip: 1, rearGrip: 0.85, inertia: 0, vCap: 0, colors: ['#eceff1'], boat: true },
 };
 /** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
 const ROLL = 0.15, AERO = 0.00065;
@@ -245,7 +254,7 @@ export class Vehicle {
   /** driven by a player (local or remote) */
   /** a police car or an ambulance: its siren works (a player's too: H, docs/plans/gameplay.md Phase 3) */
   get hasSiren() {
-    return this.kind === 'police' || this.kind === 'ambulance';
+    return this.kind === 'police' || this.kind === 'ambulance' || this.kind === 'policeboat';
   }
 
   get isPlayer() {
@@ -286,10 +295,12 @@ export class Vehicle {
   update(dt: number, world: World): number {
     const s = this.spec;
     const c = this.wrecked || this.sinking ? STOPPED : this.ctrl;
+    const a0 = this.angle;
 
-    // surface, cached and re-queried every metre or so (often enough to catch a kerb)
+    // surface, cached and re-queried every metre or so (often enough to catch a kerb); a boat's is
+    // the water, the same all over
     this.surfT -= dt;
-    if (this.surfT <= 0) {
+    if (this.surfT <= 0 && !s.boat) {
       const was = this.surf;
       this.surf = world.surfaceAt(this.x, this.y, this.level);
       this.surfT = clamp(1.2 / Math.max(1, this.speed), 0.02, 0.1);
@@ -299,7 +310,7 @@ export class Vehicle {
     }
     if (this.bounce > 0) this.bounce = Math.max(0, this.bounce - dt);
     let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : this.surf === 'steps' ? 0.6 : this.surf === 'kerb' ? 0.8 : 1;
-    muSurf *= 1 - 0.28 * Vehicle.env.wet;
+    if (!s.boat) muSurf *= 1 - 0.28 * Vehicle.env.wet;
     // flying off a speed bump: nothing to push, brake or steer with until the wheels land
     const airborne = this.air > 0;
     if (airborne) this.air = Math.max(0, this.air - dt);
@@ -429,7 +440,7 @@ export class Vehicle {
     this.av += avAccel * dt;
     this.angle += this.av * dt;
 
-    this.skid = Math.abs(vR) > 2.5 || (c.handbrake && Math.abs(vF) > 6) || (braking > 0.8 && vAbs > 8 && muLong < 0.8) ? clamp(Math.abs(vR) / 7 + 0.3, 0, 1) : 0;
+    this.skid = s.boat ? 0 : Math.abs(vR) > 2.5 || (c.handbrake && Math.abs(vF) > 6) || (braking > 0.8 && vAbs > 8 && muLong < 0.8) ? clamp(Math.abs(vR) / 7 + 0.3, 0, 1) : 0;
 
     // back to the world: the forces above acted in the frame the car was in at the start of the
     // step, so the velocity only turns as far as the tyres turned it (rotating it with the body for
@@ -461,10 +472,11 @@ export class Vehicle {
       const sev = resolveContact(this, px, py, null, px, py, -hit.nx, -hit.ny, 0.25, 0.45, undefined, 2.5);
       impact = Math.max(impact, sev);
     }
+    if (s.boat) impact = Math.max(impact, this.afloat(world, x0, y0, a0));
     if (impact > 7) this.damage((impact - 7) * 1.6);
 
-    // water
-    if (!this.sinking && world.inWater(this.x, this.y, this.level)) this.sinking = 0.001;
+    // water (a boat's element)
+    if (!s.boat && !this.sinking && world.inWater(this.x, this.y, this.level)) this.sinking = 0.001;
     if (this.sinking) {
       this.sinking += dt;
       this.vx *= 1 - dt * 2;
@@ -473,6 +485,21 @@ export class Vehicle {
     if (this.fire > 0) this.fire -= dt;
     if (this.horn > 0) this.horn -= dt;
     return impact;
+  }
+
+  /** A boat's bow or stern ran onto the bank (or a pier): it's back where it was and bounces off, and
+   *  its speed is how hard it hit. */
+  private afloat(world: World, x0: number, y0: number, a0: number): number {
+    // (the hull a little inside its drawn outline: its bow and quarters may just touch the bank)
+    if (world.afloat(this.x, this.y, this.angle, this.spec.length * 0.9, this.spec.width * 0.8)) return 0;
+    const sev = this.speed;
+    this.x = x0;
+    this.y = y0;
+    this.angle = a0;
+    this.vx *= -0.3;
+    this.vy *= -0.3;
+    this.av *= -0.3;
+    return sev;
   }
 
   /** Rolled over a bump of kind 0 speed bump, 1 raised table, 2 cushions, 3 rumble strip at forward

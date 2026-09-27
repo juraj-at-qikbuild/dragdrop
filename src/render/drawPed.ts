@@ -9,7 +9,7 @@ const lastDraw = new WeakMap<Ped, number>();
 
 /** `scale`: the camera's world→screen factor (View.scale), so a downed figure's ✚ marker can stay a
  *  constant size on screen regardless of zoom (Revive; docs/plans/social-events.md). */
-export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmosphere, scale = 1) {
+export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmosphere, scale = 1, swim = false) {
   // decay the hit-flash timer using real elapsed time between draws
   const now = performance.now();
   const last = lastDraw.get(p);
@@ -83,6 +83,11 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     ctx.restore();
     return;
   }
+  if (swim) {
+    drawSwimmer(ctx, p);
+    ctx.restore();
+    return;
+  }
   ctx.rotate(p.angle);
   ctx.scale(1.45, 1.45);
   const speed = Math.hypot(p.vx, p.vy);
@@ -147,6 +152,37 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+}
+
+/** Someone swimming (docs/plans/gameplay.md, Phase 3), from above: the head and shoulders out of the
+ *  water, the arms stroking by turns, rings of ripples spreading round them. */
+function drawSwimmer(ctx: CanvasRenderingContext2D, p: Ped) {
+  const t = performance.now() / 1000 + (p.seed % 13);
+  ctx.rotate(p.angle);
+  ctx.scale(1.45 * p.build, 1.45 * p.build);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 0.035;
+  for (let i = 0; i < 2; i++) {
+    const k = (t * 0.6 + i * 0.5) % 1;
+    ctx.globalAlpha = 1 - k;
+    ctx.beginPath();
+    ctx.ellipse(-0.05, 0, 0.35 + k * 0.5, 0.3 + k * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = shade(p.shirt, -0.35);
+  ctx.beginPath();
+  ctx.ellipse(-0.04, 0, 0.14, 0.27, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const s = Math.sin(t * 3.2);
+  ctx.lineCap = 'round';
+  capsule(ctx, 0, -0.22, 0.25 + 0.2 * s, -0.24, 0.09, p.skin);
+  capsule(ctx, 0, 0.22, 0.25 - 0.2 * s, 0.24, 0.09, p.skin);
+  ctx.fillStyle = p.skin;
+  ctx.beginPath();
+  ctx.arc(0.06, 0, 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  drawHair(ctx, p);
 }
 
 /** Someone riding a scooter (standing, one foot ahead of the other) or a bike (`seated`, the feet on

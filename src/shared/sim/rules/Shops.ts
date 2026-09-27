@@ -35,7 +35,7 @@ const HOLD_S = 90;
 
 /** a car the workshop may tune and a garage keep: not a police car, nor an event's or a mission's */
 export function ownable(v: Vehicle): boolean {
-  return v.kind !== 'police' && !v.spec.twoWheeler && v.livery === LIVERY_NONE && !v.mission && !v.locked && !v.wrecked && v.fire <= -1 && !v.sinking;
+  return v.kind !== 'police' && !v.spec.twoWheeler && !v.spec.boat && v.livery === LIVERY_NONE && !v.mission && !v.locked && !v.wrecked && v.fire <= -1 && !v.sinking;
 }
 
 export class Shops implements SimRule {
