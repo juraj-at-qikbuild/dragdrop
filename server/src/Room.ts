@@ -555,9 +555,12 @@ export class Room {
     this.send(c, this.wevMsg());
   }
 
-  /** the city-wide state: world events (the director) + whatever features add (the daily puzzle) */
+  /** the city-wide state: world events (the director) and what's coming next, plus whatever
+   *  features add (the daily puzzle) */
   wevMsg(): WevMsg {
-    const out: WevMsg = { t: 'wev', ev: this.director?.entries() ?? [], daily: null };
+    const dir = this.director;
+    const out: WevMsg = { t: 'wev', ev: dir?.entries() ?? [], daily: null };
+    if (dir) out.up = dir.schedule();
     for (const f of this.features) f.wev?.(out);
     return out;
   }

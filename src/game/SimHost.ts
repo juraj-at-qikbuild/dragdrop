@@ -12,7 +12,7 @@ import type { PrivateEvent } from '../shared/sim/events';
 import type { Observer, PlayerState, Profile } from '../shared/sim/SimPlayer';
 import type { NetStatus } from '../net/Connection';
 import type { RosterRow } from '../shared/net/protocol';
-import type { ChallengeState, DailyState, EventEntry, JobKind, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
+import type { ChallengeState, DailyState, EventEntry, EventSchedule, JobKind, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
 export interface MeView {
@@ -46,8 +46,11 @@ export interface NetView {
 export interface LiveState {
   /** active world events */
   events: EventEntry[];
-  /** when `events` arrived (performance.now() ms): each entry's `left` counts down from then */
+  /** when `events` (and `schedule`) arrived (performance.now() ms): each entry's `left` counts down
+   *  from then */
   eventsAt: number;
+  /** what's coming next: the director's plan (null from a server that doesn't send one) */
+  schedule: EventSchedule | null;
   daily: DailyState | null;
   party: PartyState | null;
   job: JobState | null;
@@ -63,7 +66,7 @@ export interface LiveState {
 }
 
 export function emptyLive(): LiveState {
-  return { events: [], eventsAt: 0, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map(), score: null };
+  return { events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null, partyTags: new Map(), score: null };
 }
 
 /** seconds left in a world event's phase, now */

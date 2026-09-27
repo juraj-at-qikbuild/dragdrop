@@ -34,6 +34,35 @@ export interface EventEntry {
   place?: string;
 }
 
+/** The director's plan, for what's coming next (the Aktivity panel and its HUD chip). Like
+ *  EventEntry.left, the seconds count down from when it was sent; clients work out the rest
+ *  (src/game/features/activities/forecast.ts). */
+export interface EventSchedule {
+  /** the schedule runs (false: switched off in game_config) */
+  on: boolean;
+  /** seconds until the director next tries to start a scheduled event (while none can start, it
+   *  tries again every 30 s) */
+  next: number;
+  /** players who count right now: connected, not idle, not away (offline: the one player) */
+  players: number;
+  /** the single-player schedule, where player counts don't matter */
+  offline: boolean;
+  kinds: EventPlan[];
+}
+
+/** Where one kind of world event stands in the plan. */
+export interface EventPlan {
+  kind: EventKind;
+  /** players it needs online */
+  min: number;
+  /** seconds until it may run again (0: now) */
+  cd: number;
+  /** picked by the schedule; false: it starts by itself (the most wanted, when someone reaches 5★) */
+  sched: boolean;
+  /** never runs here (the online-only kinds, offline) */
+  never?: boolean;
+}
+
 /** Today's "Kde to je?" puzzle as clients see it (the spot itself stays on the server). */
 export interface DailyState {
   /** YYYY-MM-DD, Bratislava time */

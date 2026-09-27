@@ -262,6 +262,7 @@ export class NetSimHost implements SimHost, NetView {
       case 'wev':
         this.live.events = m.ev;
         this.live.eventsAt = performance.now();
+        this.live.schedule = m.up ?? null;
         this.live.daily = m.daily;
         break;
       case 'voicePeers':

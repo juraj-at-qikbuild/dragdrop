@@ -8,7 +8,7 @@ import type { WeaponId } from '../entities/Ped';
 import type { GlobalEvent, PrivateEvent } from '../sim/events';
 import type { PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
-import type { DailyState, EventEntry, EventKind, JobKind } from '../sim/rules/types';
+import type { DailyState, EventEntry, EventKind, EventSchedule, JobKind } from '../sim/rules/types';
 import type { BoardId, ScorePeriod } from '../sim/rules/points';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
@@ -258,6 +258,9 @@ export interface WevMsg {
   t: 'wev';
   ev: EventEntry[];
   daily: DailyState | null;
+  /** what's coming next (the Aktivity panel). Optional both ways, so protocol 7 either way: a server
+   *  from before it leaves it out, and a client from before ignores it */
+  up?: EventSchedule;
 }
 
 export type ErrorCode = 'version' | 'bad-hello' | 'full' | 'auth' | 'auth-unavailable' | 'nick-taken';

@@ -210,6 +210,14 @@ together (see `docs/deploy.md`).
   changes phase worth telling the map about; `Room` compares it every tick and, if it's moved on,
   shortens the next `wev` send to within 150 ms instead of waiting for the 1 Hz timer. A feature (only
   `Daily` today) can add its own bit to the same message through the `wev()` `RoomFeature` hook.
+- **What's coming (`wev.up`).** `WorldEvents.schedule()` is the director's plan: the seconds to its next
+  try, the players who count (connected, not idle, not away), whether the schedule is on, and for each
+  kind the players it needs, its cooldown left and whether it's scheduled or triggered (and, offline,
+  that the online-only kinds never run). It rides along in every `wev` as the optional `up`, so protocol
+  7 holds either way. The version also bumps when the player count or the on/off switch changes, so the
+  plan goes out again then. Clients count it down themselves and work out the rest
+  (`src/game/features/activities/forecast.ts`) for the Aktivity panel (U) and its HUD chip. A player in
+  the pause menu is away and doesn't count, so their own forecast adds them back.
 - **The 9-field roster.** `RosterRow` grew from 7 fields to
   `[id, nick, x, y, wanted, inCar, pedId, partyId, flags]`. `flags` is `ROSTER_DOWNED` (bit 0),
   `ROSTER_VOICE` (bit 1) and `ROSTER_ACCOUNT` (bit 2). The `roster` message also carries an optional

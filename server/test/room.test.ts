@@ -463,6 +463,25 @@ describe('roster and wev', () => {
     expect(a.link.json('wev')).toHaveLength(1);
   });
 
+  it("wev carries what's coming next, and resends it when a player arrives or steps away", () => {
+    const { room, join, tick } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const up = a.link.last('wev').up!;
+    expect(up.players).toBe(1);
+    expect(up.offline).toBe(false);
+    expect(up.kinds.find((k) => k.kind === 'kofolka')?.min).toBe(2);
+    tick(5);
+    a.link.clear();
+    const b = join(TOKEN_B, 'Boris');
+    tick(5); // the debounced wev broadcast fires within ~150 ms of a version bump
+    expect(a.link.last('wev')?.up?.players).toBe(2);
+    // Anna opens the pause menu: away players don't count for events, and Boris hears so
+    b.link.clear();
+    room.onMessage(a.conn, JSON.stringify({ t: 'away', on: true }));
+    tick(5);
+    expect(b.link.last('wev')?.up?.players).toBe(1);
+  });
+
   it('a global event reaches every connected player through ev.g', () => {
     const { room, join, tick } = setup();
     const a = join(TOKEN_A, 'Anna');

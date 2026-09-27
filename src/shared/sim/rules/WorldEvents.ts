@@ -5,7 +5,7 @@
 // Plan: docs/plans/social-events.md
 import type { Sim } from '../Sim';
 import type { SimRule } from './SimRule';
-import type { EventEntry, EventKind, EventPhase } from './types';
+import type { EventEntry, EventKind, EventPhase, EventPlan, EventSchedule } from './types';
 
 export type RulesMode = 'offline' | 'server';
 
@@ -98,6 +98,8 @@ export class WorldEvents implements SimRule {
   private timer: number;
   private nextId = 1;
   private endedAt = new Map<EventKind, number>();
+  /** the player count and on/off switch last announced through `version` (see step) */
+  private planSig = -1;
 
   constructor(
     private sim: Sim,
@@ -119,6 +121,13 @@ export class WorldEvents implements SimRule {
 
   step(dt: number) {
     for (const e of [...this.active]) if (!e.update(dt)) this.finish(e);
+    // who's around, and whether the schedule runs at all, decide what can come next: clients hear of
+    // a change (the countdowns they work out for themselves)
+    const sig = this.playerCount() * 2 + (this.config.enabled ? 1 : 0);
+    if (sig !== this.planSig) {
+      this.planSig = sig;
+      this.changed();
+    }
     if (!this.config.enabled) return;
     this.timer -= dt;
     if (this.timer > 0) return;
@@ -165,6 +174,20 @@ export class WorldEvents implements SimRule {
 
   entries(): EventEntry[] {
     return this.active.map((e) => e.entry());
+  }
+
+  /** what's coming: the countdown to the next try, and where every kind stands (players it needs,
+   *  cooldown left) */
+  schedule(): EventSchedule {
+    const offline = this.mode === 'offline';
+    const kinds: EventPlan[] = [];
+    for (const d of this.defs.values()) {
+      const cd = Math.max(0, d.cooldown - (this.sim.time - (this.endedAt.get(d.kind) ?? -1e9)));
+      const plan: EventPlan = { kind: d.kind, min: d.minPlayers, cd: Math.ceil(cd), sched: d.scheduled };
+      if (offline && !d.offline) plan.never = true;
+      kinds.push(plan);
+    }
+    return { on: this.config.enabled, next: Math.max(0, Math.ceil(this.timer)), players: this.playerCount(), offline, kinds };
   }
 
   /** end everything (server shutdown, tests) */

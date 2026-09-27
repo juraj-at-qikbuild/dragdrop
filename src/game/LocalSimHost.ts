@@ -60,8 +60,10 @@ export class LocalSimHost implements SimHost {
 
   update(dt: number) {
     this.sim.step(dt);
-    // the rules run right here, so the world events are always current
-    this.live.events = this.sim.rule<WorldEvents>('worldEvents')?.entries() ?? [];
+    // the rules run right here, so the world events and what's coming are always current
+    const dir = this.sim.rule<WorldEvents>('worldEvents');
+    this.live.events = dir?.entries() ?? [];
+    this.live.schedule = dir?.schedule() ?? null;
     this.live.eventsAt = performance.now();
   }
 
