@@ -102,9 +102,9 @@ export class Crowd {
   private separate() {
     const sim = this.sim;
     for (const p of sim.peds) {
-      if (p.dead || p.vehicle) continue;
+      if (p.dead || p.vehicle || p.aboard) continue;
       sim.forPedsNear(p.x, p.y, 1, (q) => {
-        if (q.id <= p.id || q.dead || q.vehicle || q.level !== p.level) return;
+        if (q.id <= p.id || q.dead || q.vehicle || q.aboard || q.level !== p.level) return;
         const dx = q.x - p.x, dy = q.y - p.y, rr = p.r + q.r, d2 = dx * dx + dy * dy;
         if (d2 >= rr * rr) return;
         const fp = this.fixed(p), fq = this.fixed(q);
@@ -168,7 +168,7 @@ export class Crowd {
     const sim = this.sim;
     for (const pl of sim.players.values()) {
       const me = pl.ped;
-      if (pl.state !== 'play' || me.vehicle || me.dead || me.weapon === 'fist') continue;
+      if (pl.state !== 'play' || me.vehicle || me.aboard || me.dead || me.weapon === 'fist') continue;
       const fx = Math.cos(me.angle), fy = Math.sin(me.angle);
       sim.forPedsNear(me.x + fx * 5, me.y + fy * 5, 7, (q) => {
         if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== me.level) return;

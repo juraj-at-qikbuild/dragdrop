@@ -14,6 +14,7 @@ import type { NetStatus } from '../net/Connection';
 import type { RosterRow } from '../shared/net/protocol';
 import type { ChallengeState, DailyState, EventEntry, EventSchedule, JobKind, JobState, PartyState, RaceState, ReviveState } from '../shared/sim/rules/types';
 import type { ShopReq } from '../shared/sim/rules/Shops';
+import type { TramOp } from '../shared/sim/rules/Trams';
 import type { Prices } from '../shared/sim/shops/catalog';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
@@ -75,6 +76,9 @@ export interface LiveState {
   catalog: Prices | null;
   /** how the last shop request went, and when (performance.now() ms): the open shop panel shows it */
   shop: { ok: boolean; text: string; at: number } | null;
+  /** the tram this player is on, and whether in its cab (docs/plans/gameplay.md, Phase 3: the `tram`
+   *  event); null on foot or in a car */
+  tram: { id: number; cab: boolean } | null;
 }
 
 /** the `police` private event, as kept: the description (car 0: on foot), whether the player matches
@@ -94,7 +98,7 @@ export interface PoliceView {
 export function emptyLive(): LiveState {
   return {
     events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null,
-    partyTags: new Map(), score: null, police: null, bribe: null, catalog: null, shop: null,
+    partyTags: new Map(), score: null, police: null, bribe: null, catalog: null, shop: null, tram: null,
   };
 }
 
@@ -129,6 +133,10 @@ export function applyLive(live: LiveState, e: PrivateEvent) {
       break;
     case 'respawn':
       live.bribe = null;
+      live.tram = null;
+      break;
+    case 'tram':
+      live.tram = e.id ? { id: e.id, cab: !!e.cab } : null;
       break;
     case 'shop':
       live.shop = { ok: e.ok, text: e.text, at: performance.now() };
@@ -182,6 +190,12 @@ export interface SimHost {
   /** the shop the player is in (rules/Shops.ts): buy, park the car in the garage, take one out. The
    *  answer comes as a `shop` event (LiveState.shop); online, nothing is sent without a catalog. */
   shop(req: ShopReq): void;
+  /** trams (rules/Trams.ts): whether this host takes them at all (online: the server's welcome says
+   *  so), a request to get on one, into its cab or off, and the cab's controls (each frame while in
+   *  it: online they're sent a few times a second) */
+  readonly takesTrams: boolean;
+  tram(op: TramOp): void;
+  tramDrive(throttle: number, steer: number, bell: boolean): void;
   /** host-specific reaction to a private event (before the generic effects) */
   onPrivate(e: PrivateEvent): void;
   /** the pause menu opened or closed (Game.setPaused): offline nothing to do (the menu freezes the

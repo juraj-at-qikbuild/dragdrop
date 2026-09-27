@@ -46,6 +46,8 @@ import { LocalSimHost } from './LocalSimHost';
 import type { SimHost } from './SimHost';
 import { createClientFeatures, type ClientFeature } from './features';
 import { cleanGear } from '../shared/sim/shops/gear';
+import { TRAM_STOPPED, tramUse } from '../shared/sim/rules/Trams';
+import type { Tram } from '../shared/entities/Tram';
 
 /** the offline save: the local player's profile plus the time of day */
 export type SaveData = Profile;
@@ -59,6 +61,8 @@ const CAM_FOOT_M = 32;
 const CAM_FOOT_M_PHONE = 27;
 /** in a vehicle, zoomed out by this factor at a standstill... */
 const CAM_CAR_ZOOM = 0.84;
+/** ...and aboard a tram, this much further out again */
+const CAM_TRAM_ZOOM = 0.8;
 /** ...and further with speed, gently (the view doubles at this speed, m/s: 180 km/h), so the car
  *  stays big enough to steer by; the look-ahead below shows the road coming */
 const CAM_SPEED_ZOOM = 50;
@@ -429,6 +433,12 @@ export class Game {
   prompt(): { use: boolean; text: string } | null {
     const p = this.player;
     if (this.state !== 'play' || this.showMap || this.paused) return null;
+    // aboard a tram (docs/plans/gameplay.md, Phase 3): off once it's stopped
+    const on = this.host.live.tram;
+    if (on) {
+      const t = this.aboardTram();
+      return t && t.speed < TRAM_STOPPED ? { use: true, text: on.cab ? 'Opustiť kabínu' : 'Vystúpiť' } : null;
+    }
     const v = p.vehicle;
     if (v) {
       // off a scooter or a bike (docs/plans/gameplay.md, Phase 3), which no spray shop or workshop takes
@@ -444,6 +454,9 @@ export class Game {
             };
       return v.speed < 1 ? { use: true, text: 'Vystúpiť' } : null;
     }
+    // at a tram's door (at a stop), or its nose (stopped): on it, or into its cab
+    const use = this.tramHere();
+    if (use) return { use: true, text: use.op === 'cab' ? 'Ukradnúť električku' : 'Nastúpiť do električky' };
     const car = this.findEnterable();
     if (car) {
       // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)
@@ -454,6 +467,18 @@ export class Game {
     if (this.missions.enabled && !this.missions.active)
       for (const b of this.missions.available()) if (dist(b.x, b.y, p.x, p.y) < 8) return { use: false, text: `☎ Podíď k búdke: ${b.def.title}` };
     return null;
+  }
+
+  /** the tram this player is on (LiveState.tram), if the host still has it */
+  aboardTram(): Tram | null {
+    const on = this.host.live.tram;
+    return on ? (this.host.trams.find((t) => t.id === on.id) ?? null) : null;
+  }
+
+  /** what a player on foot here could do with a tram (rules/Trams.ts), if the host takes trams */
+  private tramHere() {
+    const p = this.player;
+    return this.host.takesTrams && !p.vehicle && !this.host.live.tram ? tramUse(this.host.trams, p.x, p.y, p.level) : null;
   }
 
   private findEnterable(): Vehicle | null {
@@ -555,7 +580,10 @@ export class Game {
       this.lastMouse = { x: inp.mouseX, y: inp.mouseY };
     }
     if (inp.hit('KeyF', 'Enter', 'KeyE')) {
-      if (p.vehicle) this.host.requestExit();
+      const use = this.tramHere();
+      if (this.host.live.tram) this.host.tram('off');
+      else if (p.vehicle) this.host.requestExit();
+      else if (use) this.host.tram(use.op);
       else {
         const v = this.findEnterable();
         if (v) this.host.requestEnter(v);
@@ -569,6 +597,20 @@ export class Game {
       if (inp.hit(k) && this.ammo[w] > 0) p.weapon = w;
     });
     if (this.ammo[p.weapon] <= 0) p.weapon = 'fist';
+
+    // aboard a tram (rules/Trams.ts): the host keeps us where the tram has us. In the cab: the throttle
+    // and the brake, the steering for the branch at the next junction, and the bell
+    const on = this.host.live.tram;
+    if (on) {
+      if (on.cab) {
+        const ax = inp.axis();
+        let throttle = -ax.y;
+        if (inp.pad.active && Math.abs(inp.pad.rt - inp.pad.lt) > 0.05) throttle = inp.pad.rt - inp.pad.lt;
+        this.host.tramDrive(throttle, ax.x, inp.hit('KeyH'));
+      }
+      if (p.cooldown > 0) p.cooldown -= dt;
+      return;
+    }
 
     const v = p.vehicle;
     if (v) {
@@ -883,9 +925,12 @@ export class Game {
     const base = (Math.min(this.viewW, this.viewH) / CAM_FOOT_M) * this.zoomPref;
     // on foot on a phone a little closer (driving keeps its view of the road ahead)
     const foot = this.touch && this.layout.compact ? (base * CAM_FOOT_M) / CAM_FOOT_M_PHONE : base;
-    // (a scooter or a bike keeps the view on foot: it's person-sized, and slow)
-    const car = v && !v.spec.twoWheeler;
-    const target = (car ? (base * CAM_CAR_ZOOM) / (1 + v.speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
+    // (a scooter or a bike keeps the view on foot: it's person-sized, and slow; a tram's 29 m want a
+    // wider one than a car)
+    const tram = this.aboardTram();
+    const car = (v && !v.spec.twoWheeler) || !!tram;
+    const speed = v ? v.speed : (tram?.speed ?? 0);
+    const target = (car ? (base * CAM_CAR_ZOOM * (tram ? CAM_TRAM_ZOOM : 1)) / (1 + speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }
@@ -1303,13 +1348,14 @@ export class Game {
   private drawPlayerMarker(ctx: CanvasRenderingContext2D) {
     // the player is drawn above roofs as a subtle marker when hidden under buildings
     const p = this.player;
-    if (!p.vehicle) drawPed(p, ctx, this.atmos, this.cam.scale);
+    // (inside a tram, nobody sees them: rules/Trams.ts)
+    if (!p.vehicle && !this.host.live.tram) drawPed(p, ctx, this.atmos, this.cam.scale);
     if (this.state !== 'play') return;
     const f = this.focus();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 0.12;
     ctx.beginPath();
-    ctx.arc(f.x, f.y, p.vehicle ? p.vehicle.radius + 0.6 : 0.9, 0, Math.PI * 2);
+    ctx.arc(f.x, f.y, p.vehicle ? p.vehicle.radius + 0.6 : this.host.live.tram ? 1.6 : 0.9, 0, Math.PI * 2);
     ctx.stroke();
   }
 

@@ -178,6 +178,9 @@ async function main() {
   // them, and A's money, back as they were). E2E_SHOPS=0 leaves them out
   const shops = process.env.E2E_SHOPS !== '0';
   if (shops) await import('./e2e-shops.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
+  // trams (docs/plans/gameplay.md, Phase 3): on, off and the cab; they put the players back too.
+  // E2E_TRAMS=0 leaves them out
+  if (process.env.E2E_TRAMS !== '0') await import('./e2e-trams.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
 
   // server restart (fly deploy): both clients reconnect by themselves
   log('restarting server…');

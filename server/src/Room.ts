@@ -14,6 +14,8 @@ import { SERVER_CAPS, type Caps } from '../../src/shared/sim/density';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
 import { FALL_KNOCK, LIVERY_NONE, SPECS, Vehicle, fallHurt } from '../../src/shared/entities/Vehicle';
 import { inTrouble, type Presence } from '../../src/shared/sim/rules/Presence';
+import type { Trams } from '../../src/shared/sim/rules/Trams';
+import { Tram } from '../../src/shared/entities/Tram';
 import { Rng } from '../../src/shared/util/Rng';
 import { dist } from '../../src/shared/util/math';
 import { tuned } from '../../src/shared/sim/shops/catalog';
@@ -333,6 +335,8 @@ export class Room {
         return this.onPunch(s, msg.target, msg.rt);
       case 'horn':
         return this.onHorn(p);
+      case 'tram':
+        return this.onTram(s, msg);
       case 'hit':
         return this.onHit(s, msg.src, msg.speed, msg.tram === 1, msg.rt);
       case 'nick': {
@@ -560,8 +564,12 @@ export class Room {
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
       car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
+      caps: ['tram'],
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats, gear: p.profile.gear ?? {} });
+    // still on a tram (a reconnect): the new connection's client is told so again
+    const aboard = this.sim.rule<Trams>('trams')?.of(p);
+    if (aboard) this.sim.events.toPlayer(p.id, { k: 'tram', id: aboard.t.id, cab: aboard.cab });
     for (const f of this.features) f.onHello?.(s, isNew, msg);
     this.send(c, this.wevMsg());
   }
@@ -591,6 +599,18 @@ export class Room {
     if (r.epoch !== p.epoch) return;
     if (p.state !== 'play' && !downed) return;
     if (downed && r.veh) return;
+    // aboard a tram (rules/Trams.ts): the simulation moves them with it, and only their camera counts
+    if (p.ped.aboard) {
+      const f = p.focus();
+      o.fx = f.x;
+      o.fy = f.y;
+      o.cx = f.x + r.camDx;
+      o.cy = f.y + r.camDy;
+      s.lastPose = { x: f.x, y: f.y };
+      s.lastPoseAt = t;
+      s.wasInCar = true;
+      return;
+    }
     if (s.poseEpoch !== p.epoch) {
       // first report since a respawn: measure moves from where the server put them
       s.poseEpoch = p.epoch;
@@ -659,6 +679,20 @@ export class Room {
     o.fy = f.y;
     o.cx = f.x + r.camDx;
     o.cy = f.y + r.camDy;
+  }
+
+  /** a tram (rules/Trams.ts): on, into the cab, off; or the cab's controls */
+  private onTram(s: Session, m: Extract<ClientMsg, { t: 'tram' }>) {
+    const p = s.player, trams = this.sim.rule<Trams>('trams');
+    if (!trams) return;
+    if (m.op === 'drive') return trams.drive(p, Number(m.th) || 0, Number(m.st) || 0, !!m.bell);
+    if (m.op !== 'board' && m.op !== 'cab' && m.op !== 'off') return;
+    // off: their reports count again from the door they stepped out of (at the tram's last speed)
+    if (trams.act(p, m.op) && m.op === 'off') {
+      s.lastPose = { x: p.ped.x, y: p.ped.y };
+      s.lastPoseAt = this.now();
+      s.wasInCar = true;
+    }
   }
 
   private onExit(s: Session, x: number, y: number, veh: VehFull, fall?: number) {
@@ -796,6 +830,16 @@ export class Room {
     if (typeof m.hp === 'number') p.ped.health = m.hp;
     if (m.event) this.director?.start(m.event);
     if (m.teleport) this.sim.teleport(p, m.teleport[0], m.teleport[1], 0);
+    if (m.tram) {
+      // trams on the tracks a little way before the stop nearest the player: whichever gets there
+      // first pulls in and opens its doors (the AI drives them)
+      const w = this.sim.world, S = w.tramStops;
+      let best = -1;
+      for (let i = 0; i < S.length; i += 2) if (best < 0 || dist(S[i], S[i + 1], p.ped.x, p.ped.y) < dist(S[best], S[best + 1], p.ped.x, p.ped.y)) best = i;
+      if (best >= 0)
+        for (const n of w.tram.nodesAround(S[best], S[best + 1], 30, 110).slice(0, 4))
+          for (const link of w.tram.out[n]) this.sim.addTram(new Tram(w.tram, link, this.sim.rng, S));
+    }
     if (typeof m.car === 'string' && m.car in SPECS && !p.ped.vehicle) {
       const at = this.sim.world.clearSpot(p.ped.x + 3.5, p.ped.y, 3.2);
       const v = this.sim.addVehicle(new Vehicle(m.car, at.x, at.y, 0, SPECS[m.car].colors[0]));

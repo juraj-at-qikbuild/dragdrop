@@ -97,7 +97,8 @@ export class SnapshotBuilder {
       this.grid.insert(e, x, y);
     };
     for (const v of sim.vehicles) add(v.id, Ent.Vehicle, v.x, v.y, v.level, v);
-    for (const p of sim.peds) if (!p.vehicle || p.playerId) add(p.id, Ent.Ped, p.x, p.y, p.level, p);
+    // (a player aboard a tram is out of sight inside it, and back when they get off: rules/Trams.ts)
+    for (const p of sim.peds) if ((!p.vehicle || p.playerId) && !p.aboard) add(p.id, Ent.Ped, p.x, p.y, p.level, p);
     for (const t of sim.trams) add(t.id, Ent.Tram, t.x, t.y, t.level, t);
     for (const pk of sim.pickups) if (pk.hidden === 0) add(pk.id, Ent.Pickup, pk.x, pk.y, 0, pk);
     for (const pr of sim.props) add(pr.id, Ent.Prop, pr.x, pr.y, pr.level, pr);

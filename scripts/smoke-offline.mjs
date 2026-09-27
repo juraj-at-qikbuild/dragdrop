@@ -148,6 +148,60 @@ try {
     check(fell.off && fell.hp < 100, `a hard knock throws the rider off (${JSON.stringify(fell)})`);
   }
 
+  // a tram (docs/plans/gameplay.md, Phase 3): the nearest one stops; F at its nose takes the cab, W
+  // drives it, S stops it, F climbs out
+  const tram = await page.evaluate(() => {
+    const g = window.game, sim = g.host.sim, p = g.player;
+    // the nearest one, or one the AI puts down on the nearest tracks (out of sight, as it does)
+    let t = null, bd = 400;
+    for (const q of sim.trams) {
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bd) (bd = d), (t = q);
+    }
+    for (let k = 0; k < 40 && !t; k++) {
+      const before = new Set(sim.trams);
+      sim.ai.spawnTram(p.x, p.y, 60, 300 + k * 40);
+      t = sim.trams.find((q) => !before.has(q)) ?? null;
+    }
+    if (!t) return null;
+    t.dwell = 30;
+    t.speed = 0;
+    return { id: t.id };
+  });
+  if (!tram) check(false, 'a tram to drive');
+  else {
+    await sleep(300);
+    await page.evaluate((id) => {
+      const g = window.game, p = g.player, t = g.host.trams.find((q) => q.id === id);
+      p.x = t.x + Math.cos(t.angle) * 1.2;
+      p.y = t.y + Math.sin(t.angle) * 1.2;
+      p.level = t.level;
+      p.levelInit = true;
+    }, tram.id);
+    await sleep(100);
+    const cabText = await page.evaluate(() => window.game.prompt()?.text);
+    await page.keyboard.press('KeyF');
+    await sleep(300);
+    check(await page.evaluate((id) => window.game.host.live.tram?.id === id && window.game.host.live.tram.cab, tram.id), `took a tram's cab with F ("${cabText}")`);
+    const t0 = await page.evaluate((id) => { const t = window.game.host.trams.find((q) => q.id === id); return { x: t.x, y: t.y }; }, tram.id);
+    await page.keyboard.down('KeyW');
+    await sleep(2500);
+    await page.keyboard.up('KeyW');
+    const drove = await page.evaluate(({ id, x, y }) => {
+      const g = window.game, t = g.host.trams.find((q) => q.id === id);
+      return { d: Math.hypot(t.x - x, t.y - y), withIt: Math.hypot(g.player.x - t.x, g.player.y - t.y) < 3, wanted: g.wanted };
+    }, { id: tram.id, ...t0 });
+    check(drove.d > 3 && drove.withIt && drove.wanted >= 2, `the tram drives, with the player in its cab, and stealing it is a crime (${JSON.stringify(drove)})`);
+    await page.keyboard.down('KeyS');
+    await sleep(3000);
+    await page.keyboard.up('KeyS');
+    await page.keyboard.press('KeyF');
+    await sleep(300);
+    check(await page.evaluate(() => !window.game.host.live.tram), 'stopped, and climbed out with F');
+    // (the stars from stealing it would get in the way of the police checks below)
+    await page.evaluate(() => (window.game.wanted = 0));
+  }
+
   // shoot the nearest civilian with a pistol
   const shot = await page.evaluate(async () => {
     const g = window.game, p = g.player;

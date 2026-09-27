@@ -40,6 +40,9 @@ export const LOW_AFTER = 3;
 const RECOGNISE_BASE = 1;
 const RECOGNISE_PER_M = 1 / 20;
 const RECOGNISE_LOW = 2;
+/** ...and twice as long again for a rider among a tram's passengers, even one who matches
+ *  (rules/Trams.ts) */
+const RECOGNISE_RIDING = 2;
 /** with nobody watching, recognition falls back this fast (per s) */
 const SPOT_DECAY = 0.4;
 /** how far the helicopter counts as being, for recognising someone (m) */
@@ -201,12 +204,14 @@ export class Pursuit {
     // a still car after dark has its lights off: it's hard to make out among the parked ones
     const target = car && p.still >= LOW_AFTER && env.dark > 0.5 ? DARK_CAR : 1;
     const look = this.look(p, false, target);
+    const riding = !!p.ped.aboard && p.ped.aboard.driver !== p.id;
     let seen = false;
     if (look.d >= 0) {
-      if (matches || look.close) seen = true;
+      if ((matches || look.close) && !riding) seen = true;
       else {
-        // someone's looking at a player who isn't what they were told to look for: it takes a while
-        const t = (RECOGNISE_BASE + look.d * RECOGNISE_PER_M) * (p.low ? RECOGNISE_LOW : 1);
+        // someone's looking at a player who isn't what they were told to look for (or is one face
+        // among a tram's passengers): it takes a while
+        const t = (RECOGNISE_BASE + look.d * RECOGNISE_PER_M) * (p.low ? RECOGNISE_LOW : 1) * (riding ? RECOGNISE_RIDING : 1);
         p.spot = Math.min(1, p.spot + dt / t);
         seen = p.spot >= 1;
       }

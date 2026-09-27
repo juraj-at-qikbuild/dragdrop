@@ -10,6 +10,7 @@ import type { WorldEvents } from '../shared/sim/rules/WorldEvents';
 import type { Jobs } from '../shared/sim/rules/jobs/Jobs';
 import type { JobKind } from '../shared/sim/rules/types';
 import type { ShopReq, Shops } from '../shared/sim/rules/Shops';
+import type { TramOp, Trams } from '../shared/sim/rules/Trams';
 import { applyLive, emptyLive, type SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
@@ -20,6 +21,7 @@ export class LocalSimHost implements SimHost {
   readonly allowsPause = true;
   readonly allowsTimeScale = true;
   readonly missionsEnabled = true;
+  readonly takesTrams = true;
   readonly live = emptyLive();
 
   constructor(world: World, events: SimEvents, profile: Profile, clock: Clock, private save: () => void) {
@@ -120,6 +122,14 @@ export class LocalSimHost implements SimHost {
 
   shop(req: ShopReq) {
     this.shops?.act(this.me, req);
+  }
+
+  tram(op: TramOp) {
+    this.sim.rule<Trams>('trams')?.act(this.me, op);
+  }
+
+  tramDrive(throttle: number, steer: number, bell: boolean) {
+    this.sim.rule<Trams>('trams')?.drive(this.me, throttle, steer, bell);
   }
 
   onPrivate(e: PrivateEvent) {

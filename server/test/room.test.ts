@@ -15,6 +15,9 @@ import { Store, hashToken } from '../src/db';
 import { TimedEvent, type WorldEventDef } from '../../src/shared/sim/rules/WorldEvents';
 import type { EventEntry } from '../../src/shared/sim/rules/types';
 import type { PrivateEvent } from '../../src/shared/sim/events';
+import { Tram } from '../../src/shared/entities/Tram';
+import type { Trams } from '../../src/shared/sim/rules/Trams';
+import { Rng } from '../../src/shared/util/Rng';
 
 function setup(extra: Partial<RoomOptions> = {}) {
   const clock = new FakeClock();
@@ -271,6 +274,66 @@ describe('Room', () => {
     expect(hurtBy('scooter', 9)).toBeGreaterThan(5);
     expect(hurtBy('scooter', 1e9)).toBeLessThanOrEqual(30);
     expect(hurtBy('sedan', 9)).toBe(0);
+  });
+
+  it('trams: on through the Room, out of sight of others and deaf to reports aboard; the cab, and a driver who leaves', () => {
+    const { room, join, tick, clock } = setup();
+    const a = join(TOKEN_A, 'Anna');
+    const b = join(TOKEN_B, 'Boris');
+    expect(a.link.last('welcome').caps).toContain('tram');
+    room.onMessage(a.conn, stateMsg(a.x!, a.y!));
+    room.onMessage(b.conn, stateMsg(b.x!, b.y!));
+    tick(2);
+    const w = room.sim.world, sim = room.sim;
+    const pa = sim.players.get(a.id!)!, pb = sim.players.get(b.id!)!;
+    const rule = sim.rule<Trams>('trams')!;
+    // a tram near Anna, standing at a stop for as long as it takes
+    const n = w.tram.nodesAround(pa.ped.x, pa.ped.y, 0, 400)[0];
+    const t = sim.addTram(new Tram(w.tram, w.tram.out[n][0], new Rng(3), w.tramStops));
+    t.dwell = 1e9;
+    // both of them by it (their cameras too): Anna at a door, Boris 12 m off
+    const d = t.doorSpots();
+    Object.assign(pa.ped, { x: d[0], y: d[1], level: t.level });
+    Object.assign(pb.ped, { x: t.sections[1].x + 12, y: t.sections[1].y, level: t.level });
+    for (const q of [pa, pb]) Object.assign(q.observer, { fx: q.ped.x, fy: q.ped.y, cx: q.ped.x, cy: q.ped.y });
+    tick(3);
+    expect(idsOf(b.link, Ent.Ped).has(a.ped!)).toBe(true);
+    const evs = () => a.link.json('ev').flatMap((m) => m.p) as PrivateEvent[];
+    room.onMessage(a.conn, JSON.stringify({ t: 'tram', op: 'board' }));
+    tick(2);
+    expect(rule.of(pa)?.t).toBe(t);
+    expect(evs().some((e) => e.k === 'tram' && e.id === t.id)).toBe(true);
+    // Boris doesn't see her any more, and what her client says about where she is doesn't count
+    expect(idsOf(b.link, Ent.Ped).has(a.ped!)).toBe(false);
+    room.onMessage(a.conn, stateMsg(pa.ped.x + 4, pa.ped.y + 4));
+    tick();
+    expect(Math.hypot(pa.ped.x - t.sections[1].x, pa.ped.y - t.sections[1].y)).toBeLessThan(0.5);
+    // off at a door: seen again
+    room.onMessage(a.conn, JSON.stringify({ t: 'tram', op: 'off' }));
+    tick(3);
+    expect(rule.of(pa)).toBeNull();
+    expect(evs().some((e) => e.k === 'tram' && e.id === 0)).toBe(true);
+    expect(idsOf(b.link, Ent.Ped).has(a.ped!)).toBe(true);
+    // the cab: a crime, and her controls drive it
+    Object.assign(pa.ped, { x: t.x + Math.cos(t.angle) * 1.2, y: t.y + Math.sin(t.angle) * 1.2 });
+    room.onMessage(a.conn, JSON.stringify({ t: 'tram', op: 'cab' }));
+    tick();
+    expect(t.driver).toBe(a.id);
+    expect(pa.wanted).toBeGreaterThanOrEqual(2);
+    const x0 = t.x, y0 = t.y;
+    // (ten times a second, as NetSimHost sends them)
+    for (let i = 0; i < 60; i++) {
+      if (i % 2 === 0) room.onMessage(a.conn, JSON.stringify({ t: 'tram', op: 'drive', th: 1, st: 0 }));
+      tick();
+    }
+    expect(Math.hypot(t.x - x0, t.y - y0)).toBeGreaterThan(5);
+    // she drops: it brakes to a stop by itself and the AI has it back
+    room.onLeave(a.conn);
+    for (let i = 0; i < 100 && t.driver; i++) tick();
+    expect(t.driver).toBe(0);
+    clock.advance(GRACE_MS + 1000);
+    tick(2);
+    expect(sim.players.has(a.id!)).toBe(false);
   });
 
   it('plays in the Suché mýto tunnel: resumes there, shots at level -1 count, a car left there stays underground', () => {

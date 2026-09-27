@@ -1664,9 +1664,10 @@ export class AI {
       const sp = p.speed * (pl.vehicle ? 0.8 : 1);
       p.move(dt, sim.world, ((tx - p.x) / d) * sp, ((ty - p.y) / d) * sp);
     }
-    // busted when touching the player on foot (or stopped car), or within reach of one lying downed
-    const stopped = !pl.vehicle || pl.vehicle.speed < 1.2;
-    const reach = downed ? 2 : pl.vehicle ? pl.vehicle.radius + 0.6 : 1.3;
+    // busted when touching the player on foot (or stopped car), or within reach of one lying downed;
+    // aboard a tram (rules/Trams.ts), from beside it once it's stopped (its body keeps cops that far)
+    const stopped = pl.aboard ? pl.aboard.speed < 0.5 : !pl.vehicle || pl.vehicle.speed < 1.2;
+    const reach = downed ? 2 : pl.aboard ? 2.4 : pl.vehicle ? pl.vehicle.radius + 0.6 : 1.3;
     if (d < reach && stopped && !armed) {
       p.bustTimer += dt;
       if (p.bustTimer > (pl.vehicle ? 1.6 : 0.8)) sim.bust(t);
@@ -1698,6 +1699,8 @@ export class AI {
   // ---------------------------------------------------------------- trams
   private updateTram(t: Tram, dt: number) {
     const sim = this.sim;
+    // a player in the cab drives it (rules/Trams.ts): no stops, and no waiting for anyone
+    if (t.driver) return t.drive(dt);
     const fx = Math.cos(t.angle), fy = Math.sin(t.angle);
     let blocked = false;
     const check = (x: number, y: number, r: number) => {
@@ -1710,7 +1713,7 @@ export class AI {
       if (!blocked && !v.wrecked && Math.abs(v.x - t.x) < 25 && Math.abs(v.y - t.y) < 25 && check(v.x, v.y, v.spec.width / 2)) blocked = true;
     });
     for (const p of sim.pedsNear(t.x, t.y, 20))
-      if (!p.vehicle && !p.dead && Math.abs(p.x - t.x) < 20 && Math.abs(p.y - t.y) < 20 && check(p.x, p.y, 0.3)) {
+      if (!p.vehicle && !p.aboard && !p.dead && Math.abs(p.x - t.x) < 20 && Math.abs(p.y - t.y) < 20 && check(p.x, p.y, 0.3)) {
         blocked = true;
         if (p.playerId && t.bell <= 0) {
           t.bell = 2;

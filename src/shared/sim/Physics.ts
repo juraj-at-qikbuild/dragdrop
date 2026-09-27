@@ -302,7 +302,8 @@ export interface PedContactHooks {
 /** Pedestrians against cars and trams: slow cars nudge people aside, fast ones run them over. */
 export function pedContacts(peds: readonly Ped[], hash: SpatialHash<Vehicle>, trams: readonly Tram[], dt: number, hooks: PedContactHooks) {
   for (const p of peds) {
-    if (p.vehicle || p.dead || p.kinematic) continue;
+    // (nothing outside touches anyone aboard a tram: rules/Trams.ts)
+    if (p.vehicle || p.aboard || p.dead || p.kinematic) continue;
     pedContact(p, hash, trams, dt, hooks);
   }
 }
@@ -351,6 +352,7 @@ export function updateLevels(world: World, trams: readonly Tram[], peds: readonl
   for (const p of peds) {
     if (p.kinematic) continue;
     if (p.vehicle) (p.level = p.vehicle.level), (p.levelInit = true);
+    else if (p.aboard) (p.level = p.aboard.level), (p.levelInit = true);
     else if (!p.levelInit) (p.level = world.spawnLevel(p.x, p.y, p.r)), (p.levelInit = true);
     else world.updateLevel(p, p.vx, p.vy, p.r);
   }

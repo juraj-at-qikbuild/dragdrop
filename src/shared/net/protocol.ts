@@ -113,6 +113,11 @@ export type ClientMsg =
    *  docs/plans/gameplay.md, Phase 3). The rider's client decides it: it simulates the ride. */
   | { t: 'exit'; x: number; y: number; veh: VehFull; fall?: number }
   | { t: 'horn' }
+  /** trams (docs/plans/gameplay.md, Phase 3; rules/Trams.ts): get on one at a stop, take its cab, get
+   *  off; and the cab's controls (throttle, steering for the next junction, the bell). Sent only to a
+   *  server whose welcome lists 'tram' in its `caps`. */
+  | { t: 'tram'; op: 'board' | 'cab' | 'off' }
+  | { t: 'tram'; op: 'drive'; th: number; st: number; bell?: 1 }
   /** "a car/tram just hit me": the victim's client reports it (it sees exactly what hit it) */
   | { t: 'hit'; src: number; speed: number; tram: 0 | 1; rt: number }
   | { t: 'nick'; nick: string }
@@ -164,6 +169,9 @@ export type ClientMsg =
       presence?: Record<string, number | boolean>;
       /** score this many leaderboard points for this source (server/src/features/Leaderboard.ts) */
       score?: [number, string];
+      /** put trams on the tracks by the tram stop nearest the player, to pull in there (the trams'
+       *  e2e, scripts/e2e-trams.mjs) */
+      tram?: boolean;
       /** park a car of this kind beside the player (the garage's e2e, scripts/e2e-shops.mjs) */
       car?: VehicleKind;
     };
@@ -196,6 +204,9 @@ export interface WelcomeMsg {
    *  tab), 'saved' (restored from their last session), 'fresh' (a new start on the square). Servers
    *  from before docs/plans/pause-resume.md leave it out, and don't take `away`. */
   resumed?: 'live' | 'saved' | 'fresh';
+  /** what this server takes beyond protocol 7's baseline: 'tram' (the `tram` message; docs/plans/
+   *  gameplay.md, Phase 3). Servers from before leave it out, and get none. */
+  caps?: string[];
 }
 
 export interface ClockSync {

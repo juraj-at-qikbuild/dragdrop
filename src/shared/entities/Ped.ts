@@ -4,6 +4,7 @@
 import type { Level, World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
+import type { Tram } from './Tram';
 import { Rng } from '../util/Rng';
 import { shade } from '../util/color';
 import { HATS } from '../sim/shops/catalog';
@@ -76,6 +77,9 @@ export class Ped {
   build = 1;
   walkPhase = 0;
   vehicle: Vehicle | null = null;
+  /** a player riding a tram, or driving it from the cab (rules/Trams.ts): moved with it, not drawn,
+   *  and nothing outside can touch them */
+  aboard: Tram | null = null;
   /** -1 in a tunnel, 0 on the ground or under a bridge deck, 1 on the deck (see World.updateLevel) */
   level: Level = 0;
   /** false until the first level update places it on/under a deck it spawned on (World.spawnLevel) */

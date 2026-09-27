@@ -57,7 +57,7 @@ export class Shops implements SimRule {
   /** where `p` is shopping, if anywhere: on foot, or stopped in a car (not on a scooter or a bike) */
   placeOf(p: SimPlayer, slack = SLACK): ShopPlace | null {
     const v = p.ped.vehicle;
-    if (v && (v.speed > STOPPED || v.spec.twoWheeler)) return null;
+    if (p.ped.aboard || (v && (v.speed > STOPPED || v.spec.twoWheeler))) return null;
     const f = p.focus();
     return shopAt(this.sim.world, f.x, f.y, !!v, slack);
   }

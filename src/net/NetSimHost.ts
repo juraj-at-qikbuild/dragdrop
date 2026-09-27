@@ -10,6 +10,7 @@ import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent } from '../shared/sim/events';
 import type { JobKind } from '../shared/sim/rules/types';
 import type { ShopReq } from '../shared/sim/rules/Shops';
+import { atTramStop, type TramOp } from '../shared/sim/rules/Trams';
 import type { Gear } from '../shared/sim/shops/catalog';
 import { VehiclePhysics, pedContact } from '../shared/sim/Physics';
 import { spikeHit } from '../shared/sim/Police';
@@ -69,6 +70,10 @@ export class NetSimHost implements SimHost, NetView {
   /** the server takes `away` (its welcome carried `resumed`; servers from before
    *  docs/plans/pause-resume.md don't, and get none) */
   serverPresence = false;
+  /** the server takes the `tram` message (its welcome's `caps`; docs/plans/gameplay.md, Phase 3) */
+  takesTrams = false;
+  /** the cab's controls as last sent, and when (performance.now() ms) */
+  private cabSent = { th: 0, st: 0, at: 0 };
   /** away and safe on the server: nothing can hurt us (src/shared/sim/rules/Presence.ts) */
   shielded = false;
   /** how the latest welcome said we came back; null before one, or from an older server */
@@ -150,8 +155,11 @@ export class NetSimHost implements SimHost, NetView {
     p.id = w.ped;
     p.playerId = w.id;
     setPlayerLook(p, w.look);
-    // a server with shops sends its price list right after this (and one without never does)
+    // a server with shops sends its price list right after this (and one without never does), and
+    // the tram we're on, if we still are
     this.live.catalog = null;
+    this.live.tram = null;
+    this.takesTrams = !!w.caps?.includes('tram');
     // the server forgot what this client knew: start the mirrors over
     this.mirrors.clear();
     this.queue = [];
@@ -359,6 +367,8 @@ export class NetSimHost implements SimHost, NetView {
     const game = this.game;
     const world = game.world;
     this.mirrors.interpolate(rt, dt, this.ownCar);
+    // a tram standing at a stop has its doors open (a snapshot doesn't say: the server's own trams know)
+    for (const t of this.trams) t.dwell = atTramStop(game.world.tramStops, t) ? 1 : 0;
     Vehicle.env.wet = game.atmos.wet;
     world.gates.sweep(this.vehicles, dt);
     const me = this.me;
@@ -400,6 +410,22 @@ export class NetSimHost implements SimHost, NetView {
           this.fellAt = performance.now();
           ev.fell();
         }
+      }
+    } else if (this.live.tram) {
+      // aboard a tram (rules/Trams.ts): the server moves us with it; we sit where it has us, out of
+      // everyone's way
+      this.physics.rehash(this.vehicles);
+      const t = this.trams.find((q) => q.id === this.live.tram!.id);
+      if (t) {
+        const mid = t.sections[Math.min(1, t.sections.length - 1)];
+        const cab = this.live.tram.cab || !mid;
+        p.x = cab ? t.x - Math.cos(t.angle) * 1.2 : mid.x;
+        p.y = cab ? t.y - Math.sin(t.angle) * 1.2 : mid.y;
+        p.vx = Math.cos(t.angle) * t.speed;
+        p.vy = Math.sin(t.angle) * t.speed;
+        p.angle = t.angle;
+        p.level = t.level;
+        p.levelInit = true;
       }
     } else {
       this.physics.rehash(this.vehicles);
@@ -601,6 +627,23 @@ export class NetSimHost implements SimHost, NetView {
     if (this.live.catalog) this.conn.send({ t: 'shop', ...req });
   }
 
+  /** only to a server that takes it (its welcome's caps) */
+  tram(op: TramOp) {
+    if (this.takesTrams) this.conn.send({ t: 'tram', op });
+  }
+
+  /** the cab's controls: when they change (at most ten times a second), and twice a second anyway */
+  tramDrive(throttle: number, steer: number, bell: boolean) {
+    if (!this.takesTrams || !this.live.tram?.cab) return;
+    const now = performance.now(), c = this.cabSent;
+    const th = Math.round(throttle * 20) / 20, st = Math.round(steer * 20) / 20;
+    if (!bell && (now - c.at < 100 || (th === c.th && st === c.st && now - c.at < 500))) return;
+    c.th = th;
+    c.st = st;
+    c.at = now;
+    this.conn.send(bell ? { t: 'tram', op: 'drive', th, st, bell: 1 } : { t: 'tram', op: 'drive', th, st });
+  }
+
   /** what the player owns and wears (the profile, a purchase): our own figure isn't mirrored, so its
    *  clothes are put on here */
   private applyGear(g: Gear) {
@@ -635,6 +678,15 @@ export class NetSimHost implements SimHost, NetView {
         this.mirrors.touch();
         break;
       }
+      case 'tram':
+        // off it, at the door the server stepped us out of
+        if (!e.id && e.x !== undefined && e.y !== undefined) {
+          p.x = e.x;
+          p.y = e.y;
+          p.vx = p.vy = 0;
+          p.levelInit = false;
+        }
+        break;
       case 'eject':
         this.releaseCar();
         p.x = e.x;

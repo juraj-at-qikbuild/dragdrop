@@ -11,6 +11,16 @@ export const TRAM_SECTIONS = 3;
 const SECTIONS = TRAM_SECTIONS;
 const GAP = 0.6;
 export { SEG as TRAM_SEG, GAP as TRAM_GAP };
+/** a player in the cab (docs/plans/gameplay.md, Phase 3): pull away (m/s²), brake, roll to a stop
+ *  with the controls let go, and the top speed (m/s, 50 km/h: the AI keeps to 40) */
+const DRIVE_ACCEL = 1.8;
+const DRIVE_BRAKE = 3.5;
+const DRIVE_COAST = 0.15;
+export const DRIVE_TOP = 14;
+/** where the doors are along a section, from its centre (m), and how far outside the body a door's
+ *  step is (m) */
+const DOOR_AT = 2.8;
+const DOOR_OUT = 1.9;
 
 /** Articulated tram (styled after Bratislava's red and white trams) following the real tram tracks. */
 export class Tram {
@@ -36,6 +46,11 @@ export class Tram {
   sections: { x: number; y: number; a: number }[] = [];
   /** seconds left standing at a stop with the doors open */
   dwell = 0;
+  /** the player driving it from the cab (docs/plans/gameplay.md, Phase 3); 0: the AI */
+  driver = 0;
+  /** the cab's controls while a player drives: `throttle` -1..1 (below 0 it brakes), `steer` -1..1
+   *  picks the branch at the next junction (left, straight on, right) */
+  ctl = { throttle: 0, steer: 0 };
   /** index (in `stops`) of the stop just served, so it isn't served twice in a row */
   private served = -1;
   /** the next link, picked early so a stop just past the end of this one is seen in time */
@@ -64,17 +79,24 @@ export class Tram {
     const px = this.pts[this.pts.length - 4], py = this.pts[this.pts.length - 3];
     const nx = graph.nx(node), ny = graph.ny(node);
     const dirIn = Math.atan2(ny - py, nx - px);
+    // `d`: how far each branch turns (positive: right, clockwise)
     const scored = opts
       .map((l) => {
         const p = linkPoints(l);
-        const a = Math.atan2(p[3] - p[1], p[2] - p[0]);
-        let d = Math.abs(a - dirIn) % (Math.PI * 2);
-        if (d > Math.PI) d = Math.PI * 2 - d;
+        let d = Math.atan2(p[3] - p[1], p[2] - p[0]) - dirIn;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
         return { l, d };
       })
-      .filter((s) => s.d < 1.3);
+      .filter((s) => Math.abs(s.d) < 1.3);
+    if (scored.length && this.driver) {
+      // a player in the cab: the branch furthest the way they steer, else the straightest
+      const s = this.ctl.steer;
+      const better = (c: { d: number }, b: { d: number }) => (Math.abs(s) < 0.3 ? Math.abs(c.d) < Math.abs(b.d) : s > 0 ? c.d > b.d : c.d < b.d);
+      return scored.reduce((b, c) => (better(c, b) ? c : b)).l;
+    }
     const r = this.rng;
-    if (scored.length) return scored.length > 1 && r && r.chance(0.35) ? r.pick(scored).l : scored.sort((a, b) => a.d - b.d)[0].l;
+    if (scored.length) return scored.length > 1 && r && r.chance(0.35) ? r.pick(scored).l : scored.sort((a, b) => Math.abs(a.d) - Math.abs(b.d))[0].l;
     // dead end: turn back (trams at terminals)
     return graph.out[node].find((l) => l.edge === this.link.edge) ?? graph.out[node][0];
   }
@@ -171,6 +193,37 @@ export class Tram {
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), (this.blocked ? 6 : 1.6) * dt);
     if (this.speed > 0) this.advance(this.speed * dt);
     this.updateSections();
+  }
+
+  /** A player takes the cab (`pid`), or hands it back to the AI (0): whatever junction the AI had
+   *  already picked is theirs to pick again. */
+  takeCab(pid: number) {
+    this.driver = pid;
+    this.ctl.throttle = this.ctl.steer = 0;
+    this.dwell = 0;
+    this.upcoming = this.upcomingPts = null;
+  }
+
+  /** a player at the controls: the throttle pulls up to DRIVE_TOP and the brake stops it; nothing else
+   *  does (it keeps to no stops, and it waits for nobody in the way) */
+  drive(dt: number) {
+    if (this.bell > 0) this.bell -= dt;
+    const th = this.ctl.throttle;
+    const a = th > 0.05 ? DRIVE_ACCEL * th : th < -0.05 ? DRIVE_BRAKE * th : -DRIVE_COAST;
+    this.speed = Math.max(0, Math.min(DRIVE_TOP, this.speed + a * dt));
+    if (this.speed > 0) this.advance(this.speed * dt);
+    this.updateSections();
+  }
+
+  /** Where the doors let people on and off: a step outside each door, on both sides (flat x, y). */
+  doorSpots(): number[] {
+    const out: number[] = [];
+    for (const s of this.sections) {
+      const ux = Math.cos(s.a), uy = Math.sin(s.a);
+      for (const o of [DOOR_AT, -DOOR_AT])
+        for (const side of [1, -1]) out.push(s.x + ux * o - uy * DOOR_OUT * side, s.y + uy * o + ux * DOOR_OUT * side);
+    }
+    return out;
   }
 
   /** The nearest tram stop ahead on this track (within `maxD` metres along it), or null. */

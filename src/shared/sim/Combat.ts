@@ -82,7 +82,7 @@ export function traceShot(
     let kind = t < 1 ? HitKind.Wall : HitKind.None;
     let hit = 0;
     for (const p of peds) {
-      if (p.id === s.id || p.dead || p.vehicle || p.level !== s.level) continue;
+      if (p.id === s.id || p.dead || p.vehicle || p.aboard || p.level !== s.level) continue;
       if (Math.abs(p.x - sx) > w.range + 1 || Math.abs(p.y - sy) > w.range + 1) continue;
       const pt = rayCircle(sx, sy, ex, ey, p.x, p.y, p.r + 0.15);
       if (pt >= 0 && pt < t) (t = pt), (kind = HitKind.Ped), (hit = p.id);
@@ -105,7 +105,7 @@ export function traceShot(
 export function traceMelee(peds: Iterable<Ped>, s: Shooter, angle: number): Ped | null {
   const w = WEAPONS.fist;
   for (const p of peds) {
-    if (p.id === s.id || p.dead || p.vehicle || p.level !== s.level) continue;
+    if (p.id === s.id || p.dead || p.vehicle || p.aboard || p.level !== s.level) continue;
     const d = dist(p.x, p.y, s.x, s.y);
     if (d > w.range + p.r) continue;
     const a = Math.atan2(p.y - s.y, p.x - s.x);
@@ -234,7 +234,7 @@ export class CombatRules {
     const player = pid ? sim.players.get(pid) ?? null : null;
     const lvl = source?.level ?? 0;
     for (const p of sim.pedsNear(x, y, 30)) {
-      if (p.dead || p.vehicle) continue;
+      if (p.dead || p.vehicle || p.aboard) continue;
       const d = dist(p.x, p.y, x, y);
       // the blast stays on its level (a deck or the tunnel roof shields the other side); everyone hears it
       if (d < 7 && p.level === lvl) {

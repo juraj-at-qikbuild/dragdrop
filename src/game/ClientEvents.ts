@@ -186,6 +186,11 @@ export class ClientEvents implements SimEvents {
         g.showRadio();
         break;
       }
+      // trams (docs/plans/gameplay.md, Phase 3): on one, or in its cab
+      case 'tram':
+        if (e.id && e.cab) g.message('Ukradol si električku!', 'W plyn · S brzda · A/D výhybka · H zvonček', 4, '#ffd740');
+        else if (e.id) g.message('', 'Cestuješ električkou. Vystúpiš, keď zastaví (F).', 3, '#e0e0e0');
+        break;
       case 'eject':
         g.audio.setStation(null);
         g.audio.engine(0, 0, false);

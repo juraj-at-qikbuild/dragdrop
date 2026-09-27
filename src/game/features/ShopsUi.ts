@@ -84,8 +84,8 @@ export class ShopsUi implements ClientFeature {
     const gotIn = !!v && v !== this.lastCar;
     this.lastCar = v;
     const f = g.focus();
-    // (no shop serves anyone on a scooter or a bike: Shops.placeOf)
-    const zone = v?.spec.twoWheeler ? null : shopAt(g.world, f.x, f.y, !!v, LEAVE_SLACK);
+    // (no shop serves anyone on a scooter or a bike, or aboard a tram: Shops.placeOf)
+    const zone = v?.spec.twoWheeler || g.host.live.tram ? null : shopAt(g.world, f.x, f.y, !!v, LEAVE_SLACK);
     if (this.panel) {
       if (!zone || zone.id !== this.place?.id) this.panel.close();
       else {

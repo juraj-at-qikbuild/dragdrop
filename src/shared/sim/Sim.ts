@@ -34,6 +34,8 @@ import { GETAWAY_COOLDOWN_S, GETAWAY_MIN_S, POINTS, getawayPoints, type ScoreSou
 
 export type Crime =
   | 'shoot' | 'killPed' | 'killCop' | 'shootCop' | 'carjack' | 'hitCop' | 'stealCop' | 'destroy'
+  /** taking a tram's cab (rules/Trams.ts) */
+  | 'stealTram'
   /** hurting / killing another player (online) */
   | 'hitPlayer' | 'killPlayer'
   /** the armoured van (ArmoredVan.ts): bursting its rear doors, then taking its spilled cash */
@@ -470,14 +472,21 @@ export class Sim {
     pedContacts(this.peds, this.physics.hash, this.trams, dt, {
       runOver: (p, v, sp, cx, cy) => this.runOver(p, v, sp, cx, cy),
       tramHit: (p, t, sx, sy) => {
+        // a tram a player drives (rules/Trams.ts): it's their doing
+        const driver = t.driver ? this.players.get(t.driver) : undefined;
         if (p.playerId) {
           const pl = this.players.get(p.playerId);
-          if (pl && this.time >= pl.thrownUntil) this.hurtPlayer(pl, t.speed * 5, sx, sy, 0);
+          if (pl && this.time >= pl.thrownUntil) this.hurtPlayer(pl, t.speed * 5, sx, sy, driver?.id ?? 0);
           return;
         }
         p.kill(sx, sy, t.speed);
         this.events.pedHit(p.id, p.x, p.y, 0.8);
-        this.events.pedKilled(p.id, p.x, p.y, 0, 'tram');
+        this.events.pedKilled(p.id, p.x, p.y, driver?.id ?? 0, 'tram');
+        if (driver) {
+          this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
+          this.dropCash(p.x, p.y, p.money);
+          this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
+        }
       },
     });
   }
@@ -581,7 +590,7 @@ export class Sim {
   /** Get `p` into `v` (carjacking whoever drives it). Returns false if not allowed. */
   enterVehicle(p: SimPlayer, v: Vehicle | null, slack = 0): boolean {
     const ped = p.ped;
-    if (!v || p.state !== 'play' || ped.vehicle || v.wrecked || v.sinking || v.level !== ped.level || v.locked) return false;
+    if (!v || p.state !== 'play' || ped.vehicle || ped.aboard || v.wrecked || v.sinking || v.level !== ped.level || v.locked) return false;
     if (dist(v.x, v.y, ped.x, ped.y) - v.spec.width / 2 > 4.2 + slack) return false;
     // a returning player's car waits for them a while (server/src/Room.ts)
     if (this.reservedFromOthers(v, p)) return false;
@@ -718,6 +727,7 @@ export class Sim {
         if (now > cd) this.raise(p, 1, kind, 8);
         break;
       case 'stealCop':
+      case 'stealTram':
         this.raise(p, 2, kind, 1);
         break;
       case 'destroy':
@@ -1034,6 +1044,8 @@ export class Sim {
    *  epoch so their client's reports from the old place are ignored. */
   teleport(p: SimPlayer, x: number, y: number, lvl: Level = 0) {
     if (p.ped.vehicle) this.exitVehicle(p, true);
+    // (off any tram too: rules/Trams.ts hands its cab back)
+    p.ped.aboard = null;
     const pos = this.world.clearSpot(x, y);
     const ped = p.ped;
     ped.x = pos.x;
@@ -1189,7 +1201,8 @@ export class Sim {
   /** drowning in the Danube */
   private hazards(p: SimPlayer, dt: number) {
     const ped = p.ped;
-    if (!ped.vehicle && this.world.inWater(ped.x, ped.y, ped.level)) {
+    // (aboard a tram over the Danube isn't in it: rules/Trams.ts)
+    if (!ped.vehicle && !ped.aboard && this.world.inWater(ped.x, ped.y, ped.level)) {
       p.drown += dt;
       if (p.drown > 1.5) this.wasted(p);
     } else p.drown = 0;
