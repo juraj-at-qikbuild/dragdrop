@@ -591,3 +591,47 @@ the police chase: the rules are shared, the server decides.
   `catalog`; a client only sends `shop` to a server that sent one. The spare bits read as zero (no neon,
   no hat) on either side. Client and server deploy in either order.
 - **Spending** goes to the activity log as `kind = 'shop'`, amount 0, `meta = { spent, item }`.
+
+## Behind the wheel, and new ways around
+
+Driving and the new ways round the city are planned in [plans/gameplay.md](plans/gameplay.md)
+(Phase 3). All of it runs in the shared simulation, so online the server has the same rules as an
+offline game; what changes is who simulates what.
+
+- **Style.** The combo is `src/shared/sim/rules/Style.ts`, a rule the server runs too. Every move is
+  worked out from poses, because a player's car on the server is kinematic (their client drives it):
+  near misses against moving traffic, drifts from the sideways speed, bumps crossed at speed
+  (`world.bumps`), a one-way link's direction (`Graph.segmentAt`), stop lines crossed on red, metres
+  inside a building's footprint (only a passage lets a car in there), a tram's sections. It pays with
+  `payout` (`reason: 'style'`) and scores on the `style` board: 1 point per €25, at most 40 a combo and
+  30 times an hour. `style` events carry the multiplier and any nitro; the client's meter only shows them.
+- **Physics on the driver's side.** The slipstream, a damaged side's pull and a weak engine are
+  `Vehicle` physics: the client driving the car has them, and the server sees the result in its reports.
+- **Sirens.** A player's police car or ambulance reports its siren in the state report's `siren` flag,
+  taken only for a car that has one (`Vehicle.hasSiren`). Getting in switches it off.
+- **New kinds, appended.** `VEHICLE_KINDS` sends a kind as its index, so the ambulance (8), the scooter
+  (9), the bike (10), the boat (11) and the police boat (12) come after the old ones. A client from
+  before decodes them as a sedan.
+- **Scooters and bikes.** Their rider's client simulates them, so it decides when a knock throws the
+  rider off, and says so as it gets off: `{ t: 'exit', …, fall }`, the knock in m/s. The server hurts
+  them (`fallHurt`, at most 30) only if it's a scooter or a bike. On the server a car that hits another
+  player's scooter drives on through it (`kinematicContact`): the rider's own client sends them flying.
+- **Trams.** A server that takes them says so: `welcome.caps` lists `'tram'`, and a client sends the
+  `tram` message only to such a server. `{ t: 'tram', op: 'board' | 'cab' | 'off' }` asks to get on,
+  take the cab or get off; the rule (`rules/Trams.ts`) checks it against the server's tram and answers
+  with a private `tram` event: `{ id, cab }` aboard, `{ id: 0, x, y }` off, at that door. While aboard,
+  the player's reports are ignored (the tram carries them; only their camera counts), and their
+  figure is left out of everyone else's snapshots, so it vanishes and comes back at a door. In the cab,
+  `{ t: 'tram', op: 'drive', th, st, bell? }` carries the controls, at most ten times a second. A
+  driver who disconnects or pauses brakes to a stop and hands the tram back to the AI; a reconnect is
+  told it's still aboard. A snapshot doesn't say whether a tram's doors are open: a client reads a
+  tram standing at a stop (`world.tramStops`) as open, which is when the server's trams stop.
+- **The Danube.** Swimming is the simulation's `hazards` timer (20 s), on the server for everyone. A
+  client whose car sinks gets out after a second and swims; the server still drowns a player whose
+  report says they've been under 2.5 s, as before (a client from before Phase 3). A boat is a vehicle
+  like any other: its driver's client simulates it, kept to the water by the shared physics. The moored
+  boats and the police boat are `rules/Boats.ts`, which drives the police boat on the server.
+- **Still protocol 7.** Everything above is an optional field, an event kind an old client ignores, a
+  kind that decodes as a sedan or a message sent only when the welcome lists it.
+- **Test tools.** The test-only `debug` message can send trams to the stop nearest the player (`tram`),
+  for the trams' end-to-end check (`scripts/e2e-trams.mjs`).

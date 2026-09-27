@@ -21,12 +21,12 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | --- | --- |
 | WASD / arrows | walk / drive |
 | Mouse + left click | aim + shoot (drive-by when in a car) |
-| F / Enter / E | enter or exit a vehicle (carjacking included); when arrested at 1–2★, pay the cop off (**Úplatok**) |
+| F / Enter / E | enter or exit a vehicle (carjacking included), get on a scooter or a bike, get on a tram at a stop or take the cab of a stopped one, get off; when arrested at 1–2★, pay the cop off (**Úplatok**) |
 | Space | handbrake (car) · shoot (on foot) |
 | Shift | run (nitro in a car) |
 | Q, 1–4 | switch weapon |
 | R | next radio station |
-| H | horn · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
+| H | horn (a bell on a scooter, a bike or in a tram's cab) · the siren on and off in a police car or an ambulance · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
 | V | push-to-talk voice chat (online, signed-in accounts only) |
 | N | party panel (**Partia**, online) |
 | U | **Aktivity**: the world events on now and when the next one may come, and every mini-game with its key |
@@ -38,9 +38,9 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | Mouse wheel | zoom in / out |
 | Esc / P | pause |
 
-**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks (rings the bell, or switches a police car's or an ambulance's siren), B switches weapons, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
 
-A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
+A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get on a scooter or a tram, steal a tram, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
 
 The **city map** (M) zooms from the whole city down to a few streets (wheel, pinch, +/−, or the pad's triggers) and pans by dragging (or WASD / the left stick). It shows street, square and quarter names, landmarks, missions, the police stations, hospitals and spray shops (the workshops), the gun shops, boutiques, the lawyer and the garages (yours ringed), and, as you zoom in, museums, theatres and churches, restaurants, cafés and bars, shops, pharmacies and tram stops (layers on keys 1–7 or in the legend). Click (or Enter at the cross) to set a waypoint: the GPS works out a route over the real streets (one-way streets respected, footpaths when on foot) and draws it on the map and the minimap. Right-click or Backspace clears it.
 
@@ -77,7 +77,7 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
   - fountain basins (the Roland fountain on Hlavné námestie, Ganymede's fountain in front of the National Theatre…) are rims you can't drive or walk through;
   - the real bollards, concrete blocks and planters close pedestrian streets to cars but let people through, and statues, columns and memorial stones stand in the squares, solid enough to hide behind;
   - flights of steps are slow, slippery going for a car;
-  - piers and pontoons on the Danube are walkable;
+  - piers and pontoons on the Danube are walkable, and the river itself can be swum (briefly) or crossed by boat;
   - mall corridors, garage ramps and rooftop paths are left out, so nobody walks or drives through Nivy, Aupark or Eurovea.
 - **Day, night and weather.** A full day passes in 24 minutes: golden-hour light, long sun-cast shadows, a blue night with street lamps, lit windows, neon rooftop ads, headlights and police lightbars. Rain showers bring falling streaks, splashes, wet roads, thunder and the occasional lightning flash. Debug with `?t=21` (time of day), `?rain=1` and `?freeze`, or `game.atmos.setTime(h)` / `setRain(v)` in the console.
 - **Detailed procedural graphics.** Cobbled Old Town streets, textured asphalt and roofs, the real zebra crossings, trees and street lamps from the map (plus scattered trees in parks and woods), railway tracks, cars with steering wheels, visible damage and (on players' cars) brake lights, DPB-liveried trams with pantographs, plus smoke, fire, sparks, debris and shockwaves.
@@ -99,9 +99,16 @@ Two ways to drive, chosen in the pause menu: **Smer** (the default) points the s
   - **JUDr. Paragraf** (by the Primate's Palace): a lawyer for the next arrest, who gets your guns back and halves the fee;
   - **Dielňa** (the fuel stations): paint of your choice with a full repair, two engine tiers, two tiers of plating, run-flat tyres, two bigger nitro tanks and neon underglow in seven colours. Tuning belongs to the car: leave it in the street and it's gone;
   - **Garáž** (by six of the places you start from): park the car you drive and take it out again at any of your garages, colour, tuning and dents and all. Two places to start with, up to six;
-  - **Zbierka**: drive every kind of vehicle in the city (the police car, the bus and the ambulance included) for €1,000, and 100 points online.
+  - **Zbierka**: drive every kind of vehicle in the city, all 13 (the police car, the bus, the ambulance, a scooter, a bike, a boat and the police boat included) for €1,000, and 100 points online.
 
   A death leaves its fee where you fell, less the first €100, as cash anyone can pick up for two minutes. The panels work with the mouse, the keyboard, a touch screen and a gamepad (the d-pad or stick moves, A chooses, B leaves). Online, the prices come from the server, which checks every purchase.
+- **Behind the wheel, and new ways around** ([docs/plans/gameplay.md](docs/plans/gameplay.md), Phase 3):
+  - **Style**, online too: near misses, drifts, road kills, takedowns and the new moves (*WRONG WAY* down a one-way street, *AIR* off a bump taken fast, *RED LIGHT* at speed, *THREAD THE NEEDLE* flat out through a building's passage, *TRAM DODGE*, a *CLEAN GETAWAY* in an undamaged car) chain into a combo, up to ×5, that pays when it ends and scores on the **Štýl** board;
+  - **slipstream** close behind a bus, a van or a tram (a little more top speed, and the nitro fills much faster), and **damage you feel**: a dented side pulls the steering, and a smoking engine loses power;
+  - **sirens**: H in a police car or an ambulance, and traffic pulls over. An **ambulance** waits at every hospital and patches its driver up, 2 HP a second;
+  - **scooters and bikes** (*Bolťák* e-scooters at the bike-share docks, bikes at the stands): 25 and 30 km/h, through the bollard rows police cars can't pass. A hard knock throws the rider off, and shots reach them;
+  - **trams**: ride one (on at a stop, off at the next: the police take twice as long to pick you out of the passengers), or steal one from its cab and drive it on its tracks (throttle, brake, A/D for the branch at a junction, H for the bell);
+  - **the Danube**: swim (20 s at a third of walking pace; cops on foot stop at the bank), take a boat moored at a pier, and at 4★ a police boat comes after you on the water.
 - **Six missions tied to real places**, started from phone booths:
   - taxi fare from the castle to Eurovea;
   - Kofolka delivery to the UFO bridge;
@@ -264,8 +271,10 @@ your stars only if you're back within 30 minutes. A dropped connection keeps you
 
 The button only shows when the client was built with `VITE_SERVER_URL`. The client and the server must
 speak the same protocol version (now 7): deploy the server (`fly deploy`) together with the client, or
-older clients are refused. (The pausing and coming-back additions and the Aktivity plan kept protocol 7: they're optional on
-both sides, so either one can go out first.)
+older clients are refused. (The pausing and coming-back additions, the Aktivity plan and the gameplay plan's
+phases kept protocol 7: they're optional on both sides, so either one can go out first. A client from before
+the gameplay plan's Phase 3 draws the new vehicles as sedans, and a server from before it offers no trams to
+ride: its welcome doesn't list them.)
 
 ```bash
 npm --prefix server install

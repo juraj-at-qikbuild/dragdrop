@@ -729,3 +729,70 @@ Phase 2 shipped on protocol 7, with every addition optional as planned. [docs/mu
     now runs `scripts/e2e-shops.mjs`: the price list, clothes another player sees, a garage round trip
     with two clients, and the gear across a server restart.
   - `npm test` (the whole suite), `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass.
+
+## Phase 3 as built
+
+Phase 3 shipped on protocol 7, with every addition optional as planned; [docs/multiplayer.md](../multiplayer.md)
+("Behind the wheel, and new ways around") covers the online side. These are the places where it differs
+from the plan above, or fills it in.
+
+- **Style.** A combo pays 4 s after its last move, banks at most €400 and lasts at most 60 s; a crash
+  (8 % of the car's health lost within 0.5 s) ends it early, paid. The moves: a near miss (at 12 m/s or
+  more, past moving traffic within 1.2 m, confirmed crash-free 0.3 s later, once in 1.5 s a vehicle),
+  a drift (3.5 m/s sideways at 6 m/s or more, one a second after the first 0.6 s, each topping up the
+  nitro), *AIR* (a bump taken 5 m/s over what the car takes it at: the physics' own limit), *RED LIGHT*
+  (a stop line crossed on red at over 8 m/s), *WRONG WAY* (1.5 s the wrong way down a one-way street at
+  over 10 m/s, not on a bridge, once in 8 s), *THREAD THE NEEDLE* (5 m inside a passage at 14 m/s or
+  more), *TRAM DODGE* (within 1.5 m of a tram's body at 8 m/s or more, once in 4 s a tram) and
+  *CLEAN GETAWAY* (losing the police from 2★ or more with the car at 95 % of its health).
+- **Slipstream** fills the nitro up to five times as fast (four in the plan): a nitro tank refills at
+  3 % a second, and at 15 % in the strongest slipstream.
+- **The ambulance** waits at the kerb of the street nearest each hospital, for a player within 240 m
+  (`rules/Ambulances.ts`).
+- **Scooters and bikes.**
+  - Every bike-share dock gets a scooter and every other bicycle stand a bike (by where it is, so the
+    same ones), up to 8 near a player within 150 m (`rules/Bikes.ts`). They don't count against the
+    AI's parked cars.
+  - A knock of 4.5 m/s or more (a wall, a car, a tram, a blast) throws the rider off, hurt 5–30. What
+    threw them off doesn't also run them over for 0.6 s. The rider is out in the open: a shot at them
+    hurts as it would on foot, and so does a blast.
+  - A scooter or a bike never runs anyone over (it barges them aside), doesn't catch fire or blow up
+    when it breaks (the rider lands beside it), has no nitro, no radio and no engine noise, and rings a
+    bell for a horn. It goes round a lift gate's boom. No shop, spray shop or taxi fare takes one; a
+    courier can ride one. The camera keeps the view on foot.
+- **Getting into a car parked at a shop's door** no longer opens the shop's panel (it took the controls
+  from someone who only wanted the car). Once the car has moved, stopping there does.
+- **Trams.**
+  - The cab is taken by its nose: F within 2.5 m of the front of a stopped tram. It drives up to 50 km/h
+    (the AI keeps to 40) and stops dead against a tram ahead of it (trams don't push each other).
+    Whoever it hits is its driver's doing: a crime, and style.
+  - A rider is picked out slowly even when they match the description (the plan had it for a unit's
+    recognition time only), and a stopped tram counts as lying low. Cops can arrest a rider or a
+    driver from beside a stopped tram. Shots and blasts don't reach anyone aboard.
+  - A driver who disconnects or pauses (online) brakes to a stop, and the AI has the tram back.
+  - Online, a snapshot doesn't say whether a tram's doors are open: the client reads a tram standing
+    at a stop as open, which is when the server's trams stop. A reconnect is told it's still aboard.
+- **The Danube.**
+  - A swimmer moves at 1.5 m/s and can't run, shoot or punch; the HUD shows the breath left. A car that
+    goes into the river lets its driver out after a second, to swim for it (it used to drown them).
+  - The boat is a *Motorový čln* (61 km/h), the police boat 65 km/h. The whole hull is kept to the
+    water: running onto the bank or a pier puts it back and bounces it off. There is one mooring a pier
+    with open water off it (32 on the map), and up to 4 boats moored near a player within 220 m
+    (`rules/Boats.ts`). Getting off mid-river puts the player in the water; by a pier, onto it.
+  - The police boat comes for a player in a boat or swimming at 4★, launched out of sight 110–220 m
+    away. It makes straight for them, backs off the bank when it runs aground, and its cop fires within
+    28 m. Stealing it is a crime, as stealing a police car is.
+- **The collection** now has 13 kinds of vehicle.
+- **Test tools.** The test-only `debug` message can send trams to the stop nearest the player (`tram`).
+- **Tests.**
+  - New: `test/shared/style.test.ts` (every move on a scripted run and not on a normal drive, the combo's
+    rules, the points), `test/shared/sirens.test.ts` (traffic pulling over, the ambulance),
+    `test/shared/bikes.test.ts` (through the Uršulínska bollards, handling, falling off, shots, the docks
+    and stands), `test/shared/trams.test.ts` (riding, the cab, a junction, the tram ahead, the police),
+    `test/shared/danube.test.ts` (swimming, the bank, a sinking car, boats, the police boat); the
+    slipstream, the pull and the power loss in `test/shared/vehicle.test.ts`; in `server/test/room.test.ts`,
+    a fall off a scooter and trams through the Room (hidden from another player, reports ignored, a
+    driver who drops).
+  - `npm run smoke` rides a scooter, drives a tram and swims and takes a boat on the Danube; `npm run e2e`
+    now runs `scripts/e2e-trams.mjs`: on and off a tram with another player watching, and its cab.
+  - `npm test` (the whole suite), `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass.

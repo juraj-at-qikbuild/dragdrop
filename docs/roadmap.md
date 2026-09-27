@@ -124,12 +124,28 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - **Panels with a gamepad**: every panel (the shops, Aktivity, the leaderboard…) can be driven with the
   d-pad or stick, A and B, and a panel takes the controls while it's open.
 
+### Driving and new ways around ([plans/gameplay.md](plans/gameplay.md), Phase 3)
+- **Style online.** The combo (near misses, drifts, road kills, takedowns) runs in the shared
+  simulation, so it pays online too and scores on a new **Štýl** board. New moves: *WRONG WAY*, *AIR*,
+  *RED LIGHT*, *THREAD THE NEEDLE*, *TRAM DODGE* and a *CLEAN GETAWAY*.
+- **Driving.** A slipstream behind a bus, a van or a tram; a damaged side pulls the steering, and a
+  smoking engine loses power.
+- **Sirens and the ambulance.** H switches a police car's or an ambulance's siren, and traffic pulls
+  over for it. An ambulance waits at every hospital and heals its driver.
+- **Scooters and bikes** at the real bike-share docks and bicycle stands: through the bollard rows
+  police cars can't pass, and a hard knock throws the rider off.
+- **Trams.** Ride one (the police take longer to pick out a rider), or steal one from its cab and drive
+  it: throttle, brake, the branch at a junction and the bell.
+- **The Danube.** Swim for 20 s (it used to drown a player in 1.5 s), take a boat moored at a pier, and
+  at 4★ the police boat comes after a player on the water. A car in the river lets its driver out.
+- **Getting into a car at a shop's door** no longer opens the shop's panel.
+
 ## Still open
 
 ### Gameplay
 The next round of gameplay work is planned in five phases in
 [plans/gameplay.md](plans/gameplay.md): the police (1, done), money (2, done), driving and new ways
-around (3), fighting alone and together (4) and a city that remembers (5). Several items below are
+around (3, done), fighting alone and together (4) and a city that remembers (5). Several items below are
 part of it, as noted.
 
 - **More crimes for witnesses**: hitting people with a car, wrecking cars, fights in public.
@@ -157,13 +173,19 @@ part of it, as noted.
   (`Room.onFire`), with any input.
 
 ### Physics
-- Car handling (tyre slip, weight transfer, ABS, stability control, drag) is in good shape
-  (`test/shared/vehicle.test.ts`). Candidates: steering that pulls toward a damaged side, and
-  motorbikes.
-- Boats on the Danube (gameplay plan, Phase 3).
+- Car handling (tyre slip, weight transfer, ABS, stability control, drag, a damaged side's pull) is in
+  good shape (`test/shared/vehicle.test.ts`). Candidates: motorbikes.
+- Boats are kept to the water by their hull's footprint against the water polygons, and bounce off the
+  bank: there's no current, no waves and no wash to rock the boats nearby.
+- A tram a player drives stops dead against a tram ahead (trams don't push each other), and nothing
+  stops it at a junction: there are no tram signals.
 
 ### Online
 - Protocol v7: the server must be redeployed (`fly deploy`) together with the client.
+- **Clients from before the gameplay plan's Phase 3** draw the new vehicles (the ambulance, scooters,
+  bikes, boats, the police boat) as sedans, and one that takes a scooter or a boat simulates it as a
+  sedan (which sinks on the river). The server doesn't refuse them: the client and the server deploy
+  together.
 - The crowd runs on the server at ~0.3 ms per tick for ~950 people (3% of a tick); worth watching as
   the player count grows.
 - **The armoured van's `maxHealth` isn't sent over the wire.** The event raises the van's real health

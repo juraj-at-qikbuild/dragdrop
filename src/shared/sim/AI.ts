@@ -1702,9 +1702,13 @@ export class AI {
   // ---------------------------------------------------------------- trams
   private updateTram(t: Tram, dt: number) {
     const sim = this.sim;
-    // a player in the cab drives it (rules/Trams.ts): no stops, and no waiting for anyone
-    if (t.driver) return t.drive(dt);
     const fx = Math.cos(t.angle), fy = Math.sin(t.angle);
+    // a player in the cab drives it (rules/Trams.ts): no stops, and no waiting for anyone, but it
+    // can't go through the tram ahead (trams don't push each other: it stops dead against it)
+    if (t.driver) {
+      if (sim.trams.some((o) => o !== t && o.level === t.level && o.hits(t.x + fx * 1.2, t.y + fy * 1.2, 0))) t.speed = 0;
+      return t.drive(dt);
+    }
     let blocked = false;
     const check = (x: number, y: number, r: number) => {
       const dx = x - t.x, dy = y - t.y;

@@ -30,8 +30,10 @@ const bSeesA = (B, aId) => B.evaluate((id) => window.game.host.peds.some((p) => 
 
 export async function run(t) {
   const { A, B, waitFor, sleep } = t;
-  // where they stand now: put back after, as the checks after a restart expect them
+  // where they stand now, and A's money (a pickup on the way to the tram adds to it): put back after,
+  // as the checks after a restart expect them
   const home = await Promise.all([A, B].map((p) => p.evaluate(() => ({ x: window.game.player.x, y: window.game.player.y }))));
+  const money = await A.evaluate(() => window.game.save.money);
   try {
     await trams(t);
   } finally {
@@ -39,7 +41,7 @@ export async function run(t) {
     await sleep(300);
     await teleport(A, home[0].x, home[0].y, waitFor);
     await teleport(B, home[1].x, home[1].y, waitFor);
-    await send(A, { t: 'debug', wanted: 0 });
+    await send(A, { t: 'debug', wanted: 0, money });
     await sleep(800);
   }
 }

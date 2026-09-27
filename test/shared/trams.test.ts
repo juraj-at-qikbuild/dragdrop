@@ -215,6 +215,30 @@ describe('driving a tram', () => {
     expect(linkPoints(found!.link).length).toBeGreaterThan(2);
   });
 
+  it('can\'t be driven through the tram ahead', () => {
+    const { sim, p, t, trams, w } = tramAtStop(6);
+    p.ped.x = t.x + Math.cos(t.angle) * 1.2;
+    p.ped.y = t.y + Math.sin(t.angle) * 1.2;
+    expect(trams.act(p, 'cab')).toBe(true);
+    // another tram standing on the track 40 m ahead
+    const ahead = new Tram(w.tram, t.link, sim.rng, w.tramStops);
+    ahead.dwell = 1e9;
+    for (let k = 0; k < 400; k++) {
+      const d = Math.hypot(ahead.x - t.x, ahead.y - t.y);
+      if (d > 40) break;
+      ahead.advance(0.5);
+      ahead.updateSections();
+    }
+    sim.addTram(ahead);
+    for (let k = 0; k < 30 * 15; k++) {
+      trams.drive(p, 1, 0, false);
+      follow(p, t);
+      sim.step(1 / 15);
+      for (const s of t.sections) expect(ahead.hits(s.x, s.y, -0.5)).toBeNull();
+    }
+    expect(t.speed).toBeLessThan(1);
+  });
+
   it('whoever it hits is the driver\'s doing', () => {
     const { sim, p, t, trams } = tramAtStop(5);
     p.ped.x = t.x + Math.cos(t.angle) * 1.2;

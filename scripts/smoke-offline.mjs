@@ -43,11 +43,12 @@ try {
   check(s1.pickups >= 15, `pickups placed (${s1.pickups})`);
   check(await page.evaluate(() => document.getElementById('touch').classList.contains('hidden')), 'no touch controls on a desktop');
 
-  // get into the nearest car and drive (a car: not one of the scooters and bikes at the docks)
+  // get into the nearest car and drive (a car: not one of the scooters and bikes at the docks, nor a
+  // boat at a pier)
   await page.evaluate(() => {
     const g = window.game, p = g.player;
     let best = null, bd = 1e9;
-    for (const v of g.vehicles) if (!v.driver && v.parked && !v.spec.twoWheeler) {
+    for (const v of g.vehicles) if (!v.driver && v.parked && !v.spec.twoWheeler && !v.spec.boat) {
       const d = Math.hypot(v.x - p.x, v.y - p.y);
       if (d < bd) (bd = d), (best = v);
     }
@@ -166,20 +167,22 @@ try {
     if (!t) return null;
     t.dwell = 30;
     t.speed = 0;
+    // at its nose at once (a tram far from the player would be gone by the next frame)
+    p.x = t.x + Math.cos(t.angle) * 1.2;
+    p.y = t.y + Math.sin(t.angle) * 1.2;
+    p.level = t.level;
+    p.levelInit = true;
     return { id: t.id };
   });
   if (!tram) check(false, 'a tram to drive');
   else {
     await sleep(300);
-    await page.evaluate((id) => {
-      const g = window.game, p = g.player, t = g.host.trams.find((q) => q.id === id);
-      p.x = t.x + Math.cos(t.angle) * 1.2;
-      p.y = t.y + Math.sin(t.angle) * 1.2;
-      p.level = t.level;
-      p.levelInit = true;
-    }, tram.id);
-    await sleep(100);
     const cabText = await page.evaluate(() => window.game.prompt()?.text);
+    if (cabText !== 'Ukradnúť električku')
+      console.log('[smoke] at the tram:', JSON.stringify(await page.evaluate((id) => {
+        const g = window.game, p = g.player, t = g.host.trams.find((q) => q.id === id);
+        return { state: g.state, paused: g.paused, map: g.showMap, car: !!p.vehicle, tram: !!t, d: t && Math.hypot(t.x + Math.cos(t.angle) * 0.8 - p.x, t.y + Math.sin(t.angle) * 0.8 - p.y), lvl: [p.level, t?.level], speed: t?.speed, driver: t?.driver, dwell: t?.dwell };
+      }, tram.id)));
     await page.keyboard.press('KeyF');
     await sleep(300);
     check(await page.evaluate((id) => window.game.host.live.tram?.id === id && window.game.host.live.tram.cab, tram.id), `took a tram's cab with F ("${cabText}")`);
@@ -264,6 +267,9 @@ try {
         if (g.world.collideCircle(x, y, 0.5) || g.world.raycast(x, y, q.x, q.y) < 1 || g.world.inWater(x, y, 0)) continue;
         p.x = x;
         p.y = y;
+        // (the camera there too, so the clicks land where the target is on screen)
+        g.cam.x = x;
+        g.cam.y = y;
         return { ok: true, id: q.id };
       }
     }
