@@ -115,9 +115,10 @@ export class Graph {
           const cell = this.grid.get((gx + 1000) * 4096 + gy + 1000);
           if (!cell) continue;
           for (const i of cell) {
-            if (!this.out[i].length || (filter && !filter(i))) continue;
+            if (!this.out[i].length) continue;
             const d = (this.nodes[i * 2] - x) ** 2 + (this.nodes[i * 2 + 1] - y) ** 2;
-            if (d < bestD) (bestD = d), (best = i);
+            // (the filter can be costly: only asked about nodes that would be the nearest yet)
+            if (d < bestD && (!filter || filter(i))) (bestD = d), (best = i);
           }
         }
       }

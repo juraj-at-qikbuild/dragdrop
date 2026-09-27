@@ -121,13 +121,14 @@ export class Crowd {
     return !!p.playerId || p.kinematic || p.state === 'sit';
   }
 
-  /** shift someone (not into a wall) */
+  /** shift someone (not into a wall, nor through one into a building) */
   private push(p: Ped, dx: number, dy: number) {
     if (!dx && !dy) return;
     p.x += dx;
     p.y += dy;
     const hit = this.sim.world.collideCircle(p.x, p.y, p.r, p.level);
     if (hit) (p.x += hit.nx * hit.depth), (p.y += hit.ny * hit.depth);
+    this.sim.world.unstick(p, p.r);
   }
 
   /** player figure `pl` barged into `q`: a look and a word (and the odd one shoves back) */

@@ -403,8 +403,9 @@ export class Sim {
         const d = v.driver;
         d.vehicle = null;
         v.driver = null;
-        d.x = v.x - Math.sin(v.angle) * 2;
-        d.y = v.y + Math.cos(v.angle) * 2;
+        const s = this.world.exitSpot(v, -1);
+        d.x = s.x;
+        d.y = s.y;
         this.combat.scare(d, v.x, v.y);
         this.ai.drivers.delete(v);
       }
@@ -542,11 +543,12 @@ export class Sim {
       this.crime(p, 'carjack');
       this.hurtPlayer(other, 0, ped.x, ped.y, p.id);
     } else if (v.driver && v.driver !== ped) {
-      // carjacking: throw the driver out
+      // carjacking: throw the driver out (of the kerb side if there's room)
       const d = v.driver;
       d.vehicle = null;
-      d.x = v.x - Math.sin(v.angle) * 2;
-      d.y = v.y + Math.cos(v.angle) * 2;
+      const s = this.world.exitSpot(v, -1);
+      d.x = s.x;
+      d.y = s.y;
       // the odd one goes for the carjacker; the rest run (and may phone the police)
       if (d.kind === 'civ') {
         if (!this.crowd.provoke(d, p)) this.combat.scare(d, ped.x, ped.y);
@@ -572,32 +574,25 @@ export class Sim {
     return !!v.reservedFor && v.reservedFor !== p.id && this.time < v.reservedUntil;
   }
 
-  /** throw a player out of their car (carjacked) */
+  /** throw a player out of their car (carjacked), on the side away from the carjacker if there's room */
   private eject(p: SimPlayer, v: Vehicle, fromX: number, fromY: number) {
     this.releaseCar(p, v);
     const side = (fromX - v.x) * -Math.sin(v.angle) + (fromY - v.y) * Math.cos(v.angle) >= 0 ? -1 : 1;
-    p.ped.x = v.x - Math.sin(v.angle) * (v.spec.width / 2 + 0.8) * side;
-    p.ped.y = v.y + Math.cos(v.angle) * (v.spec.width / 2 + 0.8) * side;
+    const s = this.world.exitSpot(v, -side);
+    p.ped.x = s.x;
+    p.ped.y = s.y;
     this.events.toPlayer(p.id, { k: 'eject', vehicle: v.id, x: p.ped.x, y: p.ped.y });
   }
 
-  /** Leave the car: step out on a free side (or wherever when forced). */
-  exitVehicle(p: SimPlayer, force = false, at?: { x: number; y: number }) {
+  /** Leave the car: step out where there's room (`World.exitSpot`), or where the client says they
+   *  did (`at`). There's always somewhere, so being made to get out (`_force`) is no different. */
+  exitVehicle(p: SimPlayer, _force = false, at?: { x: number; y: number }) {
     const ped = p.ped;
     const v = ped.vehicle;
     if (!v) return;
-    if (at) (ped.x = at.x), (ped.y = at.y);
-    else
-      for (const s of [1, -1]) {
-        const x = v.x + Math.sin(v.angle) * (v.spec.width / 2 + 0.7) * s;
-        const y = v.y - Math.cos(v.angle) * (v.spec.width / 2 + 0.7) * s;
-        // the spot beside the car, at its level (on a deck, or inside the tunnel tube)
-        if (force || !this.world.collideCircle(x, y, 0.4, v.level, false)) {
-          ped.x = x;
-          ped.y = y;
-          break;
-        }
-      }
+    const s = at ?? this.world.exitSpot(v);
+    ped.x = s.x;
+    ped.y = s.y;
     this.releaseCar(p, v);
   }
 

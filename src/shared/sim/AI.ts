@@ -566,8 +566,9 @@ export class AI {
     if (!nodes.length) return 0;
     const n = rng.pick(nodes);
     const px = w.ped.nx(n), py = w.ped.ny(n);
-    // on a walkable way, not at the bottom of steps into the river or past the edge of the map
-    if (this.onScreen(px, py, 3) || w.ped.out[n].every((l) => l.edge.noWalk) || w.inWater(px, py, 0)) return 0;
+    // on a walkable way, not at the bottom of steps into the river, past the edge of the map or at
+    // the end of a path inside a building
+    if (this.onScreen(px, py, 3) || w.ped.out[n].every((l) => l.edge.noWalk) || w.inWater(px, py, 0) || w.insideSolid(px, py)) return 0;
     const p = new Ped('civ', px, py, rng.seed());
     this.startWalk(p, n);
     sim.addPed(p);
@@ -1104,8 +1105,9 @@ export class AI {
     const drv = v.driver;
     drv.vehicle = null;
     v.driver = null;
-    drv.x = v.x - Math.sin(v.angle) * 1.6;
-    drv.y = v.y + Math.cos(v.angle) * 1.6;
+    const s = sim.world.exitSpot(v, -1);
+    drv.x = s.x;
+    drv.y = s.y;
     sim.combat.scare(drv, danger.x, danger.y);
     this.drivers.delete(v);
     v.setControls(0, 0, true);
@@ -1364,11 +1366,13 @@ export class AI {
     cop.targetPid = d.target;
     v.driver = null;
     const side = sim.rng.chance(0.5) ? 1 : -1;
-    cop.x = v.x - Math.sin(v.angle) * 1.6 * side;
-    cop.y = v.y + Math.cos(v.angle) * 1.6 * side;
+    const s = sim.world.exitSpot(v, -side);
+    cop.x = s.x;
+    cop.y = s.y;
     cop.state = 'chase';
     if (sim.rng.chance(0.7)) {
-      const cop2 = new Ped('cop', v.x + Math.sin(v.angle) * 1.6 * side, v.y - Math.cos(v.angle) * 1.6 * side, sim.rng.seed());
+      const s2 = sim.world.exitSpot(v, side);
+      const cop2 = new Ped('cop', s2.x, s2.y, sim.rng.seed());
       cop2.state = 'chase';
       cop2.targetPid = d.target;
       if (cop.outfit === 'swat') cop2.outfit = 'swat';

@@ -835,15 +835,10 @@ export class Room {
       v.parked = true;
       this.sim.addVehicle(v);
       this.reserve(v, p);
-      // beside it, as if they'd just got out
-      for (const side of [1, -1]) {
-        const x = v.x + Math.sin(v.angle) * (v.spec.width / 2 + 0.7) * side;
-        const y = v.y - Math.cos(v.angle) * (v.spec.width / 2 + 0.7) * side;
-        if (world.collideCircle(x, y, 0.4, v.level, false)) continue;
-        ped.x = x;
-        ped.y = y;
-        break;
-      }
+      // beside it, as if they'd just got out (where getting out puts anyone: World.exitSpot)
+      const s = world.exitSpot(v);
+      ped.x = s.x;
+      ped.y = s.y;
       this.sim.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Tvoje auto parkuje vedľa teba.', time: 4, color: '#90caf9' });
       return;
     }

@@ -513,15 +513,10 @@ export class NetSimHost implements SimHost, NetView {
     const v = this.ownCar;
     if (!v) return;
     const p = this.me.ped;
-    for (const s of [1, -1]) {
-      const x = v.x + Math.sin(v.angle) * (v.spec.width / 2 + 0.7) * s;
-      const y = v.y - Math.cos(v.angle) * (v.spec.width / 2 + 0.7) * s;
-      if (!this.game.world.collideCircle(x, y, 0.4)) {
-        p.x = x;
-        p.y = y;
-        break;
-      }
-    }
+    // the same spot the offline game (and the server, given none) steps out onto
+    const s = this.game.world.exitSpot(v);
+    p.x = s.x;
+    p.y = s.y;
     const full: VehFull = {
       x: r2(v.x), y: r2(v.y), a: r3(v.angle), vx: r2(v.vx), vy: r2(v.vy), av: r3(v.av), hp: Math.max(0, v.health),
       dmg: [v.dmg.front, v.dmg.rear, v.dmg.left, v.dmg.right], fire: v.fire, tyres: v.tyresBurst ? 1 : 0, nitro: v.nitro, lvl: v.level,

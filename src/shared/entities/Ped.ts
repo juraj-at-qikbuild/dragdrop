@@ -146,14 +146,23 @@ export class Ped {
   move(dt: number, world: World, vx: number, vy: number) {
     this.vx = vx;
     this.vy = vy;
-    this.x += vx * dt;
-    this.y += vy * dt;
-    const hit = world.collideCircle(this.x, this.y, this.r, this.level);
-    if (hit) {
-      this.x += hit.nx * hit.depth;
-      this.y += hit.ny * hit.depth;
-    }
     const sp = Math.hypot(vx, vy);
+    // in steps of at most half the radius: on a long frame (up to 50 ms) a sprint goes further than
+    // that, and a centre carried past a wall is pushed out on its far side, into the building
+    const n = Math.min(8, Math.ceil((sp * dt) / (this.r / 2)) || 1);
+    let hit = false;
+    for (let i = 0; i < n; i++) {
+      this.x += (vx * dt) / n;
+      this.y += (vy * dt) / n;
+      const h = world.collideCircle(this.x, this.y, this.r, this.level);
+      if (h) {
+        this.x += h.nx * h.depth;
+        this.y += h.ny * h.depth;
+        hit = true;
+      }
+    }
+    // shoved or thrown into a building some other way, or put down in one: back out
+    if (world.unstick(this, this.r)) hit = true;
     if (sp > 0.1) {
       this.walkPhase += sp * dt * 3.2;
       const target = Math.atan2(vy, vx);
@@ -162,7 +171,7 @@ export class Ped {
       while (d < -Math.PI) d += Math.PI * 2;
       this.angle += d * Math.min(1, dt * 14);
     }
-    return !!hit;
+    return hit;
   }
 
   kill(fromX: number, fromY: number, force = 4) {

@@ -90,10 +90,13 @@ describe('Sim', () => {
     look(b);
     sim.prewarm(a);
     sim.setWanted(a, 3);
-    run(sim, 15);
-    const chasing = [...sim.ai.drivers.values()].filter((d) => d.mode === 'police' && d.target);
-    expect(chasing.length).toBeGreaterThan(0);
-    expect(chasing.every((d) => d.target === a.id)).toBe(true);
+    // (all through the chase: standing about in the open, A is soon busted)
+    const targets = new Set<number>();
+    for (let t = 0; t < 15; t += 0.05) {
+      sim.step(0.05);
+      for (const d of sim.ai.drivers.values()) if (d.mode === 'police' && d.target) targets.add(d.target);
+    }
+    expect([...targets]).toEqual([a.id]);
     expect(b.wanted).toBe(0);
   });
 

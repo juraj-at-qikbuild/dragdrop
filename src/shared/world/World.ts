@@ -123,6 +123,8 @@ const SURF = 7;
 const DECK_FIT = 0.5;
 /** tree trunk collision radius */
 const TRUNK = 0.3;
+/** sides of the polygon walled round each vertex of a passage (just outside its round end) */
+const ROUND = 16;
 /** cap on trees (real + filled in) */
 const MAX_TREES = 6000;
 
@@ -223,6 +225,11 @@ export class World {
   /** tunnel portals, END floats each (see END): the inward direction points into the tunnel */
   private portals: Float32Array = new Float32Array(0);
   private tfit: TubeFit = { on: false, out: false, depth: 0, nx: 0, ny: 0 };
+  /** per pedestrian-graph node: 1 on the city's walkable network (see `walkNetwork`) */
+  private walkNet: Uint8Array;
+  /** per pedestrian-graph node: 1 when someone can be put down there, -1 not, 0 not looked at yet
+   *  (see `standable`) */
+  private standOk: Int8Array;
   /** building indices by BCELL cell (over each building's `bboxAll`) */
   private buildingGrid = new Map<number, number[]>();
   /** per-building query stamp, so `forBuildingsNear` visits each building once */
@@ -436,6 +443,8 @@ export class World {
       this.fitWalks();
     }
     this.car.depth = this.deadEnds();
+    this.walkNet = this.walkNetwork();
+    this.standOk = new Int8Array(this.ped.nodes.length / 2);
     this.lights = new TrafficLights(this);
     this.marks = new StreetMarks(this);
     this.tramStops = Float32Array.from(data.tramStops ?? []);
@@ -697,6 +706,24 @@ export class World {
     return depth;
   }
 
+  /** The pedestrian graph's main network: per node, 1 when it's on the connected part (along the
+   *  ways people walk, not `noWalk` ones) with the most path in it, 0 on bits of path cut off from
+   *  the city (a hospital's grounds reached only through the building, a walled garden). */
+  private walkNetwork(): Uint8Array {
+    const g = this.ped, n = g.nodes.length / 2;
+    const comp = Int32Array.from({ length: n }, (_, i) => i);
+    const find = (i: number) => {
+      while (comp[i] !== i) i = comp[i] = comp[comp[i]];
+      return i;
+    };
+    for (const e of g.edges) if (!e.noWalk) comp[find(e.a)] = find(e.b);
+    const size = new Map<number, number>();
+    for (const e of g.edges) if (!e.noWalk) size.set(find(e.a), (size.get(find(e.a)) ?? 0) + e.len);
+    let main = -1, most = -1;
+    for (const [c, s] of size) if (s > most) (most = s), (main = c);
+    return Uint8Array.from({ length: n }, (_, i) => (find(i) === main ? 1 : 0));
+  }
+
   private addToGrid(grid: Map<number, number[]>, idx: number, arr: Float32Array, pad: number) {
     this.addBoxToGrid(grid, idx, arr[idx], arr[idx + 1], arr[idx + 2], arr[idx + 3], pad);
   }
@@ -744,51 +771,62 @@ export class World {
     return out;
   }
 
-  /** Side walls of every passage: its corridor edges, kept only where they run inside a solid
-   *  building and outside every (other) corridor, so crossing passages stay open. */
+  /** Walls round every passage corridor where it runs inside a solid building. The corridor is the
+   *  ground within `hw` of the passage's line (that is what's cut out of the building outlines), so
+   *  its edge is both sides of every segment plus a round end about every vertex: a path's dead end
+   *  inside a building, the outside of a bend, both ends of a stub where a street clips a facade
+   *  (Primaciálne námestie all along the Primate's Palace). Walling only the sides left all of those
+   *  open into the building. Only the pieces inside a building and outside every corridor are kept,
+   *  so crossing passages stay open. */
   private passageWalls(wall: (ax: number, ay: number, bx: number, by: number, ht: number, flags: number) => void) {
+    // the round ends: polygons just outside the circle, so no side of one dips into the corridor
+    const R = 1 / Math.cos(Math.PI / ROUND);
     for (const ps of this.passages) {
       const p = ps.p, hw = ps.hw;
-      const pb = bboxOf(p, hw + 1);
+      const pb = bboxOf(p, hw * R + 1);
       const near: Building[] = [];
       this.forBuildingsNear(pb.x0, pb.y0, pb.x1, pb.y1, (b) => b.solid && near.push(b));
       if (!near.length) continue;
-      for (const side of [1, -1]) {
-        // corridor edge: each segment offset sideways, consecutive offsets joined at the bends
-        const edge: number[] = [];
-        for (let k = 0; k < p.length - 2; k += 2) {
-          const dx = p[k + 2] - p[k], dy = p[k + 3] - p[k + 1];
-          const l = Math.hypot(dx, dy) || 1;
-          const ox = (-dy / l) * hw * side, oy = (dx / l) * hw * side;
-          if (edge.length) edge.push(edge[edge.length - 2], edge[edge.length - 1], p[k] + ox, p[k + 1] + oy);
-          edge.push(p[k] + ox, p[k + 1] + oy, p[k + 2] + ox, p[k + 3] + oy);
+      const edge: number[] = [];
+      for (let k = 0; k < p.length - 2; k += 2) {
+        const dx = p[k + 2] - p[k], dy = p[k + 3] - p[k + 1];
+        const l = Math.hypot(dx, dy) || 1;
+        const ox = (-dy / l) * hw, oy = (dx / l) * hw;
+        edge.push(p[k] + ox, p[k + 1] + oy, p[k + 2] + ox, p[k + 3] + oy, p[k] - ox, p[k + 1] - oy, p[k + 2] - ox, p[k + 3] - oy);
+      }
+      for (let k = 0; k < p.length; k += 2)
+        for (let j = 0; j < ROUND; j++) {
+          const a0 = (j / ROUND) * 2 * Math.PI, a1 = ((j + 1) / ROUND) * 2 * Math.PI;
+          edge.push(p[k] + Math.cos(a0) * hw * R, p[k + 1] + Math.sin(a0) * hw * R, p[k] + Math.cos(a1) * hw * R, p[k + 1] + Math.sin(a1) * hw * R);
         }
-        for (let k = 0; k < edge.length; k += 4) {
-          const ax = edge[k], ay = edge[k + 1], bx = edge[k + 2], by = edge[k + 3];
-          if (Math.hypot(bx - ax, by - ay) < 1e-3) continue;
-          // split where it crosses a nearby building outline, keep the pieces inside a building
-          const cuts = [0, 1];
-          for (const b of near)
-            for (const r of b.rings)
-              for (let i = 0; i < r.length - 2; i += 2) {
-                const t = segIntersect(ax, ay, bx, by, r[i], r[i + 1], r[i + 2], r[i + 3]);
-                if (t > 0 && t < 1) cuts.push(t);
-              }
-          cuts.sort((a, b) => a - b);
-          for (let c = 0; c < cuts.length - 1; c++) {
-            const t0 = cuts[c], t1 = cuts[c + 1];
-            if (t1 - t0 < 1e-4) continue;
-            const mx = ax + (bx - ax) * ((t0 + t1) / 2), my = ay + (by - ay) * ((t0 + t1) / 2);
-            if (!near.some((b) => pointInRings(mx, my, b.rings))) continue;
-            const sx = ax + (bx - ax) * t0, sy = ay + (by - ay) * t0, ex = ax + (bx - ax) * t1, ey = ay + (by - ay) * t1;
-            // ...minus where it runs through a corridor (the other passages, and this one's own bends)
-            let u = 0;
-            for (const [u0, u1] of this.passageSpans(sx, sy, ex, ey, 0.05)) {
-              if (u0 > u) wall(sx + (ex - sx) * u, sy + (ey - sy) * u, sx + (ex - sx) * u0, sy + (ey - sy) * u0, 0, W_SIGHT);
-              u = Math.max(u, u1);
+      for (let k = 0; k < edge.length; k += 4) {
+        const ax = edge[k], ay = edge[k + 1], bx = edge[k + 2], by = edge[k + 3];
+        if (Math.hypot(bx - ax, by - ay) < 1e-3) continue;
+        // (most of a round end lies within the corridor's other segments)
+        const open = this.passageSpans(ax, ay, bx, by, 0.05);
+        if (open.length === 1 && open[0][0] <= 0 && open[0][1] >= 1) continue;
+        // split where it crosses a nearby building outline, keep the pieces inside a building
+        const cuts = [0, 1];
+        for (const b of near)
+          for (const r of b.rings)
+            for (let i = 0; i < r.length - 2; i += 2) {
+              const t = segIntersect(ax, ay, bx, by, r[i], r[i + 1], r[i + 2], r[i + 3]);
+              if (t > 0 && t < 1) cuts.push(t);
             }
-            if (u < 1) wall(sx + (ex - sx) * u, sy + (ey - sy) * u, ex, ey, 0, W_SIGHT);
+        cuts.sort((a, b) => a - b);
+        for (let c = 0; c < cuts.length - 1; c++) {
+          const t0 = cuts[c], t1 = cuts[c + 1];
+          if (t1 - t0 < 1e-4) continue;
+          const mx = ax + (bx - ax) * ((t0 + t1) / 2), my = ay + (by - ay) * ((t0 + t1) / 2);
+          if (!near.some((b) => pointInRings(mx, my, b.rings))) continue;
+          const sx = ax + (bx - ax) * t0, sy = ay + (by - ay) * t0, ex = ax + (bx - ax) * t1, ey = ay + (by - ay) * t1;
+          // ...minus where it runs through a corridor (the other passages, and this one's own bends)
+          let u = 0;
+          for (const [u0, u1] of this.passageSpans(sx, sy, ex, ey, 0.05)) {
+            if (u0 > u) wall(sx + (ex - sx) * u, sy + (ey - sy) * u, sx + (ex - sx) * u0, sy + (ey - sy) * u0, 0, W_SIGHT);
+            u = Math.max(u, u1);
           }
+          if (u < 1) wall(sx + (ex - sx) * u, sy + (ey - sy) * u, ex, ey, 0, W_SIGHT);
         }
       }
     }
@@ -1198,6 +1236,73 @@ export class World {
     return false;
   }
 
+  /** Inside a solid building and not in a passage through it: somewhere nobody can be (see `unstick`). */
+  insideSolid(x: number, y: number) {
+    return this.insideBuilding(x, y) && !this.inPassage(x, y);
+  }
+
+  /** Inside a passage corridor (a gateway, a courtyard passage, a covered street through a building). */
+  private inPassage(x: number, y: number) {
+    const c = this.passageGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (!c) return false;
+    for (const id of c) {
+      const ps = this.passages[id >> 16], k = id & 65535, p = ps.p;
+      if (segDist2(x, y, p[k], p[k + 1], p[k + 2], p[k + 3]) < ps.hw * ps.hw) return true;
+    }
+    return false;
+  }
+
+  /** Inside any building's footprint, solid or not: under a roof (a canopy, a raised floor, a
+   *  passage under a building included). */
+  private underRoof(x: number, y: number) {
+    const c = this.buildingGrid.get(this.key(Math.floor(x / BCELL), Math.floor(y / BCELL)));
+    if (!c) return false;
+    for (const i of c) {
+      const b = this.buildings[i], bb = b.bboxAll;
+      if (x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1 && pointInRings(x, y, b.rings)) return true;
+    }
+    return false;
+  }
+
+  /** Get a body of radius `r` that is inside a solid building (see `insideSolid`: shoved or thrown
+   *  in through a wall, put down there) back out: just outside the nearest of the building's walls
+   *  with room to stand beyond it (not a party wall into the house next door), else on the nearest
+   *  spot to put someone down (`walkableNear`). Building outlines hold from both sides, so otherwise
+   *  it would be stuck in there, on the roof as far as anyone can see. Not in a tunnel: that runs
+   *  under it all. Returns whether it moved it. */
+  unstick(e: { x: number; y: number; level: Level }, r: number): boolean {
+    const lv = e.level;
+    if (lv === -1 || !this.insideSolid(e.x, e.y)) return false;
+    let best = Infinity, ox = 0, oy = 0;
+    // (the walls of every building it's in: some overlap)
+    this.forBuildingsNear(e.x, e.y, e.x, e.y, (b) => {
+      if (!b.solid || !pointInRings(e.x, e.y, b.rings)) return;
+      for (const ring of b.rings)
+        for (let i = 0; i < ring.length - 2; i += 2) {
+          const ax = ring[i], ay = ring[i + 1], dx = ring[i + 2] - ax, dy = ring[i + 3] - ay, l2 = dx * dx + dy * dy;
+          if (l2 < 1e-6) continue;
+          let t = ((e.x - ax) * dx + (e.y - ay) * dy) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const qx = ax + dx * t, qy = ay + dy * t, d = Math.hypot(qx - e.x, qy - e.y);
+          if (d >= best) continue;
+          // on out past it the way it lies from here (right on the wall: along the wall's normal,
+          // which points out of the building), a step further if a bollard or a garden wall
+          // stands right outside
+          const l = Math.sqrt(l2), ux = d > 1e-3 ? (qx - e.x) / d : dy / l, uy = d > 1e-3 ? (qy - e.y) / d : -dx / l;
+          for (const out of [r + 0.1, r + 0.8]) {
+            const x = qx + ux * out, y = qy + uy * out;
+            if (this.collideCircle(x, y, r, lv, false) || this.inWater(x, y, lv) || this.insideSolid(x, y)) continue;
+            (best = d), (ox = x), (oy = y);
+            break;
+          }
+        }
+    });
+    const out = best < Infinity ? { x: ox, y: oy } : this.walkableNear(e.x, e.y);
+    e.x = out.x;
+    e.y = out.y;
+    return true;
+  }
+
   /** Visit every building whose `bboxAll` overlaps the box, once each. */
   forBuildingsNear(x0: number, y0: number, x1: number, y1: number, fn: (b: Building) => void) {
     const stamp = ++this.stamp;
@@ -1387,24 +1492,62 @@ export class World {
     return list;
   }
 
-  /** Walkable spot near a point (outside buildings and water). */
+  /** Where to put someone down near (x, y) (a respawn at a hospital, a new player, a pickup): the
+   *  nearest pedestrian node someone can stand at (see `standable`). The nearest node of all can be
+   *  the dead end of a path into a building (the hospital by Námestie SNP), a courtyard only reached
+   *  through one, a bridge or a spot under a canopy. */
   walkableNear(x: number, y: number) {
-    const n = this.ped.nearest(x, y, 300);
-    if (n >= 0) return { x: this.ped.nx(n), y: this.ped.ny(n) };
+    const g = this.ped;
+    let n = g.nearest(x, y, 300, (i) => this.standable(i));
+    if (n < 0) n = g.nearest(x, y, 300);
+    if (n >= 0) return { x: g.nx(n), y: g.ny(n) };
     return { x, y };
   }
 
-  /** The nearest spot to (x, y) where a body of radius `r` stands clear of every wall, fountain,
-   *  post and trunk, on dry ground (searching outwards in rings), for putting people down. */
+  /** Can someone be put down at pedestrian node i: on the city's walkable network (`walkNet`), out
+   *  in the open at street level (not in or under any building, a passage included, nor on a bridge
+   *  deck or in a tunnel) and clear of every wall. */
+  private standable(i: number) {
+    if (!this.standOk[i]) {
+      const x = this.ped.nx(i), y = this.ped.ny(i);
+      this.standOk[i] = this.walkNet[i] && this.standsClear(x, y, 0.5) && !this.onBridge(x, y) && this.tunnelDepth(x, y) < 0 ? 1 : -1;
+    }
+    return this.standOk[i] === 1;
+  }
+
+  /** A body of radius `r` stands at (x, y) clear of every wall, fountain, post and trunk, on dry
+   *  ground and under the open sky. */
+  private standsClear(x: number, y: number, r: number) {
+    return !this.collideCircle(x, y, r, 0, false) && !this.inWater(x, y, 0) && !this.underRoof(x, y);
+  }
+
+  /** The nearest spot to (x, y) where a body of radius `r` stands clear (see `standsClear`,
+   *  searching outwards in rings), for putting people down. */
   clearSpot(x: number, y: number, r = 0.5): { x: number; y: number } {
-    const ok = (px: number, py: number) => !this.collideCircle(px, py, r, 0, false) && !this.inWater(px, py, 0) && !this.insideBuilding(px, py);
-    if (ok(x, y)) return { x, y };
+    if (this.standsClear(x, y, r)) return { x, y };
     for (let d = 0.75; d <= 30; d += 0.75)
       for (let k = 0, n = Math.ceil((d * 2 * Math.PI) / 0.75); k < n; k++) {
         const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * d, py = y + Math.sin(a) * d;
-        if (ok(px, py)) return { x: px, y: py };
+        if (this.standsClear(px, py, r)) return { x: px, y: py };
       }
     return { x, y };
+  }
+
+  /** Where someone getting out of car `v` stands: beside it on `side` (1 the driver's, left of its
+   *  heading; -1 the kerb side), else the other side, behind it or in front of it. The spot must be
+   *  clear at the car's level (on a deck, or inside the tunnel tube) and dry, with nothing solid
+   *  between it and the car, and not inside a building: beside a car pressed against a wall it lies
+   *  further through the wall than a figure is wide, so on its own it looks clear. The car's own
+   *  spot when there's none. */
+  exitSpot(v: { x: number; y: number; angle: number; level: Level; spec: { width: number; length: number } }, side = 1) {
+    const fx = Math.cos(v.angle), fy = Math.sin(v.angle), lv = v.level;
+    for (const [dx, dy, edge] of [[fy * side, -fx * side, v.spec.width / 2], [-fy * side, fx * side, v.spec.width / 2], [-fx, -fy, v.spec.length / 2], [fx, fy, v.spec.length / 2]]) {
+      const x = v.x + dx * (edge + 0.7), y = v.y + dy * (edge + 0.7);
+      if (this.collideCircle(x, y, 0.4, lv, false) || this.collideCircle(v.x + dx * (edge + 0.3), v.y + dy * (edge + 0.3), 0.4, lv, false)) continue;
+      if (this.inWater(x, y, lv) || (lv !== -1 && this.insideSolid(x, y))) continue;
+      return { x, y };
+    }
+    return { x: v.x, y: v.y };
   }
 
   landmark(id: string, fx = 0, fy = 0): Landmark {
