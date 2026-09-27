@@ -90,17 +90,23 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 ## Still open
 
 ### Gameplay
+The next round of gameplay work is planned in five phases in
+[plans/gameplay.md](plans/gameplay.md): the police (1), money (2), driving and new ways around (3),
+fighting alone and together (4) and a city that remembers (5). Several items below are part of it,
+as noted.
+
 - **More crimes for witnesses**: hitting people with a car, wrecking cars, fights in public.
 - **Pedestrian lights**: people cross on red. Stand-alone crossings already have a walk phase to
   obey; junctions would need one.
-- **Knocked down, not always killed**: any car touching someone at over 16 km/h kills them (below
-  that it just pushes them aside). In between, a knock-down (they fall, get up and shout) would fit
-  the new reactions.
+- **Knocked down, not always killed** (gameplay plan, Phase 4): any car touching someone at over
+  16 km/h kills them (below that it just pushes them aside). In between, a knock-down (they fall,
+  get up and shout) would fit the new reactions.
 - **Missions using the new places**: deliveries to real restaurants, a taxi fare from a real address,
   Slavín and the Radio as destinations.
 - **Tram line numbers**: the tracks know which lines run on them (`Edge.lines`); trams could pick a
   line, follow its route and show its number (one more byte in the tram record).
-- **Something to spend money on** besides the spray shop: a gun shop, a garage that keeps a car.
+- **Something to spend money on** besides the spray shop: a gun shop, a garage that keeps a car
+  (gameplay plan, Phase 2).
 
 ### Controls
 - Remappable keys and a second pad layout (throttle on A, brake on X for pads without analog
@@ -119,7 +125,7 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - Car handling (tyre slip, weight transfer, ABS, stability control, drag) is in good shape
   (`test/shared/vehicle.test.ts`). Candidates: steering that pulls toward a damaged side, and
   motorbikes.
-- Boats on the Danube.
+- Boats on the Danube (gameplay plan, Phase 3).
 
 ### Online
 - Protocol v7: the server must be redeployed (`fly deploy`) together with the client.
