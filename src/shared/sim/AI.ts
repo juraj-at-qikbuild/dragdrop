@@ -2,7 +2,7 @@
 // traffic driving on the road graph, pedestrians walking the footpaths, police pursuit (A*) of wanted
 // players, and cops on foot.
 import { Vehicle, SPECS, type VehicleKind } from '../entities/Vehicle';
-import { Ped } from '../entities/Ped';
+import { Ped, dazeTime } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
 import { angleDiff, bboxOf, clamp, dist, pointInRings } from '../util/math';
@@ -177,10 +177,10 @@ export class AI {
     // cops on foot whose suspect is dangerous enough to draw on (3+ stars, or shot at the police)
     this.armedCops = EMPTY_PEDS;
     const armed = [...sim.players.values()].filter((p) => p.wanted >= 3 || p.shotCops);
-    if (armed.length) this.armedCops = sim.peds.filter((c) => c.kind === 'cop' && !c.dead && !c.vehicle && armed.includes(this.copTarget(c)!));
+    if (armed.length) this.armedCops = sim.peds.filter((c) => c.kind === 'cop' && !c.dazed && !c.leaving && !c.vehicle && armed.includes(this.copTarget(c)!));
     const danger = sim.anyWanted && sim.police.dangerEvents.length > 0;
     for (const [v, d] of this.drivers) {
-      if (v.wrecked || v.sinking || v.isPlayer || !v.driver || v.driver.dead) {
+      if (v.wrecked || v.sinking || v.isPlayer || !v.driver || v.driver.dazed) {
         if (d.mode !== 'parked') v.setControls(0, 0, true);
         continue;
       }
@@ -198,7 +198,7 @@ export class AI {
     }
     for (const p of sim.peds) {
       if (p.kinematic || p.playerId) continue;
-      if (p.vehicle || p.dead || p.state === 'chase' || p.state === 'flee' || p.state === 'fight') {
+      if (p.vehicle || p.dazed || p.state === 'chase' || p.state === 'flee' || p.state === 'fight') {
         this.updatePed(p, dt);
         continue;
       }
@@ -243,7 +243,9 @@ export class AI {
       }
       return keep;
     });
-    sim.peds = sim.peds.filter((p) => !gone.has(p) && (p.playerId !== 0 || p.kinematic || !!p.vehicle || near(p.x, p.y, (_r, d) => d < 200 || (p.dead && d < 260))));
+    // (someone who got up after being knocked down and is off home to change is gone once nobody sees
+    // them: docs/plans/non-violent.md)
+    sim.peds = sim.peds.filter((p) => !gone.has(p) && (p.playerId !== 0 || p.kinematic || !!p.vehicle || (near(p.x, p.y, (_r, d) => d < 200) && !(p.leaving && !p.dazed && !sim.visibleToAny(p.x, p.y, 6)))));
     sim.trams = sim.trams.filter((t) => near(t.x, t.y, (r, d) => d < r.far + 150));
 
     // how many of each kind are around each player
@@ -255,9 +257,9 @@ export class AI {
       if (d?.mode === 'traffic') traffic++, g.add(v.x, v.y, C_TRAFFIC);
       // (the scooters and bikes at the docks and stands are rules/Bikes.ts's, not parked cars)
       else if (v.parked && !v.spec.twoWheeler && !v.spec.boat) parked++, g.add(v.x, v.y, C_PARKED);
-      if (d?.mode === 'police' && v.driver && !v.driver.dead && !v.wrecked) police++;
+      if (d?.mode === 'police' && v.driver && !v.driver.dazed && !v.wrecked) police++;
     }
-    for (const p of sim.peds) if (p.kind === 'civ' && !p.vehicle && !p.dead) peds++, g.add(p.x, p.y, C_PEDS);
+    for (const p of sim.peds) if (p.kind === 'civ' && !p.vehicle && !p.dazed) peds++, g.add(p.x, p.y, C_PEDS);
     for (const t of sim.trams) g.add(t.x, t.y, C_TRAMS);
     // the load governor shrinks the world-wide caps too, and anything over them that nobody can see is
     // thinned out a few at a time, so an overloaded server actually gets lighter
@@ -410,7 +412,7 @@ export class AI {
     const count = (local: () => number, max: number, global: () => number, cap: number, spawn: () => void) => {
       for (let i = 0; i < max + 40 && local() < max && global() < cap; i++) spawn();
     };
-    const civList = () => sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead);
+    const civList = () => sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dazed);
     const parkedList = () => sim.vehicles.filter((v) => v.parked && !v.spec.twoWheeler && !v.spec.boat);
     const trafficList = () => sim.vehicles.filter((v) => this.drivers.get(v)?.mode === 'traffic');
     count(() => within(civList(), 200), density.peds, () => civList().length, sim.caps.peds, () => void this.spawnPed(x, y, 4, 150));
@@ -868,7 +870,7 @@ export class AI {
     });
     if (!clear) return false;
     for (const p of sim.pedsNear(v.x + (hx * L) / 2, v.y + (hy * L) / 2, L / 2 + 2)) {
-      if (p.vehicle || p.dead) continue;
+      if (p.vehicle) continue;
       const lon = (p.x - v.x) * hx + (p.y - v.y) * hy;
       if (lon < 0 || lon > L) continue;
       const off = this.laneOff(v, d, p.x, p.y, lon);
@@ -1202,9 +1204,10 @@ export class AI {
     if (res) return res;
     if (!chase) {
       for (const p of sim.pedsNear(cx, cy, qr)) {
-        if (p.vehicle || p.dead) continue;
+        if (p.vehicle) continue;
         if (Math.abs(p.x - v.x) > range + 3 || Math.abs(p.y - v.y) > range + 3) continue;
-        if (!test(p.x, p.y, 0.4)) continue;
+        // (someone sitting dazed in the road takes more room than someone walking)
+        if (!test(p.x, p.y, p.dazed ? 0.7 : 0.4)) continue;
         if (!p.playerId) this.lastPed = p;
         return p.playerId ? 'player' : 'other';
       }
@@ -1221,7 +1224,7 @@ export class AI {
     const stars = p.stars;
     const want = stars <= 0 ? 0 : COPS_WANTED[Math.min(5, stars)];
     let cops = 0;
-    for (const [v, d] of this.drivers) if (d.mode === 'police' && d.target === p.id && v.driver && !v.driver.dead && !v.wrecked) cops++;
+    for (const [v, d] of this.drivers) if (d.mode === 'police' && d.target === p.id && v.driver && !v.driver.dazed && !v.wrecked) cops++;
     if (cops >= want) return 0;
     const o = p.observer;
     const vr = Math.hypot(o.hw, o.hh);
@@ -1418,18 +1421,23 @@ export class AI {
   private updatePed(p: Ped, dt: number) {
     const sim = this.sim;
     const rng = sim.rng;
-    if (p.playerId || p.vehicle) return;
-    if (p.dead) {
-      p.deadTime += dt;
+    if (p.playerId) return;
+    // knocked down (docs/plans/non-violent.md): thrown a little way (against walls, never into the
+    // Danube), sitting dazed a few seconds, then up again. At the wheel too: the car waits.
+    if (p.dazed) {
+      p.dazedTime += dt;
       this.followers.delete(p);
-      if (Math.hypot(p.vx, p.vy) > 0.05) {
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vx *= 1 - dt * 4;
-        p.vy *= 1 - dt * 4;
+      if (!p.vehicle && Math.hypot(p.vx, p.vy) > 0.05) {
+        const a = p.angle, x0 = p.x, y0 = p.y, vx = p.vx, vy = p.vy;
+        p.move(dt, sim.world, vx, vy);
+        p.angle = a;
+        if (sim.world.inWater(p.x, p.y, p.level) && !sim.world.inWater(x0, y0, p.level)) (p.x = x0), (p.y = y0), (p.vx = p.vy = 0);
+        else (p.vx = vx * (1 - dt * 4)), (p.vy = vy * (1 - dt * 4));
       }
+      if (p.dazedTime >= dazeTime(p)) this.getUp(p);
       return;
     }
+    if (p.vehicle) return;
     // civilians near an armed cop, or with a gun pointed at them, put their hands up
     if (p.kind === 'civ') {
       if (p.surrender > 0) p.surrender -= dt;
@@ -1447,7 +1455,7 @@ export class AI {
     // walking groups: follow the leader at a fixed offset instead of navigating independently
     const fo = this.followers.get(p);
     if (fo && p.state === 'walk') {
-      if (fo.leader.dead || fo.leader.vehicle) this.followers.delete(p);
+      if (fo.leader.dazed || fo.leader.vehicle) this.followers.delete(p);
       else {
         const tx = fo.leader.x + fo.ox, ty = fo.leader.y + fo.oy;
         const d = dist(p.x, p.y, tx, ty) || 1e-3;
@@ -1477,7 +1485,7 @@ export class AI {
       return;
     }
     if (p.cooldown > 0) p.cooldown -= dt;
-    if (p.kind === 'cop' && (p.state === 'chase' || sim.anyWanted)) return this.copOnFoot(p, dt);
+    if (p.kind === 'cop' && !p.leaving && (p.state === 'chase' || sim.anyWanted)) return this.copOnFoot(p, dt);
     if (p.kind === 'civ' && p.state === 'walk' && this.dodge(p)) return;
     if (p.state === 'flee') {
       p.timer -= dt;
@@ -1498,12 +1506,13 @@ export class AI {
         p.fleeFrom.x = p.x - (-dy / l) * tside * l;
         p.fleeFrom.y = p.y - (dx / l) * tside * l;
       }
-      // panic cascade: scare nearby civilians too, with a cooldown so it doesn't loop forever
-      if (p.kind === 'civ' && p.cooldown <= 0) {
+      // panic cascade: scare nearby civilians too, with a cooldown so it doesn't loop forever (not
+      // someone just hurrying home to change, knocked down a moment ago)
+      if (p.kind === 'civ' && !p.leaving && p.cooldown <= 0) {
         p.cooldown = 1.2;
         let spread = false;
         for (const q of sim.pedsNear(p.x, p.y, 8)) {
-          if (q === p || q.kind !== 'civ' || q.dead || q.vehicle || q.state === 'flee') continue;
+          if (q === p || q.kind !== 'civ' || q.dazed || q.vehicle || q.state === 'flee') continue;
           if (dist(p.x, p.y, q.x, q.y) < 8) {
             sim.combat.scare(q, p.fleeFrom.x, p.fleeFrom.y);
             spread = true;
@@ -1605,6 +1614,34 @@ export class AI {
   /** the player a cop on foot is after: their assigned target, or the nearest wanted player close by.
    *  Downed counts too (Revive): a cop can catch up and bust someone lying there before they're
    *  revived or bleed out. */
+  /** Back on their feet after being knocked down (docs/plans/non-violent.md): dry (health back), and
+   *  on their way home to change, saying what they think of it. A civilian hurries off away from what
+   *  did it; a cop goes off duty (hurrying off the same way, no chase, no sight, no arrest: as if
+   *  knocking a cop down still took them out of the chase, which it did when it was for good). A driver
+   *  gets out and leaves the car; a cop on a boat stays aboard, off duty. */
+  private getUp(p: Ped) {
+    const sim = this.sim;
+    p.health = 100;
+    p.vx = p.vy = 0;
+    p.dazedTime = 0;
+    p.leaving = true;
+    p.state = 'walk';
+    const v = p.vehicle;
+    if (v) {
+      if (v.spec.boat) return;
+      p.vehicle = null;
+      v.driver = null;
+      this.drivers.delete(v);
+      v.setControls(0, 0, true);
+      const s = sim.world.exitSpot(v, -1);
+      p.x = s.x;
+      p.y = s.y;
+    }
+    sim.combat.scare(p, p.fleeFrom.x, p.fleeFrom.y);
+    p.timer = p.kind === 'cop' ? 30 : sim.rng.range(2, 3.5);
+    sim.crowd.sayUp(p, p.downMess);
+  }
+
   private copTarget(p: Ped): SimPlayer | undefined {
     const sim = this.sim;
     const t = sim.players.get(p.targetPid);
@@ -1720,7 +1757,7 @@ export class AI {
       if (!blocked && !v.wrecked && Math.abs(v.x - t.x) < 25 && Math.abs(v.y - t.y) < 25 && check(v.x, v.y, v.spec.width / 2)) blocked = true;
     });
     for (const p of sim.pedsNear(t.x, t.y, 20))
-      if (!p.vehicle && !p.aboard && !p.dead && Math.abs(p.x - t.x) < 20 && Math.abs(p.y - t.y) < 20 && check(p.x, p.y, 0.3)) {
+      if (!p.vehicle && !p.aboard && Math.abs(p.x - t.x) < 20 && Math.abs(p.y - t.y) < 20 && check(p.x, p.y, 0.3)) {
         blocked = true;
         if (p.playerId && t.bell <= 0) {
           t.bell = 2;

@@ -218,7 +218,7 @@ describe('scooters and bikes', () => {
       v.setControls(1, 0, false);
       sim.step(1 / 60);
     }
-    expect(civ.dead).toBe(false);
+    expect(civ.dazed).toBe(false);
   });
 
   it('a car that hits someone else\'s scooter (online: kinematic, their client knocks them off) drives on', () => {

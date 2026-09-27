@@ -25,7 +25,7 @@ import { placePickups, type Pickup, type PickupKind } from './Pickups';
 import { SPAWNS, SPAWN_SPREAD } from '../world/spawns';
 import { Clock } from './Clock';
 import { IdPool } from './IdPool';
-import { nullEvents, type SimEvents } from './events';
+import { nullEvents, type DazeCause, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
 import { DOWNED_BLEED, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
@@ -440,7 +440,7 @@ export class Sim {
     // per-frame consequences (once, not per physics substep)
     const gone = new Set<Ped>();
     for (const v of this.vehicles) {
-      if (v.fire > 0 && !v.wrecked && !v.kinematic && v.driver && !v.driver.playerId && !v.driver.dead) {
+      if (v.fire > 0 && !v.wrecked && !v.kinematic && v.driver && !v.driver.playerId && !v.driver.dazed) {
         // AI bails out of burning cars
         const d = v.driver;
         d.vehicle = null;
@@ -485,14 +485,7 @@ export class Sim {
           if (pl && this.time >= pl.thrownUntil) this.hurtPlayer(pl, t.speed * 5, sx, sy, driver?.id ?? 0);
           return;
         }
-        p.kill(sx, sy, t.speed);
-        this.events.pedHit(p.id, p.x, p.y, 0.8);
-        this.events.pedKilled(p.id, p.x, p.y, driver?.id ?? 0, 'tram');
-        if (driver) {
-          this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
-          this.dropCash(p.x, p.y, p.money);
-          this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
-        }
+        this.bonk(p, sx, sy, t.speed, 'tram', driver);
       },
     });
   }
@@ -542,22 +535,39 @@ export class Sim {
     if (p.playerId) {
       const pl = this.players.get(p.playerId);
       if (pl) {
-        if (this.time >= pl.thrownUntil) this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner);
+        if (this.time >= pl.thrownUntil) this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner, 'bonk');
         p.x += (v.vx / sp) * 1.5;
         p.y += (v.vy / sp) * 1.5;
       }
       return;
     }
-    p.kill(cx - v.vx, cy - v.vy, sp * 0.8);
-    this.events.pedHit(p.id, p.x, p.y, 0.8);
-    this.events.pedKilled(p.id, p.x, p.y, v.owner, 'road');
-    const driver = this.players.get(v.owner);
+    this.bonk(p, cx - v.vx, cy - v.vy, sp * 0.6, 'road', this.players.get(v.owner));
+  }
+
+  /** BOING (docs/plans/non-violent.md): a car or a tram that hits someone bounces them off like a
+   *  rubber ball; they sit dazed, then get up. Never a reward: the reward is for a close pass (the
+   *  splash, rules/Splash.ts), not for contact. The one who drove it gets the stars for reckless
+   *  driving (the crimes keep their ids: +1★, +2★ for a cop) and a "BOING!" that banks nothing. */
+  private bonk(p: Ped, fromX: number, fromY: number, force: number, cause: 'road' | 'tram', driver: SimPlayer | undefined) {
+    this.knockDown(p, fromX, fromY, force, cause, driver?.id ?? 0, 'bonk');
     if (driver) {
       this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
-      this.dropCash(p.x, p.y, p.money);
-      this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
+      this.rule<Style>('style')?.voidPending(driver);
+      this.events.toPlayer(driver.id, { k: 'style', label: 'BOING!', cash: 0, x: p.x, y: p.y - 1.5 });
     }
-    for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dead && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
+    for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dazed && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
+  }
+
+  /** Knock an NPC down (docs/plans/non-violent.md: nobody dies): thrown a little way from (fromX,
+   *  fromY), sitting dazed a few seconds, then up again and off home (AI.getUp). The one way it
+   *  happens: a toy (`cause` shot or melee), a car's or a tram's bump, a car giving up next to them. */
+  knockDown(p: Ped, fromX: number, fromY: number, force: number, cause: DazeCause, byPid: number, mess: Mess) {
+    if (p.dazed || p.playerId) return;
+    // (a taxi fare waiting at the kerb is posed by the job: knocked down, they're the crowd's again)
+    p.kinematic = false;
+    p.knockDown(fromX, fromY, Math.min(9, force), mess);
+    this.events.pedHit(p.id, p.x, p.y, 1, mess);
+    this.events.pedDazed(p.id, p.x, p.y, byPid, cause);
   }
 
   /** Damage a vehicle. A player's car is simulated by their client, so they are told to apply it. */
@@ -615,8 +625,11 @@ export class Sim {
       const s = this.world.exitSpot(v, -1);
       d.x = s.x;
       d.y = s.y;
-      // the odd one goes for the carjacker; the rest run (and may phone the police)
-      if (d.kind === 'civ') {
+      // the odd one goes for the carjacker; the rest run (and may phone the police); someone
+      // knocked down at the wheel just ends up sitting on the pavement
+      if (d.dazed) {
+        /* they come round there (AI) */
+      } else if (d.kind === 'civ') {
         if (!this.crowd.provoke(d, p)) this.combat.scare(d, ped.x, ped.y);
       } else d.state = 'chase';
       this.crime(p, 'carjack', d);
@@ -844,7 +857,7 @@ export class Sim {
     if (killer === victim) return;
     this.crime(killer, 'killPlayer', null, victim);
     const f = victim.focus();
-    this.style(killer, 'ko', f.x, f.y, { label: `K.O. ${victim.nick}` });
+    this.style(killer, 'ko', f.x, f.y, { label: `${victim.nick}: SPRCHA!` });
     this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Dostal ťa ${killer.nick}.`, time: 3, color: '#ff8a80' });
     for (const r of this.rules) r.onKill?.(victim, killer);
   }

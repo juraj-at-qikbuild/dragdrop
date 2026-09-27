@@ -6,7 +6,7 @@ import { Ped } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import { Tram } from '../../src/shared/entities/Tram';
 import { Reader, Writer, decodeSnapshot, encodeSnapshotHeader, entityHead, pedDynamic, pedStatic, Ent } from '../../src/shared/net/codec';
-import { lineText, pickLine, SAY_GUN } from '../../src/shared/sim/phrases';
+import { lineText, pickLine, pickUpLine, SAY_GUN, SAY_UP } from '../../src/shared/sim/phrases';
 import type { SimEvents } from '../../src/shared/sim/events';
 import { nullEvents } from '../../src/shared/sim/events';
 import { loadWorld } from './helpers';
@@ -193,6 +193,15 @@ describe('crowd', () => {
       const snap = decodeSnapshot(new Reader(w.finish()));
       expect((snap.ents[0].v as { state: string }).state).toBe(state);
     }
-    for (const tourist of [false, true]) for (let cat = 0; cat < 7; cat++) expect(lineText(pickLine(cat, tourist, 0.99))).not.toBe('');
+    for (const tourist of [false, true]) for (let cat = 0; cat < 8; cat++) expect(lineText(pickLine(cat, tourist, 0.99))).not.toBe('');
+    // getting up again (docs/plans/non-violent.md): a line for whatever knocked them down, within the
+    // one category (the wire's line numbers have room for 16 lines a category, 8 categories)
+    for (const tourist of [false, true])
+      for (const mess of ['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'foam'] as const)
+        for (const r of [0, 0.5, 0.99]) {
+          const l = pickUpLine(mess, tourist, r);
+          expect(lineText(l), `${mess} ${tourist}`).not.toBe('');
+          expect((l & 127) >> 4).toBe(SAY_UP);
+        }
   });
 });

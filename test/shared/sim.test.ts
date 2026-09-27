@@ -28,7 +28,7 @@ describe('Sim', () => {
     sim.prewarm(p);
     run(sim, 20);
     const t = sim.ai.lastTargets;
-    const peds = sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead).length;
+    const peds = sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dazed).length;
     expect(peds).toBeGreaterThan(t.peds * 0.8);
     expect(sim.vehicles.filter((v) => v.parked).length).toBeGreaterThan(t.parked * 0.6);
   });
@@ -61,7 +61,7 @@ describe('Sim', () => {
     const traffic = sim.vehicles.filter((v) => sim.ai.drivers.get(v)?.mode === 'traffic').length;
     expect(traffic).toBeLessThanOrEqual(caps.traffic);
     expect(sim.vehicles.filter((v) => v.parked).length).toBeLessThanOrEqual(caps.parked);
-    expect(sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead).length).toBeLessThanOrEqual(caps.peds + 5);
+    expect(sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dazed).length).toBeLessThanOrEqual(caps.peds + 5);
     expect(sim.trams.length).toBeLessThanOrEqual(caps.trams);
     expect(playerScale(20)).toBeLessThan(1);
   });
@@ -75,7 +75,7 @@ describe('Sim', () => {
       ps.push(p);
     }
     run(sim, 20);
-    const peds = sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dead).length;
+    const peds = sim.peds.filter((q) => q.kind === 'civ' && !q.vehicle && !q.dazed).length;
     expect(peds).toBeLessThan(sim.ai.lastTargets.peds * 2);
   });
 
@@ -160,7 +160,7 @@ describe('Sim', () => {
     }
     expect(car.y).toBeLessThan(470); // the car went past them
     expect(dodged).toBe(true);
-    expect(walker.dead).toBe(false);
+    expect(walker.dazed).toBe(false);
   });
 });
 

@@ -134,7 +134,8 @@ export class PoliceUi implements ClientFeature {
       if (v.siren && !v.wrecked && !v.isPlayer && (v.kind === 'police' || v.kind === 'van') && near(v.x, v.y))
         out.push({ x: v.x, y: v.y, a: v.angle, sight: SIGHT.car, level: v.level });
     for (const p of g.host.peds as readonly Ped[])
-      if (p.kind === 'cop' && !p.dead && !p.vehicle && near(p.x, p.y)) out.push({ x: p.x, y: p.y, a: p.angle, sight: SIGHT.foot, level: p.level });
+      // (a cop knocked down isn't looking, nor one hurrying off afterwards, off duty: they never flee otherwise)
+      if (p.kind === 'cop' && !p.dazed && p.state !== 'flee' && !p.vehicle && near(p.x, p.y)) out.push({ x: p.x, y: p.y, a: p.angle, sight: SIGHT.foot, level: p.level });
     return out;
   }
 

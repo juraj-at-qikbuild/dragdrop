@@ -66,7 +66,7 @@ export class Boats implements SimRule {
       this.moor(p);
       // the police boat: gone (out of the city, sunk, taken), or wanted for the first time
       const c = this.police.get(p);
-      if (c && (!sim.vehicles.includes(c.boat) || c.boat.wrecked || c.boat.owner || !c.boat.driver || c.boat.driver.dead)) this.police.delete(p);
+      if (c && (!sim.vehicles.includes(c.boat) || c.boat.wrecked || c.boat.owner || !c.boat.driver || c.boat.driver.dazed || c.boat.driver.leaving)) this.police.delete(p);
       if (!this.police.has(p) && p.state === 'play' && p.stars >= POLICE_BOAT_STARS && onWater(sim, p)) this.launch(p);
     }
   }
@@ -116,7 +116,7 @@ export class Boats implements SimRule {
    *  backing off the bank when it runs aground, the cop on board firing when they're in range. */
   private chase(p: SimPlayer, c: Chase, dt: number) {
     const sim = this.sim, b = c.boat, cop = b.driver;
-    if (!cop || cop.dead || b.wrecked || b.owner) return;
+    if (!cop || cop.dazed || cop.leaving || b.wrecked || b.owner) return;
     const f = p.focus();
     if (p.state !== 'play' || p.wanted <= 0 || !onWater(sim, p)) {
       b.setControls(0, 0, true);

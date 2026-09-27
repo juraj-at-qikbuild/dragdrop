@@ -5,10 +5,12 @@
 // own client against what it sees (`traceShot`) and applied here (`applyShot`), the server first
 // validating the claim.
 import type { Level } from '../world/World';
-import type { Ped, WeaponId } from '../entities/Ped';
+import type { Mess, Ped, WeaponId } from '../entities/Ped';
+export type { Mess } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
 import type { World } from '../world/World';
 import { dist } from '../util/math';
+import { SOAK_LABEL } from './rules/Style';
 import type { Sim } from './Sim';
 
 /** each toy: its name (and what the HUD calls it, `short`), how much it soaks (dmg), cooldown,
@@ -21,7 +23,6 @@ export const WEAPONS: Record<WeaponId, { name: string; short: string; dmg: numbe
 };
 
 /** what each toy leaves on a person it hits (the look ClientEvents gives them) */
-export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'foam';
 export const WEAPON_MESS: Record<WeaponId, Mess> = { fist: 'tickle', pistol: 'water', uzi: 'bubbles', shotgun: 'confetti' };
 export const WEAPON_IDS: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
 
@@ -91,7 +92,7 @@ export function traceShot(
     let kind = t < 1 ? HitKind.Wall : HitKind.None;
     let hit = 0;
     for (const p of peds) {
-      if (p.id === s.id || p.dead || p.vehicle || p.aboard || p.level !== s.level) continue;
+      if (p.id === s.id || p.dazed || p.vehicle || p.aboard || p.level !== s.level) continue;
       if (Math.abs(p.x - sx) > w.range + 1 || Math.abs(p.y - sy) > w.range + 1) continue;
       const pt = rayCircle(sx, sy, ex, ey, p.x, p.y, p.r + 0.15);
       if (pt >= 0 && pt < t) (t = pt), (kind = HitKind.Ped), (hit = p.id);
@@ -114,7 +115,7 @@ export function traceShot(
 export function traceMelee(peds: Iterable<Ped>, s: Shooter, angle: number): Ped | null {
   const w = WEAPONS.fist;
   for (const p of peds) {
-    if (p.id === s.id || p.dead || p.vehicle || p.aboard || p.level !== s.level) continue;
+    if (p.id === s.id || p.dazed || p.vehicle || p.aboard || p.level !== s.level) continue;
     const d = dist(p.x, p.y, s.x, s.y);
     if (d > w.range + p.r) continue;
     const a = Math.atan2(p.y - s.y, p.x - s.x);
@@ -157,6 +158,8 @@ export class CombatRules {
   applyShot(shooter: Shooter, pid: number, shot: ShotReport) {
     const sim = this.sim;
     const w = WEAPONS[shot.w];
+    // (the helicopter, the one shooter with no ped, tips its water bucket: water, whatever it fires)
+    const mess = shooter.id === 0 ? 'water' : WEAPON_MESS[shot.w];
     const ends: number[] = [];
     let sparks = 0;
     const player = pid ? sim.players.get(pid) ?? null : null;
@@ -164,7 +167,7 @@ export class CombatRules {
       ends.push(pl.hx, pl.hy);
       if (pl.kind === HitKind.Ped) {
         const p = sim.pedById(pl.hit);
-        if (p && !p.dead) this.hurtPed(p, w.dmg, shooter, pid, false, WEAPON_MESS[shot.w]);
+        if (p && !p.dazed) this.hurtPed(p, w.dmg, shooter, pid, false, mess);
       } else if (pl.kind === HitKind.Car) {
         sparks |= 1 << i;
         const car = sim.vehicleById(pl.hit);
@@ -176,11 +179,11 @@ export class CombatRules {
         // but for run-flats (the Dielňa's tuning)
         if (hitsWheel(car, pl.hx, pl.hy) && car.burstTyres() && car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
-        if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid, false, WEAPON_MESS[shot.w]);
+        if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid, false, mess);
         if (car.isPlayer && car.owner !== pid) {
           // a car keeps most of it off its driver; a scooter's or a bike's rider is out in the open
           const victim = sim.players.get(car.owner);
-          if (victim) sim.hurtPlayer(victim, w.dmg * (car.spec.twoWheeler ? 0.35 : 0.12), shooter.x, shooter.y, pid, WEAPON_MESS[shot.w]);
+          if (victim) sim.hurtPlayer(victim, w.dmg * (car.spec.twoWheeler ? 0.35 : 0.12), shooter.x, shooter.y, pid, mess);
         }
       } else if (pl.kind === HitKind.Wall) sparks |= 1 << i;
     });
@@ -189,13 +192,13 @@ export class CombatRules {
       sim.crime(player, 'shoot');
       sim.police.danger(shooter.x, shooter.y, 16);
       for (const p of sim.pedsNear(shooter.x, shooter.y, 35))
-        if (p.kind === 'civ' && !p.dead && !p.vehicle && dist(p.x, p.y, shooter.x, shooter.y) < 35) this.scare(p, shooter.x, shooter.y);
+        if (p.kind === 'civ' && !p.dazed && !p.vehicle && dist(p.x, p.y, shooter.x, shooter.y) < 35) this.scare(p, shooter.x, shooter.y);
     }
   }
 
   applyMelee(shooter: Shooter, pid: number, target: Ped | null) {
     this.sim.events.melee(shooter.x, shooter.y, !!target);
-    if (target && !target.dead) this.hurtPed(target, WEAPONS.fist.dmg, shooter, pid, true);
+    if (target && !target.dazed) this.hurtPed(target, WEAPONS.fist.dmg, shooter, pid, true);
   }
 
   /** Soak a ped. `by` is who did it (for knock-back direction), `pid` the player responsible (0 =
@@ -203,7 +206,7 @@ export class CombatRules {
    *  with. */
   hurtPed(p: Ped, dmg: number, by: { x: number; y: number } | null, pid: number, melee = false, mess: Mess = melee ? 'tickle' : 'water') {
     const sim = this.sim;
-    if (p.dead) return;
+    if (p.dazed) return;
     if (p.playerId) {
       const victim = sim.players.get(p.playerId);
       if (victim && victim.id !== pid) sim.hurtPlayer(victim, dmg * 0.35, by?.x ?? p.x, by?.y ?? p.y, pid, mess);
@@ -214,19 +217,26 @@ export class CombatRules {
     p.hitFlash = 0.14;
     sim.events.pedHit(p.id, p.x, p.y, 0.4, mess);
     if (p.health <= 0) {
-      p.kill(by?.x ?? p.x, by?.y ?? p.y, 3);
-      sim.events.pedHit(p.id, p.x, p.y, 1, mess);
-      sim.events.pedKilled(p.id, p.x, p.y, pid, 'shot');
+      // soaked through (tickled till they sit down): down for a moment, then up and off home
+      const first = !p.leaving;
+      sim.knockDown(p, by?.x ?? p.x, by?.y ?? p.y, 3, melee ? 'melee' : 'shot', pid, mess);
       if (player) {
         sim.crime(player, p.kind === 'cop' ? 'killCop' : 'killPed');
-        sim.dropCash(p.x, p.y, p.money);
-        sim.style(player, p.kind === 'cop' ? 'copkill' : 'kill', p.x, p.y);
+        // (one reward a person: someone already on their way home to change pays nothing twice)
+        if (first) {
+          sim.dropCash(p.x, p.y, p.money);
+          p.money = 0;
+          const labels = SOAK_LABEL[mess === 'bubbles' || mess === 'confetti' || mess === 'tickle' ? mess : 'water'];
+          sim.style(player, p.kind === 'cop' ? 'copsoak' : 'soak', p.x, p.y, { label: labels[p.kind === 'cop' ? 1 : 0] });
+        }
       }
     } else if (p.kind === 'civ' && by) sim.crowd.hurt(p, player, by, melee);
     if (p.kind === 'cop' && player) sim.crime(player, 'shootCop');
   }
 
   scare(p: Ped, fx: number, fy: number) {
+    // someone knocked down stays down until they get up by themselves (AI.getUp)
+    if (p.dazed) return;
     // someone who got away and is on the phone to the police keeps talking, unless it's right by them
     if (p.state === 'phone' && dist(p.x, p.y, fx, fy) > 8) return;
     p.state = 'flee';
@@ -237,14 +247,15 @@ export class CombatRules {
     p.waitStop = -1;
   }
 
-  /** A car blows up (or anything else explodes) at (x, y). `pid` is the player responsible, if any. */
+  /** A car gives up (docs/plans/non-violent.md: a PUF of foam, not a fireball) at (x, y): it pushes
+   *  cars away and knocks down whoever stands close, soapy. `pid` is the player responsible, if any. */
   explode(x: number, y: number, source: Vehicle | null, pid: number) {
     const sim = this.sim;
     sim.events.explode(x, y, source?.id ?? 0, source?.color ?? null);
     const player = pid ? sim.players.get(pid) ?? null : null;
     const lvl = source?.level ?? 0;
     for (const p of sim.pedsNear(x, y, 30)) {
-      if (p.dead || p.vehicle || p.aboard) continue;
+      if (p.dazed || p.vehicle || p.aboard) continue;
       const d = dist(p.x, p.y, x, y);
       // the blast stays on its level (a deck or the tunnel roof shields the other side); everyone hears it
       if (d < 7 && p.level === lvl) {
@@ -252,8 +263,7 @@ export class CombatRules {
           const victim = sim.players.get(p.playerId);
           if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid, 'foam');
         } else {
-          p.kill(x, y, 10);
-          sim.events.pedKilled(p.id, p.x, p.y, pid, 'blast');
+          sim.knockDown(p, x, y, 10, 'blast', pid, 'foam');
           if (player) sim.crime(player, 'killPed');
         }
       } else if (d < 30 && p.kind === 'civ') this.scare(p, x, y);

@@ -49,7 +49,7 @@ export type PrivateEvent =
   /** wanted level went up a star */
   | { k: 'stars' }
   | { k: 'jingle'; good: boolean }
-  /** style/kill bonus shown as floating text (e.g. KILL, ROADKILL, TAKEDOWN!). From the combo
+  /** a style bonus shown as floating text (e.g. ŠPLECH!, SPRCHA!, ODSTAVENÉ!). From the combo
    *  (rules/Style.ts, docs/plans/gameplay.md Phase 3): `mult` is the combo's multiplier now (the
    *  combo pays itself out, as a `payout` for 'style'), `nitro` a top-up for the driver's tank.
    *  Without `mult` (a server from before, a job's tip) it's the old kind: `cash` for the client's own
@@ -115,7 +115,7 @@ export type PrivateEvent =
   /** you parked the car you drove in a garage: it's gone, you stand at (x, y) */
   | { k: 'stored'; vehicle: number; x: number; y: number };
 
-export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
+export type DazeCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 
 export interface ShotFx {
   /** ped id of the shooter (0 = helicopter) */
@@ -146,7 +146,7 @@ export interface SimEvents {
   /** a hard vehicle impact: `sev` drives the crunch sound; `kick` > 0 also shakes the camera of whoever
    *  is in (or near) the car, pushed along n (pointing away from what it hit) */
   crash(vehicleId: number, x: number, y: number, sev: number, nx: number, ny: number, kick: number): void;
-  pedKilled(pedId: number, x: number, y: number, byPid: number, cause: KillCause): void;
+  pedDazed(pedId: number, x: number, y: number, byPid: number, cause: DazeCause): void;
   scream(x: number, y: number): void;
   bell(x: number, y: number): void;
   horn(vehicleId: number, x: number, y: number): void;
@@ -165,7 +165,7 @@ export const nullEvents: SimEvents = {
   spark() {},
   explode() {},
   crash() {},
-  pedKilled() {},
+  pedDazed() {},
   scream() {},
   bell() {},
   horn() {},

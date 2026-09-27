@@ -1,7 +1,8 @@
 // Style (docs/plans/gameplay.md, Phase 3): the combo, run by the shared simulation so it counts online
 // as it does offline. Moves at the wheel are detected here for every player driving (a near miss, a
-// drift, and the city's own: see `moves` below), and other code adds its own through Sim.style (a kill,
-// a road kill, a takedown, a knock-out, a clean getaway). Each move banks its cash into the player's
+// drift, and the city's own: see `moves` below), and other code adds its own through Sim.style (someone
+// soaked through, a splash, a last-second dive, a high five, a stall, a police car sidelined, a clean
+// getaway: docs/plans/non-violent.md; contact with a car never counts). Each move banks its cash into the player's
 // combo and raises the multiplier, up to ×5; 4 s without a new one and the combo pays out, bank ×
 // multiplier, and online scores points on the "Štýl" board. A crash ends it early (paid all the same),
 // and a death or an arrest loses it.
@@ -15,9 +16,12 @@ import type { SimRule } from './SimRule';
 
 export type StyleMove =
   | 'near' | 'drift' | 'wrongway' | 'air' | 'tram' | 'red' | 'passage'
-  | 'kill' | 'copkill' | 'roadkill' | 'roadcop' | 'takedown' | 'ko' | 'getaway';
+  | 'soak' | 'copsoak' | 'splash' | 'copsplash' | 'dive' | 'highfive' | 'stall' | 'takedown' | 'ko' | 'getaway';
 
-/** each move: what it's called on screen and the cash it banks (a drift's grows with its speed) */
+/** each move: what it's called on screen and the cash it banks (a drift's grows with its speed). The
+ *  new ones (docs/plans/non-violent.md) in Slovak: soaking someone through with a toy (its own words
+ *  per toy: SOAK_LABEL), splashing them from a puddle, a last-second dive out of the way, a drive-by
+ *  high five, a market stall ploughed through, a police car sidelined. */
 export const STYLE: Record<StyleMove, { label: string; cash: number }> = {
   near: { label: 'NEAR MISS', cash: 20 },
   drift: { label: 'DRIFT', cash: 10 },
@@ -26,13 +30,24 @@ export const STYLE: Record<StyleMove, { label: string; cash: number }> = {
   tram: { label: 'TRAM DODGE', cash: 60 },
   red: { label: 'RED LIGHT', cash: 25 },
   passage: { label: 'THREAD THE NEEDLE', cash: 40 },
-  kill: { label: 'KILL', cash: 15 },
-  copkill: { label: 'KILL', cash: 40 },
-  roadkill: { label: 'ROADKILL', cash: 15 },
-  roadcop: { label: 'ROADKILL', cash: 40 },
-  takedown: { label: 'TAKEDOWN!', cash: 60 },
-  ko: { label: 'K.O.', cash: 50 },
+  soak: { label: 'SPRCHA!', cash: 15 },
+  copsoak: { label: 'POLICAJT V SPRCHE!', cash: 40 },
+  splash: { label: 'ŠPLECH!', cash: 20 },
+  copsplash: { label: 'ŠPLECH NA POLICAJTA!', cash: 40 },
+  dive: { label: 'HOP DO KRÍKA!', cash: 5 },
+  highfive: { label: 'PLÁCNI SI!', cash: 25 },
+  stall: { label: 'MOJE LOKŠE!', cash: 35 },
+  takedown: { label: 'ODSTAVENÉ!', cash: 60 },
+  ko: { label: 'SPRCHA!', cash: 50 },
   getaway: { label: 'CLEAN GETAWAY', cash: 150 },
+};
+
+/** soaking someone through, by the toy that did it: [a civilian, a cop] */
+export const SOAK_LABEL: Record<'water' | 'bubbles' | 'confetti' | 'tickle', [string, string]> = {
+  water: ['SPRCHA!', 'POLICAJT V SPRCHE!'],
+  bubbles: ['BUBLI-BUBLI!', 'POLICAJT V PENE!'],
+  confetti: ['KONFETY!', 'POLICAJT NA OSLAVE!'],
+  tickle: ['ŠTEKLI-ŠTEKLI!', 'ŠTEKLI-ŠTEKLI POLICAJTA!'],
 };
 
 /** seconds a combo waits for the next move before it pays */
@@ -328,6 +343,13 @@ export class Style implements SimRule {
   /** queue a move that counts only once it has stayed crash-free a moment (NEAR_CONFIRM) */
   pend(p: SimPlayer, move: StyleMove, x: number, y: number, o: { label?: string; cash?: number; nitro?: number } = {}) {
     this.state(p).pending.push({ move, label: o.label ?? STYLE[move].label, cash: o.cash ?? STYLE[move].cash, x, y, age: 0, nitro: o.nitro ?? 0 });
+  }
+
+  /** drop whatever `p` has waiting to be confirmed: they just hit someone (a BOING), and a splash or
+   *  a dive the moment before doesn't count any more */
+  voidPending(p: SimPlayer) {
+    const s = this.states.get(p.id);
+    if (s) s.pending.length = 0;
   }
 
   private confirm(p: SimPlayer, s: State, dt: number) {

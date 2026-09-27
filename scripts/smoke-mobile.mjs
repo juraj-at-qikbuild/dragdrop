@@ -150,7 +150,7 @@ try {
     g.ammo.pistol = 50;
     p.weapon = 'pistol';
     for (const q of g.peds) {
-      if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== 0) continue;
+      if (q.kind !== 'civ' || q.dazed || q.vehicle || q.level !== 0) continue;
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
         const x = q.x + Math.cos(a) * 5, y = q.y + Math.sin(a) * 5;

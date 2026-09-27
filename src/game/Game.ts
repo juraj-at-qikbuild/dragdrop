@@ -778,7 +778,7 @@ export class Game {
     const local = this.host instanceof LocalSimHost;
     const R = 50;
     for (const q of this.host.peds) {
-      if (q === me || q.dead || q.downed || q.vehicle || q.level !== level) continue;
+      if (q === me || q.dazed || q.downed || q.vehicle || q.level !== level) continue;
       const dx = q.x - me.x, dy = q.y - me.y;
       if (Math.abs(dx) > R || Math.abs(dy) > R) continue;
       const busy = q.state === 'fight' || q.state === 'phone';
@@ -920,7 +920,7 @@ export class Game {
     else if (this.wanted > 0) {
       let nearest = Infinity;
       for (const v of host.vehicles) if (v.kind === 'police' && v.siren && !v.wrecked && !v.isPlayer) nearest = Math.min(nearest, dist(v.x, v.y, f.x, f.y));
-      for (const p of host.peds) if (p.kind === 'cop' && !p.dead && !p.vehicle) nearest = Math.min(nearest, dist(p.x, p.y, f.x, f.y));
+      for (const p of host.peds) if (p.kind === 'cop' && !p.dazed && !p.vehicle) nearest = Math.min(nearest, dist(p.x, p.y, f.x, f.y));
       this.audio.siren(clamp(1 - nearest / 120, 0, 1));
     } else this.audio.siren(0);
     let heli = Infinity;
@@ -1033,9 +1033,9 @@ export class Game {
     const me = this.player;
     const underground = this.focusLevel() === -1;
     const drawEntities = (level: Level) => {
-      for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      for (const p of host.peds) if (p.dazed && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
       for (const p of host.peds) {
-        if (p.dead || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
+        if (p.dazed || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
         // another player who's away (in their pause menu, or disconnected) is drawn dimmed
         const a = p.playerId ? this.presenceAlpha(p.playerId) : 1;
         ctx.globalAlpha = a;

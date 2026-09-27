@@ -215,14 +215,14 @@ export class Hud {
       ctx.globalAlpha = 1;
     }
 
-    // wasted / busted (downed has its own HUD: ReviveUi's vignette + "Krvácaš" + give-up prompt)
+    // soaked through / busted (downed has its own HUD: ReviveUi's frost + "Mrzneš" + give-up prompt)
     if (g.state !== 'play' && g.state !== 'downed') {
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `700 ${small ? 44 : 84}px ${HEAD}`;
-      outlined(ctx, g.state === 'busted' ? 'ZATKNUTÝ' : 'ZOŠROTOVANÝ', W / 2, H / 2, g.state === 'busted' ? '#448aff' : '#ff1744', 6);
+      outlined(ctx, g.state === 'busted' ? 'ZATKNUTÝ' : 'PREMOČENÝ DO NITKY', W / 2, H / 2, g.state === 'busted' ? '#448aff' : '#40c4ff', 6);
     }
     if (g.online) this.drawNet(ctx, right, top + topH + (small ? 6 : 8), small);
     if (g.paused) {

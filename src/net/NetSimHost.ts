@@ -254,7 +254,7 @@ export class NetSimHost implements SimHost, NetView {
     me.searching = ps.searching;
     me.searchZone = ps.zone;
     me.profile.money = ps.money;
-    if (ps.state !== 'play' && !p.dead) p.health = 0;
+    if (ps.state !== 'play' && !p.dazed) p.health = 0;
     // the lying-down pose and crawling both key off this (Revive); `dead` stays false for the local
     // player, so this never gets mistaken for the (NPC-only) death pose
     p.downed = ps.state === 'downed';
@@ -500,7 +500,7 @@ export class NetSimHost implements SimHost, NetView {
         ev.crash(e.vid, e.x, e.y, e.sev, e.nx, e.ny, e.kick);
         break;
       case 'killed':
-        ev.pedKilled(e.id, e.x, e.y, e.by, e.cause);
+        ev.pedDazed(e.id, e.x, e.y, e.by, e.cause);
         break;
       case 'scream':
         ev.scream(e.x, e.y);

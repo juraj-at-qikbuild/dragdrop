@@ -1,5 +1,5 @@
 // Phase 2 checks: one shared, server-simulated city. Both players see the same NPCs in the same places,
-// and an NPC one of them shoots is dead for the other too.
+// and an NPC one of them soaks till they sit down is sitting there for the other too.
 export async function run({ A, B, check, log, sleep }) {
   await sleep(1500);
   // same NPC ids, same places (give or take interpolation)
@@ -7,7 +7,7 @@ export async function run({ A, B, check, log, sleep }) {
     page.evaluate(() => {
       const h = window.game.host;
       const peds = {};
-      for (const p of h.peds) if (!p.playerId) peds[p.id] = [p.x, p.y, p.dead];
+      for (const p of h.peds) if (!p.playerId) peds[p.id] = [p.x, p.y, p.dazed];
       const cars = {};
       for (const v of h.vehicles) cars[v.id] = [v.x, v.y];
       return { peds, cars };
@@ -24,7 +24,7 @@ export async function run({ A, B, check, log, sleep }) {
   check(shared.length > 30 && sharedCars.length > 10, `both players see the same NPCs (${shared.length} peds, ${sharedCars.length} cars)`);
   check(maxOff < 3, `...in the same places (max ${maxOff.toFixed(2)} m apart)`);
 
-  // A shoots a civilian that B can see; B sees it die
+  // A soaks a civilian that B can see; B sees them sit down, dazed
   await A.evaluate(() => window.game.host.conn.send({ t: 'debug', give: 'pistol' }));
   await sleep(400);
   let victim = null;
@@ -33,8 +33,8 @@ export async function run({ A, B, check, log, sleep }) {
     const id = await shootSomeone(A, tried, sleep);
     if (!id) break;
     tried.push(id);
-    if (await A.evaluate((id) => window.game.host.pedById(id)?.dead === true, id)) victim = id;
-    else log(`attempt ${attempt + 1}: civilian ${id} survived, trying another`);
+    if (await A.evaluate((id) => window.game.host.pedById(id)?.dazed === true, id)) victim = id;
+    else log(`attempt ${attempt + 1}: civilian ${id} stayed on their feet, trying another`);
   }
   try {
     const st = await (await fetch('http://localhost:8787/stats')).json();
@@ -42,19 +42,19 @@ export async function run({ A, B, check, log, sleep }) {
   } catch {
     /* stats unavailable */
   }
-  check(!!victim, 'A shot a civilian dead');
+  check(!!victim, 'A soaked a civilian till they sat down');
   await sleep(500);
-  const deadForB = victim ? await B.evaluate((id) => window.game.host.pedById(id)?.dead ?? null, victim) : null;
-  check(deadForB === true, `B sees that civilian dead too (${deadForB})`);
+  const dazedForB = victim ? await B.evaluate((id) => window.game.host.pedById(id)?.dazed ?? null, victim) : null;
+  check(dazedForB === true, `B sees that civilian sitting dazed too (${dazedForB})`);
   const wanted = await A.evaluate(() => window.game.wanted);
   check(wanted >= 1, `A is wanted for it (${wanted})`);
 }
 
-/** walk A to 4 m from a live civilian with a clear line of fire and shoot at it; returns its id */
+/** walk A to 4 m from a civilian on their feet with a clear line of fire and squirt at them; returns their id */
 async function shootSomeone(A, skip, sleep) {
   const target = await A.evaluate((skip) => {
     const g = window.game, h = g.host, p = g.player;
-    const cands = h.peds.filter((q) => q.kind === 'civ' && !q.dead && !q.vehicle && q.level === p.level && !skip.includes(q.id));
+    const cands = h.peds.filter((q) => q.kind === 'civ' && !q.dazed && !q.vehicle && q.level === p.level && !skip.includes(q.id));
     cands.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
     for (const q of cands.slice(0, 40)) {
       for (let k = 0; k < 8; k++) {
@@ -85,7 +85,7 @@ async function shootSomeone(A, skip, sleep) {
     const pos = await A.evaluate((id) => {
       const g = window.game;
       const t = g.host.pedById(id);
-      if (!t || t.dead) return null;
+      if (!t || t.dazed) return null;
       g.player.weapon = 'pistol';
       return g.worldToScreen(t.x, t.y);
     }, target.id);

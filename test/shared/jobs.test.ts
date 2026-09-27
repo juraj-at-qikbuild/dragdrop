@@ -218,7 +218,7 @@ describe('Jobs: taxi', () => {
     jobs.start(p, 'taxi');
     const offer = lastJob(priv, p.id)!;
     const fare = sim.peds.find((q) => q.kind === 'civ' && dist(q.x, q.y, offer.x, offer.y) < 0.01)!;
-    fare.kill(fare.x - 1, fare.y, 4);
+    fare.knockDown(fare.x - 1, fare.y, 4);
     sim.step(0.05);
     const reOffer = lastJob(priv, p.id)!;
     expect(reOffer.kind).toBe('taxi');

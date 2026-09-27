@@ -254,14 +254,14 @@ try {
     await sleep(300);
   }
 
-  // shoot the nearest civilian with a pistol
+  // soak the nearest civilian with the water pistol
   const shot = await page.evaluate(async () => {
     const g = window.game, p = g.player;
     g.ammo.pistol = 50;
     p.weapon = 'pistol';
     // any civilian we can stand 4 m from with a clear line of fire
     for (const q of g.peds) {
-      if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== 0) continue;
+      if (q.kind !== 'civ' || q.dazed || q.vehicle || q.level !== 0) continue;
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
         const x = q.x + Math.cos(a) * 4, y = q.y + Math.sin(a) * 4;
@@ -281,7 +281,7 @@ try {
       const pos = await page.evaluate((id) => {
         const g = window.game;
         const t = g.host.pedById(id);
-        if (!t || t.dead) return null;
+        if (!t || t.dazed) return null;
         return g.worldToScreen(t.x, t.y);
       }, shot.id);
       if (!pos) break;
@@ -291,10 +291,10 @@ try {
       await page.mouse.up();
       await sleep(400);
     }
-    const res = await page.evaluate((id) => ({ dead: window.game.host.pedById(id)?.dead ?? true, wanted: window.game.wanted, money: window.game.save.money }), shot.id);
-    check(res.dead, 'shot a civilian dead');
-    check(res.wanted >= 1, `killing raised the wanted level (${res.wanted})`);
-  } else check(false, 'found a civilian to shoot');
+    const res = await page.evaluate((id) => ({ dazed: window.game.host.pedById(id)?.dazed ?? true, wanted: window.game.wanted, money: window.game.save.money }), shot.id);
+    check(res.dazed, 'soaked a civilian till they sat down');
+    check(res.wanted >= 1, `soaking someone raised the wanted level (${res.wanted})`);
+  } else check(false, 'found a civilian to squirt');
 
   // 3 stars: police show up
   // by the Eurovea riverside roads: some spots (the Old Town square, the castle) have no streets for police cars nearby

@@ -49,7 +49,7 @@ describe('codec', () => {
     p.id = 18;
     p.playerId = 5;
     p.look = 2;
-    p.state = 'dead';
+    p.state = 'dazed';
     entityHead(w, p.id, Ent.Ped, true, 1);
     pedStatic(w, p);
     pedDynamic(w, p, 4);
@@ -83,7 +83,7 @@ describe('codec', () => {
       expect(ep.level).toBe(1);
       expect(ep.v.seed).toBe(777);
       expect(ep.v.playerId).toBe(5);
-      expect(ep.v.state).toBe('dead');
+      expect(ep.v.state).toBe('dazed');
       expect(ep.v.stars).toBe(4);
     }
     if (et.type === Ent.Tram) expect(et.v.sections[2].x).toBeCloseTo(5, 1);

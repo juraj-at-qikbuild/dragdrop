@@ -2,7 +2,7 @@
 // HUD flashes and messages. Offline the Sim calls this directly; online NetSimHost replays the server's
 // events here once the entities they refer to have been interpolated to the same moment.
 import type { Game } from './Game';
-import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
+import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
 import { WEAPONS, type Mess } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { LANDMARK_INFO, RADIO } from '../data/brands';
@@ -55,6 +55,9 @@ export class ClientEvents implements SimEvents {
     if (p) {
       p.hitFlash = 0.14;
       if (mess !== 'tickle' && mess !== 'bonk') (p.mess = mess), (p.messT = MESS_S);
+      // the knock-down's own hit (size 1, Sim.knockDown): what it was drives how they go down
+      // (a bubble floating them off, a car's bump) on a mirror too, which the sim's field isn't sent to
+      if (size >= 1) p.downMess = mess;
     }
   }
 
@@ -82,10 +85,14 @@ export class ClientEvents implements SimEvents {
     if (kick > 0 && v) g.juice.crashImpact(v, kick, nx, ny, mine);
   }
 
-  pedKilled(_id: number, x: number, y: number, _byPid: number, cause: KillCause) {
-    if (this.distTo(x, y) > HEAR_R) return;
-    if (cause === 'road') this.g.audio.punch();
-    else if (cause === 'shot' || cause === 'melee') this.g.audio.scream();
+  /** someone knocked down (docs/plans/non-violent.md): a car's or a tram's bump goes BOING, a toy's
+   *  last squirt a squeal, a tickle a giggle (a car giving up has its own PUF) */
+  pedDazed(_id: number, x: number, y: number, _byPid: number, cause: DazeCause) {
+    const d = this.distTo(x, y);
+    if (d > HEAR_R) return;
+    if (cause === 'road' || cause === 'tram') this.g.audio.boing(d);
+    else if (cause === 'melee') this.g.audio.punch();
+    else if (cause === 'shot') this.g.audio.scream();
   }
 
   scream(x: number, y: number) {
@@ -134,7 +141,8 @@ export class ClientEvents implements SimEvents {
         g.rumble(Math.min(1, 0.25 + e.dmg / 50), 0.3, 150);
         g.hud.hurt = 0.5;
         g.hud.hitFrom(Math.atan2(e.fy - p.y, e.fx - p.x));
-        g.postFx?.pulse({ aberration: clamp(e.dmg / 55, 0, 1), flash: [0.9, 0.05, 0.05, clamp(e.dmg / 60, 0, 0.5)] });
+        // a splash of water on the lens (docs/plans/non-violent.md: getting hit is getting wet)
+        g.postFx?.pulse({ aberration: clamp(e.dmg / 55, 0, 1), flash: [0.25, 0.6, 1, clamp(e.dmg / 60, 0, 0.5)] });
         break;
       }
       case 'stars':

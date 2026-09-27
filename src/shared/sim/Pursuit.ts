@@ -158,7 +158,7 @@ export class Pursuit {
       if (d <= near) out.close = true;
     };
     sim.forVehiclesNear(f.x, f.y, SIGHT.car.range + 5, (v) => {
-      if (v.wrecked || v.isPlayer || !v.driver || v.driver.dead || !(anyCar || v.siren) || !sightOk(v.level)) return;
+      if (v.wrecked || v.isPlayer || !v.driver || v.driver.dazed || v.driver.leaving || !(anyCar || v.siren) || !sightOk(v.level)) return;
       if (v.kind !== 'police' && v.kind !== 'policeboat' && !sim.police.swat.has(v)) return;
       const heard = dist(v.x, v.y, f.x, f.y);
       if (heard <= hear) return saw(heard, SIGHT.car.near);
@@ -166,7 +166,8 @@ export class Pursuit {
       if (d >= 0 && world.raycast(v.x, v.y, f.x, f.y, fl) >= 1) saw(d, SIGHT.car.near);
     });
     sim.forPedsNear(f.x, f.y, Math.max(hear, SIGHT.foot.range + 3), (c) => {
-      if (c.kind !== 'cop' || c.dead || c.vehicle || !sightOk(c.level)) return;
+      // (a cop knocked down, or up again and off duty, isn't looking: docs/plans/non-violent.md)
+      if (c.kind !== 'cop' || c.dazed || c.leaving || c.vehicle || !sightOk(c.level)) return;
       const heard = dist(c.x, c.y, f.x, f.y);
       if (heard <= hear) return saw(heard, SIGHT.foot.near);
       const d = inSight(c.x, c.y, c.angle, SIGHT.foot, env.scale, f.x, f.y, target);

@@ -22,65 +22,24 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   ctx.translate(p.x, p.y);
   const b = p.build;
   if (p.downed) {
-    // lying wounded (Revive), not dead: the same sprawled pose as `dead` below, a smaller/darker
-    // blood pool (still bleeding, not a pool that's been growing for a while), no death rotation lock.
-    const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
-    ctx.rotate(p.angle + rot);
-    ctx.scale(1.45 * b, 1.45 * b);
-    ctx.fillStyle = 'rgba(90,0,0,0.55)';
+    // a player soaked through, waiting for a friend to blow-dry them (Revive): sitting on the
+    // pavement hugging themselves, shivering, a little blue (docs/plans/non-violent.md)
+    const shiver = Math.sin(now / 22) * 0.025;
+    ctx.rotate(p.angle + (hashRand(p.seed, 1) - 0.5) * 0.6);
+    ctx.translate(shiver, 0);
+    ctx.scale(1.45, 1.45);
+    drawBody(ctx, p, 'sit', 0, b, atmos, 'hug');
+    ctx.fillStyle = 'rgba(120,190,255,0.3)';
     ctx.beginPath();
-    ctx.ellipse(0.1, 0.05, 0.22, 0.16, 0.4, 0, Math.PI * 2);
+    ctx.ellipse(-0.06, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = shade(p.shirt, -0.15);
-    ctx.beginPath();
-    ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineCap = 'round';
-    const legCol = shade(p.pants, -0.1);
-    drawLimb(ctx, -0.14, -0.1, (hashRand(p.seed, 4) - 0.5) * 1.3 + 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, -0.14, 0.1, (hashRand(p.seed, 5) - 0.5) * 1.3 - 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, 0.12, -0.12, (hashRand(p.seed, 2) - 0.5) * 1.8, 0.28, 0.09, p.skin);
-    drawLimb(ctx, 0.12, 0.12, (hashRand(p.seed, 3) - 0.5) * 1.8 + Math.PI * 0.15, 0.28, 0.09, p.skin);
-    ctx.fillStyle = p.skin;
-    ctx.beginPath();
-    ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 0.02;
-    ctx.stroke();
+    drawMess(ctx, p, 'water', 1);
     ctx.restore();
     drawDownedMarker(ctx, p, scale);
     return;
   }
-  if (p.dead) {
-    const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
-    ctx.rotate(p.angle + rot);
-    ctx.scale(1.45 * b, 1.45 * b);
-    // blood pool grows over the first ~2s, then stays
-    const grow = Math.min(1, p.deadTime / 2);
-    ctx.fillStyle = 'rgba(120,0,0,0.7)';
-    ctx.beginPath();
-    ctx.ellipse(0.1, 0.05, 0.25 + 0.55 * grow, 0.18 + 0.42 * grow, 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    // sprawled torso
-    ctx.fillStyle = shade(p.shirt, -0.15);
-    ctx.beginPath();
-    ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // splayed limbs, stable per-ped random angles
-    ctx.lineCap = 'round';
-    const legCol = shade(p.pants, -0.1);
-    drawLimb(ctx, -0.14, -0.1, (hashRand(p.seed, 4) - 0.5) * 1.3 + 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, -0.14, 0.1, (hashRand(p.seed, 5) - 0.5) * 1.3 - 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, 0.12, -0.12, (hashRand(p.seed, 2) - 0.5) * 1.8, 0.28, 0.09, p.skin);
-    drawLimb(ctx, 0.12, 0.12, (hashRand(p.seed, 3) - 0.5) * 1.8 + Math.PI * 0.15, 0.28, 0.09, p.skin);
-    ctx.fillStyle = p.skin;
-    ctx.beginPath();
-    ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 0.02;
-    ctx.stroke();
+  if (p.dazed) {
+    drawDazed(ctx, p, b, now, atmos);
     ctx.restore();
     return;
   }
@@ -278,7 +237,7 @@ export function drawRider(ctx: CanvasRenderingContext2D, p: Ped, bar: number, se
 type Pose = 'stand' | 'walk' | 'run' | 'sit' | 'phone' | 'fight' | 'hands';
 /** what the arms do when not in the pose's own way: hang and swing, hold a gun, throw a punch,
  *  keep a fighting guard */
-type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard';
+type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard' | 'hug';
 
 function poseOf(p: Ped, speed: number): Pose {
   if (p.state === 'sit') return 'sit';
@@ -305,7 +264,8 @@ function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, col
   ctx.fill();
 }
 
-/** a pulsing red ✚ over a downed figure's head, a constant size on screen at any zoom (Revive) */
+/** a pulsing ❄ over a downed figure's head (soaked through and freezing, waiting to be blow-dried:
+ *  Revive), a constant size on screen at any zoom */
 function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) {
   ctx.save();
   ctx.translate(p.x, p.y - 1.7);
@@ -313,18 +273,87 @@ function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) 
   ctx.scale(k, k);
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
   ctx.globalAlpha = 0.6 + pulse * 0.4;
-  ctx.fillStyle = '#e53935';
+  ctx.fillStyle = '#29b6f6';
   ctx.beginPath();
   ctx.arc(0, 0, 9 + pulse * 1.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(-1.6, -5, 3.2, 10);
-  ctx.fillRect(-5, -1.6, 10, 3.2);
+  // a snowflake: three strokes through the middle, each with a little fork at its ends
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const a = (i * Math.PI) / 3 + Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(-c * 6, -s * 6);
+    ctx.lineTo(c * 6, s * 6);
+    for (const e of [-1, 1]) {
+      ctx.moveTo(e * c * 6, e * s * 6);
+      ctx.lineTo(e * c * 3.6 + Math.cos(a + e * 0.8 + Math.PI) * -2, e * s * 3.6 + Math.sin(a + e * 0.8 + Math.PI) * -2);
+    }
+    ctx.stroke();
+  }
   ctx.globalAlpha = 1;
   ctx.restore();
+}
+
+/** Someone knocked down (docs/plans/non-violent.md): sitting on the pavement, swaying, little stars
+ *  circling their head, wearing what did it (wet, soapy, confetti). A bubble gun's final hit floats
+ *  them up in a giant bubble first, until it pops; a car's bump starts with a hop. */
+function drawDazed(ctx: CanvasRenderingContext2D, p: Ped, b: number, now: number, atmos?: Atmosphere) {
+  const t = now / 1000 + (p.seed % 13);
+  const float = p.downMess === 'bubbles' && p.dazedTime < BUBBLE_FLOAT ? Math.sin((Math.PI * p.dazedTime) / BUBBLE_FLOAT) : 0;
+  const hop = p.downMess === 'bonk' && p.dazedTime < 0.45 ? Math.sin((Math.PI * p.dazedTime) / 0.45) : 0;
+  const lift = Math.max(float, hop * 0.6);
+  // the shadow stays on the ground, smaller the higher they are
+  ctx.fillStyle = `rgba(0,0,0,${0.24 * (1 - lift * 0.5)})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.42 * (1 - lift * 0.3), 0.36 * (1 - lift * 0.3), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.rotate(p.angle + (hashRand(p.seed, 1) - 0.5) * 0.8);
+  // (tickled: rocking with laughter; otherwise a slow dizzy sway)
+  ctx.rotate(Math.sin(t * (p.downMess === 'tickle' ? 11 : 2.6)) * (p.downMess === 'tickle' ? 0.08 : 0.12));
+  const k = 1.45 * (1 + lift * 0.35);
+  ctx.scale(k, k);
+  drawBody(ctx, p, 'sit', 0, b, atmos);
+  if (p.mess) drawMess(ctx, p, p.mess, Math.min(1, p.messT / 4));
+  if (float > 0) {
+    // the bubble around them, thinning out and popping at the end
+    const end = p.dazedTime > BUBBLE_FLOAT - 0.12;
+    ctx.strokeStyle = end ? 'rgba(255,255,255,0.9)' : 'rgba(225,190,255,0.85)';
+    ctx.lineWidth = end ? 0.02 : 0.035;
+    ctx.beginPath();
+    ctx.arc(0, 0, end ? 0.62 : 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(179,229,252,0.16)';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(-0.2, -0.24, 0.1, 0.05, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // little stars going round their head
+    for (let i = 0; i < 3; i++) {
+      const a = t * 4 + (i * Math.PI * 2) / 3;
+      drawStar(ctx, Math.cos(a) * 0.26, Math.sin(a) * 0.26, 0.055, '#ffe082');
+    }
+  }
+}
+
+/** how long a bubble gun's final hit floats someone in a bubble before it pops (s) */
+const BUBBLE_FLOAT = 1.6;
+
+function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** the toy in hand (docs/plans/non-violent.md), out along +x from the hands of the arm pose: an
@@ -385,10 +414,6 @@ function shoe(ctx: CanvasRenderingContext2D, x: number, y: number, color: string
   ctx.beginPath();
   ctx.ellipse(x, y, 0.1, 0.058, 0, 0, Math.PI * 2);
   ctx.fill();
-}
-
-function drawLimb(ctx: CanvasRenderingContext2D, px: number, py: number, ang: number, len: number, wid: number, color: string) {
-  capsule(ctx, px, py, px + Math.cos(ang) * len, py + Math.sin(ang) * len, wid, color);
 }
 
 /** Bare arms (short sleeves, a dress, a vest over a T-shirt) */
@@ -509,6 +534,12 @@ function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: numb
     capsule(ctx, 0, -shoulder * 0.8, 0.46, -0.01, 0.1, sleeve);
     dot(ctx, 0.3, 0, 0.055, p.skin);
     dot(ctx, 0.46, -0.01, 0.055, p.skin);
+  } else if (arms === 'hug') {
+    // arms wrapped round themselves, freezing
+    capsule(ctx, tx, -shoulder, tx + 0.16, 0.12, 0.1, sleeve);
+    capsule(ctx, tx, shoulder, tx + 0.18, -0.1, 0.1, sleeve);
+    dot(ctx, tx + 0.16, 0.12, 0.05, p.skin);
+    dot(ctx, tx + 0.18, -0.1, 0.05, p.skin);
   } else if (arms === 'punch') {
     // a tickle (docs/plans/non-violent.md): the arm reaches out, a player's or a cop's with a feather
     const ext = 0.34 + 0.16 * (1 - punchT);

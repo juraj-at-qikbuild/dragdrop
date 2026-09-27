@@ -134,16 +134,16 @@ describe('Room', () => {
     const shot = clearShot(room, (p) => idsOf(b.link, Ent.Ped).has(p.id))!;
     expect(shot).toBeTruthy();
     const { victim } = shot;
-    for (let i = 0; i < 3 && !victim.dead; i++) {
+    for (let i = 0; i < 3 && !victim.dazed; i++) {
       const f = aimAt(room, a.id!, victim);
       room.onMessage(a.conn, JSON.stringify({ t: 'fire', w: 'pistol', ...f, lvl: 0, rt: clock.t, pellets: [{ a: f.a, kind: HitKind.Ped, hit: victim.id, hx: f.hx, hy: f.hy }] }));
       tick(4);
     }
-    expect(victim.dead).toBe(true);
+    expect(victim.dazed).toBe(true);
     // B's latest record for that ped says dead
     let state = '';
     for (const s of b.link.snapshots()) for (const e of s.ents) if (e.id === victim.id && e.type === Ent.Ped) state = e.v.state;
-    expect(state).toBe('dead');
+    expect(state).toBe('dazed');
     expect(room.sim.players.get(a.id!)!.wanted).toBeGreaterThanOrEqual(1);
   });
 
@@ -159,11 +159,11 @@ describe('Room', () => {
     const hx = f.hx + Math.cos(f.a) * 5, hy = f.hy + Math.sin(f.a) * 5;
     room.onMessage(a.conn, JSON.stringify({ t: 'fire', w: 'pistol', ...f, lvl: 0, rt: clock.t, pellets: [{ a: f.a, kind: HitKind.Ped, hit: victim.id, hx, hy }] }));
     // and a hit on someone far away, through the city
-    const far = room.sim.peds.find((p) => p.kind === 'civ' && !p.dead && Math.hypot(p.x - victim.x, p.y - victim.y) > 100)!;
+    const far = room.sim.peds.find((p) => p.kind === 'civ' && !p.dazed && Math.hypot(p.x - victim.x, p.y - victim.y) > 100)!;
     room.onMessage(a.conn, JSON.stringify({ t: 'fire', w: 'pistol', ...f, lvl: 0, rt: clock.t, pellets: [{ a: f.a, kind: HitKind.Ped, hit: far.id, hx: far.x, hy: far.y }] }));
     tick(2);
     expect(victim.health).toBe(100);
-    expect(far.dead).toBe(false);
+    expect(far.dazed).toBe(false);
     expect(room.stats().badHits).toBeGreaterThanOrEqual(1);
   });
 
@@ -398,7 +398,7 @@ describe('Room', () => {
 function clearShot(room: Room, ok: (p: Ped) => boolean) {
   const w = room.sim.world;
   for (const victim of room.sim.peds) {
-    if (victim.kind !== 'civ' || victim.dead || victim.vehicle || victim.level !== 0 || !ok(victim)) continue;
+    if (victim.kind !== 'civ' || victim.dazed || victim.vehicle || victim.level !== 0 || !ok(victim)) continue;
     for (let k = 0; k < 8; k++) {
       const ang = (k / 8) * Math.PI * 2;
       const x = victim.x + Math.cos(ang) * 3, y = victim.y + Math.sin(ang) * 3;

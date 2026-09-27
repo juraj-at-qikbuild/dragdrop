@@ -1,6 +1,6 @@
 // SimEvents sink on the server: collects world events (with their position, for interest filtering)
 // and per-player private events during a tick; Room sends them out after building snapshots.
-import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
+import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
 import type { WorldEvent } from '../../src/shared/net/protocol';
 import type { Mess } from '../../src/shared/sim/Combat';
 
@@ -42,7 +42,7 @@ export class NetEvents implements SimEvents {
   crash(vid: number, x: number, y: number, sev: number, nx: number, ny: number, kick: number) {
     this.add(x, y, { k: 'crash', vid, x: r2(x), y: r2(y), sev: r2(sev), nx: r2(nx), ny: r2(ny), kick: r2(kick) });
   }
-  pedKilled(id: number, x: number, y: number, by: number, cause: KillCause) {
+  pedDazed(id: number, x: number, y: number, by: number, cause: DazeCause) {
     this.add(x, y, { k: 'killed', id, x: r2(x), y: r2(y), by, cause });
   }
   scream(x: number, y: number) {

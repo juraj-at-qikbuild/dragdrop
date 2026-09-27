@@ -4,12 +4,12 @@
 // tram (and off it), put their hands up at a gun pointed at them, step out of the way of a honking
 // car, tell off whoever barges into them, square up to a player who goes for them (the odd one),
 // and phone the police about a crime they saw, unless the player stops them first.
-import { Ped } from '../entities/Ped';
+import { Ped, type Mess } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Vehicle } from '../entities/Vehicle';
 import { F_BENCH, F_SHELTER, F_TABLE } from '../world/Street';
 import { dist } from '../util/math';
-import { SAY_BUMP, SAY_CHAT, SAY_FIGHT, SAY_GUN, SAY_HORN, SAY_PHONE, pickLine } from './phrases';
+import { SAY_BUMP, SAY_CHAT, SAY_FIGHT, SAY_GUN, SAY_HORN, SAY_PHONE, pickLine, pickUpLine } from './phrases';
 import type { Sim } from './Sim';
 import type { SimPlayer } from './SimPlayer';
 import type { Desc } from './Pursuit';
@@ -102,9 +102,9 @@ export class Crowd {
   private separate() {
     const sim = this.sim;
     for (const p of sim.peds) {
-      if (p.dead || p.vehicle || p.aboard) continue;
+      if (p.dazed || p.vehicle || p.aboard) continue;
       sim.forPedsNear(p.x, p.y, 1, (q) => {
-        if (q.id <= p.id || q.dead || q.vehicle || q.aboard || q.level !== p.level) return;
+        if (q.id <= p.id || q.dazed || q.vehicle || q.aboard || q.level !== p.level) return;
         const dx = q.x - p.x, dy = q.y - p.y, rr = p.r + q.r, d2 = dx * dx + dy * dy;
         if (d2 >= rr * rr) return;
         const fp = this.fixed(p), fq = this.fixed(q);
@@ -161,6 +161,13 @@ export class Crowd {
     sim.events.say(p.id, p.x, p.y, pickLine(cat, p.archetype === 'tourist', sim.rng.next()));
   }
 
+  /** someone getting up again says what they think of what knocked them down (`mess`) */
+  sayUp(p: Ped, mess: Mess) {
+    const sim = this.sim;
+    p.saidAt = sim.time;
+    sim.events.say(p.id, p.x, p.y, pickUpLine(mess, p.archetype === 'tourist', sim.rng.next()));
+  }
+
   // ----------------------------------------------------------- guns and horns
   /** A player on foot pointing a gun at someone close with a clear view: most put their hands up
    *  (and keep them up while it stays on them), the rest run. */
@@ -168,10 +175,10 @@ export class Crowd {
     const sim = this.sim;
     for (const pl of sim.players.values()) {
       const me = pl.ped;
-      if (pl.state !== 'play' || me.vehicle || me.aboard || me.dead || me.weapon === 'fist') continue;
+      if (pl.state !== 'play' || me.vehicle || me.aboard || me.dazed || me.weapon === 'fist') continue;
       const fx = Math.cos(me.angle), fy = Math.sin(me.angle);
       sim.forPedsNear(me.x + fx * 5, me.y + fy * 5, 7, (q) => {
-        if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== me.level) return;
+        if (q.kind !== 'civ' || q.dazed || q.leaving || q.vehicle || q.level !== me.level) return;
         const dx = q.x - me.x, dy = q.y - me.y, lon = dx * fx + dy * fy;
         if (lon < 0.5 || lon > 10 || Math.abs(-dx * fy + dy * fx) > 0.45 + lon * 0.08) return;
         if (q.state === 'flee') return;
@@ -213,7 +220,7 @@ export class Crowd {
     const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
     let shouted = false;
     for (const q of sim.pedsNear(v.x, v.y, 16)) {
-      if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== v.level || q.state === 'flee' || q.state === 'fight') continue;
+      if (q.kind !== 'civ' || q.dazed || q.vehicle || q.level !== v.level || q.state === 'flee' || q.state === 'fight') continue;
       const dx = q.x - v.x, dy = q.y - v.y;
       const lon = dx * fx + dy * fy - v.spec.length / 2, lat = -dx * fy + dy * fx;
       if (lon > -1 && lon < 14 && Math.abs(lat) < v.spec.width / 2 + 1.2 && q.state !== 'sit') {
@@ -263,7 +270,7 @@ export class Crowd {
   private seatFree(x: number, y: number) {
     let free = true;
     this.sim.forPedsNear(x, y, 1, (q) => {
-      if (free && !q.dead && !q.vehicle && Math.abs(q.x - x) < 0.4 && Math.abs(q.y - y) < 0.4) free = false;
+      if (free && !q.dazed && !q.vehicle && Math.abs(q.x - x) < 0.4 && Math.abs(q.y - y) < 0.4) free = false;
     });
     return free;
   }
@@ -337,7 +344,7 @@ export class Crowd {
   private onlyMeAt(p: Ped, x: number, y: number) {
     let only = true;
     this.sim.forPedsNear(x, y, 1, (q) => {
-      if (q !== p && !q.dead && !q.vehicle && Math.abs(q.x - x) < 0.4 && Math.abs(q.y - y) < 0.4) only = false;
+      if (q !== p && !q.dazed && !q.vehicle && Math.abs(q.x - x) < 0.4 && Math.abs(q.y - y) < 0.4) only = false;
     });
     return only;
   }
@@ -428,7 +435,7 @@ export class Crowd {
     const S = this.sim.world.tramStops;
     let n = 0;
     this.sim.forPedsNear(S[i], S[i + 1], 14, (q) => {
-      if (!q.dead && (q.waitStop === i || (q.goal && q.goal.kind !== 'seat' && q.goal.ref === i))) n++;
+      if (!q.dazed && (q.waitStop === i || (q.goal && q.goal.kind !== 'seat' && q.goal.ref === i))) n++;
     });
     return n;
   }
@@ -529,7 +536,7 @@ export class Crowd {
         this.alight(t);
       }
       sim.forPedsNear(t.x, t.y, 40, (q) => {
-        if (q.waitStop !== stop || q.dead || q.vehicle || q.goal || q.state !== 'idle' || q.surrender > 0) return;
+        if (q.waitStop !== stop || q.dazed || q.vehicle || q.goal || q.state !== 'idle' || q.surrender > 0) return;
         const d = this.door(t, q.x, q.y);
         q.waitStop = -1;
         this.setGoal(q, { x: d.x, y: d.y, a: 0, kind: 'board', ref: stop });
@@ -567,7 +574,8 @@ export class Crowd {
   provoke(p: Ped, pl: SimPlayer): boolean {
     const sim = this.sim;
     // a shielded player (away and safe, rules/Presence.ts) isn't worth picking a fight with
-    if (!p.fighter || p.health < 45 || p.dead || p.vehicle || pl.state !== 'play' || pl.shielded) return false;
+    // (nor is it worth it for someone on their way home to change, knocked down a moment ago)
+    if (!p.fighter || p.health < 45 || p.dazed || p.leaving || p.vehicle || pl.state !== 'play' || pl.shielded) return false;
     this.hangUp(p);
     p.goal = null;
     p.waitStop = -1;
@@ -635,11 +643,11 @@ export class Crowd {
   witness(pl: SimPlayer, x: number, y: number, victim: Ped | null) {
     const sim = this.sim;
     if (pl.wanted > 0 || pl.state !== 'play' || this.calls.has(pl.id)) return;
-    let w: Ped | null = victim && !victim.dead && !victim.vehicle && victim.state !== 'fight' ? victim : null;
+    let w: Ped | null = victim && !victim.dazed && !victim.leaving && !victim.vehicle && victim.state !== 'fight' ? victim : null;
     if (!w) {
       let best = Infinity;
       sim.forPedsNear(x, y, 35, (q) => {
-        if (q.kind !== 'civ' || q.dead || q.vehicle || q.callPid || q.state === 'fight' || q.surrender > 0) return;
+        if (q.kind !== 'civ' || q.dazed || q.leaving || q.vehicle || q.callPid || q.state === 'fight' || q.surrender > 0) return;
         // not right next to it (they'd be too shaken), within sight
         const d = dist(q.x, q.y, x, y);
         const score = Math.abs(d - 16);
@@ -698,13 +706,13 @@ export class Crowd {
     const sim = this.sim;
     for (const [pid, w] of this.calls) {
       const pl = sim.players.get(pid);
-      const on = w.callPid === pid && !w.dead && (w.state === 'flee' || w.state === 'phone') && sim.peds.includes(w);
+      const on = w.callPid === pid && !w.dazed && (w.state === 'flee' || w.state === 'phone') && sim.peds.includes(w);
       if (on && pl && pl.state === 'play') continue;
       this.calls.delete(pid);
       this.seen.delete(pid);
       if (w.callPid === pid) w.callPid = 0;
       if (w.state === 'phone') w.state = 'walk';
-      if (pl && w.dead) sim.events.toPlayer(pid, { k: 'msg', title: '', text: 'Svedok nedovolal.', time: 2, color: '#b2ff59' });
+      if (pl && w.dazed) sim.events.toPlayer(pid, { k: 'msg', title: '', text: 'Svedok nedovolal.', time: 2, color: '#b2ff59' });
     }
   }
 }

@@ -153,7 +153,7 @@ export class Jobs implements SimRule {
     if (job.deadline - this.sim.time <= 0) return this.failJob(p, job, TIMEOUT_TEXT[job.kind]);
     if (job.kind === 'taxi' && job.stage === 'pickup') {
       const fare = this.sim.pedById(job.fareId);
-      if (!fare || fare.dead) return this.beginOffer(p, job); // died or despawned before pickup: re-offer
+      if (!fare || fare.dazed) return this.beginOffer(p, job); // died or despawned before pickup: re-offer
     }
     if (job.stage === 'deliver') {
       if (this.checkCrash(p, job)) {
@@ -338,7 +338,7 @@ export class Jobs implements SimRule {
         if (v !== car && !v.wrecked) this.tryNearMiss(job, car, v.id, v.x, v.y, v.spec.width / 2, v.vx, v.vy);
       });
       this.sim.forPedsNear(car.x, car.y, r, (q) => {
-        if (!q.dead && !q.vehicle) this.tryNearMiss(job, car, q.id, q.x, q.y, q.r, q.vx, q.vy);
+        if (!q.dazed && !q.vehicle) this.tryNearMiss(job, car, q.id, q.x, q.y, q.r, q.vx, q.vy);
       });
     }
     for (let i = job.pending.length - 1; i >= 0; i--) {
