@@ -1,6 +1,7 @@
 // The client features the Game runs. Each feature adds its line here (docs/plans/social-events.md).
 import type { Game } from '../Game';
 import type { ClientFeature } from './ClientFeature';
+import { ActivitiesUi } from './ActivitiesUi';
 import { DailyCard } from './DailyCard';
 import { EventsOverlay } from './EventsOverlay';
 import { JobsHud } from './JobsHud';
@@ -26,5 +27,6 @@ export function createClientFeatures(g: Game): ClientFeature[] {
   out.push(new JobsHud(g));
   out.push(new PresenceUi(g));
   out.push(new LeaderboardUi(g));
+  out.push(new ActivitiesUi(g));
   return out;
 }

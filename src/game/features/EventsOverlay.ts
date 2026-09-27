@@ -17,16 +17,17 @@ import { drawEventList, EVENT_ROW_H, type EventRow } from '../../ui/kit/EventLis
 import { edgePoint, inPlay } from '../../ui/layout';
 import { mapMarker, pulsingCircle, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
+import { EVENT_COLOR, EVENT_LABEL } from './activities/text';
 
 /** Horúca Kofolka's payout rate ($10/s, Kofolka.ts), for the HUD's "+$10/s" line only. */
 const KOFOLKA_RATE = 10;
 
 const KIND_INFO: Record<EventKind, { label: string; icon: MapIcon; color: string }> = {
-  kofolka: { label: 'Horúca Kofolka', icon: 'kofolka', color: '#ff8a65' },
-  wanted: { label: 'Najhľadanejší', icon: 'wanted', color: '#ff5252' },
-  cumil: { label: 'Hon na Čumila', icon: 'goldenCumil', color: '#ffd600' },
-  armored: { label: 'Obrnené auto', icon: 'armored', color: '#90caf9' },
-  derby: { label: 'Derby na parkovisku', icon: 'derby', color: '#ffab40' },
+  kofolka: { label: EVENT_LABEL.kofolka, icon: 'kofolka', color: EVENT_COLOR.kofolka },
+  wanted: { label: EVENT_LABEL.wanted, icon: 'wanted', color: EVENT_COLOR.wanted },
+  cumil: { label: EVENT_LABEL.cumil, icon: 'goldenCumil', color: EVENT_COLOR.cumil },
+  armored: { label: EVENT_LABEL.armored, icon: 'armored', color: EVENT_COLOR.armored },
+  derby: { label: EVENT_LABEL.derby, icon: 'derby', color: EVENT_COLOR.derby },
 };
 
 export class EventsOverlay implements ClientFeature {

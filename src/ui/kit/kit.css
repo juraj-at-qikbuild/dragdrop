@@ -324,3 +324,179 @@ button.danger:hover {
     margin-top: 8px;
   }
 }
+
+/* Aktivity panel (src/game/features/ActivitiesUi.ts): the world events beside the mini-games on a
+   wide screen, one under the other on a narrow one */
+.menu-card.small.kit-act-card {
+  position: relative;
+  width: min(940px, 100%);
+}
+.kit-act-sec + .kit-act-sec {
+  margin-top: 16px;
+}
+@media (min-width: 760px) {
+  .kit-act {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    gap: 18px;
+  }
+  .kit-act-sec + .kit-act-sec {
+    margin-top: 0;
+  }
+}
+.kit-act-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 50%;
+}
+.kit-act h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-head);
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffd740;
+}
+.kit-act-next {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.kit-act-cand {
+  margin: 2px 0 0;
+}
+.kit-act .hint.small {
+  font-size: 12px;
+}
+.kit-act-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.kit-act-row {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 1px 8px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 14px;
+}
+.kit-act-row.live {
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 3px 0 0 var(--c, #ffab40);
+}
+.kit-act-row.never {
+  opacity: 0.55;
+}
+.kit-act-row .ic {
+  grid-row: 1 / span 2;
+  align-self: start;
+  display: grid;
+  place-items: center;
+  min-height: 24px;
+  font-size: 18px;
+}
+.kit-act-row .name {
+  min-width: 0;
+  font-weight: 700;
+}
+.kit-act-row .st {
+  justify-self: end;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.kit-act-row .st.live {
+  color: var(--c, #ffab40);
+}
+.kit-act-row .st.ready {
+  color: #69f0ae;
+}
+.kit-act-row .st.wait {
+  color: #b0bec5;
+}
+.kit-act-row .st.need {
+  color: #ffd740;
+}
+.kit-act-row .st.off {
+  color: #78909c;
+}
+.kit-act-row .about,
+.kit-act-row .state,
+.kit-act-live,
+.kit-act-acts {
+  grid-column: 2 / 4;
+}
+.kit-act-row .about {
+  font-size: 12px;
+  color: #b0bec5;
+}
+.kit-act-row .state {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e8eaed;
+}
+.kit-act-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c, #fff);
+}
+.kit-act-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+.kit-act-row button {
+  padding: 5px 11px;
+  font-size: 14px;
+}
+@media (pointer: coarse) {
+  .kit-act-row button {
+    min-height: 36px;
+  }
+}
+kbd.kit-key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: #eceff1;
+  box-shadow: inset 0 -2px 0 #b0bec5;
+  color: #20242a;
+  font: 800 13px var(--font-body);
+}
+kbd.kit-key.pad {
+  border-radius: 12px;
+  background: #3c4148;
+  box-shadow: none;
+  color: #fff;
+}
+/* a phone on its side: tighter rows */
+@media (max-height: 480px) {
+  .kit-act-row {
+    padding: 5px 8px;
+  }
+}

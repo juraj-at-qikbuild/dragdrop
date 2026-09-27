@@ -183,10 +183,13 @@ export const KEYS = {
   horn: 'KeyH',
   /** the leaderboard (online) */
   board: 'KeyL',
+  /** the Aktivity panel: world events on and coming, and the mini-games you can start */
+  activities: 'KeyU',
 } as const;
 
 /** Standard-mapping pad buttons that press a key once: Y enter/exit, X horn, B next weapon, Start
- *  pause, Back map, d-pad up radio, d-pad down map, d-pad right next weapon, d-pad left jobs. */
-const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: 'KeyM', 14: KEYS.jobs, 15: 'KeyQ' };
+ *  pause, Back map, d-pad up radio, d-pad down the Aktivity panel, d-pad right next weapon, d-pad
+ *  left jobs. */
+const PAD_PRESS: Record<number, string> = { 1: 'KeyQ', 2: 'KeyH', 3: 'KeyF', 8: 'KeyM', 9: 'Escape', 12: 'KeyR', 13: KEYS.activities, 14: KEYS.jobs, 15: 'KeyQ' };
 /** ...and ones held like a key: A sprint (nitro in a car), RB handbrake, LB nitro, L3 push-to-talk */
 const PAD_HELD: Record<number, string> = { 0: 'ShiftLeft', 4: 'ShiftLeft', 5: 'Space', 10: KEYS.talk };

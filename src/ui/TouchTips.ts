@@ -19,6 +19,7 @@ const TIPS: Tip[] = [
   { id: 'stick', at: 'idle', when: (g) => !g.player.vehicle, text: () => 'Polož ľavý palec kamkoľvek vľavo a ťahaj. Potlačíš naplno = beh.' },
   { id: 'fire', at: 'fire', when: (g) => !g.player.vehicle, text: () => 'Podrž: strieľa na najbližší cieľ. Ťahaj z tlačidla: mieriš sám.' },
   { id: 'map', at: 'map', when: (g) => !g.player.vehicle, text: () => 'Ťukni na minimapu: mapa mesta a navigácia. ⏸ pauza a nastavenia.' },
+  { id: 'activities', at: 'activities', when: (g) => !g.player.vehicle && !!g.hud.activitiesRect, text: () => 'Ťukni na Aktivity: čo sa deje v meste a čo môžeš robiť – práca, závody, udalosti.' },
   { id: 'use', at: 'use', when: (g) => !g.player.vehicle && !!g.prompt()?.use, text: () => 'Ťukni: nastúpiš do auta (aj cudzieho).' },
   {
     id: 'car',
@@ -31,7 +32,7 @@ const TIPS: Tip[] = [
   },
 ];
 /** which tip a control's use finishes */
-const DONE_BY: Record<string, string> = { stick: 'stick', fire: 'fire', map: 'map', pause: 'map', use: 'use', brake: 'car', pedal: 'car' };
+const DONE_BY: Record<string, string> = { stick: 'stick', fire: 'fire', map: 'map', pause: 'map', activities: 'activities', use: 'use', brake: 'car', pedal: 'car' };
 /** seconds a tip stays up at most */
 const SHOW_FOR = 9;
 

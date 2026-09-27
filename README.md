@@ -29,6 +29,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | H | horn · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
 | V | push-to-talk voice chat (online, signed-in accounts only) |
 | N | party panel (**Partia**, online) |
+| U | **Aktivity**: the world events on now and when the next one may come, and every mini-game with its key |
 | J | jobs: **Vlk courier / Hopík taxi** |
 | K | **"Kde to je?"** daily photo card (online) |
 | L | leaderboard (**Rebríček**, online) |
@@ -37,7 +38,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | Mouse wheel | zoom in / out |
 | Esc / P | pause |
 
-**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map. Online: the left stick click (L3) is push-to-talk, and d-pad left opens jobs.
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (fires on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and fires a drive-by when pushed hard), X honks, B switches weapons, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
 
 A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, nearby explosions, every shot, speed bumps and kerbs.
 
@@ -58,6 +59,7 @@ In a car, steering in reverse works like a real car: steer right and the tail sw
 | BRZDA · RUČNÁ · N₂O | brake (held at a standstill: reverse) · handbrake · nitro, with its charge |
 | 📣 · 📻 | horn (held next to another player's car: a race challenge) · next radio station |
 | Minimap | tap for the city map: drag, pinch, tap for a waypoint; ✕, +/− and ⌖ on the side, layers from the "Vrstvy" chip |
+| ☰ Aktivity | under the street name: what's on in the city and coming next, jobs, races and the rest |
 | ❚❚ | pause and settings |
 
 Two ways to drive, chosen in the pause menu: **Smer** (the default) points the stick where the car should go and it speeds up by itself (pointed behind, it turns around with a short K-turn), **Klasické** steers with the stick and has gas and brake pedals (slide the thumb between them). The pause menu also sets how close the camera is. Tips next to each control show the first time; "Zobraziť tipy znova" in the controls panel brings them back. On a touch screen the HUD moves out of the thumbs' way (the minimap goes top-left) and keeps clear of the notch. `?touch=1` in the URL forces the touch controls on a desktop, `?touch=0` turns them off.
@@ -211,6 +213,15 @@ On top of that shared world, there's a set of social features (protocol 7):
   float up as you score them, the HUD shows today's total and rank, and Rádio Kecy names the day's
   leader. See [docs/plans/leaderboard.md](docs/plans/leaderboard.md) for what everything is worth.
 
+**Aktivity** (U, the pad's d-pad down, the chip under the money panel, or the pause menu; on a touch screen
+the chip under the street name) puts all of it in one place. It lists every world event: what's on right
+now (with a button that sets the GPS there), when the next one may come and which it could be, and what
+holds the others back ("treba aspoň 2 hráčov", a cooldown). It also lists every mini-game with its key and
+a button to start it or open its panel. The chip itself counts down to the next event. The server sends
+the director's plan with the world events (`wev.up`) and resends it when players come, go or step away.
+Alone online, only Hon na Čumila can start (the others need 2–3 players), so the panel says so and
+suggests inviting a friend.
+
 Hon na Čumila, Obrnené auto and the Vlk/Hopík jobs also run solo, offline. Everything else above —
 Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je?, voice chat and the
 leaderboard — is online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
@@ -229,7 +240,7 @@ your stars only if you're back within 30 minutes. A dropped connection keeps you
 
 The button only shows when the client was built with `VITE_SERVER_URL`. The client and the server must
 speak the same protocol version (now 7): deploy the server (`fly deploy`) together with the client, or
-older clients are refused. (The pausing and coming-back additions kept protocol 7: they're optional on
+older clients are refused. (The pausing and coming-back additions and the Aktivity plan kept protocol 7: they're optional on
 both sides, so either one can go out first.)
 
 ```bash

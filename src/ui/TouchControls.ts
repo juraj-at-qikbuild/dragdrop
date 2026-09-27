@@ -84,6 +84,7 @@ export class TouchControls {
     this.add('radio', 'press', '📻', { code: 'KeyR', in: car, label: 'Rádio', cls: 't-util' });
     this.add('map', 'press', '', { code: 'KeyM', in: play, label: 'Mapa mesta', cls: 't-hit' });
     this.add('daily', 'press', '', { code: KEYS.daily, in: play, label: 'Kde to je?', cls: 't-hit' });
+    this.add('activities', 'press', '', { code: KEYS.activities, in: play, label: 'Aktivity', cls: 't-hit' });
     this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Streľba', cls: 't-fire' });
     this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Zbraň', cls: 't-weapon' });
     this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car], label: '', cls: 't-use' });
@@ -336,6 +337,7 @@ export class TouchControls {
     const useText = pr?.use ? pr.text : v ? 'Vystúpiť' : '';
     const hasGun = g.ammo.pistol > 0 || g.ammo.uzi > 0 || g.ammo.shotgun > 0;
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
+    const acts = g.hud.activitiesRect;
     const voice = g.features.find((f) => f.id === 'voice') as { pushToTalk?: boolean } | undefined;
     const show: Record<string, boolean> = {
       use: !!useText,
@@ -344,8 +346,10 @@ export class TouchControls {
       radio: !!v && v.kind !== 'police',
       talk: !!voice?.pushToTalk,
       daily: !!daily,
+      activities: !!acts,
     };
-    const key = `${ctx}|${useText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${daily ? `${daily.x},${daily.y},${daily.w},${daily.h}` : ''}`;
+    const rectKey = (r: { x: number; y: number; w: number; h: number } | null) => (r ? `${r.x},${r.y},${r.w},${r.h}` : '');
+    const key = `${ctx}|${useText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
     if (key !== this.shown) {
       this.shown = key;
       for (const c of this.controls) {
@@ -357,6 +361,7 @@ export class TouchControls {
       const use = this.byId.get('use')!.el;
       use.textContent = useText;
       if (daily) setRect(this.byId.get('daily')!.el, daily);
+      if (acts) setRect(this.byId.get('activities')!.el, acts);
     }
     // the weapon button: the icon and ammo
     const w = g.player.weapon;

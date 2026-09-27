@@ -3,7 +3,10 @@ import { WEAPONS } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { formatMoney, formatPoints } from '../shared/util/math';
 import type { LiveState } from '../game/SimHost';
-import { edgePoint, inPlay, type HudLayout } from './layout';
+import { liveForecast } from '../game/features/activities/forecast';
+import { activitiesSeen } from '../game/features/activities/seen';
+import { chipLine } from '../game/features/activities/text';
+import { edgePoint, inPlay, type HudLayout, type Rect } from './layout';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -30,6 +33,8 @@ export class Hud {
   private pointsFlash = 0;
   private starPulse = 0;
   private hits: HitIndicator[] = [];
+  /** where the Aktivity chip was drawn this frame (the touch screen's tap target), null when hidden */
+  activitiesRect: Rect | null = null;
 
   constructor(private g: Game) {
     this.shownMoney = g.save.money;
@@ -106,11 +111,19 @@ export class Hud {
     // weapon panel (bottom-left of the top panel)
     this.drawWeaponPanel(ctx, right - topW + 8, top + topH - (small ? 20 : 24), small);
 
-    // combo meter, if the combat system is driving one
+    // under the top panel: online the connection badge and today's points (drawNet, drawn last), then
+    // the Aktivity chip (on a touch screen at the top of the feature stack instead), then the combo
+    // meter, if the combat system is driving one
+    const gap = small ? 6 : 8;
+    const netH = g.online ? (small ? 18 : 22) + gap : 0;
+    let colY = top + topH + gap + (g.online ? this.netHeight(small) + gap : 0);
+    this.activitiesRect = this.drawActivities(ctx, small, (w, h) => {
+      const spot = g.stackSpot(h);
+      return spot ?? { x: right - w, y: colY };
+    });
+    if (!L.touch) colY += this.activitiesRect.h + gap;
     const combo = (g as unknown as { combo?: ComboState }).combo;
-    // under the top panel: the online badge, then the combo meter
-    const netH = g.online ? (small ? 18 : 22) + (small ? 6 : 8) : 0;
-    if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, right - topW + 8, top + topH + (small ? 6 : 8) + (L.touch ? netH + 8 : 0), small);
+    if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, right - topW + 8, L.touch ? top + topH + gap + netH + 8 : colY + (small ? 8 : 10), small);
 
     // speedometer (only while driving)
     if (car) this.drawSpeedo(ctx, L.speedo.cx, L.speedo.cy, L.speedo.r, car, small);
@@ -252,6 +265,58 @@ export class Hud {
       x += widths[i] + gap;
     });
     ctx.restore();
+  }
+
+  /** the height of what drawNet draws: the badge, and today's points under it when there are any */
+  private netHeight(small: boolean) {
+    const h = small ? 18 : 22;
+    return this.g.host.live.score && this.g.online?.status.state === 'online' ? 2 * h + (small ? 4 : 6) : h;
+  }
+
+  /** "Aktivity": the one button that lists what there is to do (ActivitiesUi: the world events on and
+   *  coming, the mini-games you start yourself), with when the next world event may come under it.
+   *  It pulses until the panel was opened once. `place` picks its corner once its size is known. */
+  private drawActivities(ctx: CanvasRenderingContext2D, small: boolean, place: (w: number, h: number) => { x: number; y: number }): Rect {
+    const g = this.g;
+    const f = liveForecast(g.host.live, !!g.online && g.paused);
+    const sub = chipLine(f);
+    const pad = g.input.pad.active;
+    // the key as the player's input shows it: the U key cap, the pad's d-pad down, a tap on touch
+    const kind = pad ? 'pad' : g.touch ? 'touch' : 'key';
+    const label = pad ? '↓' : g.touch ? '☰' : 'U';
+    const r = small ? 8 : 9;
+    const gw = glyphW(label, r);
+    const fs = small ? 12 : 14, fs2 = small ? 10 : 11;
+    ctx.save();
+    ctx.font = `700 ${fs}px ${BODY}`;
+    const tw = ctx.measureText('Aktivity').width;
+    ctx.font = `600 ${fs2}px ${BODY}`;
+    const sw = sub ? ctx.measureText(sub).width : 0;
+    const h = sub ? (small ? 32 : 38) : small ? 22 : 26;
+    const w = 8 + gw + 8 + Math.max(tw, sw) + 10;
+    const { x, y } = place(w, h);
+    panel(ctx, x, y, w, h, small ? 9 : 11);
+    // until it was opened once, a gentle gold pulse so a newcomer notices it
+    const pulse = activitiesSeen() ? 0 : 0.5 + 0.5 * Math.sin(g.time * 3.5);
+    roundRect(ctx, x, y, w, h, small ? 9 : 11);
+    ctx.strokeStyle = pulse ? `rgba(255,214,0,${0.35 + pulse * 0.5})` : 'rgba(255,214,0,0.28)';
+    ctx.lineWidth = pulse ? 1.8 : 1;
+    ctx.stroke();
+    buttonGlyph(ctx, label, x + 8 + gw / 2, y + h / 2, r, kind);
+    const tx = x + 8 + gw + 8;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${fs}px ${BODY}`;
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Aktivity', tx, sub ? y + h * 0.34 : y + h / 2 + 1);
+    if (sub) {
+      ctx.font = `600 ${fs2}px ${BODY}`;
+      // an event on: its orange; one about to come: gold
+      ctx.fillStyle = f?.busy ? '#ffab40' : f && f.next !== null && f.next < 60 ? '#ffd740' : '#b0bec5';
+      ctx.fillText(sub, tx, y + h * 0.72);
+    }
+    ctx.restore();
+    return { x, y, w, h };
   }
 
   /** online status badge under the top-right panel: "● ONLINE · 12 hráčov · 38 ms" */
@@ -542,7 +607,7 @@ export class Hud {
 }
 
 /** the pad's buttons (standard mapping, Xbox face-button colours) and what they do */
-const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa']];
+const PAD_FOOT: [string, string][] = [['LS', 'chôdza'], ['RS', 'mierenie'], ['RT', 'streľba'], ['A', 'beh'], ['Y', 'nastúpiť'], ['B', 'zbraň'], ['⧉', 'mapa'], ['↓', 'aktivity']];
 const PAD_CAR: [string, string][] = [['RT', 'plyn'], ['LT', 'brzda'], ['RB', 'ručná'], ['A', 'nitro'], ['X', 'klaksón'], ['RS', 'streľba'], ['↑', 'rádio'], ['Y', 'vystúpiť']];
 const FACE: Record<string, string> = { A: '#2e9e44', B: '#d83a2e', X: '#2f6fd6', Y: '#e0b100' };
 
