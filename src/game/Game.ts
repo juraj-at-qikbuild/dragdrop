@@ -958,7 +958,7 @@ export class Game {
     this.fx.drawParticles(ctx, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
-    for (const h of host.helis) drawHeli(h, ctx, v, atmos);
+    for (const h of host.helis) drawHeli(h, ctx, v, atmos, this.focus());
 
     // lighting: ambient tint + emitted lights, multiplied over the world
     const L = this.light;
@@ -968,7 +968,7 @@ export class Game {
     for (const t of host.trams) if (t.level !== -1 || underground) emitTramLights(t, L, atmos);
     for (const veh of host.vehicles) if (inView(veh.x, veh.y, 30)) emitVehicleLights(veh, L, this.time, atmos);
     this.fx.emitLights(L);
-    for (const h of host.helis) emitHeliLights(h, L, atmos);
+    for (const h of host.helis) emitHeliLights(h, L, atmos, this.focus());
     this.emitAtmosphereLights(L, atmos, inView);
     L.composite(ctx, this.dpr, this.viewW, this.viewH);
     this.renderer.drawNightWindows(ctx, v);

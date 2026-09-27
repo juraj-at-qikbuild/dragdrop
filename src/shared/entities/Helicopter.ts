@@ -1,6 +1,9 @@
-// Police helicopter state: follows its target player with lag at altitude and fires bursts at 5 stars.
-// Shared by the browser and the game server; drawing lives in src/render/drawHeli.ts.
+// Police helicopter state: follows the player it's after with lag at altitude, or searches where they
+// were last seen, its searchlight sweeping round (docs/plans/gameplay.md, Phase 1); fires bursts at 5
+// stars, only at a player it sees. Shared by the browser and the game server; drawing lives in
+// src/render/drawHeli.ts.
 import { dist, lerp } from '../util/math';
+import { heliSees } from '../sim/sight';
 
 /** what the helicopter follows: a player's focus position and, if driving, their car's velocity */
 export interface HeliTarget {
@@ -11,8 +14,10 @@ export interface HeliTarget {
   inCar: boolean;
 }
 
-/** coverage radius of the searchlight / spotter */
-export const HELI_SEE_R = 24;
+/** while searching, the beam sweeps a circle this wide (m) round the point the helicopter is over */
+const SWEEP_R = 14;
+/** ...at this rate (rad/s) */
+const SWEEP_RATE = 0.9;
 
 export class Helicopter {
   /** network id, assigned by the Sim */
@@ -29,9 +34,11 @@ export class Helicopter {
   spawned = false;
   private fireCooldown = 2;
   navBlink = 0;
-  /** last known target position (drawn as the searchlight on clients) */
+  /** where the searchlight points (on the wire; clients draw the beam there): on the player it sees,
+   *  else sweeping round the point of the search it's over */
   tx = 0;
   ty = 0;
+  private sweep = 0;
 
   spawn(t: HeliTarget) {
     this.x = t.x + 40;
@@ -41,11 +48,18 @@ export class Helicopter {
     this.spawned = true;
   }
 
-  /** @param fire called with an aim angle when it opens fire (5 stars, roughly overhead) */
-  update(dt: number, t: HeliTarget, stars: number, rand: () => number, fire: (angle: number) => void) {
+  /** @param t the player it sees, or the point of the search it's heading for
+   *  @param seen whether it sees `t` (else it searches: it hovers over the point, the beam sweeping)
+   *  @param fire called with an aim angle when it opens fire (5 stars, roughly overhead, and only at
+   *  a player it sees) */
+  update(dt: number, t: HeliTarget, stars: number, rand: () => number, fire: (angle: number) => void, seen = true) {
     if (!this.spawned) return;
-    this.tx = t.x;
-    this.ty = t.y;
+    // the beam: locked on a player it sees, sweeping round the search point otherwise
+    this.sweep += dt * SWEEP_RATE;
+    const lx = seen ? t.x : t.x + Math.cos(this.sweep) * SWEEP_R, ly = seen ? t.y : t.y + Math.sin(this.sweep) * SWEEP_R;
+    const kb = Math.min(1, dt * (seen ? 6 : 1.5));
+    this.tx = lerp(this.tx, lx, kb);
+    this.ty = lerp(this.ty, ly, kb);
     // lag behind the target: spring toward a point offset ahead of their motion
     const lead = t.inCar ? 6 : 2;
     const gx = t.x + (t.inCar ? t.vx : 0) * lead * 0.3, gy = t.y + (t.inCar ? t.vy : 0) * lead * 0.3;
@@ -64,7 +78,7 @@ export class Helicopter {
     }
     this.animate(dt);
     this.fireCooldown -= dt;
-    if (stars >= 5 && this.fireCooldown <= 0 && dist(this.x, this.y, t.x, t.y) < 26) {
+    if (seen && stars >= 5 && this.fireCooldown <= 0 && dist(this.x, this.y, t.x, t.y) < 26) {
       this.fireCooldown = 1.4 + rand() * 0.8;
       fire(Math.atan2(t.y - this.y, t.x - this.x));
     }
@@ -76,8 +90,9 @@ export class Helicopter {
     this.navBlink += dt;
   }
 
-  /** does the heli's view (or, at night, its searchlight) currently cover this point? */
-  sees(x: number, y: number): boolean {
-    return this.spawned && dist(this.x, this.y, x, y) < HELI_SEE_R;
+  /** does its view (by day the circle under it, after dark its beam) cover this point? `dark`:
+   *  sight.ts's darkness. Roofs, passages and decks in the way are the caller's (World.covered). */
+  sees(x: number, y: number, dark: number): boolean {
+    return this.spawned && heliSees(this, dark, x, y);
   }
 }

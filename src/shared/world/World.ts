@@ -1264,6 +1264,45 @@ export class World {
     return false;
   }
 
+  /** Out of sight from the air (the police helicopter, docs/plans/gameplay.md): in a tunnel, under a
+   *  roof (a passage through a building, a canopy), or under a bridge deck above `level`. */
+  covered(x: number, y: number, level: Level): boolean {
+    if (level === -1) return true;
+    if (level === 0) return this.onBridge(x, y) || this.underRoof(x, y);
+    return level === 1 && this.onBridge(x, y, 2);
+  }
+
+  /** the mapped car parks and street-side bays, with a grid over their bounding boxes (lazily) */
+  private parking: { rings: number[][]; bb: BBox }[] | null = null;
+  private parkingGrid = new Map<number, number[]>();
+
+  /** Inside a mapped car park or a row of street-side bays: where a car stands among the parked ones. */
+  inParking(x: number, y: number): boolean {
+    if (!this.parking) {
+      this.parking = [];
+      for (const rings of this.data.areas.parking ?? []) {
+        if (!rings.length) continue;
+        const bb = bboxOf(rings[0]);
+        const i = this.parking.length;
+        this.parking.push({ rings, bb });
+        for (let gx = Math.floor(bb.x0 / BCELL); gx <= Math.floor(bb.x1 / BCELL); gx++)
+          for (let gy = Math.floor(bb.y0 / BCELL); gy <= Math.floor(bb.y1 / BCELL); gy++) {
+            const k = this.key(gx, gy);
+            const c = this.parkingGrid.get(k);
+            if (c) c.push(i);
+            else this.parkingGrid.set(k, [i]);
+          }
+      }
+    }
+    const c = this.parkingGrid.get(this.key(Math.floor(x / BCELL), Math.floor(y / BCELL)));
+    if (!c) return false;
+    for (const i of c) {
+      const p = this.parking[i], bb = p.bb;
+      if (x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1 && pointInRings(x, y, p.rings)) return true;
+    }
+    return false;
+  }
+
   /** Get a body of radius `r` that is inside a solid building (see `insideSolid`: shoved or thrown
    *  in through a wall, put down there) back out: just outside the nearest of the building's walls
    *  with room to stand beyond it (not a party wall into the house next door), else on the nearest

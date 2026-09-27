@@ -6,6 +6,7 @@ import { Prop, propHit } from '../entities/Props';
 import { Helicopter } from '../entities/Helicopter';
 import { linkPoints, type Link } from '../world/Graph';
 import { dist } from '../util/math';
+import { FRESH_SIGHTING } from './Pursuit';
 import type { Sim } from './Sim';
 import type { Roadblock, SimPlayer } from './SimPlayer';
 
@@ -59,10 +60,14 @@ export class Police {
     p.police.roadblocks = [];
     this.props = this.props.filter((pr) => pr.owner !== p.id);
     if (p.police.heli) p.police.heli.spawned = false;
+    p.police.heliSearch = null;
     this.dangerEvents = [];
   }
 
   // --------------------------------------------------------------- helicopter
+  /** 4+ stars: the helicopter follows a player the police see; while nobody does (Pursuit's search
+   *  circle is open) it flies from one point of the circle to the next, its beam sweeping, and holds
+   *  its fire (docs/plans/gameplay.md, Phase 1). */
   private updateHelicopter(p: SimPlayer, dt: number, stars: number) {
     const sim = this.sim;
     const pp = p.police;
@@ -72,16 +77,35 @@ export class Police {
         pp.heli = new Helicopter();
         pp.heli.targetPid = p.id;
       }
-      const f = p.focus();
-      const car = p.ped.vehicle;
-      const target = { x: f.x, y: f.y, vx: car?.vx ?? 0, vy: car?.vy ?? 0, inCar: !!car };
+      const zone = p.searchZone;
+      let target;
+      if (!zone) {
+        const f = p.focus();
+        const car = p.ped.vehicle;
+        target = { x: f.x, y: f.y, vx: car?.vx ?? 0, vy: car?.vy ?? 0, inCar: !!car };
+        pp.heliSearch = null;
+      } else {
+        let s = pp.heliSearch;
+        if (!s || s.t <= 0 || (pp.heli.spawned && dist(pp.heli.x, pp.heli.y, s.x, s.y) < 8)) {
+          const a = sim.rng.next() * Math.PI * 2, r = sim.rng.next() * zone.r;
+          s = pp.heliSearch = { x: zone.x + Math.cos(a) * r, y: zone.y + Math.sin(a) * r, t: sim.rng.range(6, 10) };
+        }
+        s.t -= dt;
+        target = { x: s.x, y: s.y, vx: 0, vy: 0, inCar: false };
+      }
       if (!pp.heli.spawned) {
         pp.heli.spawn(target);
         pp.heli.id = sim.ids.alloc(sim.time);
       }
       const h = pp.heli;
-      h.update(dt, target, stars, () => sim.rng.next(), (a) => sim.combat.fireNpc({ id: 0, x: h.x, y: h.y, level: 0, vehicle: null }, a, 'uzi'));
+      h.update(dt, target, stars, () => sim.rng.next(), (a) => sim.combat.fireNpc({ id: 0, x: h.x, y: h.y, level: 0, vehicle: null }, a, 'uzi'), !zone);
     } else if (pp.heli?.spawned) pp.heli.spawned = false;
+  }
+
+  /** the police see `p`, or saw them a moment ago: roadblocks and spikes go up only then, ahead of
+   *  where they were heading (a player nobody has seen for a while could be anywhere) */
+  private fresh(p: SimPlayer) {
+    return this.sim.time - p.lastSeenAt < FRESH_SIGHTING;
   }
 
   // --------------------------------------------------------------- roadblocks
@@ -90,7 +114,7 @@ export class Police {
     const pp = p.police;
     pp.rbTimer -= dt;
     const car = p.ped.vehicle;
-    if (stars >= 3 && pp.roadblocks.length < 2 && pp.rbTimer <= 0 && car && car.speed > 3 && this.roadblockCount() < sim.caps.roadblocks) {
+    if (stars >= 3 && pp.roadblocks.length < 2 && pp.rbTimer <= 0 && car && car.speed > 3 && this.fresh(p) && this.roadblockCount() < sim.caps.roadblocks) {
       pp.rbTimer = sim.rng.range(10, 16);
       this.trySpawnRoadblock(p, stars >= 5);
     }
@@ -194,7 +218,7 @@ export class Police {
     let active = 0;
     for (const pr of this.props) if (pr.kind === 'spike' && pr.owner === p.id) active++;
     const car = p.ped.vehicle;
-    if (stars >= 4 && active < 2 && pp.spikeTimer <= 0 && car && car.speed > 3) {
+    if (stars >= 4 && active < 2 && pp.spikeTimer <= 0 && car && car.speed > 3 && this.fresh(p)) {
       pp.spikeTimer = sim.rng.range(9, 15);
       this.trySpawnSpike(p);
     }

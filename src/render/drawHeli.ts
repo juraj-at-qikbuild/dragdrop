@@ -2,8 +2,10 @@
 import type { Atmosphere } from '../world/Atmosphere';
 import type { LightLayer } from '../world/Lighting';
 import type { View } from '../world/Renderer';
-import { HELI_SEE_R, type Helicopter } from '../shared/entities/Helicopter';
-import { clamp, dist } from '../shared/util/math';
+import type { Helicopter } from '../shared/entities/Helicopter';
+import { BEAM_DARK, HELI_BEAM_R, heliSees } from '../shared/sim/sight';
+import { darkness } from '../shared/sim/Clock';
+import { clamp } from '../shared/util/math';
 
 /** visual lift from the ground shadow toward the body, along the sun direction: bounded so it
  *  reads well at any zoom level instead of the building roof-parallax (which blows up when the
@@ -14,7 +16,14 @@ function liftOffset(h: Helicopter, atmos: Atmosphere): [number, number] {
   return [sun.dx * k, sun.dy * k];
 }
 
-export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, atmos: Atmosphere) {
+/** After dark the helicopter sees only what its searchlight lights (sight.ts): the beam is drawn
+ *  where the simulation points it, as big as it sees, brighter while it's on `focus` (the local
+ *  player). */
+function beamOn(atmos: Atmosphere) {
+  return darkness(atmos.time) >= BEAM_DARK;
+}
+
+export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, atmos: Atmosphere, focus?: { x: number; y: number }) {
   if (!h.spawned) return;
   if (h.x < v.x0 - 60 || h.x > v.x1 + 60 || h.y < v.y0 - 60 || h.y > v.y1 + 60) return;
   const [ox, oy] = liftOffset(h, atmos);
@@ -29,15 +38,18 @@ export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, 
   ctx.fill();
   ctx.restore();
 
-  // night searchlight cone on the ground, under the body
-  if (atmos.night > 0.2) {
-    const f = { x: h.tx, y: h.ty };
-    const cov = dist(h.x, h.y, f.x, f.y) < HELI_SEE_R;
+  // night searchlight on the ground, under the body: where it really looks, as wide as it sees
+  if (beamOn(atmos)) {
+    const cov = !!focus && heliSees(h, 1, focus.x, focus.y);
     ctx.save();
-    ctx.globalAlpha = 0.35 * atmos.night;
-    ctx.fillStyle = cov ? '#fff9d6' : '#e6f2ff';
+    ctx.globalAlpha = (cov ? 0.42 : 0.3) * Math.max(0.6, atmos.night);
+    const g = ctx.createRadialGradient(h.tx, h.ty, 0, h.tx, h.ty, HELI_BEAM_R);
+    g.addColorStop(0, cov ? '#fff9d6' : '#e6f2ff');
+    g.addColorStop(0.7, cov ? 'rgba(255,249,214,0.6)' : 'rgba(230,242,255,0.55)');
+    g.addColorStop(1, 'rgba(230,242,255,0)');
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(h.x * 0.15 + f.x * 0.85, h.y * 0.15 + f.y * 0.85, 4.5, 4.5, 0, 0, Math.PI * 2);
+    ctx.arc(h.tx, h.ty, HELI_BEAM_R, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -110,17 +122,15 @@ export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, 
   ctx.restore();
 }
 
-export function emitHeliLights(h: Helicopter, L: LightLayer, atmos: Atmosphere) {
+export function emitHeliLights(h: Helicopter, L: LightLayer, atmos: Atmosphere, focus?: { x: number; y: number }) {
   if (!h.spawned) return;
   const [ox, oy] = liftOffset(h, atmos);
   const bx = h.x + ox, by = h.y + oy;
   const blink = Math.sin(h.navBlink * 6) > 0.6;
   if (blink) L.point(bx, by - 0.85, 1.4, '#ff1744', 0.5);
-  if (atmos.night > 0.15) {
-    const f = { x: h.tx, y: h.ty };
-    const lx = h.x * 0.15 + f.x * 0.85, ly = h.y * 0.15 + f.y * 0.85;
-    const covering = dist(h.x, h.y, f.x, f.y) < HELI_SEE_R;
-    L.point(lx, ly, 5.5, covering ? '#fff6cc' : '#dfeeff', clamp(0.9 * atmos.night, 0, 1));
-    L.glow(lx, ly, 6, '#fff6cc', 0.35 * atmos.night);
+  if (beamOn(atmos)) {
+    const covering = !!focus && heliSees(h, 1, focus.x, focus.y);
+    L.point(h.tx, h.ty, HELI_BEAM_R * 1.1, covering ? '#fff6cc' : '#dfeeff', clamp(0.9 * atmos.night, 0, 1));
+    L.glow(h.tx, h.ty, HELI_BEAM_R * 1.2, '#fff6cc', 0.35 * atmos.night);
   }
 }

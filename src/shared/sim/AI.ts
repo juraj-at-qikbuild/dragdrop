@@ -1224,7 +1224,14 @@ export class AI {
     const vr = Math.hypot(o.hw, o.hh);
     const f = p.focus();
     const pg = this.policeGraph;
-    const nodes = pg.nodesAround(f.x, f.y, vr + 25, vr + 90).filter((n) => pg.out[n].some((l) => l.edge.cls <= 6));
+    const road = (n: number) => pg.out[n].some((l) => l.edge.cls <= 6);
+    // While nobody sees the player (Pursuit), reinforcements come in round the search circle, as far
+    // as the player's surroundings go (where NPCs live, see populate): not round the player
+    const zone = p.searchZone;
+    const far = Math.max(260, vr + 90);
+    const nodes = zone
+      ? pg.nodesAround(zone.x, zone.y, 0, zone.r + 60).filter((n) => road(n) && dist(pg.nx(n), pg.ny(n), f.x, f.y) < far)
+      : pg.nodesAround(f.x, f.y, vr + 25, vr + 90).filter(road);
     if (!nodes.length) return 0;
     const n = sim.rng.pick(nodes);
     if (this.onScreen(pg.nx(n), pg.ny(n), 10)) return 0;
@@ -1279,29 +1286,34 @@ export class AI {
     }
     v.siren = true;
     const real = t.focus();
-    const dd = dist(v.x, v.y, real.x, real.y);
-    // a cop that stops closing in while off-screen is recycled by the spawner
-    if (dd < d.best - 5) (d.best = dd), (d.noProgress = 0);
-    else if ((d.noProgress += dt) > 10 && !this.onScreen(v.x, v.y, 20)) {
-      this.retire.add(v);
-      return;
-    }
-    // no seeing into or out of a tunnel
-    const los = dd < 55 && (v.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(v.x, v.y, real.x, real.y, v.level) >= 1;
-    // no direct sight, and nobody else has either: hunt the last-known-position search zone
-    // instead of homing straight in, so a driver who breaks line of sight can actually lose them
+    // Nobody sees the player (Pursuit: a search circle is open): hunt the circle instead of homing in,
+    // even with the player in plain view of this car, which hasn't recognised them (a car changed out
+    // of sight). While anyone sees them, dispatch tells every car where they are.
     const zone = t.searchZone;
-    const searching = !los && !!zone;
+    const searching = !!zone;
     let target = real;
     if (searching) {
       if (!d.searchTarget || d.searchTimer <= 0 || dist(v.x, v.y, d.searchTarget.x, d.searchTarget.y) < 10) {
         const a = sim.rng.next() * Math.PI * 2, r = sim.rng.next() * zone!.r;
         d.searchTarget = { x: zone!.x + Math.cos(a) * r, y: zone!.y + Math.sin(a) * r };
         d.searchTimer = sim.rng.range(6, 11);
+        d.best = Infinity;
       }
       d.searchTimer -= dt;
       target = d.searchTarget;
-    } else d.searchTarget = null;
+    } else if (d.searchTarget) (d.searchTarget = null), (d.best = Infinity);
+    const dd = dist(v.x, v.y, real.x, real.y);
+    // a cop that stops closing in on where it's going (the player, or its search point) while
+    // off-screen is recycled by the spawner
+    const dg = searching ? dist(v.x, v.y, target.x, target.y) : dd;
+    if (dg < d.best - 5) (d.best = dg), (d.noProgress = 0);
+    else if ((d.noProgress += dt) > 10 && !this.onScreen(v.x, v.y, 20)) {
+      this.retire.add(v);
+      return;
+    }
+    // straight at the player only while they're seen and this car has them in view (no seeing
+    // into or out of a tunnel)
+    const los = !searching && dd < 55 && (v.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(v.x, v.y, real.x, real.y, v.level) >= 1;
 
     // end of the route (target is off-network): go straight for the suspect
     const close = !searching && !d.route.length && dd < 70 && d.idx * 2 >= d.pts.length - 2;
@@ -1622,9 +1634,18 @@ export class AI {
     const pl = t.ped;
     const tx = pl.vehicle ? pl.vehicle.x : pl.x, ty = pl.vehicle ? pl.vehicle.y : pl.y;
     const d = dist(p.x, p.y, tx, ty);
-    const los = d < 30 && (p.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(p.x, p.y, tx, ty, p.level) >= 1;
     // downed: lying wounded, can't fight back (Revive) — cops just walk up and cuff them, never shoot
     const downed = t.state === 'downed';
+    // Nobody sees the player (Pursuit: the search circle is open): search it rather than walk
+    // straight to them, and neither draw on nor cuff someone nobody has recognised
+    const zone = t.searchZone;
+    if (zone && !downed) {
+      this.copSearch(p, zone, dt);
+      p.bustTimer = Math.max(0, p.bustTimer - dt);
+      return;
+    }
+    p.search = null;
+    const los = d < 30 && (p.level === -1) === (t.focusLevel() === -1) && sim.world.raycast(p.x, p.y, tx, ty, p.level) >= 1;
     const armed = !downed && (t.wanted >= 3 || t.shotCops);
     if (armed && los && d < 22) {
       // stop and shoot
@@ -1647,6 +1668,28 @@ export class AI {
       p.bustTimer += dt;
       if (p.bustTimer > (pl.vehicle ? 1.6 : 0.8)) sim.bust(t);
     } else p.bustTimer = Math.max(0, p.bustTimer - dt);
+  }
+
+  /** A cop on foot who's lost the player: first to where they were last seen (the circle's centre),
+   *  then about the circle, looking where they walk. One far from it holds their post (a roadblock). */
+  private copSearch(p: Ped, zone: { x: number; y: number; r: number }, dt: number) {
+    const sim = this.sim;
+    if (dist(p.x, p.y, zone.x, zone.y) > zone.r + 80) {
+      p.search = null;
+      p.move(dt, sim.world, 0, 0);
+      return;
+    }
+    let s = p.search;
+    if (!s || s.t <= 0 || dist(p.x, p.y, s.x, s.y) < 2) {
+      const a = sim.rng.next() * Math.PI * 2, r = s ? sim.rng.next() * zone.r : 0;
+      const q = sim.world.walkableNear(zone.x + Math.cos(a) * r, zone.y + Math.sin(a) * r);
+      s = p.search = { x: q.x, y: q.y, t: sim.rng.range(5, 9) };
+    }
+    s.t -= dt;
+    const d = dist(p.x, p.y, s.x, s.y);
+    const sp = p.speed * 0.8;
+    if (d > 0.5) p.move(dt, sim.world, ((s.x - p.x) / d) * sp, ((s.y - p.y) / d) * sp);
+    else p.move(dt, sim.world, 0, 0);
   }
 
   // ---------------------------------------------------------------- trams

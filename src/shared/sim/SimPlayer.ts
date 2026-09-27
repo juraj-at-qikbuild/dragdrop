@@ -5,6 +5,7 @@ import type { Vehicle } from '../entities/Vehicle';
 import type { Helicopter } from '../entities/Helicopter';
 import type { Prop } from '../entities/Props';
 import type { Level } from '../world/World';
+import type { Desc } from './Pursuit';
 
 /** downed: lying wounded, revivable by another player until they bleed out (online; see Revive) */
 export type PlayerState = 'play' | 'wasted' | 'busted' | 'downed';
@@ -48,6 +49,8 @@ export interface Roadblock {
 /** per-player police escalation (helicopter, roadblocks, spike strips) */
 export interface PlayerPolice {
   heli: Helicopter | null;
+  /** the point of the search circle the helicopter is flying to, and for how long more (s) */
+  heliSearch: { x: number; y: number; t: number } | null;
   roadblocks: Roadblock[];
   rbTimer: number;
   spikeTimer: number;
@@ -59,12 +62,30 @@ export const DOWNED_BLEED = 25;
 
 export class SimPlayer {
   wanted = 0;
+  /** the police's search clock: runs while nobody sees the player (faster when they've changed car or
+   *  lie low, see Pursuit), and a star drops each time it runs out */
   unseen = 0;
   /** last-known-position circle the police search while they've lost sight (grows over time) */
   searchZone: { x: number; y: number; r: number } | null = null;
   lastSeenPos = { x: 0, y: 0 };
+  /** sim.time the police last saw this player (roadblocks go up only just after) */
+  lastSeenAt = -1e9;
   /** police lost sight this frame (HUD flashes the stars) */
   searching = false;
+  /** what the police are looking for: the car they last saw the player in (0: on foot), see Pursuit */
+  desc: Desc = { car: 0, kind: null, color: '' };
+  /** 0..1: how far a unit looking over a player who doesn't match `desc` has got to recognising them */
+  spot = 0;
+  /** seconds stood (nearly) still */
+  still = 0;
+  /** lying low (still and out of sight): 0 no, 1 yes, 2 in a hideout (a car park, under cover) */
+  low: 0 | 1 | 2 = 0;
+  /** the `police` status last sent (Pursuit, change detection; 'off': no chase) */
+  policeKey = 'off';
+  /** Úplatok: the price of buying off the arrest under way (0: none on offer), and sim.time of the
+   *  last one bought off */
+  bribeOffer = 0;
+  bribeAt = -1e9;
   shotCops = false;
   crimeCooldown = new Map<string, number>();
   ammo: Record<WeaponId, number> = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
@@ -76,7 +97,7 @@ export class SimPlayer {
   sprayCooldown = 0;
   drown = 0;
   observer: Observer;
-  police: PlayerPolice = { heli: null, roadblocks: [], rbTimer: 0, spikeTimer: 0 };
+  police: PlayerPolice = { heli: null, heliSearch: null, roadblocks: [], rbTimer: 0, spikeTimer: 0 };
   /** bumped on every teleport (respawn); stale client reports carry an older epoch */
   epoch = 0;
   /** the last player who hurt this one (kill credit), and when (sim time) */

@@ -129,12 +129,18 @@ describe('the city', () => {
 });
 
 describe('on the run', () => {
-  /** a player somewhere the police last saw them far from, so the search zone never holds them */
+  /** a player somewhere the police last saw them far from, so the search zone never holds them, and
+   *  on the run: never still, so never lying low (which would fade the stars faster, and a 3★ chase
+   *  under the 30 s a getaway needs) */
   function runner(sim: Sim) {
     const main = sim.world.landmark('main'), gate = sim.world.landmark('michael');
     const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false, x: main.x, y: main.y });
     p.lastSeenPos = { x: main.x, y: main.y };
-    return { p, away: () => ((p.ped.x = gate.x), (p.ped.y = gate.y)) };
+    return {
+      p,
+      away: () => ((p.ped.x = gate.x), (p.ped.y = gate.y), (p.ped.vx = 3)),
+      back: () => ((p.ped.x = main.x), (p.ped.y = main.y)),
+    };
   }
 
   it('losing the police after a real chase scores by its most stars', () => {
@@ -166,13 +172,15 @@ describe('on the run', () => {
 
   it('a second getaway within 90 s scores nothing', () => {
     const { sim, scored } = setup(22);
-    const { p, away } = runner(sim);
+    const { p, away, back } = runner(sim);
     sim.setWanted(p, 3);
     sim.step(0.1);
     away();
     for (let i = 0; i < 60 && p.wanted > 0; i++) sim.step(1);
     expect(scored.length).toBe(1);
-    sim.setWanted(p, 3);
+    sim.setWanted(p, 3); // the police know where A is again...
+    sim.step(0.1);
+    back(); // ...and A runs off once more
     for (let i = 0; i < 60 && p.wanted > 0; i++) sim.step(1); // a 30 s+ chase again, but too soon
     expect(p.wanted).toBe(0);
     expect(scored.length).toBe(1);
@@ -198,6 +206,8 @@ describe('Najhľadanejší', () => {
     const s = setup(seed, { downed: true });
     const a = s.sim.addPlayer({ nick: 'A', profile: profile(), kinematic: true });
     const k = s.sim.addPlayer({ nick: 'K', profile: profile(), kinematic: true });
+    // the target keeps moving (as its client reports): not lying low, the 5★ hold with no police about
+    a.ped.vx = 2;
     s.sim.setWanted(a, 5);
     const dir = s.sim.rule<WorldEvents>('worldEvents')!;
     dir.trigger('wanted', a);

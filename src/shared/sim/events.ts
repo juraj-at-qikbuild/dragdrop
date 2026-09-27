@@ -84,7 +84,17 @@ export type PrivateEvent =
   /** away and safe: nobody can hurt, arrest or carjack this player (rules/Presence.ts) */
   | { k: 'shield'; on: boolean }
   /** leaderboard points (online only, Sim.score): `n` points for `src`, scored at (x, y) */
-  | { k: 'points'; n: number; src: ScoreSource; x: number; y: number };
+  | { k: 'points'; n: number; src: ScoreSource; x: number; y: number }
+  // ---- the chase (docs/plans/gameplay.md, Phase 1; sim/Pursuit.ts). Optional both ways: a client
+  // from before ignores them, and a server from before never sends them
+  /** What the police know, sent when it changes while wanted: the description (the car they're
+   *  looking for, its kind and colour; 0 = on foot, -1 = the chase is over), whether the player
+   *  matches it (m), how far a unit looking them over has got to recognising them (spot, 0..1) and
+   *  whether one is looking now (w), and lying low (0, 1, 2 in a hideout). */
+  | { k: 'police'; car: number; kind: string; color: string; m: 0 | 1; spot: number; w: 0 | 1; low: 0 | 1 | 2 }
+  /** Úplatok: an arrest the player can buy off for `price` within `t` s (answer with `bribe`);
+   *  price 0: the offer is gone (paid) */
+  | { k: 'bribe'; price: number; t: number };
 
 export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 

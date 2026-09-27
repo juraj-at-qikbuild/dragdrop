@@ -14,8 +14,9 @@ import { loadWorld } from './helpers';
  *  €100 discovery reward would otherwise land on top of this file's own payout assertions */
 const allFound = () => [...loadWorld().landmarks.values()].map((l) => l.id);
 const profile = () => ({ money: 0, done: [], found: allFound(), cumils: [] });
-/** an all-zero cap set: no cops ever spawn, so a stationary player's wanted level never decays on
- *  its own (Sim.updateWanted only drops it once the police lose sight for a while) */
+/** an all-zero cap set: no cops ever spawn, so the wanted level of a player who keeps moving (see
+ *  `setup`) never decays on its own: the police only drop a star once they've lost sight for a
+ *  while and the player is outside their search circle or lying low (Pursuit.update) */
 const NO_NPCS = { traffic: 0, parked: 0, peds: 0, trams: 0, police: 0, helis: 0, roadblocks: 0 };
 
 /** a real-map Sim with downing and every social rule on ('server' rules mode), capturing every
@@ -29,6 +30,14 @@ function setup(seed: number) {
     events: { ...nullEvents, toPlayer: (pid, e) => priv.push([pid, e]), global: (e) => globals.push(e) },
   });
   sim.onPayout = (p, amount, reason) => payouts.push([p.nick, amount, reason]);
+  // everyone keeps moving (a kinematic figure's velocity is what its client last reported): nobody
+  // lies low, which would fade their stars even inside the search circle (docs/plans/gameplay.md)
+  const add = sim.addPlayer.bind(sim);
+  sim.addPlayer = (o) => {
+    const p = add(o);
+    p.ped.vx = 2;
+    return p;
+  };
   const dir = sim.rule<WorldEvents>('worldEvents')!;
   return { sim, dir, priv, globals, payouts };
 }

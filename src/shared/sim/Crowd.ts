@@ -12,6 +12,7 @@ import { dist } from '../util/math';
 import { SAY_BUMP, SAY_CHAT, SAY_FIGHT, SAY_GUN, SAY_HORN, SAY_PHONE, pickLine } from './phrases';
 import type { Sim } from './Sim';
 import type { SimPlayer } from './SimPlayer';
+import type { Desc } from './Pursuit';
 
 const F_PICNIC = 14;
 
@@ -36,6 +37,9 @@ const MAX_WAITING = 5;
 export class Crowd {
   /** the witness on the phone about each player (player id -> witness) */
   private calls = new Map<number, Ped>();
+  /** what each of those witnesses saw: where the crime happened and what the player was in then
+   *  (the police search there, for that car, however long the call takes) */
+  private seen = new Map<number, { x: number; y: number; desc: Desc }>();
   /** people who got on a tram this update (they leave the simulation) */
   private gone = new Set<Ped>();
   /** trams standing at a stop (to let people off once per stop) */
@@ -648,6 +652,7 @@ export class Crowd {
     const wit: Ped = w;
     wit.callPid = pl.id;
     this.calls.set(pl.id, wit);
+    this.seen.set(pl.id, { x, y, desc: sim.pursuit.current(pl) });
     // they get away first, then dial
     if (wit.state !== 'flee') sim.combat.scare(wit, x, y);
     wit.timer = Math.min(wit.timer, 2 + sim.rng.next() * 1.5);
@@ -666,13 +671,15 @@ export class Crowd {
     const sim = this.sim;
     p.vx = p.vy = 0;
     if ((p.timer -= dt) > 0) return true;
-    // got through: the police are on their way
+    // got through: the police are on their way, to where the crime was
     const pl = sim.players.get(p.callPid);
+    const saw = this.seen.get(p.callPid);
     this.calls.delete(p.callPid);
+    this.seen.delete(p.callPid);
     p.callPid = 0;
     p.state = 'walk';
     p.link = null;
-    if (pl && pl.state === 'play') sim.reported(pl);
+    if (pl && pl.state === 'play') sim.reported(pl, saw, saw?.desc);
     return true;
   }
 
@@ -680,7 +687,7 @@ export class Crowd {
   private hangUp(p: Ped) {
     if (!p.callPid) return;
     const pl = this.sim.players.get(p.callPid);
-    if (this.calls.get(p.callPid) === p) this.calls.delete(p.callPid);
+    if (this.calls.get(p.callPid) === p) this.calls.delete(p.callPid), this.seen.delete(p.callPid);
     p.callPid = 0;
     if (p.state === 'phone') p.state = 'walk';
     if (pl) this.sim.events.toPlayer(pl.id, { k: 'msg', title: '', text: 'Svedok nedovolal.', time: 2, color: '#b2ff59' });
@@ -694,6 +701,7 @@ export class Crowd {
       const on = w.callPid === pid && !w.dead && (w.state === 'flee' || w.state === 'phone') && sim.peds.includes(w);
       if (on && pl && pl.state === 'play') continue;
       this.calls.delete(pid);
+      this.seen.delete(pid);
       if (w.callPid === pid) w.callPid = 0;
       if (w.state === 'phone') w.state = 'walk';
       if (pl && w.dead) sim.events.toPlayer(pid, { k: 'msg', title: '', text: 'Svedok nedovolal.', time: 2, color: '#b2ff59' });

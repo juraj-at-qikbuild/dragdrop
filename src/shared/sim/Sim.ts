@@ -16,6 +16,7 @@ import { clamp, dist } from '../util/math';
 import { AI } from './AI';
 import { Crowd } from './Crowd';
 import { Police } from './Police';
+import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
 import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
@@ -77,6 +78,8 @@ export class Sim {
   ai: AI;
   crowd: Crowd;
   police: Police;
+  /** the police's side of each chase: who sees whom, the description, the search, lying low, bribes */
+  pursuit: Pursuit;
   combat: CombatRules;
   physics = new VehiclePhysics();
   /** base target counts around each player (scaled by quality, time of day, player count, governor) */
@@ -127,6 +130,7 @@ export class Sim {
     this.ai = new AI(this);
     this.crowd = new Crowd(this);
     this.police = new Police(this);
+    this.pursuit = new Pursuit(this);
     this.combat = new CombatRules(this);
     for (const p of placePickups(world)) this.pickups.push({ ...p, id: this.ids.alloc(0) });
     this.downed = !!opts.downed;
@@ -335,7 +339,7 @@ export class Sim {
     this.updatePickups(dt);
     for (const p of this.players.values()) {
       if (p.state !== 'play') continue;
-      this.updateWanted(p, dt);
+      this.pursuit.update(p, dt);
       this.sprayShop(p);
       this.hazards(p, dt);
       this.discover(p);
@@ -621,11 +625,14 @@ export class Sim {
     const now = this.time;
     const cd = p.crimeCooldown.get(kind) ?? -Infinity;
     const f = p.focus();
-    const copNear = (r: number) => this.pedsNear(f.x, f.y, r).some((c) => c.kind === 'cop' && !c.dead && dist(c.x, c.y, f.x, f.y) < r);
+    // a crime the police see for themselves (a police car or a cop with the player in sight, see
+    // Pursuit) raises the stars at once; one they don't may still be phoned in by a witness. Gunfire
+    // they also hear, close by.
+    const seen = (hear = 0) => this.pursuit.policeWatching(p, hear);
     switch (kind) {
       case 'shoot':
         this.police.danger(f.x, f.y, 20);
-        if (copNear(45)) {
+        if (seen(HEAR_SHOT)) {
           if (now > cd) this.raise(p, 1, kind, 5);
         } else this.crowd.witness(p, f.x, f.y, null);
         break;
@@ -643,7 +650,7 @@ export class Sim {
         if (now > cd) this.raise(p, 1, kind, 6);
         break;
       case 'carjack':
-        if (copNear(60)) this.raise(p, 1, kind, 3);
+        if (seen()) this.raise(p, 1, kind, 3);
         else this.crowd.witness(p, f.x, f.y, victim);
         break;
       case 'hitCop':
@@ -673,20 +680,25 @@ export class Sim {
     }
   }
 
-  private raise(p: SimPlayer, amount: number, kind: string, cooldown: number) {
+  /** More stars for a crime. The police know where it happened and what the player was in (the
+   *  search starts there), unless `know` is false: a witness's report says that itself. */
+  private raise(p: SimPlayer, amount: number, kind: string, cooldown: number, know = true) {
     const before = Math.ceil(p.wanted);
     p.wanted = clamp(Math.max(p.wanted, 0) + amount, 0, 5);
     if (p.wanted < 1) p.wanted = 1;
     p.unseen = 0;
+    if (know) this.pursuit.know(p);
     p.crimeCooldown.set(kind, this.time + cooldown);
     if (Math.ceil(p.wanted) > before) this.events.toPlayer(p.id, { k: 'stars' });
     this.anyWanted = true;
   }
 
-  /** a witness got through to the police about `p` */
-  reported(p: SimPlayer) {
+  /** A witness got through to the police about `p`: they search where the witness saw the crime
+   *  (`at`), for the car `p` was in then (`desc`), however long the call took. */
+  reported(p: SimPlayer, at?: { x: number; y: number }, desc?: Desc) {
     if (p.state !== 'play') return;
-    this.raise(p, 1, 'reported', 0);
+    this.raise(p, 1, 'reported', 0, false);
+    this.pursuit.know(p, at, desc, false);
     this.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Svedok ťa nahlásil polícii!', time: 3, color: '#ff5252' });
   }
 
@@ -695,10 +707,15 @@ export class Sim {
     this.crowd.honk(v);
   }
 
+  /** Set the stars (missions, the derby's amnesty, tests). Going up, the police know where the
+   *  player is and what they're in. */
   setWanted(p: SimPlayer, level: number) {
     const before = Math.ceil(p.wanted);
     p.wanted = clamp(level, 0, 5);
-    if (Math.ceil(p.wanted) > before) this.events.toPlayer(p.id, { k: 'stars' });
+    if (Math.ceil(p.wanted) > before) {
+      this.pursuit.know(p);
+      this.events.toPlayer(p.id, { k: 'stars' });
+    }
     if (p.wanted > 0) this.anyWanted = true;
   }
 
@@ -772,15 +789,42 @@ export class Sim {
     this.events.toPlayer(p.id, { k: 'down', state: 'wasted' });
   }
 
-  /** also busts a downed player (Revive): a cop who catches up before a revive or a bleed-out. */
+  /** also busts a downed player (Revive): a cop who catches up before a revive or a bleed-out. At
+   *  1–2 stars the cop may take money instead (Úplatok, Pursuit.offerBribe): the arrest then waits
+   *  a moment longer for it (`bribe`). */
   bust(p: SimPlayer) {
     if (p.state !== 'play' && p.state !== 'downed') return;
     // the shield needs no stars, so no cop is after a shielded player; this is only a safety net
     if (p.shielded) return;
+    const from = p.state;
     p.ped.downed = false;
     this.setState(p, 'busted');
     p.stateTimer = 4;
     this.events.toPlayer(p.id, { k: 'down', state: 'busted' });
+    if (this.pursuit.offerBribe(p, from)) p.stateTimer = BRIBE_WAIT;
+  }
+
+  /** Úplatok: a player being arrested pays off the cop (the offer from `bust`). The arrest is off:
+   *  no fee, their guns kept, the stars gone and the police back on patrol. No getaway points either.
+   *  Returns whether it went through. */
+  bribe(p: SimPlayer): boolean {
+    if (!this.pursuit.canBribe(p)) return false;
+    const price = p.bribeOffer;
+    this.addMoney(p, -price);
+    p.bribeOffer = 0;
+    p.bribeAt = this.time;
+    p.wanted = 0;
+    p.shotCops = false;
+    p.searchZone = null;
+    p.searching = false;
+    p.stateTimer = 0;
+    this.setState(p, 'play');
+    // the cops who were after them lose interest (AI retargets police cars by itself)
+    for (const q of this.peds) if (q.kind === 'cop' && q.targetPid === p.id) (q.targetPid = 0), (q.bustTimer = 0);
+    this.events.toPlayer(p.id, { k: 'bribe', price: 0, t: 0 });
+    this.events.toPlayer(p.id, { k: 'msg', title: 'Úplatok', text: `Policajt si vzal €${price} a zrazu nič nevidel.`, time: 3.5, color: '#b2ff59' });
+    this.onProfileChange?.(p);
+    return true;
   }
 
   /** SimOptions.downed: lethal damage downs a player instead of killing them outright — lying
@@ -833,6 +877,10 @@ export class Sim {
     p.shotCops = false;
     p.drown = 0;
     p.lastAttacker = 0;
+    p.bribeOffer = 0;
+    p.spot = 0;
+    p.low = 0;
+    p.still = 0;
     if (busted) {
       p.ammo = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
       ped.weapon = 'fist';
@@ -995,65 +1043,11 @@ export class Sim {
   }
 
   // ------------------------------------------------------------------- wanted
-  private updateWanted(p: SimPlayer, dt: number) {
-    if (p.wanted <= 0) {
-      p.searchZone = null;
-      p.searching = false;
-      // the stars went some other way than a getaway (a respawn, the spray shop, the derby's
-      // amnesty): that chase is over without points
-      p.chaseSince = -1;
-      p.chasePeak = 0;
-      return;
-    }
-    if (p.chaseSince < 0) p.chaseSince = this.time;
-    p.chasePeak = Math.max(p.chasePeak, p.stars);
-    const f = p.focus();
-    const fl = p.focusLevel();
-    // nobody on the surface can see into a tunnel, nor out of one
-    const sightOk = (level: Level) => (level === -1) === (fl === -1);
-    let seen = false;
-    for (const v of this.vehiclesNear(f.x, f.y, 70)) {
-      if (v.kind !== 'police' || v.wrecked || v.isPlayer || !v.siren) continue;
-      if (dist(v.x, v.y, f.x, f.y) < 70 && sightOk(v.level) && this.world.raycast(v.x, v.y, f.x, f.y, fl) >= 1) {
-        seen = true;
-        break;
-      }
-    }
-    if (!seen)
-      for (const c of this.pedsNear(f.x, f.y, 40)) {
-        if (c.kind !== 'cop' || c.dead || c.vehicle) continue;
-        if (dist(c.x, c.y, f.x, f.y) < 40 && sightOk(c.level) && this.world.raycast(c.x, c.y, f.x, f.y, fl) >= 1) {
-          seen = true;
-          break;
-        }
-      }
-    if (!seen && fl !== -1) for (const h of this.police.helis()) if (h.sees(f.x, f.y)) seen = true;
-    if (seen) {
-      p.unseen = 0;
-      p.lastSeenPos = { x: f.x, y: f.y };
-      p.searchZone = null;
-    } else {
-      p.unseen += dt;
-      if (!p.searchZone) p.searchZone = { x: p.lastSeenPos.x, y: p.lastSeenPos.y, r: 40 };
-      else p.searchZone.r = Math.min(120, p.searchZone.r + dt * 4);
-      const outsideZone = dist(f.x, f.y, p.searchZone.x, p.searchZone.y) > p.searchZone.r;
-      if (outsideZone && p.unseen > 9 + Math.ceil(p.wanted) * 1.5) {
-        p.unseen = 0;
-        p.wanted = Math.max(0, Math.ceil(p.wanted) - 1);
-        if (p.wanted === 0) {
-          p.shotCops = false;
-          p.searchZone = null;
-          this.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Polícia ťa stratila z dohľadu.', time: 2, color: '#90caf9' });
-          this.getaway(p);
-        }
-      }
-    }
-    p.searching = !seen;
-  }
+  // (who sees a wanted player, the search and the stars fading: Pursuit.ts)
 
-  /** Lost the police for good: leaderboard points by the most stars the chase reached, when it lasted
-   *  long enough and the last getaway that scored isn't too recent (no farming a quick star). */
-  private getaway(p: SimPlayer) {
+  /** Lost the police for good (Pursuit): leaderboard points by the most stars the chase reached, when
+   *  it lasted long enough and the last getaway that scored isn't too recent (no farming a quick star). */
+  getaway(p: SimPlayer) {
     const pts = getawayPoints(p.chasePeak);
     if (pts > 0 && this.onScore && this.time - p.chaseSince >= GETAWAY_MIN_S && this.time - p.lastGetawayAt >= GETAWAY_COOLDOWN_S) {
       p.lastGetawayAt = this.time;

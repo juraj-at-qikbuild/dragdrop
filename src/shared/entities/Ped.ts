@@ -110,6 +110,9 @@ export class Ped {
   /** cops: the player they are after (0 = whoever is nearest and wanted); a civilian in a fight:
    *  who they're fighting */
   targetPid = 0;
+  /** a cop on foot who's lost the player (the police's search circle is open): the point of the
+   *  search they're walking to, and for how long more (s) before they pick another */
+  search: { x: number; y: number; t: number } | null = null;
   // --- the crowd (Crowd.ts), simulation only: clients see the state and the pose
   /** a seat, a tram door or a spot at a tram stop they're walking to */
   goal: PedGoal | null = null;

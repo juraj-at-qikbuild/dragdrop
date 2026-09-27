@@ -150,6 +150,9 @@ describe('Derby na parkovisku', () => {
     const c = sim.addPlayer({ nick: 'C', profile: profile(), kinematic: false, x: arena.cx - 5, y: arena.cy });
     putInCar(sim, c, arena.cx - 5, arena.cy);
     a.wanted = 3;
+    // no police about: keep their clock from running out, or A, parked in the arena (a car park:
+    // lying low in a hideout), would lose the stars before the amnesty takes them (Pursuit.update)
+    a.unseen = -Infinity;
     toLive(sim);
     expect(a.wanted).toBe(0); // zeroed right away, the moment it goes live
 
@@ -377,6 +380,7 @@ describe('Derby na parkovisku', () => {
     // a bystander on foot, never a participant, still inside when it all ends
     const d = sim.addPlayer({ nick: 'Dana', profile: profile(), kinematic: false, x: arena.cx, y: arena.cy - 5 });
     d.wanted = 2;
+    d.unseen = -Infinity; // standing there, she'd be lying low: the stars would fade before the amnesty
     toLive(sim);
     expect(ev.entry().alive).toBe(3);
     for (let i = 0; i < 10; i++) sim.step(1); // clear the 10 s grace period; all 3 survive it untouched
