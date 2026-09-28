@@ -9,7 +9,7 @@ import { Vehicle, type VehicleKind } from '../../src/shared/entities/Vehicle';
 import { Ped } from '../../src/shared/entities/Ped';
 import { nullEvents, type PrivateEvent, type ShotFx } from '../../src/shared/sim/events';
 import { BRIBE_PER_STAR } from '../../src/shared/sim/Pursuit';
-import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
+import { START_AMMO, type SimPlayer } from '../../src/shared/sim/SimPlayer';
 import type { Caps } from '../../src/shared/sim/density';
 import { dist } from '../../src/shared/util/math';
 import { loadWorld } from './helpers';
@@ -372,7 +372,7 @@ describe('Úplatok', () => {
     expect(three.sim.bribe(three.p)).toBe(false);
     run(three.sim, 4.5);
     expect(three.p.state).toBe('play');
-    expect(three.p.ammo.pistol).toBe(0); // arrested after all
+    expect(three.p.ammo.pistol).toBe(START_AMMO.pistol); // arrested after all
 
     const { sim } = setup(21);
     const p = player(sim, along(0));
@@ -395,7 +395,7 @@ describe('Úplatok', () => {
     expect(poor.p.state).toBe('busted');
     run(poor.sim, 5.5);
     expect(poor.p.state).toBe('play');
-    expect(poor.p.ammo.pistol).toBe(0);
+    expect(poor.p.ammo.pistol).toBe(START_AMMO.pistol);
 
     const { sim, p } = busted(1);
     expect(sim.bribe(p)).toBe(true);

@@ -9,7 +9,7 @@ import { Vehicle, SPECS, LIVERY_KOFOLKA, type VehicleKind } from '../../src/shar
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
 import { nullEvents, type PrivateEvent } from '../../src/shared/sim/events';
 import type { Caps } from '../../src/shared/sim/density';
-import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
+import { START_AMMO, type SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { Shops, carFrom, ownable } from '../../src/shared/sim/rules/Shops';
 import type { Jobs } from '../../src/shared/sim/rules/jobs/Jobs';
 import { FOOT_R, shopAt, shopById, shopPlaces, teleports, type ShopPlace } from '../../src/shared/sim/shops/places';
@@ -148,7 +148,7 @@ describe('Poľovnícke potreby', () => {
     p.state = 'wasted';
     expect(shops.act(p, { op: 'buy', item: 'pistol' }).ok).toBe(false);
     expect(p.profile.money).toBe(10_000);
-    expect(p.ammo.pistol).toBe(0);
+    expect(p.ammo.pistol).toBe(START_AMMO.pistol);
   });
 
   it('caps the ammo at 999', () => {
@@ -228,7 +228,7 @@ describe('the lawyer', () => {
     sim.bust(p);
     p.bribeOffer = 0;
     sim.respawn(p, false);
-    expect(p.ammo.pistol).toBe(0);
+    expect(p.ammo.pistol).toBe(START_AMMO.pistol);
     expect(p.profile.money).toBe(1425 - Math.round(1425 * 0.1));
   });
 });

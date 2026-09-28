@@ -8,7 +8,7 @@ import {
 import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
 import type { Level, World } from '../../src/shared/world/World';
 import { Sim } from '../../src/shared/sim/Sim';
-import { SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
+import { START_AMMO, SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
 import { WEAPONS, WEAPON_IDS, traceMelee, type PelletReport } from '../../src/shared/sim/Combat';
 import { SERVER_CAPS, type Caps } from '../../src/shared/sim/density';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
@@ -539,7 +539,8 @@ export class Room {
       if (last) {
         p.ped.health = Math.min(100, Math.max(1, last.health));
         p.ped.armor = Math.min(100, Math.max(0, last.armor));
-        p.ammo.pistol = last.ammo.pistol;
+        // (never below the starting pistol: someone back with it emptied gets it refilled)
+        p.ammo.pistol = Math.max(START_AMMO.pistol, last.ammo.pistol);
         p.ammo.uzi = last.ammo.uzi;
         p.ammo.shotgun = last.ammo.shotgun;
         p.ped.weapon = last.weapon === 'fist' || p.ammo[last.weapon] > 0 ? last.weapon : 'fist';

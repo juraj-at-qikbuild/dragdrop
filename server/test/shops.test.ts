@@ -16,6 +16,7 @@ import { Ent } from '../../src/shared/net/codec';
 import { AMMO_BOX, PRICES } from '../../src/shared/sim/shops/catalog';
 import { shopById, shopPlaces, teleports } from '../../src/shared/sim/shops/places';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
+import { START_AMMO } from '../../src/shared/sim/SimPlayer';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import type { PrivateEvent } from '../../src/shared/sim/events';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, disabledSupa, loadWorld, stateMsg } from './helpers';
@@ -76,7 +77,7 @@ describe('the shops over the wire', () => {
     a.p.profile.money = 1000;
     a.goTo('guns-michael');
     a.send({ t: 'shop', op: 'buy', item: 'pistol' });
-    expect(a.p.ammo.pistol).toBe(AMMO_BOX.pistol);
+    expect(a.p.ammo.pistol).toBe(START_AMMO.pistol + AMMO_BOX.pistol);
     expect(a.p.profile.money).toBe(1000 - PRICES.pistol);
     tick();
     expect(answers(a.link).at(-1)).toMatchObject({ ok: true });
@@ -85,7 +86,7 @@ describe('the shops over the wire', () => {
     a.send({ t: 'shop', op: 'buy', item: 'pistol' });
     tick();
     expect(answers(a.link).at(-1)).toMatchObject({ ok: false, text: 'Tu nie je žiadny obchod.' });
-    expect(a.p.ammo.pistol).toBe(AMMO_BOX.pistol);
+    expect(a.p.ammo.pistol).toBe(START_AMMO.pistol + AMMO_BOX.pistol);
   });
 
   it('malformed requests are dropped without a strike', () => {

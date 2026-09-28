@@ -27,7 +27,7 @@ import { Clock } from './Clock';
 import { IdPool } from './IdPool';
 import { nullEvents, type DazeCause, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
-import { DOWNED_BLEED, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
+import { DOWNED_BLEED, START_AMMO, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
 import type { PayoutPolicy, PayoutReason, SimRule } from './rules/SimRule';
 import { GETAWAY_COOLDOWN_S, GETAWAY_MIN_S, POINTS, getawayPoints, type ScoreSource } from './rules/points';
@@ -1032,7 +1032,7 @@ export class Sim {
     p.low = 0;
     p.still = 0;
     if (busted && !lawyer) {
-      p.ammo = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
+      p.ammo = { fist: Infinity, ...START_AMMO };
       ped.weapon = 'fist';
     }
     if (lawyer) {

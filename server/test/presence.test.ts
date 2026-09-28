@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION, ROSTER_AWAY, ROSTER_SHIELD, type ClientMsg } from '..
 import { SPECS, Vehicle, type VehicleKind } from '../../src/shared/entities/Vehicle';
 import { SHIELD_ARM_S, type Presence as PresenceRule } from '../../src/shared/sim/rules/Presence';
 import type { PrivateEvent } from '../../src/shared/sim/events';
+import { START_AMMO } from '../../src/shared/sim/SimPlayer';
 import { dist } from '../../src/shared/util/math';
 import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, disabledSupa, loadWorld, stateMsg } from './helpers';
 
@@ -181,7 +182,7 @@ describe('leaving', () => {
         expect(row.health).toBe(100);
         expect(near(row.x, row.y, kind)).toBe(true);
       }
-      expect(store.loadSession(hashToken(TOKEN_B), room.wallNow())!.ammo.pistol).toBe(0); // an arrest takes the guns
+      expect(store.loadSession(hashToken(TOKEN_B), room.wallNow())!.ammo.pistol).toBe(START_AMMO.pistol); // an arrest takes the guns (but the starting pistol)
     });
   });
 

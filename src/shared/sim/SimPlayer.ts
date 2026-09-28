@@ -8,6 +8,10 @@ import type { Level } from '../world/World';
 import type { Desc } from './Pursuit';
 import type { Gear } from './shops/catalog';
 
+/** what every player starts with (and gets back after a bust takes the rest): a water pistol with
+ *  one refill in it, the toy shops sell the others */
+export const START_AMMO: Readonly<Record<Exclude<WeaponId, 'fist'>, number>> = { pistol: 36, uzi: 0, shotgun: 0 };
+
 /** downed: lying wounded, revivable by another player until they bleed out (online; see Revive) */
 export type PlayerState = 'play' | 'wasted' | 'busted' | 'downed';
 
@@ -98,7 +102,7 @@ export class SimPlayer {
   diedAt: { x: number; y: number } | null = null;
   shotCops = false;
   crimeCooldown = new Map<string, number>();
-  ammo: Record<WeaponId, number> = { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 };
+  ammo: Record<WeaponId, number> = { fist: Infinity, ...START_AMMO };
   state: PlayerState = 'play';
   /** seconds left in the current non-'play' state before Sim.step respawns the player: 4 s wasted/
    *  busted, 25 s downed (DOWNED_BLEED) before bleeding out */
