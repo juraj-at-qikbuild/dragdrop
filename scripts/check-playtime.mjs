@@ -34,7 +34,7 @@ try{
   const account=await create('Player'),admin=await create('Admin');
   await api('/rest/v1/admin_users','POST',{user_id:admin.user.id});
   browser=await chromium.launch({channel:'msedge',headless:true});
-  for(const mode of ['guest','account']){
+  for(const mode of (process.env.PLAYTIME_MODES ?? 'guest,account').split(',')){
     const token=randomUUID(),guest=createHash('sha256').update(token).digest('hex');
     const player=mode==='account'?'acct:'+account.user.id:guest;
     if(mode==='guest')guests.push(guest);
@@ -64,14 +64,18 @@ try{
     await page.keyboard.down('KeyD');await pause(6500);await page.keyboard.up('KeyD');
     if(mode==='account'){
       // Do not interact while idle: the game remains visible, unpaused and connected.
+      const cutoff = Date.now() + 61_000;
+      const beforeInput = await page.evaluate(()=>window.game.input.activity);
       await pause(60000);
       const first=await wait(async()=>{
         const d=await detail(player,admin.session.access_token);
-        return d.player?.connected_ms>90000?d:null;
-      },'idle checkpoint');
+        return d.sessions.length && Date.parse(d.sessions[0].last_seen)>=cutoff?d:null;
+      },'checkpoint after the inactivity cutoff');
+      const afterInput = await page.evaluate(()=>window.game.input.activity);
+      console.log('Idle checkpoint evidence '+JSON.stringify({beforeInput,afterInput,activeSeconds:Math.round(first.player.active_ms/1000),checkpoint:first.sessions[0].last_seen}));
       await pause(17000);
       const idle=await detail(player,admin.session.access_token);
-      assert(Math.abs(idle.player.active_ms-first.player.active_ms)<6000,'idle time kept accumulating');
+      assert(Math.abs(idle.player.active_ms-first.player.active_ms)<1000,'idle time kept accumulating after confirmed cutoff checkpoint');
       assert(idle.player.connected_ms>first.player.connected_ms+5000);
       console.log('PASS 60-second foreground inactivity cutoff');
     }
