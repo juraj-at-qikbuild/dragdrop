@@ -520,12 +520,12 @@ export class ShopsUi implements ClientFeature {
   }
 
   // ---------------------------------------------------------------------------------------- the map
-  /** a badge for every shop but the workshops (the fuel stations' own badges mark those); an owned
-   *  garage ringed */
+  /** a badge for every shop but the workshops (the fuel stations' own badges mark those): the toy
+   *  shops a size up and ringed, an owned garage ringed; the full map's legend can hide them */
   drawMap(ctx: CanvasRenderingContext2D, toScreen: ToScreen, full: boolean, size: number) {
     const g = this.g;
     const prices = g.host.live.catalog;
-    if (!prices) return;
+    if (!prices || (full && !g.mapView.shopsShown)) return;
     const f = g.focus();
     // the minimap pins far points to its rim: work its scale out from two points near the player, and
     // leave out whatever doesn't fit it (it's off the minimap)
@@ -536,8 +536,9 @@ export class ShopsUi implements ClientFeature {
       if (s.kind === 'tuning') continue;
       const [sx, sy] = toScreen(s.x, s.y);
       if (!full && (!(k > 0) || Math.abs(sx - (ox + (s.x - f.x) * k)) > 1 || Math.abs(sy - (oy + (s.y - f.y) * k)) > 1)) continue;
-      mapMarker(ctx, sx, sy, size * (full ? 0.95 : 0.8), ICON[s.kind], {
-        ring: s.kind === 'garage' && owned?.includes(s.id) ? '#c5e1a5' : undefined,
+      const guns = s.kind === 'guns';
+      mapMarker(ctx, sx, sy, size * (full ? 0.95 : 0.8) * (guns ? 1.2 : 1), ICON[s.kind], {
+        ring: guns ? '#ffab91' : s.kind === 'garage' && owned?.includes(s.id) ? '#c5e1a5' : undefined,
         title: s.name,
         info: SHOP_KIND[s.kind].name,
         action: full && s.kind === 'teleport' ? this.mapTeleport(s, prices) : undefined,

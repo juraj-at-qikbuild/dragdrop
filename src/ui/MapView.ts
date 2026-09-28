@@ -11,21 +11,17 @@ const MAX_ZOOM = 6;
 const DETAIL_ZOOM = PX * 1.4;
 const BODY = `'Inter', system-ui, sans-serif`;
 
-/** POI groups on the city map, each switched on and off in the legend */
-type Group = 'landmarks' | 'missions' | 'services' | 'food' | 'culture' | 'shops' | 'transit';
+/** POI groups on the city map, each switched on and off in the legend: only places a player can do
+ *  something at (the city's cafés, churches, banks… are left off: nothing happens there) */
+type Group = 'landmarks' | 'missions' | 'shops' | 'services' | 'transit';
 const GROUPS: { id: Group; label: string; icon: string; minZoom: number }[] = [
   { id: 'missions', label: 'Misie', icon: 'phone', minZoom: 0 },
+  { id: 'shops', label: 'Hračkárstvá, obchody, teleporty', icon: 'guns', minZoom: 0 },
   { id: 'landmarks', label: 'Pamiatky', icon: 'star', minZoom: 0 },
-  { id: 'services', label: 'Polícia, nemocnica, striekareň', icon: 'police', minZoom: 0 },
-  { id: 'culture', label: 'Múzeá, divadlá, kostoly', icon: 'museum', minZoom: 0.9 },
-  { id: 'food', label: 'Reštaurácie, kaviarne, bary', icon: 'food', minZoom: 1.6 },
-  { id: 'shops', label: 'Potraviny, lekárne, banky, pošta', icon: 'grocery', minZoom: 1.6 },
+  { id: 'services', label: 'Polícia, nemocnica, dielňa', icon: 'police', minZoom: 0 },
   { id: 'transit', label: 'Električky, taxi', icon: 'tram', minZoom: 0.9 },
 ];
-const PLACE_GROUP: Record<string, Group> = {
-  food: 'food', cafe: 'food', bar: 'food', museum: 'culture', theatre: 'culture', church: 'culture', library: 'culture', view: 'culture',
-  grocery: 'shops', bakery: 'shops', pharmacy: 'shops', bank: 'shops', post: 'shops', hotel: 'shops', taxi: 'transit', wc: 'shops',
-};
+const PLACE_GROUP: Record<string, Group> = { taxi: 'transit' };
 /** badge colour per icon */
 const ICON_BG: Record<string, string> = {
   food: '#e65100', cafe: '#6d4c41', bar: '#7b1fa2', pharmacy: '#00897b', museum: '#546e7a', theatre: '#4a148c', church: '#5e35b1',
@@ -40,9 +36,7 @@ const ICON_BG: Record<string, string> = {
 
 /** what each place kind is called on its card */
 const KIND_NAME: Record<string, string> = {
-  food: 'Reštaurácia', cafe: 'Kaviareň', bar: 'Bar', museum: 'Múzeum', theatre: 'Divadlo', church: 'Kostol', library: 'Knižnica',
-  view: 'Vyhliadka', grocery: 'Potraviny', bakery: 'Pekáreň', pharmacy: 'Lekáreň', bank: 'Banka', post: 'Pošta', hotel: 'Hotel',
-  wc: 'WC', taxi: 'Taxi', tram: 'Zastávka električky', police: 'Polícia', hospital: 'Nemocnica', fuel: 'Pumpa a dielňa',
+  taxi: 'Taxi', tram: 'Zastávka električky', police: 'Polícia', hospital: 'Nemocnica', fuel: 'Pumpa a dielňa',
   star: 'Pamiatka', starFound: 'Pamiatka · objavená', phone: 'Misia',
 };
 
@@ -95,7 +89,11 @@ export class MapView {
   private cy = 0;
   private detail: { canvas: HTMLCanvasElement; key: string } | null = null;
   /** every layer is on to start with (each still waits for its zoom, GROUPS' minZoom) */
-  private groups: Record<Group, boolean> = { missions: true, landmarks: true, services: true, culture: true, food: true, shops: true, transit: true };
+  private groups: Record<Group, boolean> = { missions: true, shops: true, landmarks: true, services: true, transit: true };
+  /** is the shops' layer on (ShopsUi draws those markers)? */
+  get shopsShown() {
+    return this.groups.shops;
+  }
   /** street name candidates: one per named road, at its longest stretch */
   private streets: { x: number; y: number; a: number; len: number; name: string; cls: number }[] | null = null;
   /** pointers down on the map (for drag and pinch) */
@@ -740,7 +738,7 @@ export class MapView {
       ? 'Páčka: posun · RT/LT: priblíženie · Y: cieľ · X: zrušiť cieľ · Back: zavrieť'
       : L.touch
         ? 'Ťahaj: posun · Štipni: priblíženie · Ťukni na ikonu: čo to je · Ťukni inde: cieľ GPS'
-        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Klik na ikonu: navigovať · Pravý klik: zrušiť · 1–7: vrstvy · M: zavrieť';
+        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Klik na ikonu: navigovať · Pravý klik: zrušiť · 1–5: vrstvy · M: zavrieť';
     const stats = `Čumil ${g.save.cumils.length}/10 · pamiatky ${g.save.found.length}/${g.world.landmarks.size}   ·   © OpenStreetMap`;
     const line = `${help}   ·   ${stats}`;
     if (L.touch && ctx.measureText(line).width > W - L.padL - L.padR - 8) {
@@ -901,7 +899,7 @@ export class MapView {
     return (this.streets = out);
   }
 
-  /** the legend: the place layers, click (or 1-7) to switch each on or off */
+  /** the legend: the place layers, click (or 1-5) to switch each on or off */
   private drawLegend(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
     // (cleared even when nothing's drawn: after a rotation stale boxes would still toggle layers)
     this.legendHits = [];
