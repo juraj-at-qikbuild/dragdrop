@@ -91,13 +91,17 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   // the crowd (unarmed, in a still pose) is drawn from the sprite cache
   const cacheable = !armed && punchT <= 0 && p.hitFlash <= 0 && pose !== 'fight' && !five && !diving;
   if (cacheable) {
+    // the stride's phase in twelfths of a turn, as the sine it's drawn with (q and 6 - q are the same
+    // pose): 7 sprites a walk, not 13
     const swingQ = pose === 'walk' || pose === 'run' ? Math.round((p.walkPhase % (Math.PI * 2)) * 6 / Math.PI) : 0;
+    const sw = SWING_Q[swingQ] ?? 0;
     const buildQ = Math.round(b * 20);
-    const key = `ped|${pose}|${p.archetype}|${p.outfit}|${p.shirt}|${p.pants}|${p.hair}|${p.hairStyle}|${p.skin}|${buildQ}|${swingQ}`;
-    SpriteCache.draw(ctx, key, 1.4, (c) => {
-      const swing = swingQ ? Math.sin(swingQ * Math.PI / 6) * 0.22 * strideMul : 0;
-      drawBody(c, p, pose, swing, buildQ / 20, atmos);
+    SpriteCache.draw(ctx, looks(p, buildQ), POSES.indexOf(pose) * 8 + sw + 3, 1.4, (c) => {
+      const swing = sw ? Math.sin(sw * Math.PI / 6) * 0.22 * strideMul : 0;
+      drawBody(c, p, pose, swing, buildQ / 20, atmos, 'rest', 0, false);
     });
+    // (the night's rim-light isn't in the sprite: made by day, a sprite would lack it all night)
+    drawRim(ctx, pose, buildQ / 20, atmos);
   } else {
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
     const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : five ? 'five' : diving ? 'dive' : 'rest';
@@ -269,6 +273,19 @@ export function drawRider(ctx: CanvasRenderingContext2D, p: Ped, bar: number, se
 }
 
 type Pose = 'stand' | 'walk' | 'run' | 'sit' | 'phone' | 'fight' | 'hands';
+const POSES: readonly Pose[] = ['stand', 'walk', 'run', 'sit', 'phone', 'fight', 'hands'];
+/** swingQ (0..12, twelfths of a stride) -> q with the same sine: sin(q*pi/6) = sin((6-q)*pi/6) */
+const SWING_Q = [0, 1, 2, 3, 2, 1, 0, -1, -2, -3, -2, -1, 0];
+
+/** a ped's look, as the sprite cache's key (a civilian's never changes: made once) */
+const lookKeys = new WeakMap<Ped, string>();
+function looks(p: Ped, buildQ: number) {
+  const k = p.kind === 'civ' ? lookKeys.get(p) : undefined;
+  if (k !== undefined) return k;
+  const key = `ped|${p.archetype}|${p.outfit}|${p.shirt}|${p.pants}|${p.hair}|${p.hairStyle}|${p.skin}|${buildQ}`;
+  if (p.kind === 'civ') lookKeys.set(p, key);
+  return key;
+}
 /** what the arms do when not in the pose's own way: hang and swing, hold a gun, throw a punch,
  *  keep a fighting guard */
 type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard' | 'hug' | 'five' | 'dive';
@@ -459,7 +476,22 @@ const SHOES = '#1b1b1d';
  *  each kind of person carries. `pose` places the limbs (walking, sitting on a seat, on the phone,
  *  squaring up, hands up); `arms` is what armed or punching figures do with theirs. Used directly
  *  and inside the SpriteCache (the unarmed crowd). */
-function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: number, b: number, atmos?: Atmosphere, arms: Arms = 'rest', punchT = 0) {
+/** the subtle night rim-light on the sun/moon-facing edge of a body drawn with drawBody (same transform) */
+function drawRim(ctx: CanvasRenderingContext2D, pose: Pose, b: number, atmos?: Atmosphere) {
+  const night = atmos?.night ?? 0;
+  if (night <= 0.35) return;
+  ctx.save();
+  ctx.scale(b, b);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = `rgba(180,200,255,${(night - 0.35) * 0.35})`;
+  ctx.lineWidth = 0.03;
+  ctx.beginPath();
+  ctx.ellipse(pose === 'sit' ? -0.06 : 0, 0, 0.19, 0.31, 0, -0.6, 0.6);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: number, b: number, atmos?: Atmosphere, arms: Arms = 'rest', punchT = 0, rim = true) {
   ctx.save();
   ctx.scale(b, b);
   ctx.lineCap = 'round';
@@ -622,16 +654,9 @@ function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: numb
     ctx.fillStyle = 'rgba(140,200,255,0.9)';
     ctx.fillRect(0.04, 0.135, 0.1, 0.05);
   }
-  // subtle night rim-light on the sun/moon-facing edge
-  const night = atmos?.night ?? 0;
-  if (night > 0.35) {
-    ctx.strokeStyle = `rgba(180,200,255,${(night - 0.35) * 0.35})`;
-    ctx.lineWidth = 0.03;
-    ctx.beginPath();
-    ctx.ellipse(tx, 0, 0.19, 0.31, 0, -0.6, 0.6);
-    ctx.stroke();
-  }
   ctx.restore();
+  // subtle night rim-light on the sun/moon-facing edge
+  if (rim) drawRim(ctx, pose, b, atmos);
 }
 
 /** what the torso wears on top: the player's jacket seam, uniforms, a hi-vis vest, a suit and
