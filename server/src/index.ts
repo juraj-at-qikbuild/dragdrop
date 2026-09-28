@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ...room.stats(), loop: loopStats(), mem: process.memoryUsage().rss }));
     return;
   }
-  res.writeHead(404, { 'content-type': 'text/plain' }).end('Blava City game server\n');
+  res.writeHead(404, { 'content-type': 'text/plain' }).end('GTA SK game server\n');
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024, perMessageDeflate: config.deflate });
@@ -120,7 +120,7 @@ function loopStats() {
 }
 loop();
 
-server.listen(config.port, () => console.log(`Blava City server on :${config.port} (origins: ${config.allowedOrigins.join(', ')})`));
+server.listen(config.port, () => console.log(`GTA SK server on :${config.port} (origins: ${config.allowedOrigins.join(', ')})`));
 
 let stopping = false;
 async function shutdown(sig: string) {

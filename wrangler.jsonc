@@ -4,5 +4,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "blava-city",
   "compatibility_date": "2025-09-25",
-  "assets": { "directory": "./dist" }
+  "assets": { "directory": "./dist" },
+  // Custom Domains: Cloudflare creates the DNS records and certificates on deploy.
+  // workers_dev keeps the old *.workers.dev address alive alongside them.
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "gta-sk.fun", "custom_domain": true },
+    { "pattern": "www.gta-sk.fun", "custom_domain": true }
+  ]
 }

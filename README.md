@@ -1,4 +1,4 @@
-# Blava City
+# GTA SK
 
 A top-down open-world mischief game in the style of the classic 2D GTA games, set on the **real streets of Bratislava**, where **nobody gets hurt**: the guns are water pistols, bubble guns and confetti, and people get soaked, sit down dazed, grumble and go home to change ([docs/plans/non-violent.md](docs/plans/non-violent.md)). Every street, building, tram track, bridge and park comes from OpenStreetMap. The playable area covers the Old Town, the castle hill up to Slavín and the Slovak Radio, the Danube riverside and the northern edge of Petržalka (about 3.3 × 2.8 km).
 

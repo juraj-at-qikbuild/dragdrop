@@ -1,4 +1,4 @@
-# Deploying Blava City
+# Deploying GTA SK
 
 The game has two parts:
 
@@ -322,6 +322,13 @@ GitHub Pages is no longer used. If it was turned on for the repo, switch it off 
 *Settings → Pages*.
 
 ## Domain
+
+Production runs on **gta-sk.fun** (and `www.gta-sk.fun`), attached as Custom Domains through `routes`
+in `wrangler.jsonc`, with `workers_dev` kept on so the workers.dev address still works. The WebSocket
+stays on `wss://blava-city.fly.dev` (step 3 below is optional), and `ALLOWED_ORIGINS` lists both
+domains plus the workers.dev URL. Supabase Auth's Site URL and Redirect URLs must name the domain too.
+
+For a new domain:
 
 1. Put the domain's DNS on Cloudflare.
 2. Attach the apex (`blava.example`) to the Worker as a **Custom Domain**.

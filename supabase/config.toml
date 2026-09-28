@@ -263,11 +263,11 @@ otp_expiry = 3600
 # → Emails), as docs/deploy.md ("Auth dashboard setup") describes. Schema changes go through
 # `npm run db:push` (`supabase db push`), which is a different, safe command — see docs/deploy.md.
 [auth.email.template.confirmation]
-subject = "Potvrď svoj účet v Blava City"
+subject = "Potvrď svoj účet v GTA SK"
 content_path = "./supabase/templates/confirm.html"
 
 [auth.email.template.recovery]
-subject = "Nastavenie nového hesla – Blava City"
+subject = "Nastavenie nového hesla – GTA SK"
 content_path = "./supabase/templates/reset.html"
 
 # Uncomment to customize notification email template
