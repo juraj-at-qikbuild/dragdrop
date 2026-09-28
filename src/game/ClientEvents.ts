@@ -92,7 +92,7 @@ export class ClientEvents implements SimEvents {
   }
 
   /** someone knocked down (docs/plans/non-violent.md): a car's or a tram's bump goes BOING, a toy's
-   *  last squirt a squeal, a tickle a giggle (a car giving up has its own PUF) */
+   *  last squirt a squeal, a tickle a giggle (a car blowing up has its own boom) */
   pedDazed(_id: number, x: number, y: number, _byPid: number, cause: DazeCause) {
     const d = this.distTo(x, y);
     if (d > HEAR_R) return;

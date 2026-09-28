@@ -31,8 +31,8 @@ const HAIRSTYLES: HairStyle[] = ['short', 'short', 'long', 'bun', 'bald', 'cap']
 
 export type WeaponId = 'fist' | 'pistol' | 'uzi' | 'shotgun';
 /** what a hit leaves someone with (docs/plans/non-violent.md): wet from the water pistol, soapy
- *  from the bubbles, confetti, a tickle, a bump (a car), foam (a car giving up next to them) */
-export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'foam';
+ *  from the bubbles, confetti, a tickle, a bump (a car), soot (a car blowing up next to them) */
+export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'soot';
 
 /** where someone is heading that isn't along the footpaths: a seat (facing `a`), a tram's door, a
  *  spot at a tram stop. `ref`: the furniture index of the seat / the tram stop index */
@@ -114,8 +114,8 @@ export class Ped {
   /** seconds remaining of a white hit-flash; decayed by the renderer */
   hitFlash = 0;
   /** client only: what the last hit left them with (docs/plans/non-violent.md), and for how many
-   *  more seconds they show it (dripping, soapy, confetti in their hair); decayed by the renderer */
-  mess: 'water' | 'bubbles' | 'confetti' | 'foam' | null = null;
+   *  more seconds they show it (dripping, soapy, confetti in their hair, sooty); decayed by the renderer */
+  mess: 'water' | 'bubbles' | 'confetti' | 'soot' | null = null;
   messT = 0;
   /** client only: seconds left of cheering after a high five (both arms up), decayed by the renderer */
   cheerT = 0;

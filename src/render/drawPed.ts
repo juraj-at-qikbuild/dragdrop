@@ -120,7 +120,8 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
 
 /** what a hit left on someone, over the figure (facing +x, scaled), fading out over the last few
  *  seconds (`k`): wet through (darker, dripping), soapy (suds on the head and shoulders), confetti
- *  in the hair (docs/plans/non-violent.md) */
+ *  in the hair, sooty from a car blowing up (blackened, the hair frizzled and smoking), as in a
+ *  cartoon (docs/plans/non-violent.md) */
 function drawMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['mess']>, k: number) {
   const t = performance.now() / 1000 + (p.seed % 17);
   ctx.globalAlpha = k;
@@ -137,21 +138,47 @@ function drawMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['
       ctx.arc(dx - drip * 0.12, dy + Math.sign(dy) * drip * 0.18, 0.035 * (1 - drip * 0.5), 0, Math.PI * 2);
       ctx.fill();
     }
-  } else if (mess === 'bubbles' || mess === 'foam') {
-    // suds on the head and shoulders
+  } else if (mess === 'bubbles') {
+    // suds on the head and shoulders, and a bubble drifting off
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     for (const [dx, dy, r] of [[0.06, -0.08, 0.09], [0.1, 0.06, 0.07], [-0.02, -0.24, 0.08], [-0.04, 0.24, 0.07], [0.12, -0.02, 0.06]] as const) {
       ctx.beginPath();
       ctx.arc(dx, dy, r * (1 + 0.08 * Math.sin(t * 3 + dx * 20)), 0, Math.PI * 2);
       ctx.fill();
     }
-    if (mess === 'bubbles') {
-      const b = (t * 0.7) % 1;
-      ctx.strokeStyle = 'rgba(225,190,255,0.9)';
-      ctx.lineWidth = 0.015;
+    const b = (t * 0.7) % 1;
+    ctx.strokeStyle = 'rgba(225,190,255,0.9)';
+    ctx.lineWidth = 0.015;
+    ctx.beginPath();
+    ctx.arc(0.1 - b * 0.4, -0.2 - b * 0.3, 0.05 + b * 0.03, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (mess === 'soot') {
+    // blackened all over, the head darkest
+    ctx.fillStyle = 'rgba(25,20,18,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(20,16,14,0.6)';
+    ctx.beginPath();
+    ctx.arc(0.06, 0, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    // the hair frizzled, standing on end
+    ctx.strokeStyle = 'rgba(30,26,24,0.9)';
+    ctx.lineWidth = 0.025;
+    ctx.beginPath();
+    for (let i = 0; i < 11; i++) {
+      const a = (i / 11) * Math.PI * 2, r = 0.2 + hashRand(p.seed, 60 + i) * 0.06;
+      ctx.moveTo(0.06 + Math.cos(a) * 0.13, Math.sin(a) * 0.13);
+      ctx.lineTo(0.06 + Math.cos(a + 0.25) * r, Math.sin(a + 0.25) * r);
+    }
+    ctx.stroke();
+    // and a wisp of smoke rising off it
+    for (let i = 0; i < 2; i++) {
+      const w = (t * 0.6 + i * 0.5) % 1;
+      ctx.fillStyle = `rgba(110,110,110,${0.45 * (1 - w)})`;
       ctx.beginPath();
-      ctx.arc(0.1 - b * 0.4, -0.2 - b * 0.3, 0.05 + b * 0.03, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc(0.06 - w * 0.3 + Math.sin(t * 2 + i) * 0.04, -w * 0.35, 0.04 + w * 0.07, 0, Math.PI * 2);
+      ctx.fill();
     }
   } else {
     // confetti: bits of paper stuck all over
@@ -307,8 +334,8 @@ function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) 
 }
 
 /** Someone knocked down (docs/plans/non-violent.md): sitting on the pavement, swaying, little stars
- *  circling their head, wearing what did it (wet, soapy, confetti). A bubble gun's final hit floats
- *  them up in a giant bubble first, until it pops; a car's bump starts with a hop. */
+ *  circling their head, wearing what did it (wet, soapy, confetti, soot). A bubble gun's final hit
+ *  floats them up in a giant bubble first, until it pops; a car's bump starts with a hop. */
 function drawDazed(ctx: CanvasRenderingContext2D, p: Ped, b: number, now: number, atmos?: Atmosphere) {
   const t = now / 1000 + (p.seed % 13);
   const float = p.downMess === 'bubbles' && p.dazedTime < BUBBLE_FLOAT ? Math.sin((Math.PI * p.dazedTime) / BUBBLE_FLOAT) : 0;

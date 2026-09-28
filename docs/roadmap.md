@@ -149,11 +149,11 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
 - **Getting into a car at a shop's door** no longer opens the shop's panel.
 - **Nobody gets hurt** ([plans/non-violent.md](plans/non-violent.md)). The weapons are toys (tickling,
   a water pistol, a bubble gun, a confetti shotgun) and the gun shop a toy shop. Nobody dies: someone
-  soaked through, tickled, bounced off a car or caught by a car giving up sits dazed and gets up again,
-  and no blood, bodies or fire are left behind. A car at 0 HP gives up in a PUF of foam; the police
-  squirt back, with firefighters at 5★ and a helicopter with a water bucket. Road kills are gone:
-  splash people from a puddle or a pothole, high-five the fans, make someone dive for a bush, plough
-  through a market stall, scatter the pigeons.
+  soaked through, tickled, bounced off a car or caught by a car blowing up (sooty) sits dazed and gets
+  up again, and no blood or bodies are left behind. Cars still burn and blow up; the police squirt
+  back, with firefighters at 5★ and a helicopter with a water bucket. Road kills are gone: splash
+  people from a puddle or a pothole, high-five the fans, make someone dive for a bush, plough through
+  a market stall, scatter the pigeons.
 
 ## Still open
 

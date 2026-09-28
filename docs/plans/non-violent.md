@@ -1,7 +1,8 @@
 # Plan: mischief instead of violence ("Šibalstvo namiesto násilia", Blava City)
 
-Status: built (27 September 2026), as one change in the order of the steps below. See
-[As built](#as-built) at the end for where the build differs from the plan.
+Status: built (27 September 2026), as one change in the order of the steps below. Cars blow up
+again since 28 September (decision 4). See [As built](#as-built) at the end for where the build
+differs from the plan.
 
 ## Context
 
@@ -27,7 +28,8 @@ nobody gets hurt any more, and it has to stay cheeky rather than turn sweet.
 1. **Nikto sa nezraní, každý sa nahnevá** (nobody gets hurt, everybody gets annoyed).
    - A hit makes someone wet, soapy, covered in confetti or dizzy.
    - They sit down, grumble, get up and leave.
-   - No death, no blood, no bodies, no fire.
+   - No death, no blood, no bodies. Cars still burn and blow up (decision 4), but that only leaves
+     people sooty.
 2. **The mechanics stay; the fiction changes.**
    - Weapon roles, damage numbers, stars, arrests, respawn, money and the combo all stay.
    - Damage is getting wet, and health is how dry you are.
@@ -57,17 +59,17 @@ nobody gets hurt any more, and it has to stay cheeky rather than turn sweet.
    - A pedestrian at zero health is **down**: sitting dazed on the pavement with little birds circling.
      After a few seconds they get up, grumble and walk off or run away.
    - The wire's `dead` slot is `dazed` now (no new state, no protocol bump).
-   - Blood becomes water and soap that dry out. Bodies, blood pools, scorch marks and screams are gone.
+   - Blood becomes water and soap that dry out. Bodies, blood pools and screams are gone.
 3. **The player:**
    - "ZOŠROTOVANÝ" becomes **"PREMOČENÝ DO NITKY"**.
    - At the hospital: "Vysušili ťa a dali ti čaj."
    - Online, downed and bleeding out becomes downed and **freezing** ("Mrzneš"). A friend gets you up
      by **blow-drying** you ("Vyfénuj kamoša").
-4. **Explosions:**
-   - A car at 0 HP breaks down like a cartoon car: a PUF of foam and confetti, steam from the
-     radiator, the bonnet up, a sad trombone.
-   - The push stays. People near it go down, soaked; nobody is killed.
-   - TAKEDOWN! becomes **ODSTAVENÝ!**.
+4. **Explosions stay** (revised on 28 September; first built as a cartoon breakdown, see As built):
+   - A car at 0 HP burns and blows up as before: the fireball, the scorch mark, the charred wreck.
+   - The push stays. People near it are knocked down **sooty**, as in a cartoon (blackened, the hair
+     on end, a wisp of smoke), and get up again; nobody is killed.
+   - TAKEDOWN! becomes **ODSTAVENÉ!**.
 5. **Police:**
    - Squirt guns at 3★ (same rules as the pistol).
    - SWAT becomes **hasiči** (firefighters).
@@ -141,8 +143,8 @@ Each step leaves `npm test` and `npm run build` green.
    - The player's screens: "PREMOČENÝ DO NITKY", freezing instead of bleeding, blow-dry.
 3. **Explosions and the police.**
    - `Combat.explode` knocks people down instead of killing them.
-   - The PUF and the broken-down wreck (`Fx`, `EntityFx`, `drawVehicle`).
-   - The sad trombone.
+   - The PUF, the broken-down wreck (`Fx`, `EntityFx`, `drawVehicle`) and the sad trombone, since
+     turned back into the explosion (decision 4).
    - The police's toys, the firefighters and the helicopter's water bucket.
 4. **Roadkill's replacements.**
    - `Sim.runOver` and the tram hit become BOING.
@@ -183,8 +185,9 @@ Each step leaves `npm test` and `npm run build` green.
 
 ## As built
 
-Built in seven commits on protocol 7, as planned, with only optional additions on the wire. These are
-the places where it differs from the plan above, or goes further.
+Built in seven commits on protocol 7, as planned, with only optional additions on the wire; an eighth
+brought the car explosions back. These are the places where it differs from the plan above, or goes
+further.
 
 - **The state is `dazed`, not `down`** (`Ped.dazed`, `knockDown`, `dazedTime`, `pedDazed`), so it
   can't be read as the player's `downed`. `Sim.knockDown` is the only way into it. Someone sits there
@@ -218,14 +221,21 @@ the places where it differs from the plan above, or goes further.
     the fan's hand themselves (`besideCar`).
 - **The stalls** (`world.stalls`): five, at Hviezdoslavovo, Kamenné, Eurovea, Námestie SNP and
   Hodžovo námestie. The market hall's square had no free spot. A stall is back 120 s after being
-  knocked over. Knocking one over is the `destroy` crime (+0.6★), as making a car give up is.
-- **The pigeons**: a flock at ten squares, gone after dark. Besides cars and runners, a squirt, a
-  PUF, a splash, a horn and a stall going over also send them off.
+  knocked over. Knocking one over is the `destroy` crime (+0.6★), as blowing up a car is.
+- **The pigeons**: a flock at ten squares, gone after dark. Besides cars and runners, a squirt, an
+  explosion, a splash, a horn and a stall going over also send them off.
 - **The firefighters** carry the `Vehicle.swat` flag (from the snapshot's existing swat bit on a
   mirror): a red van with a ladder and HASIČI. The helicopter's water bucket hangs under it, and its
   shots are water whatever it fires.
-- **The car that gives up**: `shadeHex`, because `shade`'s `rgb()` can't be shaded again (the roof went
-  black). The PUF's jolt is softer and its slow-motion shorter.
+- **Cars blow up again** (28 September, the eighth commit). The first build had a car at 0 HP give up
+  in a PUF of foam and confetti, steaming, its bonnet up and its hazard lights blinking, with a sad
+  trombone. That's gone, and the explosion is back as it was: the flames on a car about to go, the
+  fireball, the scorch mark, the charred wreck smouldering for 20 s, the boom and the full jolt.
+  - What stays new is the people. Caught in the blast they're knocked down **sooty** (the `soot`
+    mess, in place of the PUF's `foam`): blackened, the hair frizzled and smoking, for 25 s. A
+    player caught in it looks the same.
+  - Getting up, they share the bumped group's "Vidím hviezdičky!" and "Kde to som?", plus "Khe-khe…
+    vyzerám ako kominár!" of their own. The tickled group lost "To nebolo fér!" to make room.
 - **Rádio Kecy** jokes about the potholes, the pigeons and the puddles. The page's description says
   it's a mischief game where nobody gets hurt.
 - **Not done, for later**:
@@ -233,6 +243,8 @@ the places where it differs from the plan above, or goes further.
   - refilling the water pistol at fountains and hydrants;
   - a city-wide Easter water fight;
   - the driving moves' labels in Slovak;
+  - the player's own screens when a blast did it: they still say soaked ("PREMOČENÝ DO NITKY",
+    "Mrzneš");
   - Phase 4 of [gameplay.md](gameplay.md), rewritten as toys (a squeaky hammer, a soap bomb, an egg,
     a foam cannon that grounds the helicopter, an umbrella).
 - **Verification.**
@@ -241,5 +253,6 @@ the places where it differs from the plan above, or goes further.
   - `npm run build` and the server's `tsc --noEmit` pass.
   - `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass, the e2e including a civilian
     soaked by one player sitting dazed for the other.
-  - Screenshots checked by hand: the toys, the dazed poses and the bubble float, a car that gave up,
-    the firefighters, the potholes, a fan's hand, a stall knocked over and the pigeons.
+  - Screenshots checked by hand: the toys, the dazed poses and the bubble float, the firefighters,
+    the potholes, a fan's hand, a stall knocked over and the pigeons; then a car burning, blowing up
+    and smouldering, with the people round it sitting sooty and getting up.

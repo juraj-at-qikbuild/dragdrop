@@ -575,7 +575,7 @@ export class Sim {
 
   /** Knock an NPC down (docs/plans/non-violent.md: nobody dies): thrown a little way from (fromX,
    *  fromY), sitting dazed a few seconds, then up again and off home (AI.getUp). The one way it
-   *  happens: a toy (`cause` shot or melee), a car's or a tram's bump, a car giving up next to them. */
+   *  happens: a toy (`cause` shot or melee), a car's or a tram's bump, a car blowing up next to them. */
   knockDown(p: Ped, fromX: number, fromY: number, force: number, cause: DazeCause, byPid: number, mess: Mess) {
     if (p.dazed || p.playerId) return;
     // (a taxi fare waiting at the kerb is posed by the job: knocked down, they're the crowd's again)

@@ -1,4 +1,4 @@
-// Toys and soaking rules: shot tracing, hits, knock-downs and cars giving up (docs/plans/non-violent.md:
+// Toys and soaking rules: shot tracing, hits, knock-downs and explosions (docs/plans/non-violent.md:
 // nobody gets hurt, everybody gets annoyed). The ids stay the wire's (`fist | pistol | uzi | shotgun`),
 // the toys are what they are now: tickling, a water pistol, a bubble gun and a confetti shotgun. Visual
 // effects are events (see events.ts); the browser draws them with Fx. A player's shot is traced by their
@@ -247,8 +247,9 @@ export class CombatRules {
     p.waitStop = -1;
   }
 
-  /** A car gives up (docs/plans/non-violent.md: a PUF of foam, not a fireball) at (x, y): it pushes
-   *  cars away and knocks down whoever stands close, soapy. `pid` is the player responsible, if any. */
+  /** A car blows up (or anything else explodes) at (x, y): it pushes cars away and knocks down whoever
+   *  stands close, sooty (docs/plans/non-violent.md: nobody gets hurt). `pid` is the player responsible,
+   *  if any. */
   explode(x: number, y: number, source: Vehicle | null, pid: number) {
     const sim = this.sim;
     sim.events.explode(x, y, source?.id ?? 0, source?.color ?? null);
@@ -261,9 +262,9 @@ export class CombatRules {
       if (d < 7 && p.level === lvl) {
         if (p.playerId) {
           const victim = sim.players.get(p.playerId);
-          if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid, 'foam');
+          if (victim) sim.hurtPlayer(victim, 90 * (1 - d / 7), x, y, victim.id === pid ? 0 : pid, 'soot');
         } else {
-          sim.knockDown(p, x, y, 10, 'blast', pid, 'foam');
+          sim.knockDown(p, x, y, 10, 'blast', pid, 'soot');
           if (player) sim.crime(player, 'killPed');
         }
       } else if (d < 30 && p.kind === 'civ') this.scare(p, x, y);
@@ -273,7 +274,7 @@ export class CombatRules {
       const d = dist(v.x, v.y, x, y);
       // a scooter's or a bike's rider is out in the open: the blast reaches them as it would on foot
       const rider = v.spec.twoWheeler && d < 7 ? sim.players.get(v.owner) : undefined;
-      if (rider && rider.ped.vehicle === v) sim.hurtPlayer(rider, 90 * (1 - d / 7), x, y, rider.id === pid ? 0 : pid, 'foam');
+      if (rider && rider.ped.vehicle === v) sim.hurtPlayer(rider, 90 * (1 - d / 7), x, y, rider.id === pid ? 0 : pid, 'soot');
       if (d < 9) {
         // (a scooter or a bike is thrown, not fired off, and its rider with it: Sim.damageVehicle)
         const k = ((1 - d / 9) * 11) / Math.max(0.6, v.spec.mass / 1200);

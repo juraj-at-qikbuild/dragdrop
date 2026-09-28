@@ -180,7 +180,7 @@ Deployment and measured capacity are in [deploy.md](deploy.md).
   optional additions. The weapon ids on the wire are the toys now (`fist` tickling, `pistol` the water
   pistol, `uzi` the bubble gun, `shotgun` the confetti shotgun), and the ped state `dead` (index 2) is
   `dazed`: an NPC knocked down gets up again, the snapshot shows it. `pedHit` carries an optional `m`
-  (what the hit left them with: water, bubbles, confetti, a tickle, a bump, foam), and the `killed`
+  (what the hit left them with: water, bubbles, confetti, a tickle, a bump, soot), and the `killed`
   world event (its name kept) is someone knocked down. Two new world events, which an older client
   ignores: `splash` (`{ k: 'splash', id, x, y, a, s }`, a player's car soaking someone from a puddle)
   and `five` (`{ k: 'five', id, x, y }`, a high five); getting up says a line from `say` category 7.

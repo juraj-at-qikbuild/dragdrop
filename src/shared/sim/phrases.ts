@@ -29,13 +29,13 @@ const LINES: string[][] = [
   ['Poď sem!', 'To si prehnal!', 'No počkaj!', 'Čo si myslíš?', 'Aj ja mám striekačku!', 'Ešte raz a...'],
   ['Blázon!', 'Vieš vôbec šoférovať?', 'Ty trubiroh!', 'Skoro ma zrazil!', 'Magor!'],
   ['Idem na električku.', 'Pekný deň, však?', 'Už to ide.', 'Kde je tá štvorka?', 'Zase mešká.'],
-  // SAY_UP, in UP_LINES' groups: wet, soapy, confetti, tickled, bumped
+  // SAY_UP, in UP_LINES' groups: wet, soapy, confetti, tickled, then bumped and sooty (sharing two)
   [
     'Moje nové topánky!', 'Mokro až do ponožiek!', 'Idem sa prezliecť!', 'Práve idem od kaderníčky!',
     'Mám penu aj v ušiach!', 'Fuj, mydlo!', 'Aspoň voniam.',
     'Toto budem vyberať do Vianoc!', 'Konfety aj v topánkach!', 'Veď nie je Silvester!',
-    'To nebolo fér!', 'Ešte ma to šteklí!', 'Chi-chi… nabudúce!',
-    'Kde to som?', 'Vidím hviezdičky!', 'Vieš vôbec šoférovať?!',
+    'Ešte ma to šteklí!', 'Chi-chi… nabudúce!',
+    'Vieš vôbec šoférovať?!', 'Vidím hviezdičky!', 'Kde to som?', 'Khe-khe… vyzerám ako kominár!',
   ],
 ];
 
@@ -51,8 +51,8 @@ const TOURIST: string[][] = [
     'My shoes!', "I'm soaked!", 'Not the hair!', 'So wet!',
     'Soap in my ears!', 'Ugh, bubbles!', 'At least I smell nice.',
     'Confetti everywhere!', 'Is it a wedding?', 'Not New Year yet!',
-    'Not fair!', 'Still tickles!', 'Hee-hee… stop!',
-    'Where am I?', 'I see stars!', 'Learn to drive!',
+    'Still tickles!', 'Hee-hee… stop!',
+    'Learn to drive!', 'I see stars!', 'Where am I?', 'Cough… I look like a chimney sweep!',
   ],
 ];
 
@@ -60,10 +60,10 @@ const TOURIST: string[][] = [
 const UP_LINES: Record<Mess, [number, number]> = {
   water: [0, 4],
   bubbles: [4, 3],
-  foam: [4, 3],
   confetti: [7, 3],
-  tickle: [10, 3],
-  bonk: [13, 3],
+  tickle: [10, 2],
+  bonk: [12, 3],
+  soot: [13, 3],
 };
 
 /** a line number (category × 16 + index) for `cat`, picked with `r` in [0, 1) */

@@ -218,15 +218,13 @@ export class Juice {
     this.spawnText(x, y - 2.4, `+${n} b`, '#ffd740');
   }
 
-  /** a car giving up nearby (docs/plans/non-violent.md): a PUF, not a blast, so a softer jolt and a
-   *  short comic slow-motion as the foam and confetti fly */
   explosionNearPlayer(x: number, y: number) {
     const g = this.game;
     const d = dist(x, y, g.player.x, g.player.y);
-    this.addTrauma(clamp(0.7 - d / 30, 0, 0.6));
-    this.kick((g.player.x - x) || 0.01, (g.player.y - y) || 0.01, clamp(9 - d * 0.3, 0, 9));
-    this.hitstopMs(d < 15 ? 50 : 20);
-    if (d < 25) this.triggerSlowmo(0.45, 0.5);
+    this.addTrauma(clamp(1.1 - d / 30, 0, 1));
+    this.kick((g.player.x - x) || 0.01, (g.player.y - y) || 0.01, clamp(16 - d * 0.3, 0, 16));
+    this.hitstopMs(d < 15 ? 80 : 40);
+    if (d < 25) this.triggerSlowmo(0.7, 0.35);
     const scr = g.worldToScreen(x, y);
     g.postFx?.shockwave(scr.x * g.dpr, scr.y * g.dpr, clamp(1.3 - d / 25, 0, 1));
   }

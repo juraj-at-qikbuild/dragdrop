@@ -1,8 +1,8 @@
 import type { RadioStation } from '../data/brands';
 import type { WeaponId } from '../shared/entities/Ped';
 
-/** Fully procedural WebAudio sound: engine, siren, the toys (docs/plans/non-violent.md: squirts,
- *  bubbles, party poppers, boings and a sad trombone) and chiptune radio. */
+/** Fully procedural WebAudio sound: engine, siren, explosions, the toys (docs/plans/non-violent.md:
+ *  squirts, bubbles, party poppers, boings and a sad trombone) and chiptune radio. */
 export class Audio {
   ctx: AudioContext | null = null;
   private master!: GainNode;
@@ -179,14 +179,10 @@ export class Audio {
       this.tone(240, 0.06, 'sine', 0.1 * v, 0, undefined, 0.7);
     }
   }
-  /** a car giving up: a big soft PUF of foam, a glitter of confetti, then a sad trombone */
   explosion(d = 0) {
     const v = this.vol(d * 0.5);
-    if (!v || !this.ctx) return;
-    this.noiseBurst(0.7, 380, 0.9 * v);
-    const t = this.now();
-    [2637, 2093, 3136, 2349].forEach((f, i) => this.tone(f, 0.12, 'triangle', 0.05 * v, t + 0.08 + i * 0.05));
-    this.sadTrombone(0.5 * v, t + 0.45);
+    this.noiseBurst(1.4, 500, 1.2 * v);
+    this.tone(90, 0.8, 'sine', 0.6 * v, 0, undefined, 0.3);
   }
   /** wah, wah, wah, waaah */
   private sadTrombone(v: number, at: number) {

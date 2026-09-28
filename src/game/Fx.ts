@@ -1,15 +1,16 @@
-// Visual effects: particles, baked decals (skids, confetti), wet marks that dry, jets and light
-// flashes. Client only. The simulation reports what happened through SimEvents (see ClientEvents),
-// and EntityFx adds the per-frame vehicle effects (tyre smoke, exhaust, steam). Nothing here is
-// violent (docs/plans/non-violent.md): the toys squirt water, blow bubbles and fire confetti, a hit
-// leaves someone wet, soapy or covered in paper, and a car gives up in a PUF of foam.
+// Visual effects: particles, baked decals (skids, confetti, scorch marks), wet marks that dry, jets
+// and light flashes. Client only. The simulation reports what happened through SimEvents (see
+// ClientEvents), and EntityFx adds the per-frame vehicle effects (tyre smoke, exhaust, flames).
+// Nobody gets hurt (docs/plans/non-violent.md): the toys squirt water, blow bubbles and fire
+// confetti, and a hit leaves someone wet, soapy or covered in paper. A car still blows up in a
+// fireball, and whoever stood too close comes away sooty.
 import type { LightLayer } from '../world/Lighting';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import type { WeaponId } from '../shared/entities/Ped';
 import type { Mess } from '../shared/sim/Combat';
 import { dist, rand, pick } from '../shared/util/math';
 
-type PKind = 'smoke' | 'spark' | 'debris' | 'splash' | 'ring' | 'glass' | 'chunk' | 'bubble' | 'confetti' | 'feather' | 'star';
+type PKind = 'smoke' | 'fire' | 'spark' | 'debris' | 'splash' | 'ring' | 'glass' | 'chunk' | 'bubble' | 'confetti' | 'feather' | 'star';
 
 interface Particle {
   x: number;
@@ -67,7 +68,7 @@ const CONFETTI = ['#ff5252', '#ffeb3b', '#69f0ae', '#40c4ff', '#ff4081', '#b388f
 const WET_CAP = 90;
 
 // -------------------------------------------------------------- decal chunks
-// Skid marks and confetti are baked once into small per-region offscreen
+// Skid marks, confetti and scorch marks are baked once into small per-region offscreen
 // canvases (4px/m) instead of being redrawn as vector shapes every frame.
 // Chunks are lazily allocated and LRU-evicted, so decals persist cheaply
 // without an unbounded per-frame draw list.
@@ -159,8 +160,8 @@ export class Fx {
   private decals = new DecalBaker();
   /** wet and soapy marks drying out */
   private wets: WetMark[] = [];
-  /** cars that gave up, still steaming: vehicle -> seconds left (~20s) */
-  private steaming = new Map<Vehicle, number>();
+  /** wrecked cars still smouldering: vehicle -> seconds left (~20s) */
+  private burning = new Map<Vehicle, number>();
 
   /** One shot from a toy: a water jet, a stream of bubbles or a burst of confetti along each
    *  pellet's path, and where one ended on a wall or a car (bit set in `sparks`) a splash, a pop or
@@ -287,9 +288,13 @@ export class Fx {
         for (let i = 0; i < 4 + Math.round(size * 10); i++) this.confetti(x, y, rand(-3, 3), rand(-3, 3));
         this.bakeConfetti(x, y, 0.3 + size * 0.4, 2 + Math.round(size * 6));
         break;
-      case 'foam':
-        for (let i = 0; i < 4 + Math.round(size * 6); i++) this.smoke(x + rand(-0.4, 0.4), y + rand(-0.4, 0.4), rand(0.4, 0.8) * (0.5 + size), '250,250,255');
-        this.wet(x, y, 0.4 + size * 0.6, 'rgba(255,255,255,0.45)', 14 + size * 10);
+      case 'soot':
+        // a puff of soot off them, and a few embers
+        for (let i = 0; i < 3 + Math.round(size * 5); i++) this.smoke(x + rand(-0.4, 0.4), y + rand(-0.4, 0.4), rand(0.4, 0.8) * (0.5 + size), '45,42,40');
+        for (let i = 0; i < 2 + Math.round(size * 4); i++) {
+          const a = Math.random() * Math.PI * 2, s = rand(1, 4);
+          this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1, life: rand(0.3, 0.7), max: 0.7, size: 0.08, grow: 0, color: '#ffab40', alphaMax: 1, top: true, kind: 'spark' });
+        }
         break;
       case 'bonk':
         for (let i = 0; i < 3; i++) this.dust(x, y);
@@ -326,32 +331,42 @@ export class Fx {
     }
   }
 
-  /** A car giving up (docs/plans/non-violent.md): no fireball, a PUF. A ring of foam, a cloud of
-   *  suds and steam, confetti and a few body panels popping off in the car's colour, a soapy mark
-   *  that dries; `source` keeps steaming for ~20 s. */
+  /** the fireball, shockwave, debris and scorch mark of an explosion; `source` keeps burning for ~20 s */
   explosion(x: number, y: number, color: string | null, source: Vehicle | null) {
-    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.55, max: 0.55, size: 0.5, grow: 22, color: 'rgba(255,255,255,0.9)', alphaMax: 1, top: true, kind: 'ring' });
-    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.4, max: 0.4, size: 0.2, grow: 30, color: 'rgba(179,229,252,0.8)', alphaMax: 1, top: true, kind: 'ring' });
-    for (let i = 0; i < 26; i++) {
-      const a = Math.random() * Math.PI * 2, sp = rand(1, 7);
-      this.particles.push({ x: x + Math.cos(a) * 0.5, y: y + Math.sin(a) * 0.5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(1, 2.2), max: 2.2, size: rand(0.5, 1.1), grow: 1.1, color: pick(['255,255,255', '240,248,255', '225,240,250']), alphaMax: 0.7, top: true, kind: 'smoke' });
+    this.bakeScorch(x, y, 5.5);
+    // expanding shockwave rings
+    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.55, max: 0.55, size: 0.5, grow: 26, color: 'rgba(255,220,150,0.85)', alphaMax: 1, top: true, kind: 'ring' });
+    this.particles.push({ x, y, vx: 0, vy: 0, life: 0.35, max: 0.35, size: 0.2, grow: 36, color: 'rgba(255,255,255,0.7)', alphaMax: 1, top: true, kind: 'ring' });
+    for (let i = 0; i < 44; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(2, 15);
+      this.particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 1), max: 1, size: rand(0.9, 2.4), grow: 2.4,
+        color: pickFire(), alphaMax: 0.42, top: true, kind: 'fire',
+      });
     }
-    for (let i = 0; i < 40; i++) {
-      const a = Math.random() * Math.PI * 2, sp = rand(3, 13);
-      this.confetti(x, y, Math.cos(a) * sp, Math.sin(a) * sp);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(4, 17);
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.6, 1.4), max: 1.4, size: rand(0.06, 0.14), grow: -0.05, color: '#ffb74d', alphaMax: 1, top: true, kind: 'spark' });
     }
-    for (let i = 0; i < 12; i++) this.bubble(x + rand(-1, 1), y + rand(-1, 1), rand(-2, 2), rand(-2, 1), rand(0.1, 0.25));
-    const chunkColor = color ?? pick(['#9e9e9e', '#b0bec5', '#8d8d8d']);
-    for (let i = 0; i < 5; i++) this.chunk(x, y, chunkColor);
-    this.wet(x, y, 3, 'rgba(255,255,255,0.4)', 25);
-    this.bakeConfetti(x, y, 3, 18);
-    this.lightEvents.push({ x, y, r: 16, color: '#e1f5fe', intensity: 0.8, glow: 14, life: 0.3 });
-    if (source) this.steaming.set(source, 20);
+    const chunkColor = color ?? pick(['#2a2a2a', '#3a332c', '#1c1c1c']);
+    for (let i = 0; i < 9; i++) this.chunk(x, y, chunkColor);
+    for (let i = 0; i < 20; i++) this.smoke(x + rand(-2, 2), y + rand(-2, 2), rand(1.8, 3.2));
+    this.lightEvents.push({ x, y, r: 26, color: '#ff8a2f', intensity: 1.6, glow: 30, life: 0.45 });
+    if (source) this.burning.set(source, 20);
   }
 
-  /** a white puff of steam from a hot radiator (a car about to give up, or one that just has) */
-  steam(x: number, y: number) {
-    this.particles.push({ x: x + rand(-0.4, 0.4), y: y + rand(-0.4, 0.4), vx: rand(-0.5, 0.5) + 0.6, vy: rand(-1.2, -0.3), life: rand(0.7, 1.4), max: 1.4, size: rand(0.3, 0.6), grow: 1.1, color: '245,245,245', alphaMax: 0.5, top: true, kind: 'smoke' });
+  /** irregular, permanently baked scorch mark */
+  private bakeScorch(x: number, y: number, size: number) {
+    this.decals.paint(x, y, (ctx) => {
+      ctx.fillStyle = 'rgba(10,9,8,0.62)';
+      drawBlob(ctx, x, y, size, blobShape());
+      ctx.fillStyle = 'rgba(10,9,8,0.35)';
+      drawBlob(ctx, x, y, size * 1.6, blobShape());
+    });
+  }
+
+  flame(x: number, y: number) {
+    this.particles.push({ x: x + rand(-0.6, 0.6), y: y + rand(-0.6, 0.6), vx: rand(-0.5, 0.5), vy: rand(-1.5, -0.3), life: 0.5, max: 0.5, size: rand(0.5, 1.1), grow: -0.5, color: pickFire(), alphaMax: 0.42, top: true, kind: 'fire' });
   }
 
   spark(x: number, y: number) {
@@ -494,26 +509,31 @@ export class Fx {
     if (this.wets.length && this.wets[0].life <= 0) this.wets = this.wets.filter((w) => w.life > 0);
     for (const ev of this.lightEvents) ev.life -= dt;
     this.lightEvents = this.lightEvents.filter((ev) => ev.life > 0);
-    // a car that gave up keeps steaming, tapering off over ~20s
-    for (const [v, t] of this.steaming) {
+    // lingering wreck fire/smoke, tapering off over ~20s
+    for (const [v, t] of this.burning) {
       const nt = t - dt;
       if (nt <= 0) {
-        this.steaming.delete(v);
+        this.burning.delete(v);
         continue;
       }
-      this.steaming.set(v, nt);
+      this.burning.set(v, nt);
       const k = nt > 14 ? 1 : nt / 14;
-      if (Math.random() < dt * 5 * k) this.steam(v.x + Math.cos(v.angle) * v.spec.length * 0.35, v.y + Math.sin(v.angle) * v.spec.length * 0.35);
+      if (Math.random() < dt * 3.5 * k) this.flame(v.x, v.y);
+      if (Math.random() < dt * 2.2) this.smoke(v.x, v.y, rand(1, 2));
     }
   }
 
-  /** Flashes (a car's PUF). */
+  /** Fires and explosions. */
   emitLights(L: LightLayer) {
     for (const ev of this.lightEvents) {
       const k = Math.max(0, ev.life) / 0.45;
       L.point(ev.x, ev.y, ev.r, ev.color, ev.intensity * Math.min(1, k * 2));
       if (ev.glow) L.glow(ev.x, ev.y, ev.glow, ev.color, Math.min(1, k * 1.5));
     }
+    for (const p of this.particles) {
+      if (p.kind === 'fire') L.point(p.x, p.y, p.size * 2.2, '#ff7a1f', Math.min(1, (p.life / p.max) * 0.7));
+    }
+    for (const v of this.burning.keys()) L.point(v.x, v.y, 6, '#ff7a1f', 0.5);
   }
 
   /** the baked marks (skids, confetti), then the wet ones, fading as they dry */
@@ -531,7 +551,7 @@ export class Fx {
   drawParticles(ctx: CanvasRenderingContext2D, top: boolean) {
     // normal (non-additive) particles first
     for (const p of this.particles) {
-      if (p.top !== top || p.kind === 'smoke') continue;
+      if (p.top !== top || p.kind === 'fire' || p.kind === 'smoke') continue;
       ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 1.5)) * p.alphaMax;
       if (p.kind === 'spark') {
         ctx.strokeStyle = p.color;
@@ -603,7 +623,7 @@ export class Fx {
         ctx.fill();
       }
     }
-    // soft sprites: smoke, steam and suds
+    // soft sprites: smoke and suds (normal blend) then fire (additive glow)
     for (const p of this.particles) {
       if (p.top !== top || p.kind !== 'smoke') continue;
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.max)) * p.alphaMax;
@@ -611,6 +631,16 @@ export class Fx {
       const d = p.size * 4;
       ctx.drawImage(spr, p.x - d / 2, p.y - d / 2, d, d);
     }
+    const prevOp = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of this.particles) {
+      if (p.top !== top || p.kind !== 'fire') continue;
+      ctx.globalAlpha = Math.max(0, Math.min(1, (p.life / p.max) * 0.9)) * p.alphaMax;
+      const spr = softSprite(fireRgb(p.color));
+      const d = Math.min(p.size, 2.4) * 2.6;
+      ctx.drawImage(spr, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.globalCompositeOperation = prevOp;
     ctx.globalAlpha = 1;
     if (!top) return;
     // the toys' jets: water, and a stream of bubbles' faint trail
@@ -651,4 +681,19 @@ function blobShape() {
   const out: number[] = [];
   for (let i = 0; i < n; i++) out.push(0.72 + Math.random() * 0.45);
   return out;
+}
+
+function pickFire() {
+  return ['#ff6f00', '#ffa000', '#ffca28', '#e65100', '#ff3d00'][(Math.random() * 5) | 0];
+}
+
+const hexRgbCache = new Map<string, string>();
+/** '#rrggbb' -> 'r,g,b' for building sprite cache keys/gradients */
+function fireRgb(hex: string) {
+  let v = hexRgbCache.get(hex);
+  if (v) return v;
+  const n = parseInt(hex.slice(1), 16);
+  v = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  hexRgbCache.set(hex, v);
+  return v;
 }

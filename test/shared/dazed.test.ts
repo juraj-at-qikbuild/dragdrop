@@ -170,13 +170,13 @@ describe('knocked down, not killed', () => {
     expect(Math.hypot(d.x - v.x, d.y - v.y)).toBeLessThan(6);
   });
 
-  it("a car giving up (the PUF) knocks down the people next to it, soapy, and they get up", () => {
+  it('a car blowing up knocks down the people next to it, sooty, and they get up', () => {
     const { sim } = setup();
     const ped = sim.addPed(new Ped('civ', A.x + 3, A.y, 17));
     const v = sim.addVehicle(new Vehicle('sedan', A.x, A.y, WEST, '#1565c0'));
     sim.combat.explode(v.x, v.y, v, 0);
     expect(ped.dazed).toBe(true);
-    expect(ped.downMess).toBe('foam');
+    expect(ped.downMess).toBe('soot');
     run(sim, dazeTime(ped) + 0.5);
     expect(ped.dazed).toBe(false);
   });

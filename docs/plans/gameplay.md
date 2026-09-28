@@ -6,9 +6,9 @@ the end.
 
 > **Since [non-violent.md](non-violent.md), nobody gets hurt.** The weapons are toys (tickling, a water
 > pistol, a bubble gun, a confetti shotgun), the gun shop is a toy shop, a kill is someone knocked down
-> who gets up again, and a car at 0 HP gives up in a PUF of foam. Phases 1–3 below are kept as they
-> were written and built: where they say gun, shoot or kill, read toy, squirt or soak through. Phase 4
-> is rewritten for the toys.
+> who gets up again, and a car that blows up leaves them sooty, not dead. Phases 1–3 below are kept
+> as they were written and built: where they say gun, shoot or kill, read toy, squirt or soak through.
+> Phase 4 is rewritten for the toys.
 
 This plan is about how the game plays, not about new missions. Every phase builds on systems that
 already exist (the police, the money, the driving model, the crowd, the parties, the leaderboard) and

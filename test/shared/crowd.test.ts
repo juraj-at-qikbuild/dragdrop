@@ -197,7 +197,7 @@ describe('crowd', () => {
     // getting up again (docs/plans/non-violent.md): a line for whatever knocked them down, within the
     // one category (the wire's line numbers have room for 16 lines a category, 8 categories)
     for (const tourist of [false, true])
-      for (const mess of ['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'foam'] as const)
+      for (const mess of ['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'soot'] as const)
         for (const r of [0, 0.5, 0.99]) {
           const l = pickUpLine(mess, tourist, r);
           expect(lineText(l), `${mess} ${tourist}`).not.toBe('');

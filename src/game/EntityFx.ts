@@ -1,5 +1,5 @@
 // Per-frame cosmetic effects of vehicles: tyre smoke and skid marks, exhaust puffs, offroad dust, damage
-// smoke, steam, sparks from burst tyres and splashes. Runs on the client for every vehicle it draws,
+// smoke, flames, sparks from burst tyres and splashes. Runs on the client for every vehicle it draws,
 // simulated or mirrored, from state the simulation/snapshots already carry.
 import type { Vehicle } from '../shared/entities/Vehicle';
 import type { World } from '../shared/world/World';
@@ -39,8 +39,7 @@ export class EntityFx {
         }
       }
       if (v.sinking > 0 && v.sinking < 2.5 && Math.random() < dt * 6) fx.splash(v.x + rand(-1, 1), v.y + rand(-1, 1));
-      // a car about to give up hisses steam from its radiator (docs/plans/non-violent.md: no fire)
-      if (v.fire > 0 && !v.wrecked && Math.random() < dt * 14) fx.steam(v.x + c * s.length * 0.35, v.y + sn * s.length * 0.35);
+      if (v.fire > 0 && !v.wrecked) fx.flame(v.x + c * s.length * 0.3, v.y + sn * s.length * 0.3);
     }
   }
 }
