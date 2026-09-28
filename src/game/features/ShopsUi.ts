@@ -4,7 +4,8 @@
 // What it offers and for how much comes from the price list (LiveState.catalog: the rule's offline,
 // the server's `catalog` online; a server without shops sends none, and then there are none). Every
 // purchase is a request the shared rule checks (SimHost.shop → rules/Shops.ts), and its answer shows
-// at the bottom of the panel (LiveState.shop).
+// at the bottom of the panel (LiveState.shop). A teleport can also be taken from its card on the city
+// map, from anywhere: its answer then shows as a message.
 import type { Game } from '../Game';
 import type { ClientFeature, ToScreen } from './ClientFeature';
 import type { View } from '../../world/Renderer';
@@ -18,7 +19,7 @@ import { shopAt, shopPlaces, teleports, type ShopPlace } from '../../shared/sim/
 import { ownable, type ShopReq } from '../../shared/sim/rules/Shops';
 import { POINTS } from '../../shared/sim/rules/points';
 import { dist, formatMoney } from '../../shared/util/math';
-import { mapMarker, type MapIcon } from '../../ui/MapView';
+import { mapMarker, type MapAction, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
 import { isModalOpen, openModal } from '../../ui/kit/dom';
 import {
@@ -63,6 +64,8 @@ export class ShopsUi implements ClientFeature {
   private shape = '';
   /** the last request sent (a car taken out of the garage closes the panel: time to drive) */
   private asked: ShopReq['op'] | null = null;
+  /** a teleport asked for from the city map: its answer shows as a message (there's no panel) */
+  private askedFromMap = false;
 
   constructor(private g: Game) {}
 
@@ -125,7 +128,11 @@ export class ShopsUi implements ClientFeature {
       if (this.place) this.visited.add(`${this.place.id}|car`);
       this.panel?.close();
     }
-    if (e.k === 'shop') this.asked = null;
+    if (e.k === 'shop') {
+      this.asked = null;
+      if (this.askedFromMap) this.g.message('', e.text, e.ok ? 2.5 : 3, e.ok ? COLOR.teleport : '#ff8a80');
+      this.askedFromMap = false;
+    }
     // a teleport's ride: arriving in the other bay isn't walking into it (its panel would open at
     // once). (Moved anywhere else, joining a party, a shop there opens as usual.)
     if (e.k === 'teleport') {
@@ -150,7 +157,30 @@ export class ShopsUi implements ClientFeature {
 
   private ask(req: ShopReq) {
     this.asked = req.op;
+    this.askedFromMap = false;
     this.g.host.shop(req);
+  }
+
+  /** a teleport's card on the city map: a ride there from wherever the player is, or why not now */
+  private mapTeleport(s: ShopPlace, prices: Prices): MapAction | undefined {
+    const g = this.g;
+    if (prices.teleport === undefined) return undefined;
+    const i = teleports(g.world).findIndex((t) => t.id === s.id);
+    const f = g.focus();
+    const label = `🌀 Teleportovať · ${formatMoney(prices.teleport)}`;
+    const run = () => {
+      this.asked = 'buy';
+      this.askedFromMap = true;
+      g.host.shop({ op: 'buy', item: `teleport:${i}` });
+    };
+    const why =
+      dist(f.x, f.y, s.x, s.y) <= s.r ? 'Tu už si.'
+      : g.wanted > 0 ? 'Kým ťa hľadá polícia, teleport ťa nepustí.'
+      : g.missions.active ? 'Počas misie teleport nejde.'
+      : g.save.money < prices.teleport ? `Na to nemáš (${formatMoney(prices.teleport)}).`
+      : g.state !== 'play' || g.host.me.state !== 'play' ? 'Teraz nie.'
+      : undefined;
+    return { label, run, why };
   }
 
   // ---------------------------------------------------------------------------------------- panel
@@ -494,7 +524,8 @@ export class ShopsUi implements ClientFeature {
    *  garage ringed */
   drawMap(ctx: CanvasRenderingContext2D, toScreen: ToScreen, full: boolean, size: number) {
     const g = this.g;
-    if (!g.host.live.catalog) return;
+    const prices = g.host.live.catalog;
+    if (!prices) return;
     const f = g.focus();
     // the minimap pins far points to its rim: work its scale out from two points near the player, and
     // leave out whatever doesn't fit it (it's off the minimap)
@@ -509,6 +540,7 @@ export class ShopsUi implements ClientFeature {
         ring: s.kind === 'garage' && owned?.includes(s.id) ? '#c5e1a5' : undefined,
         title: s.name,
         info: SHOP_KIND[s.kind].name,
+        action: full && s.kind === 'teleport' ? this.mapTeleport(s, prices) : undefined,
       });
     }
   }

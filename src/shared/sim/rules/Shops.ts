@@ -1,6 +1,6 @@
 // What money buys, and where (docs/plans/gameplay.md, Phase 2). Every purchase, parking a car in a
 // garage and taking one out, and a ride on the teleport goes through `act`, which checks where the
-// player is (shops/places.ts),
+// player is (shops/places.ts: a ride starts anywhere, from a bay or from the city map),
 // what they have and what it costs (the price list: shops/catalog.ts, overridden online by game_config),
 // then does it. Offline the client calls it straight; online the server does, for a `shop` request.
 // Also: the collection (every kind of vehicle driven), and a player's clothes when they arrive.
@@ -18,6 +18,7 @@ import {
   type Gear, type Mods, type PriceId, type Prices, type StoredCar,
 } from '../shops/catalog';
 import { shopAt, teleports, type ShopPlace } from '../shops/places';
+import { dist } from '../../util/math';
 
 /** what a player asks a shop for */
 export type ShopReq = { op: 'buy'; item: string } | { op: 'store' } | { op: 'take'; slot: number };
@@ -75,12 +76,14 @@ export class Shops implements SimRule {
 
   private run(p: SimPlayer, req: ShopReq): ShopResult {
     if (p.state !== 'play') return no('Teraz nie.');
+    const [item, arg] = req.op === 'buy' ? String(req.item ?? '').split(':') : [''];
+    const n = arg === undefined ? -1 : Number(arg);
+    // a ride on the teleport needs no bay: the city map sells one too
+    if (item === 'teleport') return this.teleport(p, n);
     const place = this.placeOf(p);
     if (!place) return no('Tu nie je žiadny obchod.');
     if (req.op === 'store') return place.kind === 'garage' ? this.store(p, place) : no('Tu sa auto nedá odstaviť.');
     if (req.op === 'take') return place.kind === 'garage' ? this.take(p, place, req.slot) : no('Tu nie je tvoja garáž.');
-    const [item, arg] = String(req.item ?? '').split(':');
-    const n = arg === undefined ? -1 : Number(arg);
     switch (place.kind) {
       case 'guns':
         if (item === 'vest') return this.vest(p);
@@ -105,9 +108,6 @@ export class Shops implements SimRule {
       case 'garage':
         if (item === 'garage') return this.buyGarage(p, place);
         if (item === 'slots') return this.buySlots(p);
-        break;
-      case 'teleport':
-        if (item === 'teleport') return this.teleport(p, place, n);
         break;
     }
     return no('To sa tu nepredáva.');
@@ -309,14 +309,17 @@ export class Shops implements SimRule {
     return null;
   }
 
-  /** to teleport `to` (its index in `teleports`): on foot, or with the car they drive */
-  private teleport(p: SimPlayer, from: ShopPlace, to: number): ShopResult {
+  /** to teleport `to` (its index in `teleports`), from a bay or from anywhere (the city map): on
+   *  foot, or with the car they drive; off a scooter, a bike, a boat or a tram they go on foot */
+  private teleport(p: SimPlayer, to: number): ShopResult {
     const dest = Number.isInteger(to) ? teleports(this.sim.world)[to] : undefined;
     if (!dest) return no('Taký teleport nepoznáme.');
-    if (dest.id === from.id) return no('Tu už si.');
+    const f = p.focus();
+    if (dist(f.x, f.y, dest.x, dest.y) <= dest.r + SLACK) return no('Tu už si.');
     const why = this.teleportBlocked(p);
     if (why) return no(why);
-    const v = p.ped.vehicle;
+    const car = p.ped.vehicle;
+    const v = car && !p.ped.aboard && !car.spec.twoWheeler && !car.spec.boat ? car : null;
     if (v && (v.wrecked || v.fire > -1 || v.sinking)) return no('S horiacim autom ťa teleport nevezme.');
     const spot = v ? this.carSpot(v, dest) : null;
     if (v && !spot) return no('Na druhej strane niečo stojí. Skús o chvíľu.');

@@ -508,6 +508,32 @@ describe('the teleport', () => {
     expect(dist(v.x, v.y, tps[7].x, tps[7].y)).toBeLessThan(13);
   });
 
+  it('from anywhere (the city map): on foot, in a car on the move (it comes too), off a scooter on foot', () => {
+    const { sim, shops } = setup();
+    const at = first('garage');
+    expect(shopAt(w, at.x + 40, at.y + 40, false)).toBeNull();
+    const p = player(sim, { x: at.x + 40, y: at.y + 40 });
+    expect(shops.act(p, { op: 'buy', item: 'teleport:5' }).ok).toBe(true);
+    expect(dist(p.ped.x, p.ped.y, tps[5].x, tps[5].y)).toBeLessThan(3);
+    expect(p.profile.money).toBe(10_000 - PRICES.teleport);
+    // in a car, driving
+    const v = drive(sim, p, first('guns'));
+    v.vx = 12;
+    expect(shops.act(p, { op: 'buy', item: 'teleport:2' }).ok).toBe(true);
+    expect(p.ped.vehicle).toBe(v);
+    expect(v.speed).toBe(0);
+    expect(dist(v.x, v.y, tps[2].x, tps[2].y)).toBeLessThanOrEqual(12.01);
+    // on a scooter: it stays, they go
+    sim.exitVehicle(p, true);
+    const s = drive(sim, p, first('clothes'), 'scooter');
+    expect(shops.act(p, { op: 'buy', item: 'teleport:3' }).ok).toBe(true);
+    expect(p.ped.vehicle).toBeNull();
+    expect(dist(p.ped.x, p.ped.y, tps[3].x, tps[3].y)).toBeLessThan(3);
+    expect(dist(s.x, s.y, first('clothes').x, first('clothes').y)).toBeLessThan(3);
+    // already standing in that bay
+    expect(shops.act(p, { op: 'buy', item: 'teleport:3' }).text).toBe('Tu už si.');
+  });
+
   it('refuses (and charges nothing): the same place, one that isn\'t there, no money, on the run, a job under way, a burning car', () => {
     const { sim, shops } = setup();
     const p = player(sim, tps[1]);

@@ -597,11 +597,12 @@ the police chase: the rules are shared, the server decides.
   straight in one their client has never seen.)
 - **The teleport.** A ride is a `shop` request like any other, `buy` of `teleport:<n>`, `n` being the
   destination's place in `shops/places.ts`'s `teleports` (the same list everywhere, worked out from the
-  map). The rule moves the player (`Sim.teleport`) and bumps their epoch; the driver's client hears
+  map). It needs no bay: the rule takes it from anywhere (a bay's panel, or a teleport's card on the
+  city map), only not from the bay it goes to. The rule moves the player (`Sim.teleport`) and bumps their epoch; the driver's client hears
   `teleport { x, y, lvl, epoch, car?, a? }`. With `car` it keeps its car and puts it there, facing `a`,
   standing still; without, it lets go of any car, as for a party join. Reports from before the ride
   carry the old epoch and are ignored, so the server never corrects the player back. A server without
-  teleports sends no `teleport` price, and the client's panel then offers none.
+  teleports sends no `teleport` price, and the client's panel (and the map's card) then offers none.
 - **Clothes.** The jacket is the figure's `look` (already on the wire); the hat rides in spare bits
   (1–3) of the figure record's outfit byte. A static record is re-sent whenever its bytes change, so
   everyone sees new clothes and a new neon at once.

@@ -46,6 +46,14 @@ const KIND_NAME: Record<string, string> = {
   star: 'Pamiatka', starFound: 'Pamiatka · objavená', phone: 'Misia',
 };
 
+/** a second button on a marker's card, under "Navigovať" (a teleport's "Teleportovať"): `run` does it
+ *  and closes the map; with `why` it's greyed out and says why not */
+export interface MapAction {
+  label: string;
+  run: () => void;
+  why?: string;
+}
+
 /** a marker on the full map that opens a card (its name and "Navigovať"): world position, radius on screen */
 interface Pick {
   x: number;
@@ -54,13 +62,16 @@ interface Pick {
   title: string;
   sub?: string;
   icon: string;
+  action?: MapAction;
 }
 /** the markers drawn this frame, collected while the full map draws (null otherwise: the minimap,
  *  the HUD's banners) so the features' `mapMarker`s add theirs too */
-let picks: { sx: number; sy: number; r: number; title: string; sub?: string; icon: string }[] | null = null;
-function addPick(sx: number, sy: number, r: number, icon: string, title: string | undefined, sub?: string) {
-  if (picks && title) picks.push({ sx, sy, r, title, sub, icon });
+let picks: { sx: number; sy: number; r: number; title: string; sub?: string; icon: string; action?: MapAction }[] | null = null;
+function addPick(sx: number, sy: number, r: number, icon: string, title: string | undefined, sub?: string, action?: MapAction) {
+  if (picks && title) picks.push({ sx, sy, r, title, sub, icon, action });
 }
+
+type Box = { x: number; y: number; w: number; h: number };
 
 interface Label {
   x: number;
@@ -103,7 +114,7 @@ export class MapView {
   private picks: Pick[] = [];
   /** the marker whose card is open, and the card's boxes from the last draw */
   private sel: Pick | null = null;
-  private card: { x: number; y: number; w: number; h: number; keepY: number; cta: { x: number; y: number; w: number; h: number } } | null = null;
+  private card: (Box & { keepY: number; cta: Box; act?: Box }) | null = null;
   private pointerCursor = false;
 
   constructor(private g: Game) {
@@ -282,6 +293,7 @@ export class MapView {
     const c = this.card, sel = this.sel;
     if (c && sel) {
       if (inside(c.cta)) return this.navigate(sel, touch);
+      if (c.act && inside(c.act)) return this.act(sel);
       if (inside(c)) return;
     }
     const pick = this.pickAt(sx, sy, touch ? 12 : 3);
@@ -322,6 +334,15 @@ export class MapView {
       this.g.audio.pickup();
     }
     if (close) this.sel = null;
+  }
+
+  /** a card's second button: done, and the map closes (a teleport: to see where it took them) */
+  private act(p: Pick) {
+    const a = p.action;
+    if (!a || a.why) return;
+    this.sel = null;
+    this.g.showMap = false;
+    a.run();
   }
 
   private waypointAt(p: Pick) {
@@ -374,6 +395,8 @@ export class MapView {
       }
     }
     if (inp.hit('Backspace', 'Delete', 'KeyH')) this.g.gps.clearWaypoint();
+    // the card's second button (a teleport's), on T or the pad's B
+    if (this.sel?.action && this.crossMode() && inp.hit('KeyT', 'KeyQ')) this.act(this.sel);
     // layers on the number keys
     GROUPS.forEach((gr, i) => {
       if (inp.hit(`Digit${i + 1}`)) this.groups[gr.id] = !this.groups[gr.id];
@@ -677,7 +700,7 @@ export class MapView {
     picks = [];
     this.drawLabels(ctx, f);
     this.blips(ctx, this.toScreen, 5 + Math.min(3, this.zoom), true);
-    this.picks = picks.map((p) => ({ ...this.toWorld(p.sx, p.sy), r: p.r, title: p.title, sub: p.sub, icon: p.icon }));
+    this.picks = picks.map((p) => ({ ...this.toWorld(p.sx, p.sy), r: p.r, title: p.title, sub: p.sub, icon: p.icon, action: p.action }));
     picks = null;
     this.select(f);
     ctx.restore();
@@ -969,8 +992,8 @@ export class MapView {
       const onCard = !!c && !!this.sel && h.x >= c.x && h.x <= c.x + c.w && h.y >= Math.min(c.y, c.keepY) && h.y <= Math.max(c.y + c.h, c.keepY);
       const p = this.pointers.size ? null : this.pickAt(h.x, h.y, 3);
       if (!onCard) this.sel = p;
-      const onCta = onCard && h.x >= c!.cta.x && h.x <= c!.cta.x + c!.cta.w && h.y >= c!.cta.y && h.y <= c!.cta.y + c!.cta.h;
-      this.setCursor(!!p || onCta);
+      const on = (b?: Box) => !!b && h.x >= b.x && h.x <= b.x + b.w && h.y >= b.y && h.y <= b.y + b.h;
+      this.setCursor(!!p || (onCard && (on(c!.cta) || on(c!.act))));
     } else if (this.sel) {
       // the same marker in this frame's draw (a player or an event van moves)
       const s = this.sel;
@@ -984,7 +1007,8 @@ export class MapView {
     }
   }
 
-  /** the open marker's card: its icon, name, what it is and how far, and "Navigovať" */
+  /** the open marker's card: its icon, name, what it is and how far, "Navigovať", and its action if
+   *  it has one (a teleport's "Teleportovať") */
   private drawCard(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
     const p = this.sel;
     this.card = null;
@@ -1001,8 +1025,9 @@ export class MapView {
     const tw = ctx.measureText(title).width;
     ctx.font = `500 11px ${BODY}`;
     const iw = ctx.measureText(info).width;
-    const w = Math.max(touch ? 200 : 180, pad * 3 + ir * 2 + Math.max(tw, Math.min(iw, maxText)));
-    const h = pad + 36 + 8 + btnH + pad;
+    const a = p.action;
+    const w = Math.max(a ? (touch ? 230 : 210) : touch ? 200 : 180, pad * 3 + ir * 2 + Math.max(tw, Math.min(iw, maxText)));
+    const h = pad + 36 + 8 + btnH + (a ? 6 + btnH + (a.why ? 16 : 0) : 0) + pad;
     // above the marker, or under it near the top of the map
     const gap = p.r + 10;
     const above = py - gap - h >= f.y + 4;
@@ -1052,8 +1077,26 @@ export class MapView {
     ctx.textBaseline = 'middle';
     const key = this.crossMode() ? (g.input.pad.active ? 'Y: ' : 'Enter: ') : '';
     ctx.fillText(key + (set ? '✕ Zrušiť navigáciu' : '📍 Navigovať'), cta.x + cta.w / 2, cta.y + cta.h / 2 + 1);
+    // the action: a button of its own, or greyed out with why not under it
+    let act: Box | undefined;
+    if (a) {
+      act = { x: cta.x, y: cta.y + btnH + 6, w: cta.w, h: btnH };
+      ctx.fillStyle = a.why ? 'rgba(255,255,255,0.08)' : '#8e24aa';
+      roundRect(ctx, act.x, act.y, act.w, act.h, 7);
+      ctx.fill();
+      ctx.fillStyle = a.why ? '#78909c' : '#ffffff';
+      ctx.font = `800 ${touch ? 14 : 13}px ${BODY}`;
+      const akey = this.crossMode() ? (g.input.pad.active ? 'B: ' : 'T: ') : '';
+      ctx.fillText(fit(ctx, (a.why ? '' : akey) + a.label, act.w - 12), act.x + act.w / 2, act.y + act.h / 2 + 1);
+      if (a.why) {
+        ctx.fillStyle = '#ffab91';
+        ctx.font = `500 11px ${BODY}`;
+        ctx.fillText(fit(ctx, a.why, act.w), act.x + act.w / 2, act.y + act.h + 9);
+        act = undefined;
+      }
+    }
     ctx.restore();
-    this.card = { x, y, w, h, keepY: py, cta };
+    this.card = { x, y, w, h, keepY: py, cta, act };
   }
 
   /** what's under the cursor: the street (or square) there */
@@ -1104,7 +1147,7 @@ export function pulsingCircle(ctx: CanvasRenderingContext2D, x: number, y: numbe
  *  under it — shown only on the full map (`opts.full`), like the roster's nick labels in `blips()`. */
 export function mapMarker(
   ctx: CanvasRenderingContext2D, x: number, y: number, size: number, icon: MapIcon,
-  opts: { ring?: string; pulse?: number; label?: string; full?: boolean; color?: string; title?: string; info?: string } = {},
+  opts: { ring?: string; pulse?: number; label?: string; full?: boolean; color?: string; title?: string; info?: string; action?: MapAction } = {},
 ) {
   if (opts.ring) {
     if (opts.pulse !== undefined) pulsingCircle(ctx, x, y, size * 1.7, opts.ring, opts.pulse, false);
@@ -1119,8 +1162,8 @@ export function mapMarker(
     }
   }
   badge(ctx, x, y, size, icon, opts.color);
-  // on the full map it opens a card: `title` (else the label), `info` under it
-  addPick(x, y, size, icon, opts.title ?? opts.label, opts.info);
+  // on the full map it opens a card: `title` (else the label), `info` under it, `action`'s button
+  addPick(x, y, size, icon, opts.title ?? opts.label, opts.info, opts.action);
   if (opts.label && opts.full) {
     ctx.font = `700 11px ${BODY}`;
     ctx.textAlign = 'center';
