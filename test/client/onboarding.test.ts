@@ -3,8 +3,10 @@
 import { describe, expect, it } from 'vitest';
 import { forecast } from '../../src/game/features/activities/forecast';
 import {
-  aktivityHint, autoIntro, basics, comingLine, eventKinds, eventTip, introParam, looksNew, onNowLine, onlineOnlyLine, things, type InputKind, type Parts,
+  aktivityHint, autoIntro, basics, comingLine, eventKinds, eventTip, introParam, looksNew, moneyLead, onNowLine, onlineOnlyLine, shopsHint, spending, things,
+  type InputKind, type Parts,
 } from '../../src/game/features/onboarding/text';
+import { PRICES } from '../../src/shared/sim/shops/catalog';
 import type { EventEntry, EventKind, EventSchedule } from '../../src/shared/sim/rules/types';
 import type { Profile } from '../../src/shared/sim/SimPlayer';
 
@@ -107,20 +109,20 @@ describe('the world events card', () => {
 });
 
 describe('everything else to do', () => {
-  it('online: jobs, races, the party, the daily photo and the shops, and the leaderboard where kept', () => {
+  it('online: jobs, races, the party and the daily photo, and the leaderboard where kept', () => {
     const titles = (board: boolean) => things({ online: true, input: 'key', board }).map((t) => t.title);
-    expect(titles(true)).toEqual(['Práca', 'Závod?', 'Partia', 'Kde to je?', 'Obchody', 'Rebríček']);
+    expect(titles(true)).toEqual(['Práca', 'Závod?', 'Partia', 'Kde to je?', 'Rebríček']);
     expect(titles(false)).not.toContain('Rebríček');
   });
 
-  it('offline: missions, jobs, the shops and the collectibles; nothing online-only', () => {
+  it('offline: missions, jobs and the collectibles; nothing online-only', () => {
     const titles = things({ online: false, input: 'key', board: true }).map((t) => t.title);
-    expect(titles).toEqual(['Misie', 'Práca', 'Obchody', 'Objavuj']);
+    expect(titles).toEqual(['Misie', 'Práca', 'Objavuj']);
   });
 
   it('keys as the player plays: keyboard keys, the pad buttons it has, none on touch', () => {
     const keys = (input: InputKind) => Object.fromEntries(things({ online: true, input, board: true }).map((t) => [t.title, t.key]));
-    expect(keys('key')).toMatchObject({ Práca: 'J', 'Závod?': 'H', Partia: 'N', 'Kde to je?': 'K', Rebríček: 'L', Obchody: null });
+    expect(keys('key')).toMatchObject({ Práca: 'J', 'Závod?': 'H', Partia: 'N', 'Kde to je?': 'K', Rebríček: 'L' });
     expect(keys('pad')).toMatchObject({ Práca: '←', 'Závod?': 'X', Partia: null, Rebríček: null });
     expect(Object.values(keys('touch')).every((k) => k === null)).toBe(true);
   });
@@ -129,6 +131,33 @@ describe('everything else to do', () => {
     expect(say(aktivityHint('key'))).toBe('Všetko toto nájdeš v Aktivitách – stlač [U].');
     expect(say(aktivityHint('pad'))).toBe('Všetko toto nájdeš v Aktivitách – stlač [↓] na krížiku.');
     expect(say(aktivityHint('touch'))).toBe('Všetko toto nájdeš v Aktivitách – ťukni na ☰ Aktivity.');
+  });
+});
+
+describe('what money buys', () => {
+  it('every kind of shop, from its cheapest price', () => {
+    const s = spending(PRICES);
+    expect(s.map((x) => x.title)).toEqual(['Hračkárstvo', 'Butik', 'Advokát', 'Dielňa', 'Garáž', 'Teleport']);
+    const price = Object.fromEntries(s.map((x) => [x.kind, x.price]));
+    // one price is just the price, several say "od"
+    expect(price).toEqual({ guns: 'od €150', clothes: 'od €120', lawyer: '€500', tuning: 'od €250', garage: '€2 500', teleport: '€100' });
+  });
+
+  it("the server's price list decides", () => {
+    const s = spending({ ...PRICES, lawyer: 750, jacket: 90, hat: 90 });
+    expect(s.find((x) => x.kind === 'lawyer')?.price).toBe('€750');
+    expect(s.find((x) => x.kind === 'clothes')?.price).toBe('€90');
+  });
+
+  it('where the money comes from, online and off', () => {
+    expect(moneyLead(true)).toContain('závody');
+    expect(moneyLead(false)).toContain('misie');
+  });
+
+  it('points at the map the way the player opens it', () => {
+    expect(say(shopsHint('key'))).toBe('Obchody nájdeš na mape – stlač [M]. Do obchodu stačí vojsť.');
+    expect(say(shopsHint('pad'))).toBe('Obchody nájdeš na mape – stlač [⧉]. Do obchodu stačí vojsť.');
+    expect(say(shopsHint('touch'))).toBe('Obchody nájdeš na mape – ťukni na minimapu. Do obchodu stačí vojsť.');
   });
 });
 

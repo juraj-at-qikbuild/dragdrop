@@ -610,6 +610,13 @@ kbd.kit-key.pad[data-face='Y'] {
   min-width: 0;
   font-size: 14px;
 }
+/* a shop's cheapest price, where a key cap would go (in the HUD money's green) */
+.kit-intro-grid .price {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8bdc6b;
+  white-space: nowrap;
+}
 .kit-intro-grid .about {
   grid-column: 2 / 4;
   font-size: 12px;

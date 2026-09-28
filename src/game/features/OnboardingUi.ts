@@ -1,30 +1,31 @@
-// The introduction a newcomer gets on their first start: three short cards over the city before they
+// The introduction a newcomer gets on their first start: four short cards over the city before they
 // set off. First the basics, then the world events (what's on now, with a way to set the GPS there, or
-// when the next one may come), then everything else there is to do, ending at the Aktivity panel that
-// lists all of it from then on. It opens by itself once per device for online play and once for
+// when the next one may come), then everything else there is to do, with the way to the Aktivity panel
+// that lists all of it from then on, and last what money buys: the shops, the garages, the lawyer (in
+// a game without shops, a server from before them, that card is left out). It opens by itself once per device for online play and once for
 // offline play, for a player with nothing to show yet (online the server's profile decides, so an
 // account on a new device skips it). "📖 Úvod do hry" in the pause menu brings it back. While it's
 // open the game is paused (online: away, and shielded once that's safe), like the leaderboard. Later,
 // the first time a world event is on while the player still hasn't opened the Aktivity panel, a
 // one-line tip says how to find out about it. The words are in onboarding/text.ts.
 import type { Game } from '../Game';
+import type { Prices } from '../../shared/sim/shops/catalog';
 import { KEYS } from '../Input';
 import { eventLeft } from '../SimHost';
 import { NetSimHost } from '../../net/NetSimHost';
 import { addPauseControl, isModalOpen, openModal, toast } from '../../ui/kit/dom';
 import type { ClientFeature } from './ClientFeature';
 import type { ActivitiesUi } from './ActivitiesUi';
+import { SHOP_COLOR } from './ShopsUi';
 import { liveForecast } from './activities/forecast';
 import { activitiesSeen } from './activities/seen';
 import { EVENT_COLOR, EVENT_LABEL, morePlayersLine } from './activities/text';
 import {
-  EVENTS_TITLE, EVENT_HOOK, NAV, OFFLINE_MORE, POLICE_NOTE, THINGS_LEAD, THINGS_TITLE, aktivityHint, autoIntro, basics, comingLine, eventEmoji, eventKinds, eventTip,
-  eventsLead, introParam, looksNew, onNowLine, onlineOnlyLine, things, welcomeLead, welcomeTitle, type InputKind, type Parts,
+  EVENTS_TITLE, EVENT_HOOK, MONEY_NOTE, MONEY_TITLE, NAV, OFFLINE_MORE, POLICE_NOTE, THINGS_LEAD, THINGS_TITLE, aktivityHint, autoIntro, basics, comingLine, eventEmoji, eventKinds, eventTip,
+  eventsLead, introParam, looksNew, moneyLead, onNowLine, onlineOnlyLine, shopsHint, spending, things, welcomeLead, welcomeTitle, type InputKind, type Parts,
 } from './onboarding/text';
 import { introDone, markIntro } from './onboarding/seen';
 
-/** the cards: the basics, the world events, everything else */
-const CARDS = 3;
 /** online, how long to wait for the server's profile after the welcome before deciding without it (ms) */
 const PROFILE_WAIT_MS = 3000;
 
@@ -194,8 +195,16 @@ export class OnboardingUi implements ClientFeature {
     this.watch = window.setInterval(() => this.input !== this.shownInput && this.render(), 400);
   }
 
+  /** the cards: the basics, the world events, everything else, and what money buys where there are shops */
+  private get cards() {
+    const all = [() => this.basicsCard(), () => this.eventsCard(), () => this.thingsCard()];
+    const prices = this.g.host.live.catalog;
+    if (prices) all.push(() => this.moneyCard(prices));
+    return all;
+  }
+
   private go(step: number) {
-    if (step < 0 || step >= CARDS || step === this.step || !this.panel) return;
+    if (step < 0 || step >= this.cards.length || step === this.step || !this.panel) return;
     this.step = step;
     this.render();
   }
@@ -204,7 +213,10 @@ export class OnboardingUi implements ClientFeature {
     const body = this.body, panel = this.panel;
     if (!body || !panel) return;
     this.shownInput = this.input;
-    const { title, els } = [() => this.basicsCard(), () => this.eventsCard(), () => this.thingsCard()][this.step]();
+    const cards = this.cards;
+    // (a price list that went away leaves the last card there is)
+    this.step = Math.min(this.step, cards.length - 1);
+    const { title, els } = cards[this.step]();
     const h2 = panel.el.querySelector('h2');
     if (h2) h2.textContent = title;
     body.replaceChildren(...els, this.footer());
@@ -215,12 +227,13 @@ export class OnboardingUi implements ClientFeature {
   }
 
   private footer(): HTMLElement {
-    const last = this.step === CARDS - 1;
+    const n = this.cards.length;
+    const last = this.step === n - 1;
     const foot = el('div', 'kit-intro-foot');
     const back = this.step === 0 ? button(NAV.skip, () => this.panel?.close(), 'kit-intro-skip') : button(NAV.back, () => this.go(this.step - 1));
     const dots = el('span', 'kit-intro-dots');
     dots.setAttribute('aria-hidden', 'true');
-    for (let i = 0; i < CARDS; i++) dots.appendChild(el('i', i === this.step ? 'on' : undefined));
+    for (let i = 0; i < n; i++) dots.appendChild(el('i', i === this.step ? 'on' : undefined));
     const on = button(last ? (this.after ? NAV.play : NAV.done) : NAV.next, () => (last ? this.panel?.close() : this.go(this.step + 1)), 'primary');
     foot.append(back, dots, on);
     return foot;
@@ -287,6 +300,15 @@ export class OnboardingUi implements ClientFeature {
     return { title: THINGS_TITLE, els };
   }
 
+  /** the last: what money buys, each kind of shop from its cheapest price, and where they are */
+  private moneyCard(prices: Prices) {
+    const online = !!this.g.online;
+    const grid = this.grid(spending(prices).map((s) => this.item(s.icon, null, s.title, s.about, SHOP_COLOR[s.kind], s.price)));
+    const hint = el('div', 'kit-intro-now');
+    hint.append(this.parts(shopsHint(this.input)));
+    return { title: MONEY_TITLE, els: [el('p', 'kit-intro-lead kit-intro-opt', moneyLead(online)), grid, el('p', 'kit-intro-note', MONEY_NOTE), hint] };
+  }
+
   /** the items in even rows on a wide screen: two, three, four as two pairs, five or six in threes */
   private grid(items: HTMLElement[]): HTMLElement {
     const ul = el('ul', 'kit-intro-grid');
@@ -295,11 +317,13 @@ export class OnboardingUi implements ClientFeature {
     return ul;
   }
 
-  /** one world event or one thing to do: its icon, name, key and what it is (`color`: an event's) */
-  private item(icon: string, key: string | null, title: string, about: string, color?: string): HTMLElement {
+  /** one world event, thing to do or shop: its icon, name, key (or a shop's price) and what it is
+   *  (`color`: an event's or a shop's) */
+  private item(icon: string, key: string | null, title: string, about: string, color?: string, price?: string): HTMLElement {
     const li = el('li');
     if (color) li.style.setProperty('--c', color);
-    li.append(el('span', 'ic', icon), el('b', undefined, title), key ? keyCap(key, this.input) : el('span'), el('span', 'about', about));
+    const corner = key ? keyCap(key, this.input) : price ? el('span', 'price', price) : el('span');
+    li.append(el('span', 'ic', icon), el('b', undefined, title), corner, el('span', 'about', about));
     return li;
   }
 

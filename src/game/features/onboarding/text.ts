@@ -1,9 +1,10 @@
 // The words of the introduction a newcomer gets on their first start (OnboardingUi): who counts as
-// new, and what its three cards say (the basics, the world events, everything else there is to do)
-// for the way they play (keyboard and mouse, a gamepad or a touch screen), online or off. Pure (no
+// new, and what its four cards say (the basics, the world events, everything else there is to do,
+// what money buys) for the way they play (keyboard and mouse, a gamepad or a touch screen), online or off. Pure (no
 // DOM), so test/client/onboarding.test.ts can read it.
 import type { EventEntry, EventKind } from '../../../shared/sim/rules/types';
 import type { Profile } from '../../../shared/sim/SimPlayer';
+import type { PriceId, Prices, ShopKind } from '../../../shared/sim/shops/catalog';
 import { formatMoney } from '../../../shared/util/math';
 import type { Forecast } from '../activities/forecast';
 import { EVENT_ABOUT, EVENT_LABEL, EVENT_ORDER, candidatesLine, either, nextLine, soon } from '../activities/text';
@@ -139,17 +140,15 @@ export interface Thing {
 }
 
 /** the mini-games and the rest, as the Aktivity panel lists them (`board`: the server keeps a
- *  leaderboard) */
+ *  leaderboard); the shops have a card of their own */
 export function things(o: { online: boolean; input: InputKind; board: boolean }): Thing[] {
   const { input } = o;
   const key = (k: string, pad: string | null = null) => (input === 'key' ? k : input === 'pad' ? pad : null);
   const jobs: Thing = { icon: '💼', key: key('J', '←'), title: 'Práca', about: 'Vlk kuriér alebo Hopík taxi: rozvážaj jedlo a voz ľudí za peniaze.' };
-  const shops: Thing = { icon: '🛒', key: null, title: 'Obchody', about: 'Hračky, oblečenie, tuning aj garáž – nájdeš ich na mape.' };
   if (!o.online) {
     return [
       { icon: '☎', key: null, title: 'Misie', about: 'Šesť príbehov po meste. Začínajú pri žltých telefónnych búdkach.' },
       jobs,
-      shops,
       { icon: '🗿', key: null, title: 'Objavuj', about: 'Pamiatky a 10 skrytých Čumilov – za každý nález sú peniaze.' },
     ];
   }
@@ -158,7 +157,6 @@ export function things(o: { online: boolean; input: InputKind; board: boolean })
     { icon: '🏁', key: key('H', 'X'), title: 'Závod?', about: 'Zastav pri aute iného hráča a podrž klaksón. Pretekáte o stávku.' },
     { icon: '👥', key: key('N'), title: 'Partia', about: 'Pozvi kamaráta odkazom – objaví sa hneď pri tebe.' },
     { icon: '📷', key: key('K'), title: 'Kde to je?', about: `Denná fotka miesta v meste. Kto tam príde prvý, berie ${formatMoney(1000)}.` },
-    shops,
   ];
   if (o.board) out.push({ icon: '🏆', key: key('L'), title: 'Rebríček', about: 'Body za udalosti, prácu, závody aj útek pred políciou.' });
   return out;
@@ -166,6 +164,52 @@ export function things(o: { online: boolean; input: InputKind; board: boolean })
 
 /** offline: what online play adds besides the world events */
 export const OFFLINE_MORE = 'Online navyše: závody, partia s kamarátmi, denná fotka Kde to je? a rebríček.';
+
+// ------------------------------------------------------------------------ what money buys
+export const MONEY_TITLE = 'Na čo sú peniaze';
+
+export function moneyLead(online: boolean) {
+  return online
+    ? 'Za prácu, udalosti a závody dostávaš peniaze. Minieš ich v obchodoch po meste.'
+    : 'Za misie, prácu a nálezy dostávaš peniaze. Minieš ich v obchodoch po meste.';
+}
+
+/** a kind of shop: what it's for, and its cheapest price in the price list (`from`: there's more than
+ *  one price) */
+export interface Spend {
+  kind: ShopKind;
+  icon: string;
+  title: string;
+  about: string;
+  price: string;
+}
+
+/** the shops, as the city has them: shorter than the shop panel's SHOP_KIND */
+export function spending(p: Prices): Spend[] {
+  const from = (ids: PriceId[]) => {
+    const all = ids.map((id) => p[id]);
+    const min = Math.min(...all);
+    return `${all.some((v) => v !== min) ? 'od ' : ''}${formatMoney(min)}`;
+  };
+  return [
+    { kind: 'guns', icon: '🧸', title: 'Hračkárstvo', about: 'Vodné pištole, bublifuky, konfety, vajíčka aj holub. A náplne do nich.', price: from(['pistol', 'uzi', 'shotgun', 'hammer', 'kofola', 'perfume', 'pea', 'blower', 'foam', 'soap', 'egg', 'clamp', 'bucket', 'pigeon']) },
+    { kind: 'clothes', icon: '👕', title: 'Butik', about: 'Nová bunda či pokrývka hlavy. Polícia hľadá to, v čom ťa videla.', price: from(['jacket', 'hat']) },
+    { kind: 'lawyer', icon: '⚖️', title: 'Advokát', about: 'Keď ťa zatknú, hračky ti ostanú a pokutu zaplatíš polovičnú.', price: from(['lawyer']) },
+    { kind: 'tuning', icon: '🔧', title: 'Dielňa', about: 'Na benzínke, autom: lak s opravou, motor, pancier, pneumatiky, nitro, neón.', price: from(['respray', 'engine1', 'plating1', 'tyres1', 'nitro1', 'glow']) },
+    { kind: 'garage', icon: '🅿️', title: 'Garáž', about: 'Tvoje auto tu počká aj s úpravami. Vyberieš ho v ktorejkoľvek svojej garáži.', price: from(['garage']) },
+    { kind: 'teleport', icon: '🌀', title: 'Teleport', about: 'Z jedného teleportu na ktorýkoľvek iný – pešo aj s autom.', price: from(['teleport']) },
+  ];
+}
+
+export const MONEY_NOTE = '💡 Úpravy patria autu. Aby ti ostali, nechaj ho v garáži.';
+
+/** where the shops are: the city map, as the player opens it */
+export function shopsHint(input: InputKind): Parts {
+  const lead = 'Obchody nájdeš na mape – ';
+  const tail = ' Do obchodu stačí vojsť.';
+  if (input === 'touch') return [`${lead}ťukni na minimapu.${tail}`];
+  return [`${lead}stlač `, { key: input === 'pad' ? '⧉' : 'M' }, `.${tail}`];
+}
 
 /** a sentence with a key cap in it: text, and `{ key }` where the cap goes */
 export type Parts = (string | { key: string })[];

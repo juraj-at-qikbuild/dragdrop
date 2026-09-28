@@ -30,7 +30,8 @@ import {
 
 const BODY = `'Inter', system-ui, sans-serif`;
 const ICON: Record<ShopKind, MapIcon> = { guns: 'guns', clothes: 'clothes', lawyer: 'lawyer', tuning: 'tuning', garage: 'garage', teleport: 'teleport' };
-const COLOR: Record<ShopKind, string> = { guns: '#ff7043', clothes: '#f06292', lawyer: '#bcaaa4', tuning: '#4fc3f7', garage: '#aed581', teleport: '#ce93d8' };
+/** each kind's colour (its ring, its sign, its stripe in the introduction) */
+export const SHOP_COLOR: Record<ShopKind, string> = { guns: '#ff7043', clothes: '#f06292', lawyer: '#bcaaa4', tuning: '#4fc3f7', garage: '#aed581', teleport: '#ce93d8' };
 /** a shop's answer stays at the bottom of the panel this long (ms) */
 const STATUS_MS = 5000;
 /** the panel opens for someone this slow (m/s): a car pulled up, a player stopped at the door */
@@ -131,7 +132,7 @@ export class ShopsUi implements ClientFeature {
     }
     if (e.k === 'shop') {
       this.asked = null;
-      if (this.askedFromMap) this.g.message('', e.text, e.ok ? 2.5 : 3, e.ok ? COLOR.teleport : '#ff8a80');
+      if (this.askedFromMap) this.g.message('', e.text, e.ok ? 2.5 : 3, e.ok ? SHOP_COLOR.teleport : '#ff8a80');
       this.askedFromMap = false;
     }
     // a teleport's ride: arriving in the other bay isn't walking into it (its panel would open at
@@ -497,7 +498,7 @@ export class ShopsUi implements ClientFeature {
     const owned = g.save.gear?.garages;
     for (const s of shopPlaces(g.world)) {
       if (s.x < v.x0 - 30 || s.x > v.x1 + 30 || s.y < v.y0 - 30 || s.y > v.y1 + 30) continue;
-      const color = COLOR[s.kind];
+      const color = SHOP_COLOR[s.kind];
       ctx.save();
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
