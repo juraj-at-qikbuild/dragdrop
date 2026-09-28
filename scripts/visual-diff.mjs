@@ -4,6 +4,7 @@
 // draw exactly the same frames.
 //   node scripts/visual-diff.mjs <baseline dist dir> <candidate dist dir> [out dir]
 //   VDIFF_SCENES=day,night   only these scenes
+//   VDIFF_PORT=4181          the first of the two ports it serves the builds on
 // Prints per scene the largest channel difference, the mean, and how many pixels differ by more than
 // 2, 8 and 32 (of 255); writes both screenshots and an amplified difference image to the out dir.
 import { spawn } from 'node:child_process';
@@ -178,7 +179,9 @@ const serve = (dir, port) => {
   return `http://localhost:${port}`;
 };
 try {
-  const urlA = serve(baseDir, 4181), urlB = serve(candDir, 4182);
+  // VDIFF_PORT: the first of the two ports the builds are served on (parallel runs need their own)
+  const port = Number(process.env.VDIFF_PORT) || 4181;
+  const urlA = serve(baseDir, port), urlB = serve(candDir, port + 1);
   for (const u of [urlA, urlB])
     for (let i = 0; i < 50; i++) {
       try {
