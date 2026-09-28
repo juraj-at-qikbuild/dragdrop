@@ -623,8 +623,10 @@ export class Game {
     this.weather.update(dtReal, this.atmos, this.view(), this.quality, this.audio);
     if (host instanceof LocalSimHost) host.sim.quality = this.quality;
     // hit-stop / slow-mo: scale the simulation step, leave atmos/weather/UI on real time.
-    // Online the world runs on everyone's clock, so no time tricks.
-    dt = host.allowsTimeScale ? dtReal * this.juice.timeScale(dtReal) : dtReal;
+    // Online the world runs on everyone's clock, so no time tricks — but the timers still run down,
+    // or a nearby explosion's slow-mo grey would never lift.
+    const scale = this.juice.timeScale(dtReal);
+    dt = host.allowsTimeScale ? dtReal * scale : dtReal;
 
     if (host.me.state === 'play') {
       if (frozen || modal) this.idlePlayer(dt);
