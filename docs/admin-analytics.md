@@ -72,3 +72,8 @@ disposable users (no emails sent), verify RLS/RPC permissions, retry ordering, c
 and run browser login/detail/mobile/password-setup checks. ADMIN_TEST_WEB_URL defaults to the
 production build served at http://127.0.0.1:4195. It always removes its test users and analytics
 fixtures. Screenshots are under ignored .cache/admin-check/.
+
+\`node scripts/check-playtime.mjs\` verifies the deployed guest/account input, pause, inactivity cutoff,
+reconnect and collector data end to end. It uses the same environment variables and creates no emails.
+It removes the disposable account and analytics fixtures; a guest's saved game profile can remain on
+Fly because guests have no account-deletion action.

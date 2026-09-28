@@ -8,7 +8,7 @@ if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Invalid email.')
 
 async function request(path, options = {}, auth = false) {
   const res = await fetch(url + path, { ...options, headers: {
-    apikey: secret, ...(auth ? {Authorization:'Bearer '+secret}:{}), 'Content-Type':'application/json',
+    apikey: secret, ...((auth || secret.startsWith('eyJ')) ? {Authorization:'Bearer '+secret}:{}), 'Content-Type':'application/json',
     ...options.headers,
   }, signal:AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Provisioning request failed (' + res.status + '). Account or role may already exist; rerunning is safe.');
