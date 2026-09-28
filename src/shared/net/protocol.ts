@@ -76,6 +76,9 @@ export interface HelloMsg {
   resume?: { x: number; y: number; lvl: Level; car: number };
   /** a party invite code from a `#join=` link: put me next to whoever invited me */
   join?: string;
+  /** a referral code from a `#ref=` link (docs/referrals.md): a new player's referrer. Optional both
+   *  ways: an older server ignores it */
+  ref?: string;
   /** a Supabase access token: play as that account instead of the guest `token` */
   auth?: string;
   /** with `auth`: move this device's guest progress (`token`) into the account (once, into an empty one) */
@@ -161,6 +164,9 @@ export type ClientMsg =
   | { t: 'report'; target: number; reason: string }
   /** delete this account and its progress (GDPR) */
   | { t: 'accountDelete' }
+  /** this player's referral state (docs/referrals.md): the server answers with `referral`. Sent only
+   *  to a server whose welcome lists 'referral' in its `caps` */
+  | { t: 'referral' }
   /** a page of the leaderboard (docs/plans/leaderboard.md): the server answers with `board` */
   | { t: 'board'; period: ScorePeriod; board: BoardId }
   /** mini-games (docs/plans/minigames.md; rules/minigames): start one, join a round, leave, start the
@@ -302,6 +308,20 @@ export interface ScoreMsg {
   n: number;
 }
 
+/** This player's referral link and the friends who came in through it (docs/referrals.md): after
+ *  every welcome, when a friend arrives or earns them something, and in answer to `referral`. */
+export interface ReferralMsg {
+  t: 'referral';
+  /** their code, for the link (the same one the client derives: src/net/referral.ts) */
+  code: string;
+  /** the friends, newest first (at most 20): [nick, active minutes, paid for them so far, has an account] */
+  friends: [string, number, number, 0 | 1][];
+  /** how many friends in all */
+  n: number;
+  /** paid in all */
+  paid: number;
+}
+
 /** The city-wide state: active world events and today's puzzle. Sent whole (1 Hz, on change, on hello). */
 export interface WevMsg {
   t: 'wev';
@@ -327,6 +347,7 @@ export type ServerMsg =
   /** the shops' price list (a server with shops sends it after every welcome, and again whenever
    *  game_config changes a price) */
   | { t: 'catalog'; prices: Prices }
+  | ReferralMsg
   | { t: 'pong'; ct: number; st: number }
   /** the server rejected an impossible move: go back to this position */
   | { t: 'correct'; x: number; y: number }

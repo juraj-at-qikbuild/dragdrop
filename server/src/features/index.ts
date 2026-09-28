@@ -12,6 +12,7 @@ import type { RoomFeature } from './RoomFeature';
 import { Revive } from './Revive';
 import { Voice } from './Voice';
 import { Race } from './Race';
+import { Referral } from './Referral';
 import { Jobs } from './Jobs';
 import { Presence } from './Presence';
 import { Leaderboard } from './Leaderboard';
@@ -42,6 +43,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Jobs(room));
   out.push(new Presence(room));
   out.push(new Analytics(room, supa));
+  out.push(new Referral(room));
   out.push(new Leaderboard(room));
   out.push(new Police(room));
   out.push(new Shops(room, remoteConfig));

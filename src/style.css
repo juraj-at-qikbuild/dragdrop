@@ -201,6 +201,71 @@ button.primary:hover {
   margin: 8px 0 0;
   color: #b0bec5;
 }
+/* the referral card (src/ui/ReferralUi.ts), in the main menu and the pause menu */
+.ref-card {
+  margin-top: 14px;
+  text-align: left;
+  font-size: 13px;
+  color: #e0e0e0;
+  background: linear-gradient(180deg, rgba(255, 214, 0, 0.1), rgba(255, 214, 0, 0.03));
+  border: 1px solid rgba(255, 214, 0, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+#pause .ref-card {
+  margin-top: 0;
+  grid-column: 1 / -1;
+}
+.ref-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+}
+.ref-prize {
+  color: var(--gold);
+  white-space: nowrap;
+}
+.ref-rule {
+  margin: 4px 0 0;
+  color: #b0bec5;
+  line-height: 1.35;
+}
+.ref-link {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ref-url {
+  flex: 1;
+  min-width: 0;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  padding: 0 8px;
+}
+.ref-share {
+  font-size: 14px;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.ref-stats {
+  margin: 6px 0 0;
+  color: #69f0ae;
+}
+.ref-stats .kit-link {
+  font-size: 13px;
+}
+.ref-friend-state {
+  color: #b0bec5;
+  white-space: nowrap;
+}
 .osm {
   font-size: 11px;
   color: #90a4ae;

@@ -9,6 +9,7 @@
 // hashes a token itself (it only re-exports `hashToken` for Room and tests).
 import Database from 'better-sqlite3';
 import { AnalyticsStore, ANALYTICS_MIGRATION } from './analytics/AnalyticsStore';
+import { ReferralStore, REFERRAL_MIGRATION } from './referral/ReferralStore';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -103,6 +104,8 @@ export const MIGRATIONS = [
   // collection, a lawyer (JSON, checked field by field on load: shops/gear.ts cleanGear)
   `ALTER TABLE players ADD COLUMN gear TEXT NOT NULL DEFAULT '{}';`,
   ANALYTICS_MIGRATION,
+  // referral links (docs/referrals.md): whose code is whose, and the friends who came in through one
+  REFERRAL_MIGRATION,
 ];
 
 /** a row of a leaderboard: the player key, their nickname (as saved with their profile, else as when
@@ -121,6 +124,7 @@ export const hashToken = (token: string) => createHash('sha256').update(token).d
 
 export class Store {
   readonly analytics: AnalyticsStore;
+  readonly referrals: ReferralStore;
   private db: Database.Database;
   private q: ReturnType<Store['prepare']>;
 
@@ -133,6 +137,7 @@ export class Store {
     this.migrate();
     this.q = this.prepare();
     this.analytics = new AnalyticsStore(this.db);
+    this.referrals = new ReferralStore(this.db);
   }
 
   private migrate() {

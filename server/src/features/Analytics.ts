@@ -38,6 +38,7 @@ export class Analytics implements RoomFeature {
   private get store() { return this.room.store!.analytics; }
   readonly messages = {
     activity: (s: Session) => {
+      if (s.conn && !s.player.away) s.inputAt = this.room.monotonicNow(); // (features/Referral.ts counts on it too)
       const r = this.runs.get(s.key);
       if (!r || !r.measured || !s.conn || s.player.away) return;
       const now = this.room.monotonicNow();

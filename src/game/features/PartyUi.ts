@@ -5,7 +5,8 @@ import { KEYS } from '../Input';
 import { NetSimHost } from '../../net/NetSimHost';
 import type { PrivateEvent } from '../../shared/sim/events';
 import { ROSTER_DOWNED } from '../../shared/net/protocol';
-import { dist } from '../../shared/util/math';
+import { dist, formatMoney } from '../../shared/util/math';
+import { linkSlug, REFERRAL_MAX } from '../../shared/referral';
 import { addNametagDecorator } from '../../render/nametags';
 import { roundRect } from '../../render/shapes';
 import { mapMarker } from '../../ui/MapView';
@@ -15,18 +16,6 @@ import type { ClientFeature, ToScreen } from './ClientFeature';
 const FONT = `system-ui, sans-serif`;
 /** re-render the open panel's distances at least this often even without a state change */
 const PANEL_REFRESH_S = 1;
-
-/** nick → the invite link's decoration: lowercase, no diacritics, spaces to '-', alnum/dash only, ≤12 */
-function slug(nick: string): string {
-  const s = nick
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '') // decomposed diacritics (NFD): drop the combining marks
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .slice(0, 12);
-  return s || 'hrac';
-}
 
 function hint(text: string): HTMLElement {
   const p = document.createElement('p');
@@ -147,6 +136,7 @@ export class PartyUi implements ClientFeature {
       actions.appendChild(leave);
     }
     body.appendChild(actions);
+    body.appendChild(hint(`Nový hráč cez tvoju pozvánku ti zarobí až ${formatMoney(REFERRAL_MAX)}, keď si založí účet a zahrá si.`));
   }
 
   private invite() {
@@ -164,7 +154,7 @@ export class PartyUi implements ClientFeature {
 
   private onInviteCode(code: string) {
     const nick = this.g.online?.nick ?? '';
-    const url = `${location.origin}${location.pathname}#join=${slug(nick)}-${code}`;
+    const url = `${location.origin}${location.pathname}#join=${linkSlug(nick)}-${code}`;
     void shareLink(url, 'Poď hrať GTA SK so mnou!');
   }
 

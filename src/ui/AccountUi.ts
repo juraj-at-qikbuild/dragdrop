@@ -124,14 +124,6 @@ async function guestFlow(): Promise<void> {
 }
 
 // -------------------------------------------------------------------------------------------- forms
-function showCheckEmail() {
-  openModal({
-    title: 'Skontroluj e-mail',
-    body: 'Pozri si e-mail: poslali sme ti odkaz na potvrdenie účtu.',
-    buttons: [{ label: 'OK', primary: true, onClick: () => {} }],
-  });
-}
-
 function showSignIn(mode: ChooserMode) {
   const email = field('E-mail', { type: 'email', autocomplete: 'email', required: true });
   const password = field('Heslo', { type: 'password', autocomplete: 'current-password', required: true });
@@ -220,14 +212,10 @@ function showSignUp(mode: ChooserMode) {
             setError(err, r.error);
             return false;
           }
-          // "Confirm email" is on for this project, so there's normally no session yet; handled either
-          // way so a project with confirmations off still works.
-          if (hasStoredSession()) {
-            if (loadIdentity()) setClaimPending(await askYesNo('Účet vytvorený!', CLAIM_QUESTION, 'Áno', 'Nie'));
-            proceedOnline();
-          } else {
-            showCheckEmail();
-          }
+          // no e-mail to confirm: signed in already, straight into the city (bringing this device's
+          // guest progress along, if the player wants it)
+          if (loadIdentity()) setClaimPending(await askYesNo('Účet vytvorený!', CLAIM_QUESTION, 'Áno', 'Nie'));
+          proceedOnline();
           return true;
         },
       },
@@ -280,18 +268,6 @@ export function openChooser(opts: { mode?: ChooserMode; onBeforeReload?: () => v
 }
 
 // ------------------------------------------------------------------------------- boot-time e-mail returns
-/** after a confirmed sign-up (main.ts's `authCallback` branch, signedIn true): offers to move this
- *  device's guest progress in (only if there is any — the server refuses into a non-empty account
- *  anyway), then reloads into #online as the account. */
-export async function offerClaimAndGoOnline(): Promise<void> {
-  if (loadIdentity()) setClaimPending(await askYesNo('Účet potvrdený!', CLAIM_QUESTION, 'Áno', 'Nie'));
-  else {
-    toast('Účet potvrdený!');
-    setClaimPending(false);
-  }
-  proceedOnline();
-}
-
 /** the `reset` boot link, once handleAuthCallback() confirms a recovery session exists */
 export function completePasswordReset(): Promise<void> {
   return new Promise((resolve) => {

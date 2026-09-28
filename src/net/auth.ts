@@ -36,6 +36,17 @@ export function hasStoredSession(): boolean {
   }
 }
 
+/** synchronous, no auth-js import: the stored session's user id (the referral link, src/net/referral.ts) */
+export function storedUserId(): string | null {
+  if (!authAvailable()) return null;
+  try {
+    const id = (JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as { user?: { id?: unknown } } | null)?.user?.id;
+    return typeof id === 'string' ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 let clientPromise: Promise<GoTrueClient | null> | null = null;
 
 /** the auth-js client; created (and its chunk downloaded) on first use, then reused */
@@ -89,12 +100,15 @@ export async function user(): Promise<AuthUser | null> {
   return { id: u.id, email: u.email, nickname: typeof nickname === 'string' ? nickname : undefined };
 }
 
+/** A new account, signed in straight away: the project doesn't confirm e-mail addresses. (Were
+ *  confirmation switched back on, sign-up would return no session, and signing in reports why.) */
 export async function signUp(email: string, password: string, nickname: string): Promise<AuthResult> {
   const c = await client();
   if (!c) return unavailable;
   const nick = cleanNick(nickname);
-  const { error } = await c.signUp({ email, password, options: { data: nick ? { nickname: nick } : undefined, emailRedirectTo: location.origin + location.pathname } });
-  return error ? { ok: false, error: authMessage(error) } : { ok: true };
+  const { data, error } = await c.signUp({ email, password, options: { data: nick ? { nickname: nick } : undefined } });
+  if (error) return { ok: false, error: authMessage(error) };
+  return data.session ? { ok: true } : signIn(email, password);
 }
 
 export async function signIn(email: string, password: string): Promise<AuthResult> {
@@ -130,7 +144,8 @@ export async function updatePassword(password: string): Promise<AuthResult> {
   return error ? { ok: false, error: authMessage(error) } : { ok: true };
 }
 
-/** the boot link `?code=…` (src/boot/links.ts `authCallback`): let auth-js finish the PKCE exchange
+/** the boot link `?code=…` (src/boot/links.ts `authCallback`: a password reset, or a confirmation
+ *  e-mail sent before sign-up stopped asking for one): let auth-js finish the PKCE exchange
  *  (it also runs this on its own at construction, but we await it here to know the outcome), then
  *  scrub `code`/`reset`/error params out of the URL so a refresh doesn't replay them. */
 export async function handleAuthCallback(): Promise<{ signedIn: boolean }> {

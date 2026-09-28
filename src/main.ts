@@ -17,9 +17,11 @@ import { spawnAt } from './shared/world/spawns';
 import type { OnboardingUi, Welcome } from './game/features/OnboardingUi';
 import { markIntro } from './game/features/onboarding/seen';
 import {
-  completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
+  completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
 } from './ui/AccountUi';
 import { wireContactButton } from './ui/ContactUi';
+import { ReferralCard } from './ui/ReferralUi';
+import { setPendingRef } from './net/referral';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -72,11 +74,18 @@ async function boot() {
     }
     history.replaceState(null, '', location.pathname + location.search);
   }
+  // #ref=nick-code (docs/referrals.md): kept until this device's next online hello carries it (a new
+  // player there is the sender's friend); the menu says why it's worth going online
+  const refCode = links.ref && SERVER_URL ? links.ref : null;
+  if (refCode) {
+    setPendingRef(refCode);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   const game = new Game(canvas, data, { online: onlineBoot || !!joinCode });
   (window as unknown as { game: Game }).game = game;
-  // an account e-mail link coming back (confirm sign-up, or a password reset — reset=1 always also
-  // carries the same ?code=, so both exchange it the same way). Fire-and-forget: it's a quick local
-  // round trip and shouldn't hold up the first frame.
+  // an account e-mail link coming back: a password reset (reset=1 always also carries ?code=), or an
+  // old sign-up confirmation (sign-up no longer asks for one: it just signs in). Fire-and-forget: it's
+  // a quick local round trip and shouldn't hold up the first frame.
   if (links.authCallback || links.reset) {
     void (async () => {
       const { signedIn } = await handleAuthCallback();
@@ -84,11 +93,7 @@ async function boot() {
         markPasswordResetPending();
         if (signedIn) await completePasswordReset();
         else toast('Odkaz na obnovenie hesla je neplatný alebo vypršal.', '#ff8a80');
-      } else if (signedIn) {
-        await offerClaimAndGoOnline(); // tells the player, offers the claim, reloads into #online
-      } else {
-        toast('Účet potvrdený, môžeš sa prihlásiť.');
-      }
+      } else if (signedIn) continueOnline();
     })();
   }
   try {
@@ -199,8 +204,15 @@ async function boot() {
   /** the greeting as the player comes into the city, and a newcomer's introduction before it */
   const onboarding = game.features.find((f) => f.id === 'onboarding') as OnboardingUi;
 
+  // the referral link, in the main menu and the pause menu (docs/referrals.md): online play only
+  const refNick = () => game.online?.nick ?? loadIdentity()?.nick ?? '';
+  const menuRef = SERVER_URL ? new ReferralCard(refNick) : null;
+  const pauseRef = SERVER_URL ? new ReferralCard(refNick) : null;
+  if (menuRef) document.querySelector('#menu .buttons')?.after(menuRef.root);
+  if (pauseRef) $('btn-quit').before(pauseRef.root);
   const showMenu = () => {
     mode = 'menu';
+    void menuRef?.refresh();
     game.running = false;
     $('menu').classList.remove('hidden');
     $('pause').classList.add('hidden');
@@ -446,6 +458,7 @@ async function boot() {
   };
   game.onPause = (p) => {
     $('pause').classList.toggle('hidden', !p);
+    if (p) void pauseRef?.refresh();
     // (and on the way out, the controls panel goes back to the main menu)
     showPauseView('main');
   };
@@ -544,6 +557,7 @@ async function boot() {
     return;
   }
   $('loading').classList.add('hidden');
+  if (refCode) toast('Kamarát ťa pozval do spoločného mesta: klikni na Online!', '#ffd740', 5000);
   if (location.hash === '#new') {
     history.replaceState(null, '', location.pathname + location.search);
     startGame(false);

@@ -282,8 +282,12 @@ On top of that shared world, there's a set of social features (protocol 7):
 - **Proximity voice chat**, for signed-in accounts only: nearby players hear each other over WebRTC,
   with mute, report and a kill switch.
 - **Guest or account play**: guests keep today's local-nickname flow; a Supabase account (e-mail +
-  password) keeps progress across every device and unlocks voice chat. A guest can claim their
-  progress into a fresh account once.
+  password, no e-mail confirmation: you're in straight away) keeps progress across every device and
+  unlocks voice chat. A guest can claim their progress into a fresh account once.
+- **Pozvi kamaráta** ([docs/referrals.md](docs/referrals.md)): every player, guest or account, has a
+  referral link, shown in the main menu and the pause menu. A new player who comes in through it (or
+  through a party invite) earns the sender €1 000 once they have an account and 50 minutes of real play,
+  and €3 000 in all after an hour.
 - **Rebríček** (L, or the pause menu): points for nearly everything above — events, jobs, races,
   getaways from the police, landmarks and Čumils, reviving others — on boards for today, this week and
   all time, overall and per kind of thing (Udalosti, Na úteku, Práca, Závody, Mesto, Pomoc, Minihry). Points

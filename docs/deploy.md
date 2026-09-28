@@ -175,16 +175,17 @@ Under **Authentication** in the Supabase dashboard. Set all of this by hand — 
 config push`: `supabase/config.toml`'s `[auth]` block is local-dev config (localhost Site URL and
 redirect URLs included), and that command would overwrite the hosted project's settings with it.
 
-- **Providers → Email**: enabled, with **Confirm email** on (both are the project defaults).
+- **Providers → Email**: enabled, with **Confirm email** *off*: sign-up signs the player in straight away
+  (`src/net/auth.ts` `signUp`); there's no confirmation step in the game any more.
 - **URL Configuration**: Site URL = the production frontend URL; **Redirect URLs** add
   `https://<prod>/**`, `https://*.workers.dev/**` (Cloudflare preview builds), `http://localhost:5173/**`
-  and `http://localhost:4173/**` (dev and preview). Sign-up confirmation and password reset both round-trip
+  and `http://localhost:4173/**` (dev and preview). Password reset round-trips
   through one of these.
 - **JWT Keys**: confirm the project signs with **ES256** (asymmetric) keys — `server/src/auth.ts` pins
   `ES256` and won't accept a token signed with the legacy shared secret. A project still on that legacy
   secret needs **Migrate**, then **Rotate**, in the dashboard.
-- **Email templates**: paste the Slovak templates from `supabase/templates/confirm.html` (sign-up) and
-  `supabase/templates/reset.html` (password reset) into the matching dashboard templates. Both use
+- **Email templates**: paste the Slovak template `supabase/templates/reset.html` (password reset) into
+  the matching dashboard template (`confirm.html` is only for if **Confirm email** is ever switched back on). It uses
   `{{ .ConfirmationURL }}`.
 - **Custom SMTP before launch.** The built-in sender allows only **2 e-mails/hour**, project-wide —
   fine for testing, not for real signups. Set up Resend, Postmark, SES or similar under

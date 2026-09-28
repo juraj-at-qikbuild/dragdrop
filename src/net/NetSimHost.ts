@@ -25,6 +25,7 @@ import { Connection, type FatalReason, type NetStatus } from './Connection';
 import { Mirrors } from './Mirrors';
 import { clearIdentity, JOIN_KEY, newToken, saveIdentity, type Identity } from './identity';
 import { accessToken, signOut } from './auth';
+import { clearPendingRef, pendingRef, setReferralStats } from './referral';
 import { goToMenu } from '../boot/links';
 
 /** how often an account's cached access token is refreshed while online (Connection.hello() reads
@@ -80,6 +81,8 @@ export class NetSimHost implements SimHost, NetView {
   takesTrams = false;
   /** the server takes the `mini` message (its welcome's `caps`; docs/plans/minigames.md) */
   takesMini = false;
+  /** the server takes the `referral` message (its welcome's `caps`; docs/referrals.md) */
+  private takesReferral = false;
   /** the cab's controls as last sent, and when (performance.now() ms) */
   private cabSent = { th: 0, st: 0, at: 0 };
   /** away and safe on the server: nothing can hurt us (src/shared/sim/rules/Presence.ts) */
@@ -147,6 +150,7 @@ export class NetSimHost implements SimHost, NetView {
       auth: account ? (this.authToken ?? undefined) : undefined,
       claim: account && this.claimPending ? true : undefined,
       join,
+      ref: pendingRef(),
       presence: true,
       analytics: true,
     };
@@ -162,6 +166,9 @@ export class NetSimHost implements SimHost, NetView {
     } catch {
       /* ignore */
     }
+    // the same for a `#ref=` code: the server has decided (docs/referrals.md)
+    clearPendingRef();
+    this.takesReferral = !!w.caps?.includes('referral');
     const me = this.me;
     me.id = w.id;
     this.nick = w.nick;
@@ -319,6 +326,9 @@ export class NetSimHost implements SimHost, NetView {
         break;
       case 'catalog':
         this.live.catalog = m.prices;
+        break;
+      case 'referral':
+        setReferralStats(m);
         break;
       case 'correct': {
         const p = this.me.ped;
@@ -866,6 +876,8 @@ export class NetSimHost implements SimHost, NetView {
     this.away = on;
     if (!on) this.shielded = false; // back in control: the server drops the shield at once too
     if (this.serverPresence) this.conn.send({ t: 'away', on });
+    // the pause menu shows the referral link: bring its friends' minutes up to date
+    if (on && this.takesReferral) this.conn.send({ t: 'referral' });
   }
 
   /** reconnect now instead of waiting out the backoff (the page is back in view, or the network is) */

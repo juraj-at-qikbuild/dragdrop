@@ -97,6 +97,9 @@ export class Session {
   lastPose: { x: number; y: number } | null = null;
   lastPoseAt = 0;
   lastReportAt = 0;
+  /** the client's last gameplay input (its `activity` pulse, at most every 5 s; features/Analytics.ts),
+   *  Room.now ms: never set for a client that doesn't send it */
+  inputAt = -Infinity;
   wasInCar = false;
   /** the epoch lastPose belongs to: a server-side teleport (respawn) starts a new baseline */
   poseEpoch = -1;
@@ -568,7 +571,7 @@ export class Room {
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
       car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
-      caps: ['tram', 'mini', 'analytics'],
+      caps: ['tram', 'mini', 'analytics', 'referral'],
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats, gear: p.profile.gear ?? {} });
     // still on a tram (a reconnect): the new connection's client is told so again
