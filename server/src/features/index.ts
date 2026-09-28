@@ -16,6 +16,7 @@ import { Presence } from './Presence';
 import { Leaderboard } from './Leaderboard';
 import { Police } from './Police';
 import { Shops } from './Shops';
+import { MiniGames } from './MiniGames';
 
 export type { RoomFeature };
 export { Activity, Daily, Leaderboard, RemoteConfig, Supa, Voice };
@@ -42,6 +43,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Leaderboard(room));
   out.push(new Police(room));
   out.push(new Shops(room, remoteConfig));
+  out.push(new MiniGames(room));
   // each feature adds its line here …
   return out;
 }

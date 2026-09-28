@@ -12,6 +12,7 @@ import type { Level } from '../world/World';
 import type { DailyState, EventEntry, EventKind, EventSchedule, JobKind } from '../sim/rules/types';
 import type { BoardId, ScorePeriod } from '../sim/rules/points';
 import type { Gear, Prices } from '../sim/shops/catalog';
+import type { MiniKind, MiniOpen, MiniReq } from '../sim/rules/minigames/types';
 
 /** Bumped whenever the wire format changes; the server refuses mismatched clients.
  *  v4: levels include -1 (in a tunnel).
@@ -152,6 +153,9 @@ export type ClientMsg =
   | { t: 'accountDelete' }
   /** a page of the leaderboard (docs/plans/leaderboard.md): the server answers with `board` */
   | { t: 'board'; period: ScorePeriod; board: BoardId }
+  /** mini-games (docs/plans/minigames.md; rules/minigames): start one, join a round, leave, start the
+   *  lobby now, the action key. Sent only to a server whose welcome lists 'mini' in its `caps`. */
+  | ({ t: 'mini' } & MiniReq)
   /** tests only (server started with E2E=1) */
   | {
       t: 'debug';
@@ -174,6 +178,8 @@ export type ClientMsg =
       tram?: boolean;
       /** park a car of this kind beside the player (the garage's e2e, scripts/e2e-shops.mjs) */
       car?: VehicleKind;
+      /** start a mini-game round of this kind for the player, its lobby cut short (the mini-games' e2e) */
+      mini?: MiniKind;
     };
 
 // ------------------------------------------------------------ server → client (JSON)
@@ -205,7 +211,8 @@ export interface WelcomeMsg {
    *  from before docs/plans/pause-resume.md leave it out, and don't take `away`. */
   resumed?: 'live' | 'saved' | 'fresh';
   /** what this server takes beyond protocol 7's baseline: 'tram' (the `tram` message; docs/plans/
-   *  gameplay.md, Phase 3). Servers from before leave it out, and get none. */
+   *  gameplay.md, Phase 3), 'mini' (the `mini` message; docs/plans/minigames.md). Servers from before
+   *  leave it out, and get none. */
   caps?: string[];
 }
 
@@ -288,6 +295,8 @@ export interface WevMsg {
   /** what's coming next (the Aktivity panel). Optional both ways, so protocol 7 either way: a server
    *  from before it leaves it out, and a client from before ignores it */
   up?: EventSchedule;
+  /** the mini-game rounds others can still join (docs/plans/minigames.md). Optional both ways too */
+  mg?: MiniOpen[];
 }
 
 export type ErrorCode = 'version' | 'bad-hello' | 'full' | 'auth' | 'auth-unavailable' | 'nick-taken';

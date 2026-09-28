@@ -41,7 +41,7 @@ const total = (scored: [string, number, ScoreSource][], nick: string, src?: Scor
 
 describe('the points table', () => {
   it('puts every source on a board', () => {
-    for (const src of Object.keys(SOURCE_BOARD) as ScoreSource[]) expect(['events', 'police', 'jobs', 'races', 'city', 'help', 'style']).toContain(SOURCE_BOARD[src]);
+    for (const src of Object.keys(SOURCE_BOARD) as ScoreSource[]) expect(['events', 'police', 'jobs', 'races', 'city', 'help', 'style', 'games']).toContain(SOURCE_BOARD[src]);
   });
 
   it('scales getaways by stars, jobs by pay and bounties by size', () => {

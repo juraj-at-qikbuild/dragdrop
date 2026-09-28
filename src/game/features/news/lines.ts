@@ -6,6 +6,7 @@
 import type { GlobalEvent } from '../../../shared/sim/events';
 import type { EventKind } from '../../../shared/sim/rules/types';
 import { formatMoney, formatPoints, rng } from '../../../shared/util/math';
+import { MINI_INFO } from '../../../shared/sim/rules/minigames/catalog';
 
 export interface NewsLine {
   text: string;
@@ -320,6 +321,31 @@ export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
         `Rebríček sa začína odznova. Včera vyhral ${e.nick}, ${pts}.`,
       ];
       return { text: pick(variants, `DW:${e.nick}:${e.pts}`), priority: 2 };
+    }
+    // ---- mini-games (docs/plans/minigames.md)
+    case 'miniOpen': {
+      const at = place(e.x, e.y);
+      const name = MINI_INFO[e.kind].title;
+      const variants = [
+        `${e.nick} zháňa spoluhráčov na ${name} ${at} – kto je blízko, pridajte sa!`,
+        `Rádio Kecy hlási: ${at} sa chystá ${name}. Hráč ${e.nick} čaká na súperov.`,
+        `${name} ${at}! ${e.nick} hľadá, s kým si to rozdať.`,
+      ];
+      return { text: pick(variants, `MO:${e.kind}:${e.nick}:${e.x}:${e.y}`), priority: 1 };
+    }
+    case 'miniResult': {
+      const at = place(e.x, e.y);
+      const name = MINI_INFO[e.kind].title;
+      const variants = e.winner
+        ? [
+            `${name} ${at} má víťaza: ${e.winner} porazil ${e.n - 1 === 1 ? 'jedného súpera' : `${e.n - 1} súperov`}!`,
+            `Rádio Kecy gratuluje: ${e.winner} vyhral ${name} ${at}.`,
+            `${e.winner} je kráľom hry ${name} ${at}. Ostatní si to zopakujú.`,
+          ]
+        : e.won
+          ? [`Partia ${e.n} hráčov to zvládla: ${name} ${at} je za nami!`, `${name} ${at}: tímová práca, ${e.n} hráči to dali spolu.`]
+          : [`${name} ${at} sa nepodarilo – ${e.n} hráči to tentoraz nedali.`, `Smola ${at}: ${name} vyhralo mesto.`];
+      return { text: pick(variants, `MR:${e.kind}:${e.winner ?? ''}:${e.n}:${e.x}:${e.y}`), priority: 2 };
     }
     default:
       // exhaustive: every GlobalEvent kind is handled above. Kept for a future kind added to the

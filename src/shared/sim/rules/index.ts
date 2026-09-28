@@ -13,6 +13,7 @@ import { Ambulances } from './Ambulances';
 import { Bikes } from './Bikes';
 import { Trams } from './Trams';
 import { Boats } from './Boats';
+import { MiniGames } from './minigames/MiniGames';
 import { KOFOLKA_DEF } from './events/Kofolka';
 import { CUMIL_HUNT_DEF } from './events/CumilHunt';
 import { MOST_WANTED_DEF, MostWantedWatch } from './events/MostWanted';
@@ -41,6 +42,9 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   rules.push(new Bikes(sim));
   rules.push(new Trams(sim));
   rules.push(new Boats(sim));
+  // the mini-games a player starts from the Aktivity panel, alone or with whoever joins
+  // (docs/plans/minigames.md): both modes
+  rules.push(new MiniGames(sim, mode));
   // online-only: offline never sets SimOptions.downed (revive), a lone player can't be "most wanted"
   // (minPlayers: 2), races need two players, and offline the pause menu freezes the world (Presence)
   if (mode === 'server') {

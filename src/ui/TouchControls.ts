@@ -89,6 +89,8 @@ export class TouchControls {
     this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Streľba', cls: 't-fire' });
     this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Zbraň', cls: 't-weapon' });
     this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car], label: '', cls: 't-use' });
+    // a mini-game's action (docs/plans/minigames.md): shown with what it does, while there's one
+    this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car], label: '', cls: 't-use t-mini' });
     this.add('brake', 'hold', 'BRZDA', { code: 'brake', in: ['car-d'], label: 'Brzda', cls: 't-brake' });
     this.add('pedal', 'pedal', '', { in: ['car-c'], label: 'Plyn a brzda', cls: 't-pedal' });
     this.add('handbrake', 'hold', 'RUČNÁ', { code: 'handbrake', in: car, label: 'Ručná brzda', cls: 't-hand' });
@@ -341,12 +343,14 @@ export class TouchControls {
     const v = g.player.vehicle;
     const pr = ctx === 'foot' || ctx === 'car-d' || ctx === 'car-c' ? g.prompt() : null;
     const useText = pr?.use ? pr.text : v ? (v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
+    const miniText = g.host.live.mini?.act ?? '';
     const hasGun = g.ammo.pistol > 0 || g.ammo.uzi > 0 || g.ammo.shotgun > 0;
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
     const acts = g.hud.activitiesRect;
     const voice = g.features.find((f) => f.id === 'voice') as { pushToTalk?: boolean } | undefined;
     const show: Record<string, boolean> = {
       use: !!useText,
+      mini: !!miniText,
       // a drive-by needs a gun (Game picks one when the fists are out)
       fire: !v || hasGun,
       // (a scooter or a bike has neither a radio nor nitro)
@@ -357,7 +361,7 @@ export class TouchControls {
       activities: !!acts,
     };
     const rectKey = (r: { x: number; y: number; w: number; h: number } | null) => (r ? `${r.x},${r.y},${r.w},${r.h}` : '');
-    const key = `${ctx}|${useText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
+    const key = `${ctx}|${useText}|${miniText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
     if (key !== this.shown) {
       this.shown = key;
       for (const c of this.controls) {
@@ -368,6 +372,7 @@ export class TouchControls {
       }
       const use = this.byId.get('use')!.el;
       use.textContent = useText;
+      this.byId.get('mini')!.el.textContent = miniText;
       if (daily) setRect(this.byId.get('daily')!.el, daily);
       if (acts) setRect(this.byId.get('activities')!.el, acts);
     }
@@ -436,6 +441,7 @@ export class TouchControls {
         at('weapon', -150, -34, 58);
         at('talk', -150, -112, 46);
         this.pill('use', ax - 10 * ts, ay - 118 * ts);
+        this.pill('mini', ax - 10 * ts, ay - 176 * ts);
       },
       car: (classic: boolean) => {
         if (classic) {
@@ -456,6 +462,7 @@ export class TouchControls {
         }
         at('talk', -252, -150, 40);
         this.pill('use', ax - 10 * ts, ay - 196 * ts);
+        this.pill('mini', ax - 10 * ts, ay - 254 * ts);
       },
       downed: () => this.pill('giveup', ax - 10 * ts, ay - 40 * ts),
       busted: () => this.pill('bribe', ax - 10 * ts, ay - 40 * ts),
