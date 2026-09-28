@@ -208,15 +208,35 @@ Cars parked on the tracks ahead (spawned): ring the bell (H) and wait for the dr
 tow truck, or push it and pay for the damage. With two, the second drives the tow truck that clears
 the line. Pay by stops on time.
 
-### Povodeň (`flood`)
-The Danube rises in waves at the Old Town embankment (Fajnorovo/Rázusovo nábrežie): gaps in the
-mobile wall along it (marks), panels at a depot (a truck); carry a panel (the action key) to a gap and
-set it (the action key). Before each wave's peak every gap must be closed; an open one floods the
-street behind it (a zone). Flood tourists taking selfies get in the way. Together with others. A
-drawer shows the water line. Pay by gaps held, waves survived.
+### Povodeň (`flood`) — built
+The wall stands on the real bank: the river's edge between Most SNP's deck and Eurovea (scanned once
+per map from `inWater`, median-smoothed), 14 m inland of it on the promenade, nearest the start (Rázusovo,
+Vajanského, Fajnorovo nábrežie, the Eurovea promenade). 10 gaps 16 m apart, 5 open at first (one more for
+each player who joins the lobby, at most 8); a van (locked, scenery) and its stack of panels behind the
+wall's middle. On foot: take a panel at the stack, set it in a gap within 3.5 m (the action key). Started
+away from the river, it's "Utekaj na …!" first: the waves start when someone's within 60 m of the stack
+(or after 180 s anyway); further than 1.5 km it won't start. Four waves peak at 75, 130, 185 and 240 s
+(8.4, 9.0, 9.4, 9.7 m; the HUD's countdown is to the next peak); an open gap at a peak floods the street
+behind it (a zone mark, the drawer's water) and costs the shared score €10; three breaches and it's
+lost. 8 s after each peak the wave knocks out 1 + players panels. Flood tourists (every 15 s alone, 9 s
+with others; 2, up to 4 at a time) stroll to an open gap and take selfies in it; the panel waits until
+they're asked (the action key, "Choďte preč, prosím!") and go 2 s later. Together: one score, the same
+pay (€40 a wave held, €60 for no breach at all) plus €3 a panel set (up to €30); lost, €15 + €2 a panel
+(up to €15), nothing if nobody set one. The drawer: the river climbing the promenade to the wall
+(wider and lighter as it rises), the wall's sections grey, set panels orange, open gaps blinking red
+in the last 15 s before a peak, the flooded streets, the stack, the panel carried.
 
-### Horúčava (`heat`)
-A heat meter fills in the sun (fastest on the new Námestie SNP), drains in the shade (trees, arcades),
-at drinking fountains and fountains, in the Primate's Palace and on a tram (if its air conditioning
-works: a coin flip per tram). Deliver ice cream from Stará tržnica to customers before it melts; the
-heat also makes the wobble. Alone against the clock; with others, who delivers most.
+### Horúčava (`heat`) — built
+Four minutes. Up to two cones at a time from the counter at Stará tržnica (the action key, from a car's
+window too), to customers (people waiting outside cafés and bistros 300–900 m from the market, 150 m
+apart; two alone, one more than the players with others). Where the player is sets how fast they heat
+up and the ice cream melts (looked at every 0.25 s): the sun (full heat in 150 s, a cone in 130 s),
+Námestie SNP's outline, the asphalt sea (70 s, 75 s, "60 °C"; the market's counter is on it), running
+×1.6; shade under the trees' canopies or a roof cools, as do the drinking fountains (❄️, marked within
+250 m), the fountains (the map's small water), the city's mist sprayers on Hlavné, Kamenné and
+Hviezdoslavovo námestie, the Primate's Palace (its courtyard, through the gateway) and a tram whose air
+conditioning works (a coin flip per tram and round: "Klíma ide!", else "Vyhňa…", which cooks); a car has
+none. Over 55 % the legs go (`x.wobble`); at 100 % they faint: the cones in hand are gone, the heat
+drops to 50 % and they're dizzy for 8 s. Pay €40 a cone + a tip of up to €20 for how much of it is still
+ice cream; with others, whoever delivers most (ties: the tips) gets €40/20/10 more. The drawer: a warm
+haze closing in from the screen's edges as the heat rises.
