@@ -56,6 +56,8 @@ export class Tram {
   /** the next link, picked early so a stop just past the end of this one is seen in time */
   private upcoming: Link | null = null;
   private upcomingPts: number[] | null = null;
+  /** the way it keeps to at the junctions ahead, link by link (follow) */
+  private route: Link[] = [];
 
   /** a mirror (client side) has no graph: its sections are set from snapshots. `stops`: the tram
    *  stops on the tracks (World.tramStops), where it halts to let people on */
@@ -74,6 +76,11 @@ export class Tram {
   private nextLink() {
     const graph = this.graph!;
     const node = this.link.to;
+    // on a way it was given (follow): the next link of it, as long as that goes on from here and
+    // nobody's taken the cab; else it's off it for good
+    const via = this.route.shift();
+    if (via && !this.driver && graph.out[node].includes(via)) return via;
+    this.route.length = 0;
     const opts = graph.out[node].filter((l) => l.edge !== this.link.edge);
     // prefer continuing straight
     const px = this.pts[this.pts.length - 4], py = this.pts[this.pts.length - 3];
@@ -193,6 +200,15 @@ export class Tram {
     this.speed += Math.sign(target - this.speed) * Math.min(Math.abs(target - this.speed), (this.blocked ? 6 : 1.6) * dt);
     if (this.speed > 0) this.advance(this.speed * dt);
     this.updateSections();
+  }
+
+  /** Keep to `links` at the junctions ahead, one after the other from the end of the link it's on
+   *  (a mini-game's own tram running to where its passengers are going:
+   *  rules/minigames/games/tramline.ts); [] lets it pick its own way again. Whatever it had already
+   *  picked ahead is picked again. */
+  follow(links: Link[]) {
+    this.route = links.slice();
+    this.upcoming = this.upcomingPts = null;
   }
 
   /** A player takes the cab (`pid`), or hands it back to the AI (0): whatever junction the AI had

@@ -1,7 +1,7 @@
 // server/src/features/Party.ts (docs/plans/social-events.md "Partia + invite link"). Invites are
-// persisted, so every test here runs against a temp-file SQLite Store (server/test/db.test.ts's
-// withDb pattern), not the in-memory-only Room `setup()` in room.test.ts.
-import { describe, expect, it } from 'vitest';
+// persisted, so every test here runs against a temp-file SQLite Store (withDb below), not the
+// in-memory-only Room `setup()` in room.test.ts.
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,18 +16,21 @@ import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, TOKEN_C, loadWorld } from './hel
 const TOKEN_D = '44444444-4444-4444-8444-444444444444';
 const TOKEN_E = '55555555-5555-4555-8555-555555555555';
 
-function withDb(fn: (file: string) => void) {
+/** a fresh temp-file Store for one test, closed and removed after it, pass or fail: closed first (Windows
+ *  can't delete a directory while the database in it is open), and from onTestFinished rather than a
+ *  `finally`, so a cleanup error is reported alongside the test's own failure instead of replacing it */
+function withDb(fn: (store: Store) => void) {
   const dir = mkdtempSync(path.join(tmpdir(), 'blava-party-'));
-  try {
-    fn(path.join(dir, 'test.db'));
-  } finally {
+  const store = new Store(path.join(dir, 'test.db'));
+  onTestFinished(() => {
+    store.close();
     rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  fn(store);
 }
 
-function setup(file: string) {
+function setup(store: Store) {
   const clock = new FakeClock();
-  const store = new Store(file);
   const room = new Room({ world: loadWorld(), now: clock.now, wallClock: clock.now, seed: 7, store, debug: true });
   const join = (token: string, nick: string, extra: { join?: string } = {}) => {
     const link = new FakeLink();
@@ -45,7 +48,7 @@ function setup(file: string) {
       room.tick(50);
     }
   };
-  return { clock, store, room, join, invite, leave, kick, tick };
+  return { clock, room, join, invite, leave, kick, tick };
 }
 
 /** the code from the most recent {k:'invite'} private event sent to this link */
@@ -77,8 +80,8 @@ function msgTexts(link: FakeLink): string[] {
 
 describe('Party', () => {
   it('mints a 10-char base32 invite code (50 bits), rate-limited to one per 10 s', () => {
-    withDb((file) => {
-      const { join, invite, tick, clock } = setup(file);
+    withDb((store) => {
+      const { join, invite, tick, clock } = setup(store);
       const a = join(TOKEN_A, 'Fero');
 
       invite(a.conn);
@@ -101,8 +104,8 @@ describe('Party', () => {
   });
 
   it('a 6-char code minted before the length increase still joins fine (getInvite has no length check)', () => {
-    withDb((file) => {
-      const { room, store, join, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       store.createInvite('ab23cd', hashToken(TOKEN_A), room.wallNow(), 24 * 60 * 60 * 1000); // a legacy 6-char code
       const b = join(TOKEN_B, 'Boris', { join: 'ab23cd' });
@@ -115,8 +118,8 @@ describe('Party', () => {
   });
 
   it('hello.join with a new session: same party, spawned within 8 m of the inviter', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -136,8 +139,8 @@ describe('Party', () => {
   });
 
   it('hello.join on an existing session: a teleport event arrives', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -158,8 +161,8 @@ describe('Party', () => {
   });
 
   it('an offline or unknown inviter: a message (with their nick when known), and a normal spawn', () => {
-    withDb((file) => {
-      const { room, store, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -181,8 +184,8 @@ describe('Party', () => {
   });
 
   it('an expired or invalid code: "Pozvánka už neplatí." and a normal spawn', () => {
-    withDb((file) => {
-      const { room, join, invite, tick, clock } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick, clock } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -202,8 +205,8 @@ describe('Party', () => {
   });
 
   it('a full party (4) refuses a 5th joiner', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Lea');
       invite(a.conn);
       tick();
@@ -224,8 +227,8 @@ describe('Party', () => {
   });
 
   it('hurtPlayer does nothing between party members but works with outsiders', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -248,8 +251,8 @@ describe('Party', () => {
   });
 
   it("jacking a member's stopped car is refused; an outsider's works", () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -281,8 +284,8 @@ describe('Party', () => {
   });
 
   it('splits event-reason payouts among connected, nearby, play/downed members; other reasons do not', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -310,8 +313,8 @@ describe('Party', () => {
   });
 
   it('leave, kick, leader handoff on removal, and dissolving (with its codes) when the last member drops', () => {
-    withDb((file) => {
-      const { room, store, join, invite, leave, kick, tick, clock } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, leave, kick, tick, clock } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -364,8 +367,8 @@ describe('Party', () => {
   });
 
   it('a member who leaves the city keeps their seat: listed offline, and straight back in when they return', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -388,8 +391,8 @@ describe('Party', () => {
   });
 
   it('a seat nobody comes back for lapses; a party left with only held seats dissolves when they do', () => {
-    withDb((file) => {
-      const { room, clock, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, clock, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -418,8 +421,8 @@ describe('Party', () => {
   });
 
   it('the leader can kick a held seat (by its stand-in id); a deleted account is out at once', () => {
-    withDb((file) => {
-      const { room, join, invite, kick, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, kick, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -447,8 +450,8 @@ describe('Party', () => {
   });
 
   it("a member's own invite is deleted when they leave, even though the party lives on without them", () => {
-    withDb((file) => {
-      const { room, store, join, invite, leave, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, leave, tick } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -468,8 +471,8 @@ describe('Party', () => {
   });
 
   it("a kicked player is refused when rejoining via another member's invite, until the 30-minute ban expires", () => {
-    withDb((file) => {
-      const { room, join, invite, kick, tick, clock } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, kick, tick, clock } = setup(store);
       const a = join(TOKEN_A, 'Fero');
       invite(a.conn);
       tick();
@@ -501,8 +504,8 @@ describe('Party', () => {
   });
 
   it('the roster carries pt (party id, tag, colour) for active parties', () => {
-    withDb((file) => {
-      const { room, join, invite, tick } = setup(file);
+    withDb((store) => {
+      const { room, join, invite, tick } = setup(store);
       const a = join(TOKEN_A, 'Anet');
       invite(a.conn);
       tick();

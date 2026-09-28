@@ -126,6 +126,40 @@ describe('what the police see', () => {
   });
 });
 
+describe('heat: stars come one at a time (Sim.STAR_HEAT)', () => {
+  it('the first crime is a star; each star after it takes more', () => {
+    const { sim } = setup(9);
+    const p = player(sim, along(30));
+    sim.crime(p, 'hitCop'); // ramming a police car: 0.4 heat, once in 8 s
+    expect(p.stars).toBe(1);
+    const ramsTo = (stars: number) => {
+      let n = 0;
+      for (; p.stars < stars && n < 50; n++) {
+        sim.time += 8.1;
+        sim.crime(p, 'hitCop');
+      }
+      return n;
+    };
+    // 1.5 heat to the second star, 2 more to the third
+    expect(ramsTo(2)).toBe(4);
+    expect(ramsTo(3)).toBe(5);
+    // (within the cooldown a ram adds nothing)
+    const heat = p.heat;
+    sim.crime(p, 'hitCop');
+    expect(p.heat).toBe(heat);
+  });
+
+  it('a big crime from nothing: a star, and the rest as heat toward the next', () => {
+    const { sim } = setup(9);
+    const p = player(sim, along(30));
+    sim.crime(p, 'stealCop');
+    expect(p.stars).toBe(1);
+    expect(p.heat).toBeCloseTo(0.5, 6);
+    sim.setWanted(p, 3);
+    expect(p.heat).toBe(0);
+  });
+});
+
 describe('the description', () => {
   it('a witness\'s report sends the police to the crime scene, looking for the car used there', () => {
     const { sim } = setup(4);

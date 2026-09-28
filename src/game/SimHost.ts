@@ -16,6 +16,7 @@ import type { ChallengeState, DailyState, EventEntry, EventSchedule, JobKind, Jo
 import type { ShopReq } from '../shared/sim/rules/Shops';
 import type { TramOp } from '../shared/sim/rules/Trams';
 import type { Prices } from '../shared/sim/shops/catalog';
+import type { MiniOpen, MiniReq, MiniState } from '../shared/sim/rules/minigames/types';
 
 /** The local player as the client sees it (SimPlayer offline, server-fed state online). */
 export interface MeView {
@@ -79,6 +80,12 @@ export interface LiveState {
   /** the tram this player is on, and whether in its cab (docs/plans/gameplay.md, Phase 3: the `tram`
    *  event); null on foot or in a car */
   tram: { id: number; cab: boolean } | null;
+  /** the mini-game round this player is in (docs/plans/minigames.md: the `mini` event), and when it
+   *  arrived (performance.now() ms: its `left` counts down from then); null when none */
+  mini: MiniState | null;
+  miniAt: number;
+  /** the rounds others started that this player could still join (`wev.mg` online, the rule offline) */
+  miniOpen: MiniOpen[];
 }
 
 /** the `police` private event, as kept: the description (car 0: on foot), whether the player matches
@@ -99,7 +106,13 @@ export function emptyLive(): LiveState {
   return {
     events: [], eventsAt: 0, schedule: null, daily: null, party: null, job: null, race: null, challenge: null, revive: null,
     partyTags: new Map(), score: null, police: null, bribe: null, catalog: null, shop: null, tram: null,
+    mini: null, miniAt: 0, miniOpen: [],
   };
+}
+
+/** seconds left in the mini-game round's phase, now */
+export function miniLeft(live: LiveState, now = performance.now()) {
+  return live.mini ? Math.max(0, live.mini.left - (now - live.miniAt) / 1000) : 0;
 }
 
 /** seconds left in a world event's phase, now */
@@ -140,6 +153,10 @@ export function applyLive(live: LiveState, e: PrivateEvent) {
       break;
     case 'shop':
       live.shop = { ok: e.ok, text: e.text, at: performance.now() };
+      break;
+    case 'mini':
+      live.mini = e.s;
+      live.miniAt = performance.now();
       break;
   }
 }
@@ -196,6 +213,10 @@ export interface SimHost {
   readonly takesTrams: boolean;
   tram(op: TramOp): void;
   tramDrive(throttle: number, steer: number, bell: boolean): void;
+  /** mini-games (docs/plans/minigames.md): whether this host has them (online: the server's welcome
+   *  says so), and a request: start one, join a round, leave it, start the lobby now, the action key */
+  readonly takesMini: boolean;
+  mini(req: MiniReq): void;
   /** host-specific reaction to a private event (before the generic effects) */
   onPrivate(e: PrivateEvent): void;
   /** the pause menu opened or closed (Game.setPaused): offline nothing to do (the menu freezes the

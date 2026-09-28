@@ -114,6 +114,9 @@ export interface MapJSON {
   /** World.FIT_VERSION the lanes and walking lines in the graphs were baked with (else the game
    *  fits them itself at startup) */
   fit?: number;
+  /** the car roads were widened (world/widen.ts: by up to this factor, as far as each street has
+   *  room), along with their graph edges, crossings, bumps and signs, and what stood at their kerbs */
+  wide?: number;
   /** name index of each tram stop in `tramStops` (-1 unnamed) */
   tramStopNames?: number[];
   /** raised traffic islands in the carriageway: outline, grassed (g) or paved */

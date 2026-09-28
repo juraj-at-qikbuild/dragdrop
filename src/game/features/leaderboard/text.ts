@@ -15,6 +15,7 @@ export const BOARD_INFO: Record<BoardId, { label: string; icon: string; about: s
   city: { label: 'Mesto', icon: '🗺️', about: 'Kde to je?, objavené pamiatky, skrytí Čumili a zbierka áut.' },
   help: { label: 'Pomoc', icon: '🤝', about: 'Premočení hráči vyfénovaní a postavení na nohy (Dobrý samaritán).' },
   style: { label: 'Štýl', icon: '🏎️', about: 'Kombá: tesné obchádzky, drifty, skoky, jazda v protismere a na červenú, pasáže, čisté úteky.' },
+  games: { label: 'Minihry', icon: '🎲', about: 'Parkovací hon, Revízor, autofutbal, Akcia na maslo, bilbordy, punč, kolobežky, rozkopávky, električka, povodeň, horúčava a Súrna potreba.' },
 };
 
 /** what each thing is worth, for the panel's "Za čo sú body", straight from the points table */
@@ -31,6 +32,7 @@ export function pointsHelp(): string[] {
     `Kde to je?: +${P.daily} b · pamiatka +${P.landmark} b · Čumil +${P.statue} b · zbierka (všetky druhy vozidiel) +${P.collection} b`,
     `Postaviť hráča na nohy: +${P.samaritan} b`,
     `Kombo (tesné obchádzky, drifty, skoky…): 1 b za každých €${STYLE_PER_POINT} z jeho výplaty, najviac ${STYLE_POINTS_MAX} b`,
+    `Minihry (U): 1 b za každých €${Math.round(1 / P.minigamePerDollar)} z výsledku hry`,
     'Partia sa delí o body z udalostí a práce rovnako ako o peniaze. Body sa rátajú iba online.',
   ];
 }

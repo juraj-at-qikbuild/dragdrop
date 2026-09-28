@@ -182,6 +182,8 @@ async function main() {
   // trams (docs/plans/gameplay.md, Phase 3): on, off and the cab; they put the players back too.
   // E2E_TRAMS=0 leaves them out
   if (process.env.E2E_TRAMS !== '0') await import('./e2e-trams.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
+  // mini-games (docs/plans/minigames.md): a round A starts and B joins. E2E_MINI=0 leaves them out
+  if (process.env.E2E_MINI !== '0') await import('./e2e-minigames.mjs').then((m) => m.run({ A, B, check, log, sleep, waitFor }));
 
   // server restart (fly deploy): both clients reconnect by themselves
   log('restarting server…');

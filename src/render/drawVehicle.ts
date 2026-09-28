@@ -21,7 +21,8 @@ const braking = (v: Vehicle) => v.isPlayer && v.ctrl.throttle < 0 && v.fwdSpeed 
 
 /** Headlights, tail/brake lights, police flashers, fire. */
 export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos?: Atmosphere) {
-  if (!atmos) return;
+  // (the car football's ball has no lamps)
+  if (!atmos || v.spec.ball) return;
   const s = v.spec;
   const fx = Math.cos(v.angle), fy = Math.sin(v.angle);
   const rx = -fy, ry = fx;
@@ -102,6 +103,7 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 
 export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
   const s = v.spec;
+  if (s.ball) return drawBall(v, ctx, time, atmos);
   if (s.twoWheeler) return drawTwoWheeler(v, ctx, atmos);
   if (s.boat) return drawBoat(v, ctx, time, atmos);
   const L = s.length, W = s.width;
@@ -756,6 +758,135 @@ function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
     ctx.translate(-L * 0.06, -W * 0.14);
     drawRider(ctx, v.driver, 0.55, true);
   }
+  ctx.restore();
+}
+
+// -------------------------------------------------------------------------------------- the ball
+type V3 = [number, number, number];
+const unit3 = (x: number, y: number, z: number): V3 => {
+  const l = Math.hypot(x, y, z);
+  return [x / l, y / l, z / l];
+};
+
+/** The car football's ball (docs/plans/minigames.md, Vydrž do 95. minúty) is a truncated
+ *  icosahedron: 12 black pentagons centred on an icosahedron's corners, each pentagon's own corners a
+ *  third of the way along the edges to its 5 neighbours, and white hexagons between them, whose seams
+ *  run along the middle third of every such edge. Unit vectors in the ball's frame, worked out once. */
+const FOOTBALL = (() => {
+  const f = (1 + Math.sqrt(5)) / 2;
+  const raw: V3[] = [];
+  for (const a of [-1, 1]) for (const b of [-1, 1]) raw.push([0, a, b * f], [a, b * f, 0], [b * f, 0, a]);
+  const pents: { c: V3; k: V3[] }[] = [];
+  const seams: V3[] = [];
+  raw.forEach((c, i) => {
+    // (neighbours lie 2 apart in these coordinates, the next nearest 2φ)
+    const nb = raw.filter((q, j) => j !== i && Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2]) < 2.1);
+    const cu = unit3(...c);
+    // the corners in order round the centre: by their angle in a plane tangent to it
+    const t1 = unit3(...(Math.abs(cu[0]) < 0.9 ? ([0, -cu[2], cu[1]] as V3) : ([-cu[2], 0, cu[0]] as V3)));
+    const t2: V3 = [cu[1] * t1[2] - cu[2] * t1[1], cu[2] * t1[0] - cu[0] * t1[2], cu[0] * t1[1] - cu[1] * t1[0]];
+    const k = nb
+      .map((q) => unit3((2 * c[0] + q[0]) / 3, (2 * c[1] + q[1]) / 3, (2 * c[2] + q[2]) / 3))
+      .sort((p, q) => Math.atan2(p[0] * t2[0] + p[1] * t2[1] + p[2] * t2[2], p[0] * t1[0] + p[1] * t1[1] + p[2] * t1[2]) - Math.atan2(q[0] * t2[0] + q[1] * t2[1] + q[2] * t2[2], q[0] * t1[0] + q[1] * t1[1] + q[2] * t1[2]));
+    pents.push({ c: cu, k });
+    for (const q of nb)
+      if (raw.indexOf(q) > i) seams.push(unit3((2 * c[0] + q[0]) / 3, (2 * c[1] + q[1]) / 3, (2 * c[2] + q[2]) / 3), unit3((c[0] + 2 * q[0]) / 3, (c[1] + 2 * q[1]) / 3, (c[2] + 2 * q[2]) / 3));
+  });
+  return { pents, seams };
+})();
+
+/** each ball's turn so far (a rotation, row-major: ball frame to the street's, x right, y down the
+ *  screen, z into it) and the time it was last drawn */
+const ballTurns = new WeakMap<Vehicle, { m: number[]; t: number }>();
+
+/** How the ball has turned by `time`: it rolls without slipping, so moving at v it turns about the
+ *  horizontal axis across its path at |v| / r, and the side facing up goes the way it's going. */
+function ballTurn(v: Vehicle, time: number): number[] {
+  let s = ballTurns.get(v);
+  if (!s) ballTurns.set(v, (s = { m: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: time }));
+  const dt = Math.min(0.1, Math.max(0, time - s.t));
+  s.t = time;
+  const r = v.spec.width / 2;
+  const wx = v.vy / r, wy = -v.vx / r, w = Math.hypot(wx, wy), th = w * dt;
+  if (th < 1e-5) return s.m;
+  // Rodrigues' rotation about (kx, ky, 0) by th
+  const kx = wx / w, ky = wy / w, c = Math.cos(th), sn = Math.sin(th), C = 1 - c;
+  const R = [c + kx * kx * C, kx * ky * C, ky * sn, kx * ky * C, c + ky * ky * C, -kx * sn, -ky * sn, kx * sn, c];
+  const m = s.m, o = new Array<number>(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = R[i * 3] * m[j] + R[i * 3 + 1] * m[3 + j] + R[i * 3 + 2] * m[6 + j];
+  // keep it a rotation (rounding drifts): rows orthonormal again
+  const a = unit3(o[0], o[1], o[2]);
+  const d = a[0] * o[3] + a[1] * o[4] + a[2] * o[5];
+  const b = unit3(o[3] - d * a[0], o[4] - d * a[1], o[5] - d * a[2]);
+  s.m = [...a, ...b, a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  return s.m;
+}
+
+/** The car football's ball from above: white, with the black pentagons of a football rolling round
+ *  it the way it goes, lit from the sun's side, its shadow beside it. Kicked hard it's up in the air
+ *  for a moment (drawn only: the pitch's physics keeps it on the ground), so it looms larger over a
+ *  shadow further off. */
+function drawBall(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
+  const r = v.spec.width / 2;
+  const m = ballTurn(v, time);
+  const lift = clamp((v.speed - 13) / 9, 0, 1);
+  const up = lift * 1.3;
+  const night = atmos?.night ?? 0;
+  const sun = atmos && night <= 0.72 ? atmos.sun : { dx: 0.35, dy: 0.5 };
+  ctx.save();
+  ctx.translate(v.x, v.y);
+  ctx.fillStyle = `rgba(0,0,0,${(0.22 + 0.12 * (atmos?.daylight ?? 0.6)) * (1 - lift * 0.45)})`;
+  ctx.beginPath();
+  ctx.ellipse(sun.dx * (0.35 + up), sun.dy * (0.35 + up), r * (0.95 + lift * 0.2), r * (0.88 + lift * 0.2), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.translate(0, -up * 0.55);
+  if (lift > 0) ctx.scale(1 + lift * 0.18, 1 + lift * 0.18);
+  const body = ctx.createRadialGradient(-sun.dx * r * 0.5, -sun.dy * r * 0.5, r * 0.1, 0, 0, r);
+  body.addColorStop(0, '#ffffff');
+  body.addColorStop(0.65, '#eef1f3');
+  body.addColorStop(1, '#aeb6bc');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  // a point of the ball, onto the street: the half facing up (z < 0) as it is, the rest pressed onto
+  // the rim (a pentagon going over the edge bends round it)
+  const at = (p: V3): [number, number, number] => {
+    const x = m[0] * p[0] + m[1] * p[1] + m[2] * p[2], y = m[3] * p[0] + m[4] * p[1] + m[5] * p[2], z = m[6] * p[0] + m[7] * p[1] + m[8] * p[2];
+    if (z <= 0) return [x * r, y * r, z];
+    const l = Math.hypot(x, y) || 1;
+    return [(x / l) * r, (y / l) * r, z];
+  };
+  ctx.strokeStyle = 'rgba(70,76,84,0.5)';
+  ctx.lineWidth = 0.035;
+  ctx.beginPath();
+  for (let i = 0; i < FOOTBALL.seams.length; i += 2) {
+    const a = at(FOOTBALL.seams[i]), b = at(FOOTBALL.seams[i + 1]);
+    if (a[2] > 0 || b[2] > 0) continue;
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#1c1e22';
+  for (const pn of FOOTBALL.pents) {
+    // (a pentagon reaches about 20° from its centre: past sin 20° behind the rim, none of it shows)
+    if (at(pn.c)[2] > 0.3) continue;
+    ctx.beginPath();
+    pn.k.forEach((k, i) => {
+      const q = at(k);
+      i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+    });
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 0.06;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 

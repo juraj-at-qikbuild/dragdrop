@@ -21,10 +21,12 @@ export type ScoreSource =
   // the garage's collection: every kind of vehicle driven (docs/plans/gameplay.md, Phase 2)
   | 'collection'
   // a combo paid out at the wheel or on foot (rules/Style.ts, Phase 3)
-  | 'style';
+  | 'style'
+  // a mini-game round (rules/minigames, docs/plans/minigames.md)
+  | 'minigame';
 
 /** the boards: every point counts on 'all' and on its source's own board */
-export const BOARDS = ['all', 'events', 'police', 'jobs', 'races', 'city', 'help', 'style'] as const;
+export const BOARDS = ['all', 'events', 'police', 'jobs', 'races', 'city', 'help', 'style', 'games'] as const;
 export type BoardId = (typeof BOARDS)[number];
 /** today and this week (Europe/Bratislava, weeks from Monday), and all time */
 export const PERIODS = ['day', 'week', 'all'] as const;
@@ -38,6 +40,7 @@ export const SOURCE_BOARD: Record<ScoreSource, Exclude<BoardId, 'all'>> = {
   daily: 'city', landmark: 'city', statue: 'city', collection: 'city',
   samaritan: 'help',
   style: 'style',
+  minigame: 'games',
 };
 
 export const POINTS = {
@@ -81,6 +84,8 @@ export const POINTS = {
   samaritan: 25,
   /** the collection complete: every kind of vehicle driven (once) */
   collection: 100,
+  /** a mini-game round: its pay × this (a game can award its own) */
+  minigamePerDollar: 1 / 5,
 };
 
 /** a getaway only counts after a chase this long (seconds from the first star) */
@@ -98,6 +103,8 @@ export const HOURLY_CAP: Partial<Record<ScoreSource, number>> = {
   race: 8,
   // a combo's points (rules/Style.ts: 1 per €25 of its payout, 40 at most)
   style: 30,
+  // mini-game rounds, which a player can start whenever they like
+  minigame: 20,
 };
 
 /** points for losing the police after a chase that reached `stars` */

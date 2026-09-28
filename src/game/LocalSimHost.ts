@@ -11,6 +11,8 @@ import type { Jobs } from '../shared/sim/rules/jobs/Jobs';
 import type { JobKind } from '../shared/sim/rules/types';
 import type { ShopReq, Shops } from '../shared/sim/rules/Shops';
 import type { TramOp, Trams } from '../shared/sim/rules/Trams';
+import type { MiniGames } from '../shared/sim/rules/minigames/MiniGames';
+import type { MiniReq } from '../shared/sim/rules/minigames/types';
 import { applyLive, emptyLive, type SimHost } from './SimHost';
 
 export class LocalSimHost implements SimHost {
@@ -22,6 +24,7 @@ export class LocalSimHost implements SimHost {
   readonly allowsTimeScale = true;
   readonly missionsEnabled = true;
   readonly takesTrams = true;
+  readonly takesMini = true;
   readonly live = emptyLive();
 
   constructor(world: World, events: SimEvents, profile: Profile, clock: Clock, private save: () => void) {
@@ -73,6 +76,7 @@ export class LocalSimHost implements SimHost {
     this.live.events = dir?.entries() ?? [];
     this.live.schedule = dir?.schedule() ?? null;
     this.live.eventsAt = performance.now();
+    this.live.miniOpen = this.sim.rule<MiniGames>('minigames')?.open() ?? [];
   }
 
   fire(shot: ShotReport) {
@@ -130,6 +134,10 @@ export class LocalSimHost implements SimHost {
 
   tramDrive(throttle: number, steer: number, bell: boolean) {
     this.sim.rule<Trams>('trams')?.drive(this.me, throttle, steer, bell);
+  }
+
+  mini(req: MiniReq) {
+    this.sim.rule<MiniGames>('minigames')?.req(this.me, req);
   }
 
   onPrivate(e: PrivateEvent) {

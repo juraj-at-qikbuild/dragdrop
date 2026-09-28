@@ -66,6 +66,10 @@ export const DOWNED_BLEED = 25;
 
 export class SimPlayer {
   wanted = 0;
+  /** heat toward the next star: crimes add to it, and once it reaches that star's price
+   *  (Sim.STAR_HEAT) the stars go up by one (Sim.raise). Starts again from nothing whenever the stars
+   *  change some other way (a star fading, setWanted). */
+  heat = 0;
   /** the police's search clock: runs while nobody sees the player (faster when they've changed car or
    *  lie low, see Pursuit), and a star drops each time it runs out */
   unseen = 0;

@@ -1903,15 +1903,20 @@ const map = {
   squares,
   flagsUntagged: 1,
 };
-// Bake the lanes and walking lines the game fits to the streets (World.fitLanes/fitWalks: traffic
-// keeps as far right as each street allows, people walk where there's room), so clients and the
-// server don't spend a few hundred milliseconds on it at startup: run the game's own World on the
-// finished map and store the offsets that differ from the defaults.
+// Widen the car roads as far as each street has room (src/shared/world/widen.ts: a game's streets,
+// not the surveyor's), then bake the lanes and walking lines the game fits to the streets
+// (World.fitLanes/fitWalks: traffic keeps as far right as each street allows, people walk where
+// there's room), so clients and the server don't spend a few hundred milliseconds on it at startup:
+// run the game's own World on the finished map and store the offsets that differ from the defaults.
 {
   const { build } = await import('esbuild');
-  const out = await build({ entryPoints: [fileURLToPath(new URL('../src/shared/world/World.ts', import.meta.url))], bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'warning' });
-  const { World } = await import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64'));
+  const out = await build({
+    stdin: { contents: "export { World } from './src/shared/world/World'; export { widenRoads } from './src/shared/world/widen';", resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' },
+    bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'warning',
+  });
+  const { World, widenRoads } = await import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64'));
   const t = performance.now();
+  console.log(`widened ${widenRoads(map, new World(map))} car roads`);
   new World(map).bakeFits(map);
   const nLanes = map.graph.car.edges.filter((e) => e.lf !== undefined || e.lr !== undefined).length;
   const nWalks = map.graph.ped.edges.filter((e) => e.wr !== undefined || e.wl !== undefined).length;

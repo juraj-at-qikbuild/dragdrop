@@ -5,7 +5,7 @@
 import type { VehicleKind } from '../../entities/Vehicle';
 import type { WeaponId } from '../../entities/Ped';
 
-export type ShopKind = 'guns' | 'clothes' | 'lawyer' | 'tuning' | 'garage';
+export type ShopKind = 'guns' | 'clothes' | 'lawyer' | 'tuning' | 'garage' | 'teleport';
 
 /** tuning, per car (Vehicle.mods): tiers 0 = stock */
 export interface Mods {
@@ -101,6 +101,8 @@ export const PRICES = {
   garage: 2500,
   slots4: 1500,
   slots6: 2500,
+  // Teleport: a ride to any of the others, on foot or with the car
+  teleport: 100,
 };
 export type Prices = typeof PRICES;
 export type PriceId = keyof Prices;

@@ -222,13 +222,13 @@ describe('Derby na parkovisku', () => {
     const c = sim.addPlayer({ nick: 'C', profile: profile(), kinematic: false, x: arena.cx - 5, y: arena.cy });
     toLive(sim);
     expect(c.wanted).toBe(0);
-    sim.crime(c, 'killPed');
+    sim.crime(c, 'hitCop');
     expect(c.wanted).toBe(0); // suppressed: C is inside
 
     c.ped.x = arena.cx + 1000;
     c.ped.y = arena.cy;
     sim.step(1); // amnesty poll notices C left
-    sim.crime(c, 'killPed');
+    sim.crime(c, 'hitCop');
     expect(c.wanted).toBeGreaterThan(0); // back to normal outside the arena
   });
 

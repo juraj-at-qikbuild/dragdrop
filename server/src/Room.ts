@@ -564,7 +564,7 @@ export class Room {
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
       car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
-      caps: ['tram'],
+      caps: ['tram', 'mini'],
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats, gear: p.profile.gear ?? {} });
     // still on a tram (a reconnect): the new connection's client is told so again
@@ -996,7 +996,7 @@ export class Room {
       const msg = this.wevMsg();
       const changed = !!dir && dir.version !== this.wevVersion;
       if (dir) this.wevVersion = dir.version;
-      if (changed || msg.ev.length || msg.daily) this.broadcast(msg);
+      if (changed || msg.ev.length || msg.daily || msg.mg?.length) this.broadcast(msg);
     }
 
     this.rosterTimer -= dtMs;

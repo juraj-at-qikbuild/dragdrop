@@ -11,6 +11,7 @@ import type { PrivateEvent } from '../shared/sim/events';
 import type { JobKind } from '../shared/sim/rules/types';
 import type { ShopReq } from '../shared/sim/rules/Shops';
 import { atTramStop, type TramOp } from '../shared/sim/rules/Trams';
+import type { MiniReq } from '../shared/sim/rules/minigames/types';
 import type { Gear } from '../shared/sim/shops/catalog';
 import { VehiclePhysics, pedContact } from '../shared/sim/Physics';
 import { spikeHit } from '../shared/sim/Police';
@@ -72,6 +73,8 @@ export class NetSimHost implements SimHost, NetView {
   serverPresence = false;
   /** the server takes the `tram` message (its welcome's `caps`; docs/plans/gameplay.md, Phase 3) */
   takesTrams = false;
+  /** the server takes the `mini` message (its welcome's `caps`; docs/plans/minigames.md) */
+  takesMini = false;
   /** the cab's controls as last sent, and when (performance.now() ms) */
   private cabSent = { th: 0, st: 0, at: 0 };
   /** away and safe on the server: nothing can hurt us (src/shared/sim/rules/Presence.ts) */
@@ -164,6 +167,10 @@ export class NetSimHost implements SimHost, NetView {
     this.live.catalog = null;
     this.live.tram = null;
     this.takesTrams = !!w.caps?.includes('tram');
+    this.takesMini = !!w.caps?.includes('mini');
+    // a round from before a reconnect: the server sends it again if we're still in it
+    this.live.mini = null;
+    this.live.miniOpen = [];
     // the server forgot what this client knew: start the mirrors over
     this.mirrors.clear();
     this.queue = [];
@@ -282,6 +289,7 @@ export class NetSimHost implements SimHost, NetView {
         this.live.eventsAt = performance.now();
         this.live.schedule = m.up ?? null;
         this.live.daily = m.daily;
+        this.live.miniOpen = m.mg ?? [];
         break;
       case 'voicePeers':
       case 'voiceIce':
@@ -644,6 +652,11 @@ export class NetSimHost implements SimHost, NetView {
   }
 
   /** only to a server that takes it (its welcome's caps) */
+  mini(req: MiniReq) {
+    if (this.takesMini) this.conn.send({ t: 'mini', ...req });
+  }
+
+  /** only to a server that takes it (its welcome's caps) */
   tram(op: TramOp) {
     if (this.takesTrams) this.conn.send({ t: 'tram', op });
   }
@@ -771,9 +784,18 @@ export class NetSimHost implements SimHost, NetView {
       case 'shield':
         this.shielded = e.on;
         break;
-      case 'teleport':
-        // the server moved us (joining a party): drop the car, snap there, new epoch
-        this.releaseCar();
+      case 'teleport': {
+        // the server moved us (joining a party, a teleport): snap there, new epoch. A teleport with
+        // the car keeps us at its wheel, standing still in the bay; anything else leaves it behind
+        const v = this.ownCar;
+        if (v && e.car === v.id) {
+          v.x = e.x;
+          v.y = e.y;
+          v.angle = e.a ?? v.angle;
+          v.vx = v.vy = v.av = v.steer = 0;
+          v.level = e.lvl;
+          v.levelInit = true;
+        } else this.releaseCar();
         p.x = e.x;
         p.y = e.y;
         p.vx = p.vy = 0;
@@ -783,6 +805,7 @@ export class NetSimHost implements SimHost, NetView {
         this.game.cam.x = e.x;
         this.game.cam.y = e.y;
         break;
+      }
     }
   }
 

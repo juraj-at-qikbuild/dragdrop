@@ -268,6 +268,16 @@ export class MissionManager {
     }
     if (!this.active) {
       if (g.player.vehicle || g.state !== 'play' || this.cooldown > 0) return;
+      // one thing at a time: a mini-game round (docs/plans/minigames.md) has the HUD
+      if (g.host.live.mini) {
+        for (const b of this.available())
+          if (dist(b.x, b.y, g.player.x, g.player.y) < 2.2) {
+            g.message('', 'Najprv dohraj minihru.', 2.5, '#ffd740');
+            this.cooldown = 5;
+            return;
+          }
+        return;
+      }
       for (const b of this.available()) if (dist(b.x, b.y, g.player.x, g.player.y) < 2.2) return this.start(b.def);
       return;
     }
