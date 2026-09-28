@@ -493,9 +493,11 @@ export class Game {
             };
       return v.speed < 1 ? { use: true, text: 'Vystúpiť' } : null;
     }
-    // at a tram's door (at a stop), or its nose (stopped): on it, or into its cab
+    // at a tram's door (at a stop), or its nose (stopped): on it, or into its cab (which, while the
+    // tram driver's mini-game is on, is the job: games/tram.ts)
     const use = this.tramHere();
-    if (use) return { use: true, text: use.op === 'cab' ? 'Ukradnúť električku' : 'Nastúpiť do električky' };
+    const hired = this.host.live.mini?.kind === 'tram' && this.host.live.mini.phase === 'live';
+    if (use) return { use: true, text: use.op === 'cab' ? (hired ? 'Do kabíny' : 'Ukradnúť električku') : 'Nastúpiť do električky' };
     const car = this.findEnterable();
     if (car) {
       // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)

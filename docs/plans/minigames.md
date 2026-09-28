@@ -1,6 +1,8 @@
 # Plan: mini-games from five years of Bratislava (Blava City)
 
-Status: the framework and Súrna potreba built (28 September 2026); the other eleven in progress.
+Status: built (28 September 2026): the framework and all twelve games, each below as built. They
+follow the city's own rule that nobody gets hurt ([non-violent.md](non-violent.md)): anyone a round
+puts in the city who's knocked down gets up again and heads home to change, as everyone else does.
 
 Twelve short mini-games, each a joke every Bratislavan gets: the parking zones, the ticket
 inspectors, the EURO 2024 heartbreak, the butter prices, the billboard wars, the Christmas punch,
@@ -124,14 +126,27 @@ players can't fill. After each sweep the city repaints bays as "zákaz státia":
 the last one standing wins (the round ends when only one is left). Pay: €40 a sweep got through + €80
 for finishing − €20 a fine (+€60 for the group's winner). Needs a car.
 
-### Revízor (`revizor`)
-On the trams (`rules/Trams.ts`: riding exists). Alone, the player is a fare dodger: ride trams from a
-stop to a target stop across the city (and on to a second one); NPC inspectors (kinematic people)
-wait at stops and board a tram that stops there; one aboard with the player checks them after a few
-seconds unless they get off at a stop first. Caught: a €79 fine and the round's over. With others,
-the players split into dodgers and inspectors: an inspector boarding the tram a dodger is on catches
-them after a few seconds together; one who gets off and runs is caught on foot within reach. A
-*výluka* reroutes a line mid-round (a closure mark). Pay by stops ridden unchecked, and for catches.
+### Revízor (`revizor`) — built
+On the trams (`rules/Trams.ts`). The start is the stop nearest the player (within 600 m); the target
+a stop 1–2 km on along the tracks (right-hand running, at most one change of line, by the edges'
+`lines`). The round runs its own trams: one comes in, out of sight 150–330 m up the track, to the
+platform where a player waits (within 25 m of a stop) and keeps to the way to their target
+(`Tram.follow`); any other tram a dodger boards is turned onto the way too. Alone, 1–3 NPC inspectors
+(kinematic people in a dark 'suit', 🎫) wait at stops on the way; one boards the player's tram when
+it stands at their stop, and after 6 s aboard together it's a €79 fine ("Pokuta 79 €. Revízor s
+kamerou si ťa natočil.") and the round's over, unless the player got off first; one who sees them
+get off runs after them (5.5 m/s: a walk is caught, a sprint gets away) for 12 s, caught within
+1.5 m. Getting off at the target counts after 3 stops ridden (walking doesn't); half the rounds have
+a *výluka*: with the target a stop or two ahead it moves 300–900 m on (🚧 at the old one, "Výluka!
+Náhradná doprava nejazdí."). Time by the way's length (5–9 min). Pay €150–250 by the stops ridden
+(€20 a stop over €110); out of time €8 a stop. With others (4 min): one inspector for every two or
+three players by joining order, never the starter; an inspector aboard the same tram as a dodger for
+5 s, or on foot within 1.5 m of one who got off in the last 15 s, catches them: the dodger pays the
+€79 and is seen off at the next stop (20 s immune), the inspector scores 80. Dodgers score 10 a stop
+and 60 a target (then a new one 0.7–1.6 km on). Pay = points. The AI's trams run either way on either
+rail and wait nose to nose for ever, so the round takes a tram of the city's coming the other way off
+its way (out of sight, or at once when stuck), tows a car parked on the track and steps people off
+it. Helpers for both tram games: `games/tramline.ts`.
 
 ### Vydrž do 95. minúty (`football`) — built
 The pitch is marked out on the best parking lot within 900 m of the starter (`footballPitch.ts`: a
@@ -233,12 +248,21 @@ or 25 m of a courier's address), and a courier driving into it scores for them; 
 couriers and their addresses. Pay: couriers €50 a delivery − €20 a fine, builders €30 + €40 a catch,
 +€40 for the group's winner. Needs a car.
 
-### Električkár (`tram`)
-Take a tram's cab (the game can put the player in one at the nearest stop) and drive its line: stop
-at each stop (stopped within a few metres, doors for 3 s), on a schedule (a *metro interval*).
-Cars parked on the tracks ahead (spawned): ring the bell (H) and wait for the driver, wait for the
-tow truck, or push it and pay for the damage. With two, the second drives the tow truck that clears
-the line. Pay by stops on time.
+### Električkár (`tram`) — built
+A tram of the round's waits at the stop nearest the player (within 700 m), doors open, at its
+nearest platform with a few stops ahead (not off to the map's edge); the cab (F at its nose, "Do
+kabíny") is no crime. The run: six stops, each the next along the tracks (of the nearest few, the
+one with another stop not too far past it; the view says which way to steer at a junction: "Výhybka
+o 80 m: drž doľava"), on a *metro interval* (22 s + the way at 9 m/s, 45–80 s). Served stopped with
+the nose within 6 m of it, the doors open 3 s: €25–40 on time (by how close), €10 late; gone past by
+more than 8 m, −€30. After stops 1, 3 and 5 a car stands on the track 140–300 m ahead (before the
+next stop, out of sight): ring the bell (H) within 25 m and its driver walks back and drives it off
+in 8 s (knocked off their feet on the way, they get up and go home, and the tow truck comes
+instead); the action key calls the tow truck (20 s); pushing through is −€150. With two (co-op), the
+second gets a tow truck (a van) near them: next to a car on the track, the action key tows it at
+once (+€15), and both get the run's pay. Bonuses: all six on time +€50, no damage +€20. Six minutes;
+out of the cab, the tram waits. People of the city's step clear of the running tram; the city's
+trams coming the other way (or dawdling ahead) are taken off its track while nobody sees.
 
 ### Povodeň (`flood`) — built
 The wall stands on the real bank: the river's edge between Most SNP's deck and Eurovea (scanned once
