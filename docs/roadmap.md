@@ -60,6 +60,27 @@ Medická záhrada, Incheba, Nivy Tower, Aupark, the Presidential Palace).
   forever (the reverse steering had the wrong sign). Now a K-turn, a real brake (it had none: 97 m to
   coast to a stop from 15 m/s), and a classic scheme with pedals (`test/client/touchDrive.test.ts`).
 
+- **Phones, second round.** A review on emulated phones (a 4-inch one included) found the HUD
+  running into the stick and over the chase, a tap on the use button throwing the player out of a car
+  at speed, a toy picker that didn't scale past four toys, and mini-game texts naming keys. Now:
+  - the HUD's small panels stop above where the stick rests and overflow under the top-right panel,
+    the police chip sits under the stars, messages and the radio line fit the room between the
+    corners, the toy line leaves the panel (the toy button shows it), every button is at least
+    44 px, and the driving buttons pack tighter on a phone; a 568×320 phone is in the layout test;
+  - the camera zooms out sooner with speed and looks further ahead along the short side;
+  - getting out of a moving car is a hold; a new start has the water pistol in hand, and a toy that
+    runs dry gives way to the next squirting toy;
+  - a toy picker on a hold of the toy button, a tap on the city throws a thrown toy there;
+  - "Smer" has a parking crawl (a gentle push holds a speed, backs straight up) and a bay assist;
+    running needs the thumb past the stick's rim;
+  - the tram's cab works on touch (the bell, the stick along the tram); arrested without the bribe,
+    the pause button stays;
+  - rule texts name the device's buttons (`src/ui/deviceText.ts`);
+  - "Čo teraz?" at the top of Aktivity and as a one-tap button after 15 s idle; the GPS to the first
+    booth for a touch newcomer; one-line Aktivity rows on a phone on its side;
+  - vibration, a 30 fps battery saver, fullscreen and a landscape lock, a manifest and icons, the
+    screen kept on, audio hushed in the background.
+
 ### The first start
 - **An introduction for newcomers** (`src/game/features/OnboardingUi.ts`). Before, a first game opened with one line of text: find a phone booth or steal a car. Nothing said what the world events were, and the Aktivity panel only pulsed in a corner. Now a newcomer gets three short cards over the paused city:
   - the controls to know, for the keyboard, the pad or touch;
@@ -177,11 +198,8 @@ part of it, as noted.
   triggers).
 - Aim assist on foot for the pad: snap toward the nearest target in the stick's cone
   (`src/game/aimAssist.ts` already does it for touch).
-- Phones, still open: fullscreen and an installable app (manifest, icons), pausing and muting when
-  the app goes to the background, haptics (`navigator.vibrate` beside the pad's rumble), and
-  performance: the automatic graphics quality measures the gap between frames instead of the work in
-  them, so on a 60 Hz screen it can only ever go down (`Game.trackFrameTime`), then the pixel ratio and
-  the canvas caches on low-memory phones.
+- Phones, still open: the pixel ratio and the canvas caches on low-memory phones; a
+  prefers-reduced-motion setting (the camera's shake and punch).
 - Online drive-bys at speed can fail the server's check that a shot starts within 4 m of the player
   (`Room.onFire`), with any input.
 

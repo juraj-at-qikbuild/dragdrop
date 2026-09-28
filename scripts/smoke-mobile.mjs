@@ -324,8 +324,10 @@ try {
     await fingers.end(1);
     check(turned !== null && turned !== undefined, `a stick pointed back turns the car around (heading ${after.a.toFixed(2)}, ${after.v.toFixed(1)} m/s)`);
     // moving, the use button gets out only when held: a tap leaves the player driving
+    // (the stick the way the car faces now, back where it came from)
+    const head = await page.evaluate(() => window.game.player.vehicle.angle);
     await fingers.start(1, sx, sy);
-    await fingers.move(1, sx + 80, sy);
+    await fingers.move(1, sx + Math.cos(head) * 80, sy + Math.sin(head) * 80);
     const moving = await until(page, () => window.game.player.vehicle.speed > 5 && document.querySelector('#touch [data-id="use"]').textContent, null, 6000);
     const ub = await centre(page, 'use');
     if (ub) await fingers.tap(ub.x, ub.y);

@@ -188,3 +188,23 @@ describe('touch driving: a gentle push', () => {
     expect(Math.abs(wrap(r.car.angle))).toBeLessThan(0.3);
   });
 });
+
+describe('touch driving: BRAKE while rolling back', () => {
+  it('stops a car rolling backwards (a K-turn let go), and only then reverses', () => {
+    const w = track();
+    const car = new Vehicle('sedan', 0, 0, 0, '#fff');
+    car.id = 7;
+    car.owner = 1;
+    car.vx = -3;
+    const st = newDriveState();
+    let stoppedAt = -1;
+    for (let t = 0; t < 3; t += dt) {
+      const c = touchDrive('direction', { x: 0, y: 0, on: false }, { gas: false, brake: true }, { id: car.id, angle: car.angle, fwdSpeed: car.fwdSpeed }, st, dt);
+      car.setControls(c.throttle, c.steer);
+      car.update(dt, w);
+      if (stoppedAt < 0 && car.speed < 0.3) stoppedAt = t;
+    }
+    expect(stoppedAt).toBeGreaterThanOrEqual(0);
+    expect(stoppedAt).toBeLessThan(1.5);
+  });
+});

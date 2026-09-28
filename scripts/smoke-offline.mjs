@@ -421,6 +421,8 @@ try {
   const tp = await page.evaluate(() => {
     const g = window.game;
     g.wanted = 0;
+    // (the phone booth's mission from earlier is still on, and a teleport won't take anyone mid-mission)
+    g.missions.cleanupAll();
     const all = g.features.find((f) => f.id === 'shops').places.filter((s) => s.kind === 'teleport');
     g.player.x = all[0].x;
     g.player.y = all[0].y;
@@ -507,7 +509,9 @@ try {
     await p.keyboard.press('ArrowLeft');
     check((await card()).title === 'Udalosti v meste', '← goes back a card');
     await p.keyboard.press('ArrowRight');
-    await p.keyboard.press('Enter'); // "Hrať!" has the focus
+    // on to the last card (a fourth, the shops, when the game has them), where "Hrať!" has the focus
+    for (let i = 0; i < 3 && (await p.evaluate(() => !!document.querySelector('.kit-intro-card') && [...document.querySelectorAll('.kit-intro-dots i')].pop()?.classList.contains('on') === false)); i++) await p.keyboard.press('ArrowRight');
+    await p.keyboard.press('Enter');
     await sleep(200);
     const after = await p.evaluate(() => ({ open: !!document.querySelector('.kit-intro-card'), paused: window.game.paused, msg: window.game.messages.map((m) => m.text).join(' / ') }));
     check(!after.open && !after.paused && after.msg.includes('telefónnu búdku'), `"Hrať!" closes it into the game, with the greeting (${after.msg})`);

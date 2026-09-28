@@ -29,6 +29,9 @@ export interface TouchDriveState {
   side: number;
   /** seconds standing still with BRAKE held (it reverses after BRAKE_REVERSE_DELAY) */
   stillT: number;
+  /** BRAKE held long enough at a standstill to reverse: rolling back is then its own doing (else,
+   *  rolling back from a K-turn, BRAKE stops that) */
+  brakeRev: boolean;
 }
 
 export interface Stick {
@@ -69,7 +72,7 @@ const CRAWL = 1.2;
 const PRECISE_TOP = 7;
 
 export function newDriveState(): TouchDriveState {
-  return { car: 0, gear: 'fwd', hold: 0, revT: 0, stuckT: 0, side: 0, stillT: 0 };
+  return { car: 0, gear: 'fwd', hold: 0, revT: 0, stuckT: 0, side: 0, stillT: 0, brakeRev: false };
 }
 
 function restart(st: TouchDriveState, car: number) {
@@ -77,6 +80,7 @@ function restart(st: TouchDriveState, car: number) {
   st.gear = 'fwd';
   st.hold = st.revT = st.stuckT = st.stillT = 0;
   st.side = 0;
+  st.brakeRev = false;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -94,7 +98,9 @@ function steerToward(diff: number, fwdSpeed: number, gear: 'fwd' | 'rev') {
 function brake(stick: Stick, car: DrivenCar, st: TouchDriveState, dt: number, classicSteer: number | null) {
   const v = car.fwdSpeed;
   st.stillT = Math.abs(v) < 0.5 ? st.stillT + dt : 0;
-  const throttle = v > 0.5 ? -1 : v < -0.5 || st.stillT >= BRAKE_REVERSE_DELAY ? -1 : 0;
+  if (st.stillT >= BRAKE_REVERSE_DELAY) st.brakeRev = true;
+  // rolling forward: brake; rolling back: keep on if BRAKE itself is reversing, else brake that too
+  const throttle = v > 0.5 ? -1 : v < -0.5 ? (st.brakeRev ? -1 : 1) : st.stillT >= BRAKE_REVERSE_DELAY ? -1 : 0;
   if (classicSteer !== null) return { throttle, steer: classicSteer };
   let steer = 0;
   if (stick.on && Math.hypot(stick.x, stick.y) >= DEAD) {
@@ -121,6 +127,7 @@ export function touchDrive(
     const steer = Math.sign(x) * Math.abs(x) ** 1.4;
     if (pedals.brake) return brake(stick, car, st, dt, steer);
     st.stillT = 0;
+    st.brakeRev = false;
     return { throttle: pedals.gas ? 1 : 0, steer };
   }
 
@@ -130,6 +137,7 @@ export function touchDrive(
     return brake(stick, car, st, dt, null);
   }
   st.stillT = 0;
+  st.brakeRev = false;
   const mag = stick.on ? Math.hypot(stick.x, stick.y) : 0;
   if (mag < DEAD) {
     // let go: coast (engine braking), and start the next manoeuvre fresh

@@ -53,23 +53,27 @@ In a car, steering in reverse works like a real car: steer right and the tail sw
 
 | Control | Action |
 | --- | --- |
-| Left thumb, anywhere on the left | a stick appears under it: walk or drive; pushed all the way, run |
-| 💦 (held) | squirt at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line |
-| Toy button | next toy (it shows the one in hand and the refills left) |
-| Yellow button | says what it does and does it: get in, pull a driver out, steal a police car, get out |
+| Left thumb, anywhere on the left | a stick appears under it: walk or drive; the thumb out past its rim runs |
+| 💦 (held) | squirt at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line. It shows the toy it fires |
+| Toy button | tap: next toy (it shows the one in hand and the refills left) · hold: every toy with refills to pick from (slide onto one and let go, or let go and tap one) |
+| A tap on the city | with a thrown toy in hand (an egg, a soap bomb, a clamp…): throw it there |
+| Yellow button | says what it does and does it: get in, pull a driver out, steal a police car, get out. Moving faster than about 15 km/h it reads "Podrž: vyskočiť": getting out is a hold, so a stray tap mid-chase doesn't throw you out |
 | Violet button | a mini-game's own action, saying what it does (only while a round has one) |
+| Teal button | after 15 s with nothing going: the best thing to do now ("Čo teraz?"), one tap sets the GPS, joins or starts it |
 | BRZDA · RUČNÁ · N₂O | brake (held at a standstill: reverse) · handbrake · nitro, with its charge |
-| 📣 · 📻 | horn (held next to another player's car: a race challenge) · next radio station |
+| 📣 · 📻 | horn (held next to another player's car: a race challenge; in a tram's cab the bell) · next radio station |
 | Minimap | tap for the city map: drag, pinch, tap for a waypoint; ✕, +/− and ⌖ on the side, layers from the "Vrstvy" chip |
 | ☰ Aktivity | under the street name: what's on in the city and coming next, jobs, races and the rest |
 | ❚❚ | pause and settings |
 
-Two ways to drive, chosen in the pause menu: **Smer** (the default) points the stick where the car should go and it speeds up by itself (pointed behind, it turns around with a short K-turn), **Klasické** steers with the stick and has gas and brake pedals (slide the thumb between them). The pause menu also sets how close the camera is. Tips next to each control show the first time; "Zobraziť tipy znova" in the controls panel brings them back. On a touch screen the HUD moves out of the thumbs' way (the minimap goes top-left) and keeps clear of the notch. `?touch=1` in the URL forces the touch controls on a desktop, `?touch=0` turns them off.
+Two ways to drive, chosen in the pause menu: **Smer** (the default) points the stick where the car should go and it speeds up by itself (pointed behind, it turns around with a short K-turn), **Klasické** steers with the stick and has gas and brake pedals (slide the thumb between them). With **Smer** a gentle push (under half the way) is for parking: it holds a crawl, faster the further it's pushed, and pointed behind it backs straight up, tail first; let go at a crawl over a mini-game's bay or stall and the car settles into it. In a tram's cab the stick along the tram is the throttle (back: the brake) and across it picks the branch. The pause menu's settings also set how close the camera is, **Vibrácie** (the phone buzzes where a pad would rumble; Android), **Úspora batérie** (30 fps) and **Celá obrazovka** (a game starts fullscreen, sideways, where the browser allows it). Tips next to each control show the first time; "Zobraziť tipy znova" in the controls panel brings them back. On a touch screen the HUD moves out of the thumbs' way (the minimap goes top-left) and keeps clear of the notch: the small panels (Aktivity, events, the party, the daily card) stack under the street name down to where the stick rests and then under the top-right panel, the police chip sits under the stars, messages and the radio line keep to the room between the corners, every button is at least 44 px, and the camera sees further ahead at speed. Mini-game and tram texts name the on-screen buttons instead of keys. The game can be installed (a manifest, fullscreen and sideways; on an iPhone, Safari's "Pridať na plochu"), and keeps the screen on while playing. `?touch=1` in the URL forces the touch controls on a desktop, `?touch=0` turns them off.
 
 **The first start** (`src/game/features/OnboardingUi.ts`). A new player's first game, online or off, opens with three short cards over the city before they set off:
 1. **Vitaj**: where they are, and the four controls to know for the way they play (keyboard and mouse, gamepad or touch).
 2. **Udalosti v meste**: the world events, each in a line. It also shows what's on right now, with a button that sets the GPS there, or when the next one may come. Offline it lists the two that run solo and names what online adds.
 3. **Čo môžeš robiť**: jobs, races, the party, the daily photo, the shops and the leaderboard (offline: missions, jobs, shops and collectibles), ending at the Aktivity panel (U) that lists it all from then on.
+
+The Aktivity panel opens with **Čo teraz?**: the best thing to do right now as one big button and two more (on the run, the nearest spray shop; else a world event on now, a round opening nearby, the next mission's booth offline, a mini-game that fits how you're getting about, a courier or taxi shift; `src/game/features/activities/suggest.ts`). On a touch screen a newcomer's first game sets the GPS to the nearest mission booth.
 
 The game is paused while the cards are open (online the player is away, and shielded once it's safe, as in the pause menu). Afterwards the usual first message says what to do first. The cards show once per device for online play and once for offline play, and only to a player with nothing to show yet: no money, landmarks, Čumils or purchases. Online the server's profile decides, so an account signing in on a new device skips them. **📖 Úvod do hry** in the pause menu brings them back. The first time a world event is on while the player has never opened Aktivity, a one-line tip says how to find out about it. Automated browsers (the smoke and end-to-end scripts) don't get the cards unless the URL has `?intro=1`; `?intro=0` turns them off.
 
