@@ -56,12 +56,14 @@
           <table>
             <tr><td>WASD / šípky</td><td>chôdza / jazda</td></tr>
             <tr><td>Myš</td><td>mierenie, ľavé tlačidlo = striekanie</td></tr>
-            <tr><td>F / Enter</td><td>nastúpiť / vystúpiť (aj ukradnúť auto)</td></tr>
-            <tr><td>Medzerník</td><td>ručná brzda (v aute) · streľba (pešo)</td></tr>
+            <tr><td>F / E / Enter</td><td>nastúpiť / vystúpiť (aj ukradnúť auto, električka)</td></tr>
+            <tr><td>Medzerník</td><td>ručná brzda (v aute) · striekanie (pešo)</td></tr>
+            <tr><td>Ctrl</td><td>striekanie (pešo aj z auta)</td></tr>
             <tr><td>Shift</td><td>beh · nitro (v aute)</td></tr>
             <tr><td>Q / 1-4</td><td>zmena hračky</td></tr>
             <tr><td>R</td><td>ďalšia rádiostanica</td></tr>
-            <tr><td>H</td><td>klaksón · podrž pri aute iného hráča = výzva na závod (online)</td></tr>
+            <tr><td>H</td><td>klaksón (v policajnom aute a sanitke siréna) · podrž pri aute iného hráča = výzva na závod (online)</td></tr>
+            <tr><td>B</td><td>akcia v minihre – čo presne urobí, píše sa na obrazovke</td></tr>
             <tr><td>U</td><td>aktivity: udalosti v meste (čo beží a čo príde) a všetko, čo môžeš robiť</td></tr>
             <tr><td>J</td><td>práca: Vlk kuriér alebo Hopík taxi</td></tr>
             <tr><td>K</td><td>Kde to je? – denná fotka (online)</td></tr>
@@ -72,7 +74,7 @@
             <tr><td>M / Tab</td><td>mapa mesta: koliesko / +− priblíženie, ťahaním posun, klik = cieľ s navigáciou, pravý klik ho zruší, 1–7 vrstvy</td></tr>
             <tr><td>Koliesko myši</td><td>priblíženie / oddialenie</td></tr>
             <tr><td>Esc / P</td><td>pauza</td></tr>
-            <tr><td>Gamepad</td><td>ľavá páčka jazda/chôdza · RT plyn (pešo striekanie) · LT brzda/cúvanie · RB ručná brzda · A beh/nitro · Y nastúpiť · pravá páčka mierenie (v aute striekanie) · X klaksón · B hračka · krížik hore rádio · krížik dole aktivity · krížik vľavo práca · L3 hlasový chat · Back mapa · Start pauza</td></tr>
+            <tr><td>Gamepad</td><td>ľavá páčka jazda/chôdza · RT plyn (pešo striekanie) · LT brzda/cúvanie · RB ručná brzda · A beh/nitro · Y nastúpiť · pravá páčka mierenie (v aute striekanie) · X klaksón · B / krížik vpravo hračka · krížik hore rádio · krížik dole aktivity · krížik vľavo práca · R3 akcia v minihre · L3 hlasový chat · Back mapa · Start pauza</td></tr>
           </table>
           <button class="opt-foot">Chôdza: podľa obrazovky</button>
           </details>
@@ -97,6 +99,7 @@
         <div id="pause-main" class="buttons">
           <button id="btn-resume" class="primary">Pokračovať</button>
           <button id="btn-settings">⚙️ Nastavenia</button>
+          <button id="btn-pause-controls">🎮 Ovládanie</button>
           <button id="btn-nick" class="hidden">Prezývka</button>
           <!-- feature controls append here (src/ui/kit/dom.ts addPauseControl); empty = collapsed, see style.css -->
           <div id="pause-extra" class="buttons"></div>
@@ -110,6 +113,10 @@
           <!-- feature settings append here (addPauseControl with { settings: true }) -->
           <div id="pause-settings-extra" class="buttons"></div>
           <button id="btn-settings-back" class="primary">← Späť</button>
+        </div>
+        <!-- every control there is: the main menu's #panel-controls moves in here while it's open (main.ts) -->
+        <div id="pause-controls" class="hidden">
+          <button id="btn-controls-back" class="primary">← Späť</button>
         </div>
       </div>
     </div>

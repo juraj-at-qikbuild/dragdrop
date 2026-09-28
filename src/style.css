@@ -495,6 +495,17 @@ button small {
 #pause-settings-extra:empty {
   display: none;
 }
+/* the pause menu's "Ovládanie": the main menu's controls panel, with room for its tables */
+#pause .menu-card.small.wide {
+  width: min(540px, 100%);
+}
+#pause-controls .panel {
+  margin-top: 0;
+}
+#pause-controls > button {
+  width: 100%;
+  margin-top: 12px;
+}
 /* online: the city keeps going while the pause menu is open (src/game/features/PresenceUi.ts) */
 .pause-note {
   margin: -4px 0 12px;

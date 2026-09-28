@@ -272,15 +272,30 @@ async function boot() {
   };
   wireContactButton($('btn-contact'));
   $('btn-resume').onclick = () => game.setPaused(false);
-  // the pause menu's settings: a view of their own, so the menu itself stays short
+  // the pause menu's settings and controls: views of their own, so the menu itself stays short. The
+  // controls are the main menu's own panel, borrowed while the view is open (the main menu is hidden)
   const pauseTitle = document.querySelector('#pause h2');
-  const showSettings = (on: boolean) => {
-    $('pause-main').classList.toggle('hidden', on);
-    $('pause-settings').classList.toggle('hidden', !on);
-    if (pauseTitle) pauseTitle.textContent = on ? 'NASTAVENIA' : 'PAUZA';
+  const pauseCard = document.querySelector('#pause .menu-card');
+  const controls = $('panel-controls');
+  const controlsHome = controls.nextElementSibling;
+  const showPauseView = (view: 'main' | 'settings' | 'controls') => {
+    $('pause-main').classList.toggle('hidden', view !== 'main');
+    $('pause-settings').classList.toggle('hidden', view !== 'settings');
+    $('pause-controls').classList.toggle('hidden', view !== 'controls');
+    pauseCard?.classList.toggle('wide', view === 'controls');
+    if (pauseTitle) pauseTitle.textContent = view === 'settings' ? 'NASTAVENIA' : view === 'controls' ? 'OVLÁDANIE' : 'PAUZA';
+    if (view === 'controls') {
+      $('pause-controls').prepend(controls);
+      controls.classList.remove('hidden');
+    } else if (controls.parentElement?.id === 'pause-controls') {
+      controls.classList.add('hidden');
+      controlsHome?.before(controls);
+    }
   };
-  $('btn-settings').onclick = () => showSettings(true);
-  $('btn-settings-back').onclick = () => showSettings(false);
+  $('btn-settings').onclick = () => showPauseView('settings');
+  $('btn-settings-back').onclick = () => showPauseView('main');
+  $('btn-pause-controls').onclick = () => showPauseView('controls');
+  $('btn-controls-back').onclick = () => showPauseView('main');
   $('btn-mute').onclick = () => {
     game.audio.setMuted(!game.audio.muted);
     $('btn-mute').textContent = game.audio.muted ? 'Zvuk: vypnutý' : 'Zvuk: zapnutý';
@@ -431,7 +446,8 @@ async function boot() {
   };
   game.onPause = (p) => {
     $('pause').classList.toggle('hidden', !p);
-    if (p) showSettings(false);
+    // (and on the way out, the controls panel goes back to the main menu)
+    showPauseView('main');
   };
 
   // touch controls (a phone or tablet, or ?touch=1)
