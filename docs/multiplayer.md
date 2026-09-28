@@ -1,6 +1,6 @@
 # Multiplayer: tech stack and plan
 
-Handover brief for implementing a shared-world multiplayer mode in Blava City.
+Handover brief for implementing a shared-world multiplayer mode in GTA SK.
 
 ## Goal
 

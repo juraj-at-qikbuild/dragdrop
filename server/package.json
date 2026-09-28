@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Blava City multiplayer game server (one shared world). Deployed to Fly.io.",
+  "description": "GTA SK multiplayer game server (one shared world). Deployed to Fly.io.",
   "engines": {
     "node": ">=22"
   },

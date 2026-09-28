@@ -1,4 +1,4 @@
-# Blava City game server. Build context is the repo root (fly.toml sets dockerfile = "server/Dockerfile")
+# GTA SK game server. Build context is the repo root (fly.toml sets dockerfile = "server/Dockerfile")
 # because the server bundles the shared simulation from src/shared and loads public/data/bratislava.json.
 
 FROM node:22-bookworm-slim AS build

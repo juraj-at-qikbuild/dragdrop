@@ -165,7 +165,7 @@ export class PartyUi implements ClientFeature {
   private onInviteCode(code: string) {
     const nick = this.g.online?.nick ?? '';
     const url = `${location.origin}${location.pathname}#join=${slug(nick)}-${code}`;
-    void shareLink(url, 'Poď hrať Blava City so mnou!');
+    void shareLink(url, 'Poď hrať GTA SK so mnou!');
   }
 
   // ---------------------------------------------------------------------------------- HUD + map

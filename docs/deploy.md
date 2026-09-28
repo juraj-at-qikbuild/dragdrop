@@ -1,4 +1,4 @@
-# Deploying Blava City
+# Deploying GTA SK
 
 The game has two parts:
 
