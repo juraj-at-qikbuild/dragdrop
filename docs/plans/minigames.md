@@ -106,14 +106,22 @@ coins) or locked (40 %), found out at the door; at least one works. A café's to
 4 s standing by the door, one player at a time. Pay: €60 + up to €70 for the room left + €70/35/15 for
 1st–3rd with others.
 
-### Parkovací hon (`parking`)
-A PAAS zone of a few streets near the player (the kerbs of the car graph's links): blue bays painted
-at the kerb (marks with `w`, `h`, `a`), fewer than the cars. A scan car (a spawned car, driven along a
-route through the zone with `sim.ai.driveRoute`) sweeps it every ~60 s; any player's car not standing
-in a bay (stopped, its centre inside) when it passes within ~15 m is fined (out after two fines). NPC
-drivers (spawned cars driven to free bays) take bays too; alone they're the rivals. Rounds shrink the
-bays. Paying at the parking app (the action key in a bay, €2) makes a bay safe for one sweep. Needs a
-car.
+### Parkovací hon (`parking`) — built
+The zone is a loop of the car graph a car can drive round near the player (a block or two within
+300 m, else anything drivable within 500 m; at street level, round a block rather than up and down a
+boulevard, ~260 m if it can), with blue bays (5.2 × 2.4 m, marks with `w`, `h`, `a`) at the right-hand
+kerb, clear of junctions, walls, crossings, tram tracks and signs. Each sweep the scan car (a white
+hatch, 🔍, `sim.ai.driveRoute`) drives one lap: the first 30–60 s in (later the farther the zone), then
+every ~45–60 s, four sweeps (three on a long loop). Whoever it passes within 15 m is checked, and
+whoever it never passes when the lap ends: standing in a bay (stopped, its centre inside) with a ticket
+from the app (the action key, €2, one sweep, on the tab with empty pockets) is fine, anything else is
+a fine (−€20); two and you're out. A player's car in a bay counts as parked, so traffic (the scan car
+too) drives round it. NPC drivers turn up before free bays or circle the loop, pull into a free bay
+they pass, stay 35–80 s and leave; alone one fewer of them than bays, with others only the bays the
+players can't fill. After each sweep the city repaints bays as "zákaz státia": alone 5 → 4 → 3 → 2
+(the player's own half the time), with others the players + 3, two fewer each sweep, so with others
+the last one standing wins (the round ends when only one is left). Pay: €40 a sweep got through + €80
+for finishing − €20 a fine (+€60 for the group's winner). Needs a car.
 
 ### Revízor (`revizor`)
 On the trams (`rules/Trams.ts`: riding exists). Alone, the player is a fare dodger: ride trams from a
@@ -194,12 +202,18 @@ off when its rider gets off, and at B (stopped within 5 m) the video's views pay
 fine €50. 4 min (sooner when every scooter is parked or lost); pay €20 a scooter, €40 for all of
 them alone, €30 for the most with others, the fridge, less the fines. A drawer shows the fridge.
 
-### Rozkopávky (`roadworks`)
-Deliveries by car across the Old Town while streets close: a closure is cones (`spawnProp`) across a
-link and a zone mark; driving through one is a fine. Alone, NPC crews close streets on the route as
-you go; with others, the players split into couriers and builders — a builder closes the street
-they stand on (the action key) and scores for every courier who has to detour or hits it. Pay by
-deliveries, minus fines.
+### Rozkopávky (`roadworks`) — built
+Four minutes of deliveries by car: each address is on a named street 300–750 m from the last, and
+stopping within 12 m hands the parcel over (€50). A closure is a 14 m stretch of street fenced off with
+a barrier and three cones (`spawnProp`) and marked 🚧 with its crew (vodovod, teplovod, nové koľaje…);
+a car driving into it is fined €20 once per closure, and the hole takes 60 % of its speed and a knock.
+Alone, NPC crews dig every 20–30 s on the courier's way to the address (its A* route, 70–320 m ahead,
+out of sight if they can), at most six open, each reopening after 70–100 s. With others, one builder
+per three players (at least one; the second, fifth… to join, never the starter): the action key digs
+up the street they stand or drive on (every 8 s, at most five of theirs, never within 20 m of a courier
+or 25 m of a courier's address), and a courier driving into it scores for them; builders see the
+couriers and their addresses. Pay: couriers €50 a delivery − €20 a fine, builders €30 + €40 a catch,
++€40 for the group's winner. Needs a car.
 
 ### Električkár (`tram`)
 Take a tram's cab (the game can put the player in one at the nearest stop) and drive its line: stop
