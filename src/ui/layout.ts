@@ -178,6 +178,17 @@ function touchLayout(W: number, H: number, ins: Insets): HudLayout {
   };
 }
 
+/** touch: the top corners the HUD fills (the minimap with its buttons and the street name; the
+ *  top-right panel with the online badge or the police chip under it) */
+export function corners(L: HudLayout): [Rect, Rect] {
+  const lw = L.util.x + L.util.size + 10;
+  const rx = L.panel.right - L.panel.w - 6;
+  return [
+    { x: 0, y: 0, w: lw, h: L.place.y + 4 },
+    { x: rx, y: 0, w: L.W - rx, h: L.panel.y + panelHeight(L.small) + 48 },
+  ];
+}
+
 const inside = (r: Rect, x: number, y: number) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
 /** is a screen point where an on-screen marker can be seen (not under the thumbs or at the edge)? */
@@ -200,5 +211,10 @@ export function edgePoint(L: HudLayout, angle: number, inset = 0): { x: number; 
   const rx = p.w / 2 - 24 - inset, ry = p.h / 2 - 24 - inset;
   let x = cx + c * rx, y = cy + s * ry;
   for (const t of [L.thumbs.left, L.thumbs.right]) if (inside(t, x, y)) y = t.y - 12 - inset;
+  // ...and out of the top corners: the minimap's column, the top-right panel and what hangs under it
+  // (the police chip), sideways toward the middle
+  const [tl, tr] = corners(L);
+  if (inside(tr, x, y)) x = tr.x - 14 - inset;
+  else if (inside(tl, x, y)) x = tl.x + tl.w + 14 + inset;
   return { x, y };
 }

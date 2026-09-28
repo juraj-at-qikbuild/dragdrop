@@ -1,7 +1,7 @@
 // The HUD layout on phones (src/ui/layout.ts): nothing overlaps, nothing sits under a notch or a
 // thumb, and desktop keeps the numbers it always had.
 import { describe, expect, it } from 'vitest';
-import { bandHeight, edgePoint, hudLayout, inPlay, NO_INSETS, panelHeight, PLACE_W, STICK_REST_R, type HudLayout, type Insets, type Rect } from '../../src/ui/layout';
+import { bandHeight, corners, edgePoint, hudLayout, inPlay, NO_INSETS, panelHeight, PLACE_W, STICK_REST_R, type HudLayout, type Insets, type Rect } from '../../src/ui/layout';
 
 /** phones and the safe-area insets they report (iPhones with a notch or island report both sides in
  *  landscape; an Android camera cutout just one) */
@@ -74,6 +74,7 @@ describe('touch HUD layout', () => {
         for (let a = -Math.PI; a < Math.PI; a += 0.2) {
           const e = edgePoint(L, a);
           expect(inPlay(L, e.x, e.y), `arrow at ${a.toFixed(1)} rad`).toBe(true);
+          for (const k of corners(L)) expect(overlap({ x: e.x - 1, y: e.y - 1, w: 2, h: 2 }, k), `arrow at ${a.toFixed(1)} rad in a top corner`).toBe(false);
         }
       });
 });
