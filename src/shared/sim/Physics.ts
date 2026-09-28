@@ -4,7 +4,7 @@
 // Bodies flagged `kinematic` are posed from outside (network mirrors on a client, players' cars on the
 // server). They are never integrated or pushed here; against a dynamic body they act as a moving wall of
 // infinite mass. Everything else behaves exactly like the original single-player code.
-import { Vehicle, resolveContact } from '../entities/Vehicle';
+import { BALL_BOUNCE, Vehicle, resolveContact } from '../entities/Vehicle';
 import type { Ped } from '../entities/Ped';
 import { TRAM_SEG, type Tram } from '../entities/Tram';
 import type { World } from '../world/World';
@@ -124,8 +124,8 @@ export class VehiclePhysics {
         const impact = v.update(h, world);
         if (impact > 6) hooks.impact?.(v, impact);
         knocked(v, impact);
-        // (a scooter or a bike goes round a lift gate's boom, or under it)
-        if (v.level === 0 && world.gates.n && !v.spec.twoWheeler) gateContact(v, world);
+        // (a scooter or a bike goes round a lift gate's boom, or under it, and so does a ball)
+        if (v.level === 0 && world.gates.n && !v.spec.twoWheeler && !v.spec.ball) gateContact(v, world);
       }
       this.collide(vehicles, trams, hooks);
       this.accum -= STEP;
@@ -170,6 +170,10 @@ export class VehiclePhysics {
         if (a.kinematic && b.kinematic && !hooks.kinematicPair) continue;
         const best = deepest(a, b);
         if (!best) continue;
+        if (a.spec.ball || b.spec.ball) {
+          ballContact(a, b, best);
+          continue;
+        }
         if (a.kinematic && b.kinematic) {
           hooks.kinematicPair?.(a, b);
           continue;
@@ -215,7 +219,8 @@ export class VehiclePhysics {
           vx: Math.cos(s.a) * t.speed, vy: Math.sin(s.a) * t.speed, av: 0,
         });
         knocked(v, sev);
-        if (sev > 2) {
+        // (a ball just bounces off: no crash)
+        if (sev > 2 && !v.spec.ball) {
           if (t.speed > 3) v.damage(t.speed * 0.1);
           hooks.tramContact?.(v, t, sev);
         }
@@ -293,6 +298,36 @@ function kinematicContact(a: Vehicle, b: Vehicle, c: Contact, hooks: PhysicsHook
   hooks.carContact?.(dyn, kin, sev, c.cx, c.cy, nx, ny);
 }
 
+/** friction between a ball and a car: a glancing knock sends it on mostly the way it was going */
+const BALL_FRICTION = 0.15;
+
+/** A ball against a car (docs/plans/minigames.md, Vydrž do 95. minúty): it bounces off lively
+ *  (BALL_BOUNCE), and nothing is dented or told of a crash. A car simulated somewhere else (a
+ *  player's car on the server) is a moving wall to it, turning included, so a flick of the tail swings
+ *  it on. A ball posed from outside (a client's mirror of the server's ball, or one the game holds on
+ *  the centre spot for a kick-off) moves nobody: the server knocks the real one about, and a car
+ *  hardly notices a ball anyway. */
+function ballContact(a: Vehicle, b: Vehicle, c: Contact) {
+  const ball = a.spec.ball ? a : b, o = ball === a ? b : a;
+  if (ball.kinematic) return;
+  // from the ball towards the other
+  const s = ball === a ? 1 : -1;
+  const nx = c.nx * s, ny = c.ny * s;
+  if (o.kinematic) {
+    ball.x -= nx * c.depth;
+    ball.y -= ny * c.depth;
+    const rx = c.cx - o.x, ry = c.cy - o.y;
+    resolveContact(ball, c.cx, c.cy, null, c.cx, c.cy, nx, ny, BALL_BOUNCE, BALL_FRICTION, { vx: o.vx - o.av * ry, vy: o.vy + o.av * rx, av: 0 }, 1, false);
+    return;
+  }
+  const mb = ball.spec.mass, mo = o.spec.mass, tot = mb + mo;
+  ball.x -= nx * c.depth * (mo / tot);
+  ball.y -= ny * c.depth * (mo / tot);
+  o.x += nx * c.depth * (mb / tot);
+  o.y += ny * c.depth * (mb / tot);
+  resolveContact(ball, c.cx, c.cy, o, c.cx, c.cy, nx, ny, BALL_BOUNCE, BALL_FRICTION, undefined, 1, false);
+}
+
 export interface PedContactHooks {
   /** a car faster than RUN_OVER_SPEED hit the ped (it has not been moved or hurt yet) */
   runOver(p: Ped, v: Vehicle, speed: number, cx: number, cy: number): void;
@@ -320,8 +355,8 @@ export function pedContact(p: Ped, hash: SpatialHash<Vehicle>, trams: readonly T
       const d = dist(cx, cy, p.x, p.y);
       if (d >= r) continue;
       const sp = v.speed;
-      // (a scooter or a bike only ever barges people aside)
-      if (sp > RUN_OVER_SPEED && !v.spec.twoWheeler) hooks.runOver(p, v, sp, cx, cy);
+      // (a scooter or a bike only ever barges people aside, and so does a ball)
+      if (sp > RUN_OVER_SPEED && !v.spec.twoWheeler && !v.spec.ball) hooks.runOver(p, v, sp, cx, cy);
       else {
         const nx = (p.x - cx) / (d || 1), ny = (p.y - cy) / (d || 1);
         p.x += nx * (r - d);

@@ -22,6 +22,9 @@ export const enum Ent {
   Heli = 5,
 }
 
+/** a vehicle's kind on the wire is its index here, in SPECS' order: append only (…, 'boat',
+ *  'policeboat', then the car football's 'ball'), and a client from before reads one it doesn't know
+ *  as a sedan */
 export const VEHICLE_KINDS = Object.keys(SPECS) as VehicleKind[];
 export const WEAPON_LIST: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
 const PED_STATES: PedState[] = ['walk', 'flee', 'dead', 'chase', 'idle', 'sit', 'phone', 'fight'];

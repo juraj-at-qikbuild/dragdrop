@@ -124,14 +124,31 @@ the players split into dodgers and inspectors: an inspector boarding the tram a 
 them after a few seconds together; one who gets off and runs is caught on foot within reach. A
 *výluka* reroutes a line mid-round (a closure mark). Pay by stops ridden unchecked, and for catches.
 
-### Vydrž do 95. minúty (`football`)
-Car football in a parking-lot arena (like the derby: `Zones`, `bestParkingNear`), a goal at each end,
-a ball: a new vehicle kind `ball` (round, light, bouncy; appended to `VEHICLE_KINDS`, drawn as a
-football) so everyone sees it move and the physics pushes it. The players get cars (spawned). Alone:
-"you lead 1:0, the 90th minute": keep the ball out of your goal for the stoppage time against NPC
-"England" cars (driven by the game toward the ball and your goal); at the end they get a *nožnička*
-(a bicycle kick: the ball launched over the cars at the goal) — a second scenario, "Nemecko 2:0",
-scores twice. With others: two teams, first to two goals or the most at the whistle.
+### Vydrž do 95. minúty (`football`) — built
+The pitch is marked out on the best parking lot within 900 m of the starter (`footballPitch.ts`: a
+2 m grid over the lot, free where it's on the lot and clear of walls, trunks, water, buildings, decks
+and the car graph; the biggest rectangle that fits, half-length 15–26 m, goals 6–8 m wide and 2.5 m
+deep; the nearest lot unless a further one holds a much bigger pitch); none near enough: refused. The
+ball is a vehicle kind of its own (`ball`, the last in `VEHICLE_KINDS`: an older client draws a sedan;
+1.6 m, 70 kg): it rolls and slows down, bounces off walls and cars (restitution 0.55) and off its
+pitch's boards and posts (`Vehicle.pen`), and a net stops it. It takes no damage, never burns or
+sinks, nobody gets in, it knocks nobody down, and it's no near miss or tip. Online the server simulates
+it (players' cars are moving walls to it) and clients see an interpolated mirror (which stops no car).
+When the lobby's over each player gets a car in their half (in with F; whoever drives onto the pitch
+keeps their own), and the match kicks off once everyone's in (a warm-up of 40 s plus the way on foot,
+4 min at most; nobody came: no pay). Alone, in turn: *Vedieš 1:0* — 90:00 to 95:00 in 3 minutes
+against NPC England (a keeper and two strikers the game steers: in an arc behind the ball, three-point
+turns, un-sticking), whose Bellingham tries a *nožnička* in the last ~20 s from within 26 m (warned
+1.2 s ahead, then the ball flies at the goal at 21 m/s: a car in its way blocks it); an equaliser is
+the loss. *Nemecko 2:0* — NPC Germany defends (a keeper and two defenders who clear it wide, steadily);
+two goals, and more than Germany's, win. With others: SVK and ENG by joining order, NPC cars evening
+the teams up; two goals, or the most at the whistle (3 minutes). A goal stops the clock; the kick-off
+puts the ball back on the centre spot (held 3 s) and the NPC cars on theirs, and fixes a battered car.
+A goal is the scoring team's last touch's (a deflection off the other team doesn't take it away). No
+stars on the pitch for what a match does (a pedestrian knocked over, a police car bumped). Pay: alone
+€250 a win, €60 a loss; with others €200 the winners, €60 the others, €100 a draw; +€50 a goal. The
+drawer: the pitch chalked on the lot (lines, nets, boards with parody sponsors), a TV score bug
+("SVK 1 : 0 ENG 94:12"), GÓÓÓL! and NOŽNIČKA! called out, the pitch and the ball on the map.
 
 ### AKCIA! Maslo (`butter`)
 A flash sale at a Billka/Lidel/Tescó (`pois('shop')` by name) near the player: get there first,

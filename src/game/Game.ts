@@ -512,7 +512,8 @@ export class Game {
     const p = this.player;
     let best: Vehicle | null = null, bd = 4.2;
     for (const v of this.host.vehicles) {
-      if (v.wrecked || v.sinking || v.level !== p.level) continue;
+      // (the car football's ball is no car to get into)
+      if (v.wrecked || v.sinking || v.level !== p.level || v.spec.ball) continue;
       const d = dist(v.x, v.y, p.x, p.y) - v.spec.width / 2;
       if (d < bd) (bd = d), (best = v);
     }

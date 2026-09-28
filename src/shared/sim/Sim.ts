@@ -586,7 +586,8 @@ export class Sim {
     const ped = p.ped;
     let best: Vehicle | null = null, bd = 4.2;
     for (const v of this.vehiclesNear(ped.x, ped.y, 12)) {
-      if (v.wrecked || v.sinking || v.level !== ped.level) continue;
+      // (a ball is no vehicle to get into: docs/plans/minigames.md)
+      if (v.wrecked || v.sinking || v.level !== ped.level || v.spec.ball) continue;
       const d = dist(v.x, v.y, ped.x, ped.y) - v.spec.width / 2;
       if (d < bd) (bd = d), (best = v);
     }
@@ -596,7 +597,7 @@ export class Sim {
   /** Get `p` into `v` (carjacking whoever drives it). Returns false if not allowed. */
   enterVehicle(p: SimPlayer, v: Vehicle | null, slack = 0): boolean {
     const ped = p.ped;
-    if (!v || p.state !== 'play' || ped.vehicle || ped.aboard || v.wrecked || v.sinking || v.level !== ped.level || v.locked) return false;
+    if (!v || p.state !== 'play' || ped.vehicle || ped.aboard || v.wrecked || v.sinking || v.level !== ped.level || v.locked || v.spec.ball) return false;
     if (dist(v.x, v.y, ped.x, ped.y) - v.spec.width / 2 > 4.2 + slack) return false;
     // a returning player's car waits for them a while (server/src/Room.ts)
     if (this.reservedFromOthers(v, p)) return false;
