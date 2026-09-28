@@ -8,7 +8,7 @@ import { Vehicle, SPECS, type VehicleKind } from '../../entities/Vehicle';
 import { PLAYER_SHIRTS, setPlayerHat, setPlayerLook, type WeaponId } from '../../entities/Ped';
 import { LIVERY_NONE } from '../../entities/Vehicle';
 import type { Sim } from '../Sim';
-import { WEAPONS } from '../Combat';
+import { TOY_IDS, WEAPONS } from '../Combat';
 import type { SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
 import type { Jobs } from './jobs/Jobs';
@@ -87,7 +87,7 @@ export class Shops implements SimRule {
     switch (place.kind) {
       case 'guns':
         if (item === 'vest') return this.vest(p);
-        if (item === 'pistol' || item === 'uzi' || item === 'shotgun') return this.gun(p, item);
+        if ((TOY_IDS as readonly string[]).includes(item)) return this.gun(p, item as (typeof TOY_IDS)[number]);
         break;
       case 'clothes':
         if (item === 'jacket') return this.jacket(p, n);

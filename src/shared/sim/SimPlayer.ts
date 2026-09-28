@@ -10,7 +10,10 @@ import type { Gear } from './shops/catalog';
 
 /** what every player starts with (and gets back after a bust takes the rest): a water pistol with
  *  one refill in it, the toy shops sell the others */
-export const START_AMMO: Readonly<Record<Exclude<WeaponId, 'fist'>, number>> = { pistol: 36, uzi: 0, shotgun: 0 };
+export const START_AMMO: Readonly<Record<Exclude<WeaponId, 'fist'>, number>> = {
+  pistol: 36, uzi: 0, shotgun: 0,
+  hammer: 0, kofola: 0, perfume: 0, pea: 0, blower: 0, foam: 0, soap: 0, egg: 0, clamp: 0, bucket: 0, pigeon: 0,
+};
 
 /** downed: lying wounded, revivable by another player until they bleed out (online; see Revive) */
 export type PlayerState = 'play' | 'wasted' | 'busted' | 'downed';

@@ -193,6 +193,21 @@ describe('social features store (Phase 0a)', () => {
     });
   });
 
+  it("keeps every toy's refills with the session, and reads a save from before them as none", () => {
+    withDb((file) => {
+      const store = new Store(file);
+      const player = fakePlayer();
+      player.ammo = { ...player.ammo, pistol: 3, egg: 4, pigeon: 2 } as SimPlayer['ammo'];
+      store.savePlayers([{ key: 'k1', nick: 'Anon', player }], 1000);
+      const ammo = store.loadSession('k1', 1000)!.ammo;
+      expect(ammo).toMatchObject({ pistol: 3, uzi: 0, egg: 4, pigeon: 2, hammer: 0 });
+      // (fakePlayer's is the shape a save from before the second shelf has: three toys)
+      store.savePlayers([{ key: 'k2', nick: 'Old', player: fakePlayer() }], 1000);
+      expect(Object.values(store.loadSession('k2', 1000)!.ammo).every((n) => n === 0)).toBe(true);
+      store.close();
+    });
+  });
+
   it('a session resumes for 24 hours, then no longer (docs/plans/pause-resume.md)', () => {
     withDb((file) => {
       const store = new Store(file);

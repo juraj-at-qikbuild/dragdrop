@@ -1,6 +1,6 @@
 // SimEvents sink on the server: collects world events (with their position, for interest filtering)
 // and per-player private events during a tick; Room sends them out after building snapshots.
-import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
+import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents, ToyFx } from '../../src/shared/sim/events';
 import type { WorldEvent } from '../../src/shared/net/protocol';
 import type { Mess } from '../../src/shared/sim/Combat';
 
@@ -62,6 +62,21 @@ export class NetEvents implements SimEvents {
   }
   highFive(id: number, x: number, y: number) {
     this.add(x, y, { k: 'five', id, x: r2(x), y: r2(y) });
+  }
+  toy(e: ToyFx) {
+    // placed where it happens (a flight: where it's going, which the thrower sees as it was thrown)
+    switch (e.op) {
+      case 'throw':
+        return this.add(e.tx, e.ty, { k: 'toy', ...e, x: r2(e.x), y: r2(e.y), tx: r2(e.tx), ty: r2(e.ty), d: r2(e.d) }, e.pid);
+      case 'land':
+        return this.add(e.x, e.y, { k: 'toy', ...e, x: r2(e.x), y: r2(e.y) });
+      case 'stick':
+        return this.add(e.x, e.y, { k: 'toy', ...e, x: r2(e.x), y: r2(e.y), t: r2(e.t) });
+      case 'slick':
+        return this.add(e.x, e.y, { k: 'toy', ...e, x: r2(e.x), y: r2(e.y), t: r2(e.t) });
+      case 'foam':
+        return this.add(e.x, e.y, { k: 'toy', ...e, x: r2(e.x), y: r2(e.y) });
+    }
   }
   global(e: GlobalEvent) {
     this.globals.push(e);

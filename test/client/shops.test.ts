@@ -3,7 +3,7 @@
 // (vitest.config.ts): the panels themselves are DOM, checked in the browser (scripts/smoke.mjs).
 import { describe, expect, it } from 'vitest';
 import {
-  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, ammoLine, collectionLine, condition, distanceLine, gunLine, modName, modsLine,
+  GUN_NAME, HAT_NAMES, JACKET_NAMES, TOY_ABOUT, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, ammoLine, collectionLine, condition, distanceLine, gunLine, modName, modsLine,
   paintName, placesWord, storedCarLine,
 } from '../../src/game/features/shops/text';
 import { DISPATCH, describeClothes, describeWalker, wantedLine } from '../../src/game/features/police/text';
@@ -26,7 +26,14 @@ describe("the shops' words", () => {
     for (const k of ['guns', 'clothes', 'lawyer', 'tuning', 'garage', 'teleport'] as const) expect(SHOP_KIND[k].name && SHOP_KIND[k].about).toBeTruthy();
     // the toy shop (docs/plans/non-violent.md): toys and refills, not guns and bullets
     expect(SHOP_KIND.guns.name).toBe('Hračkárstvo');
-    expect(Object.keys(GUN_NAME)).toEqual(['pistol', 'uzi', 'shotgun']);
+    // every toy on the shelves has a name, a line saying what it does, and its refill counted in words
+    expect(Object.keys(GUN_NAME)).toEqual(['pistol', 'uzi', 'shotgun', 'hammer', 'kofola', 'perfume', 'pea', 'blower', 'foam', 'soap', 'egg', 'clamp', 'bucket', 'pigeon']);
+    for (const w of Object.keys(GUN_NAME) as (keyof typeof GUN_NAME)[]) {
+      expect(TOY_ABOUT[w], w).toBeTruthy();
+      for (const n of [1, 3, 5]) expect(ammoLine(w, n), w).not.toMatch(/undefined/);
+    }
+    expect(gunLine('egg')).toBe('Vajíčko + 6 vajíčok');
+    expect(gunLine('clamp')).toBe('Parkovacia papuča + 2 papuče');
     expect(MOD_KEYS.every((k) => MOD_INFO[k].name && MOD_MAX[k] >= 1)).toBe(true);
     expect(gunLine('pistol')).toBe('Vodná pištoľ + 36 striekancov');
     expect(gunLine('uzi')).toBe('Bublinkový samopal + 120 bubliniek');

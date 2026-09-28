@@ -3,7 +3,7 @@
 // Little-endian, quantised: positions 1/16 m in i16 (±2 km covers the map), angles u16 (or u8 for
 // peds), velocities cm/s. See docs/multiplayer.md for the byte budget.
 import { SPECS, type Livery, type Vehicle, type VehicleKind } from '../entities/Vehicle';
-import type { Ped, PedState, WeaponId } from '../entities/Ped';
+import { WEAPON_IDS, type Ped, type PedState, type WeaponId } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Prop, PropKind } from '../entities/Props';
 import type { Helicopter } from '../entities/Helicopter';
@@ -26,7 +26,10 @@ export const enum Ent {
  *  'policeboat', then the car football's 'ball'), and a client from before reads one it doesn't know
  *  as a sedan */
 export const VEHICLE_KINDS = Object.keys(SPECS) as VehicleKind[];
-export const WEAPON_LIST: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
+/** a toy on the wire is its index here: append only (v8 added the second shelf) */
+export const WEAPON_LIST: readonly WeaponId[] = WEAPON_IDS;
+/** the toys a player counts refills of, in the snapshot's order: all but tickling */
+export const AMMO_LIST = WEAPON_LIST.filter((w): w is Exclude<WeaponId, 'fist'> => w !== 'fist');
 const PED_STATES: PedState[] = ['walk', 'flee', 'dazed', 'chase', 'idle', 'sit', 'phone', 'fight'];
 const PED_KINDS = ['civ', 'cop', 'player'] as const;
 const PROP_KINDS: PropKind[] = ['barrier', 'cone', 'spike'];
@@ -283,8 +286,8 @@ export interface PrivateState {
   searching: boolean;
   shotCops: boolean;
   money: number;
-  /** pistol, uzi, shotgun */
-  ammo: [number, number, number];
+  /** each toy's refills, in AMMO_LIST's order (v8: a count first; before, pistol, uzi, shotgun) */
+  ammo: number[];
   epoch: number;
   zone: { x: number; y: number; r: number } | null;
 }
@@ -303,6 +306,7 @@ export function encodeSnapshotHeader(w: Writer, tick: number, serverMs: number, 
   w.u8(PSTATES.indexOf(me.state) | (me.searching ? 4 : 0) | (me.zone ? 8 : 0) | (me.shotCops ? 16 : 0));
   w.u8(me.stateTimer * 10);
   w.u32(me.money);
+  w.u8(me.ammo.length);
   for (const a of me.ammo) w.u16(a);
   w.u8(me.epoch);
   if (me.zone) {
@@ -364,11 +368,13 @@ export function pedDynamic(w: Writer, p: Ped, stars: number) {
   w.pos(p.y);
   w.ang8(p.angle);
   w.u8(
-    Math.max(0, PED_STATES.indexOf(p.state)) | (p.handsUp ? 8 : 0) | (Math.max(0, WEAPON_LIST.indexOf(p.weapon)) << 4) | (p.playerId ? 64 : 0) | (p.downed ? 128 : 0),
+    Math.max(0, PED_STATES.indexOf(p.state)) | (p.handsUp ? 8 : 0) | (Math.min(3, Math.max(0, WEAPON_LIST.indexOf(p.weapon))) << 4) | (p.playerId ? 64 : 0) | (p.downed ? 128 : 0),
   );
   if (p.playerId) {
     w.u16(p.vehicle?.id ?? 0);
     w.u8(stars);
+    // (v8: a player's toy in full; the two bits above hold only the first four, which is all an NPC has)
+    w.u8(Math.max(0, WEAPON_LIST.indexOf(p.weapon)));
   }
 }
 
@@ -520,7 +526,8 @@ export function decodeSnapshot(r: Reader): Snapshot {
   if (r.u8() !== MSG_SNAPSHOT) throw new RangeError('not a snapshot');
   const tick = r.u32(), st = r.f64(), ack = r.u16();
   const health = r.u8(), armor = r.u8(), wanted = r.u8() / 20, bits = r.u8(), stateTimer = r.u8() / 10, money = r.u32();
-  const ammo: [number, number, number] = [r.u16(), r.u16(), r.u16()];
+  const ammo: number[] = [];
+  for (let i = r.u8(); i > 0; i--) ammo.push(r.u16());
   const epoch = r.u8();
   const zone = bits & 8 ? { x: r.pos(), y: r.pos(), r: r.u8() } : null;
   const me: PrivateState = { health, armor, wanted, state: PSTATES[bits & 3] ?? 'play', stateTimer, searching: !!(bits & 4), shotCops: !!(bits & 16), money, ammo, epoch, zone };
@@ -594,6 +601,7 @@ function decodeEntity(r: Reader): EntityRec {
       v.weapon = WEAPON_LIST[(b >> 4) & 3];
       v.vehicle = b & 64 ? r.u16() : 0;
       v.stars = b & 64 ? r.u8() : 0;
+      if (b & 64) v.weapon = WEAPON_LIST[r.u8()] ?? 'fist';
       return { id, type, level, full, v };
     }
     case Ent.Tram: {

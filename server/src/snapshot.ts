@@ -13,7 +13,7 @@ import type { Pickup } from '../../src/shared/sim/Pickups';
 import type { Level } from '../../src/shared/world/World';
 import { SpatialHash } from '../../src/shared/util/SpatialHash';
 import {
-  Ent, Writer, encodeSnapshotHeader, entityHead, heliDynamic, heliStatic, pedDynamic, pedStatic, pickupStatic, propDynamic, propStatic,
+  AMMO_LIST, Ent, Writer, encodeSnapshotHeader, entityHead, heliDynamic, heliStatic, pedDynamic, pedStatic, pickupStatic, propDynamic, propStatic,
   tramDynamic, vehicleDynamic, vehicleStatic, type PrivateState,
 } from '../../src/shared/net/codec';
 
@@ -216,7 +216,7 @@ export function privateState(p: SimPlayer): PrivateState {
     searching: p.searching,
     shotCops: p.shotCops,
     money: Math.max(0, Math.round(p.profile.money)),
-    ammo: [ammo(p.ammo.pistol), ammo(p.ammo.uzi), ammo(p.ammo.shotgun)],
+    ammo: AMMO_LIST.map((w) => ammo(p.ammo[w])),
     epoch: p.epoch,
     zone: p.searchZone ? { x: p.searchZone.x, y: p.searchZone.y, r: Math.min(255, p.searchZone.r) } : null,
   };

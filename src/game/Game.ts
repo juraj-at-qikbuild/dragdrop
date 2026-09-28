@@ -37,12 +37,13 @@ import { drawHeli, emitHeliLights } from '../render/drawHeli';
 import { drawProps } from '../render/drawProps';
 import { roundRect } from '../render/shapes';
 import { Clock, SECONDS_PER_HOUR } from '../shared/sim/Clock';
-import { WEAPONS, traceMelee, traceShot } from '../shared/sim/Combat';
+import { WEAPONS, WEAPON_IDS, isThrown, traceMelee, traceShot } from '../shared/sim/Combat';
 import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
 import { newDriveState, touchDrive, type DriveScheme } from './touchDrive';
 import { aimKey, magnet, pickTarget, type AimCandidate } from './aimAssist';
+import { onSlick } from '../shared/sim/Physics';
 import type { TouchControls } from '../ui/TouchControls';
 import { FURNITURE, F_HYDRANT } from '../shared/world/Street';
 import { EntityFx } from './EntityFx';
@@ -69,6 +70,8 @@ export type SaveData = Profile;
 const SAVE_KEY = 'blava-city-save-v1';
 /** a plain hold of the touch fire button shoots after this long (s), see `touchShooting` */
 const TOUCH_FIRE_DELAY = 0.1;
+/** touch fire from a car with nothing reaching out of it in hand: the first of these there's a refill of */
+const DRIVE_BY: WeaponId[] = ['uzi', 'pistol', 'shotgun', 'kofola', 'pea', 'foam', 'egg', 'pigeon', 'perfume', 'blower', 'clamp', 'soap', 'bucket'];
 /** camera zoom: metres across the short side of the screen on foot */
 const CAM_FOOT_M = 32;
 /** ...closer on a phone, where everything is a quarter of the size it is on a monitor */
@@ -687,12 +690,18 @@ export class Game {
       }
     }
     // weapon selection
-    const owned = (['fist', 'pistol', 'uzi', 'shotgun'] as WeaponId[]).filter((w) => this.ammo[w] > 0);
+    // (Q: the next toy there's a refill of; X: the next thrown one; 1-9 and 0: the first ten by number)
+    const owned = WEAPON_IDS.filter((w) => this.ammo[w] > 0);
     if (inp.hit('KeyQ')) p.weapon = owned[(owned.indexOf(p.weapon) + 1) % owned.length];
-    (['Digit1', 'Digit2', 'Digit3', 'Digit4'] as const).forEach((k, i) => {
-      const w = (['fist', 'pistol', 'uzi', 'shotgun'] as WeaponId[])[i];
-      if (inp.hit(k) && this.ammo[w] > 0) p.weapon = w;
-    });
+    if (inp.hit('KeyX')) {
+      const thrown = owned.filter(isThrown);
+      if (thrown.length) p.weapon = thrown[(thrown.indexOf(p.weapon) + 1) % thrown.length];
+      else this.message('', 'Nemáš nič na hádzanie. Hračkárstvo je na mape.', 2, '#ffd740');
+    }
+    for (let i = 0; i < 10; i++) {
+      const w = WEAPON_IDS[i];
+      if (inp.hit(`Digit${(i + 1) % 10}`) && this.ammo[w] > 0) p.weapon = w;
+    }
     if (this.ammo[p.weapon] <= 0) p.weapon = 'fist';
 
     // aboard a tram (rules/Trams.ts): the host keeps us where the tram has us. In the cab: the throttle
@@ -755,14 +764,15 @@ export class Game {
       const padAim = this.padAim(0.7);
       let touchShoot = this.touchShooting(dt);
       // touch fire with the fists out: take the best gun there is for a drive-by
-      if (touchShoot && p.weapon === 'fist') p.weapon = (['uzi', 'pistol', 'shotgun'] as WeaponId[]).find((w) => this.ammo[w] > 0) ?? 'fist';
-      touchShoot &&= p.weapon !== 'fist';
+      if (touchShoot && (p.weapon === 'fist' || p.weapon === 'hammer')) p.weapon = DRIVE_BY.find((w) => this.ammo[w] > 0) ?? p.weapon;
+      // (tickling and the squeaky hammer don't reach out of a car)
+      touchShoot &&= p.weapon !== 'fist' && p.weapon !== 'hammer';
       const touchAim = touchShoot ? this.touchAim(v, v.angle, v.level, p.weapon, true) : ((this.aimTarget = null), null);
-      if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null || touchShoot) && p.weapon !== 'fist' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
+      if ((inp.mouseDown || inp.down('ControlLeft') || padAim !== null || touchShoot) && p.weapon !== 'fist' && p.weapon !== 'hammer' && p.cooldown <= 0 && this.ammo[p.weapon] > 0) {
         const a = padAim ?? (touchShoot ? (touchAim ?? v.angle) : this.aimAngle(v.x, v.y));
         p.cooldown = WEAPONS[p.weapon].cd;
         this.ammo[p.weapon]--;
-        this.fireFrom(v.x + Math.cos(a) * (v.spec.width / 2 + 0.6), v.y + Math.sin(a) * (v.spec.width / 2 + 0.6), a);
+        this.fireToy(v.x + Math.cos(a) * (v.spec.width / 2 + 0.6), v.y + Math.sin(a) * (v.spec.width / 2 + 0.6), a, padAim !== null || touchShoot);
       }
       if (p.cooldown > 0) p.cooldown -= dt;
       return;
@@ -796,8 +806,14 @@ export class Game {
     // swimming: a third of walking pace, and no running
     const run = swim ? SWIM_SPEED : inp.down('ShiftLeft', 'ShiftRight') || (stick && len > 0.85) ? 7.2 : 4.6;
     const push = stick ? Math.min(1, len / 0.85) : Math.min(1, len);
-    const vx = len ? (ax.x / len) * run * push : 0;
-    const vy = len ? (ax.y / len) * run * push : 0;
+    let vx = len ? (ax.x / len) * run * push : 0;
+    let vy = len ? (ax.y / len) * run * push : 0;
+    // on a soap bomb's patch (sim/Toys.ts) the feet don't grip: you slide on the way you were going
+    if (onSlick(this.host.slicks, p.x, p.y)) {
+      const k = Math.min(1, dt * 1.4);
+      vx = p.vx + (vx - p.vx) * k;
+      vy = p.vy + (vy - p.vy) * k;
+    }
     p.move(dt, this.world, vx, vy);
     // facing: the gamepad's right stick (twin-stick), touch aiming (the drag, or the locked target
     // while firing), the cursor, or where they walk
@@ -816,7 +832,7 @@ export class Game {
       if (p.weapon === 'fist') this.host.punch(traceMelee(this.host.peds, p, p.angle)?.id ?? 0);
       else {
         this.ammo[p.weapon]--;
-        this.fireFrom(p.x, p.y, p.angle);
+        this.fireToy(p.x, p.y, p.angle, padAim !== null || touchShoot);
       }
     }
   }
@@ -933,6 +949,26 @@ export class Game {
     const vx = len ? (ax.x / len) * CRAWL_SPEED * Math.min(1, len) : 0;
     const vy = len ? (ax.y / len) * CRAWL_SPEED * Math.min(1, len) : 0;
     this.player.move(dt, this.world, vx, vy);
+  }
+
+  /** Fire the toy in hand from (x, y) toward `angle`: a thrown one is thrown at a spot (the cursor's,
+   *  or with a pad or touch whoever is in that direction, else most of its range away), anything else
+   *  is traced as a shot. */
+  private fireToy(x: number, y: number, angle: number, noCursor: boolean) {
+    const p = this.player, w = p.weapon, spec = WEAPONS[w];
+    if (!spec.thrown) return this.fireFrom(x, y, angle);
+    let at = this.aimTarget;
+    if (!at && !noCursor && !this.input.touch.active && !this.input.pad.active) at = this.cursorWorld();
+    if (!at) {
+      // (an egg or a clamp is for a car: any car in that direction will do)
+      const cands = w === 'egg' || w === 'clamp'
+        ? this.host.vehicles.filter((c) => c !== p.vehicle && !c.wrecked && c.level === p.level).map((c) => ({ key: c.id, x: c.x, y: c.y, threat: false, player: false }))
+        : this.aimCandidates(p.level);
+      const t = pickTarget({ x, y }, angle, cands, { range: spec.range, cone: 0.35, threatCone: 0.35, playerCone: 0.35 }, () => true, 0);
+      at = t ?? { x: x + Math.cos(angle) * spec.range * 0.7, y: y + Math.sin(angle) * spec.range * 0.7 };
+    }
+    this.rumble(0.15, 0.2, 60);
+    this.host.throwToy(w, at.x, at.y);
   }
 
   /** trace a shot from (x, y) against what this client sees, and hand it to the world */
@@ -1098,12 +1134,43 @@ export class Game {
     this.hudDrawn = hud;
     if (!hud) return;
     if (this.hudCtx) {
+      // speech bubbles: over the world, but on the overlay (at night the post-processing's bloom
+      // turned a white bubble into a glow that swallowed its words)
+      const wx = this.worldXf;
+      if (wx) {
+        const k = this.uiDpr * wx.v.scale;
+        this.hudCtx.setTransform(k, 0, 0, k, this.uiDpr * wx.x, this.uiDpr * wx.y);
+        this.bubbles.draw(this.hudCtx, wx.v);
+      }
       this.hudCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
+      const egg = this.player.vehicle?.egg ?? 0;
+      if (egg > 0) this.drawYolk(this.hudCtx, egg);
       this.hud.draw(this.hudCtx);
       for (const f of this.features) f.drawHud?.(this.hudCtx);
       this.banners.draw(this.hudCtx, this.layout);
       if (this.showMap) this.mapView.drawFull(this.hudCtx);
     }
+  }
+
+  /** an egg (or a pigeon's gift) on our windscreen (sim/Toys.ts): yolk over most of the view,
+   *  wiped off as it runs out (`t` s left) */
+  private drawYolk(ctx: CanvasRenderingContext2D, t: number) {
+    const w = this.viewW, h = this.viewH, k = Math.min(1, t / 0.8);
+    ctx.save();
+    ctx.globalAlpha = 0.85 * k;
+    const blobs = [[0.42, 0.45, 0.3], [0.6, 0.38, 0.18], [0.3, 0.62, 0.16], [0.55, 0.62, 0.14], [0.7, 0.55, 0.1]];
+    for (const [bx, by, br] of blobs) {
+      const r = br * Math.min(w, h) * 1.2;
+      const g = ctx.createRadialGradient(bx * w, by * h, r * 0.1, bx * w, by * h, r);
+      g.addColorStop(0, 'rgba(255,196,30,0.95)');
+      g.addColorStop(0.35, 'rgba(255,236,170,0.85)');
+      g.addColorStop(1, 'rgba(255,250,235,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(bx * w, by * h, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /** Offline, paused or on the full map, the world stands still (its clock, camera and effects stop):
@@ -1124,6 +1191,9 @@ export class Game {
   }
   private frozenKey = '';
   private frozenAt = 0;
+  /** the world's last view and where its origin sat on screen (CSS px), for what the overlay draws
+   *  in world space */
+  private worldXf: { v: View; x: number; y: number } | null = null;
   /** the HUD canvas has something on it */
   private hudDrawn = false;
 
@@ -1135,6 +1205,7 @@ export class Game {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const { dx: sx, dy: sy } = this.juice.shakeOffset();
     ctx.setTransform(this.dpr * v.scale, 0, 0, this.dpr * v.scale, this.dpr * (this.viewW / 2 + sx - this.cam.x * v.scale), this.dpr * (this.viewH / 2 + sy - this.cam.y * v.scale));
+    this.worldXf = { v, x: this.viewW / 2 + sx - this.cam.x * v.scale, y: this.viewH / 2 + sy - this.cam.y * v.scale };
 
     // outside the playable area
     ctx.fillStyle = '#2b2d30';
@@ -1240,7 +1311,6 @@ export class Game {
 
     this.drawSigns(ctx, v);
     this.juice.drawTexts(ctx);
-    if (hud) this.bubbles.draw(ctx, v);
     if (host.net && hud) drawNametags(ctx, host.net, host.peds, v, host.me.id, underground);
     if (hud) for (const f of this.features) f.drawWorld?.(ctx, v);
     if (hud) this.drawPlayerMarker(ctx);

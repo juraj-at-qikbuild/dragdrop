@@ -30,10 +30,21 @@ const DRESS = ['#c2185b', '#8e24aa', '#d81b60', '#00897b', '#f4511e', '#3949ab',
 const ARCHETYPES: Archetype[] = ['casual', 'casual', 'casual', 'dress', 'dress', 'suit', 'tourist', 'jogger', 'elderly', 'student', 'worker'];
 const HAIRSTYLES: HairStyle[] = ['short', 'short', 'long', 'bun', 'bald', 'cap'];
 
-export type WeaponId = 'fist' | 'pistol' | 'uzi' | 'shotgun';
+export type WeaponId =
+  | 'fist' | 'pistol' | 'uzi' | 'shotgun'
+  // the Hračkárstvo's second shelf (Combat.ts WEAPONS): squirted or swung like the first four...
+  | 'hammer' | 'kofola' | 'perfume' | 'pea' | 'blower' | 'foam'
+  // ...and thrown (Toys.ts): they fly to a spot and do their thing where they land
+  | 'soap' | 'egg' | 'clamp' | 'bucket' | 'pigeon';
+/** every toy, in the order of the wire (codec.ts WEAPON_LIST: append only), the number keys and the shop */
+export const WEAPON_IDS: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun', 'hammer', 'kofola', 'perfume', 'pea', 'blower', 'foam', 'soap', 'egg', 'clamp', 'bucket', 'pigeon'];
 /** what a hit leaves someone with (docs/plans/non-violent.md): wet from the water pistol, soapy
- *  from the bubbles, confetti, a tickle, a bump (a car), soot (a car blowing up next to them) */
-export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'soot';
+ *  from the bubbles, confetti, a tickle, a bump (a car, the squeaky hammer), soot (a car blowing up
+ *  next to them); and from the second shelf sticky Kofola, grandma's perfume, a pea on the neck,
+ *  leaves from the blower, foam, an egg, a pigeon's gift */
+export type Mess =
+  | 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'soot'
+  | 'kofola' | 'perfume' | 'pea' | 'leaves' | 'foam' | 'egg' | 'pigeon';
 
 /** where someone is heading that isn't along the footpaths: a seat (facing `a`), a tram's door, a
  *  spot at a tram stop. `ref`: the furniture index of the seat / the tram stop index */
@@ -44,6 +55,9 @@ export interface PedGoal {
   kind: 'seat' | 'board' | 'stop';
   ref: number;
 }
+
+/** how fast someone sticky with Kofola walks, of their pace */
+export const STICKY_PACE = 0.4;
 
 const FIGHTERS = new Set<Archetype>(['casual', 'worker', 'student', 'jogger']);
 /** the share of each kind of passer-by who holds a hand out for a high five (Ped.fan) */
@@ -108,6 +122,9 @@ export class Ped {
   fiveAt = -1e9;
   /** diving out of a car's way: seconds left of the dive's burst of speed (AI.dodge) */
   dash = 0;
+  /** seconds left sticky with Kofola (the sifón): they walk at STICKY_PACE. Counted down in `move`,
+   *  so it slows the local player (their client is told: a `sticky` event) as it slows the crowd */
+  sticky = 0;
   /** true while surrendering / being arrested-at-gunpoint */
   handsUp = false;
   /** a player lying wounded, waiting to be revived (online) */
@@ -116,7 +133,7 @@ export class Ped {
   hitFlash = 0;
   /** client only: what the last hit left them with (docs/plans/non-violent.md), and for how many
    *  more seconds they show it (dripping, soapy, confetti in their hair, sooty); decayed by the renderer */
-  mess: 'water' | 'bubbles' | 'confetti' | 'soot' | null = null;
+  mess: Exclude<Mess, 'tickle' | 'bonk'> | null = null;
   messT = 0;
   /** client only: seconds left of cheering after a high five (both arms up), decayed by the renderer */
   cheerT = 0;
@@ -187,6 +204,11 @@ export class Ped {
    *  deck only what stands on it, and its railings: nobody walks off the side of a bridge; in a
    *  tunnel only its walls). */
   move(dt: number, world: World, vx: number, vy: number) {
+    if (this.sticky > 0) {
+      this.sticky = Math.max(0, this.sticky - dt);
+      vx *= STICKY_PACE;
+      vy *= STICKY_PACE;
+    }
     this.vx = vx;
     this.vy = vy;
     const sp = hypot(vx, vy);

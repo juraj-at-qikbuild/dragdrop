@@ -6,7 +6,7 @@ import { Ped } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import { Tram } from '../../src/shared/entities/Tram';
 import { Reader, Writer, decodeSnapshot, encodeSnapshotHeader, entityHead, pedDynamic, pedStatic, Ent } from '../../src/shared/net/codec';
-import { lineText, pickLine, pickUpLine, SAY_GUN, SAY_UP } from '../../src/shared/sim/phrases';
+import { lineCat, lineText, pickLine, pickUpLine, SAY_GUN, SAY_UP, SAY_UP2 } from '../../src/shared/sim/phrases';
 import type { SimEvents } from '../../src/shared/sim/events';
 import { nullEvents } from '../../src/shared/sim/events';
 import { loadWorld } from './helpers';
@@ -72,7 +72,7 @@ describe('crowd', () => {
       run(sim, 0.5);
       if (q.handsUp) {
         up++;
-        expect(said.some((l) => l >> 4 === SAY_GUN || (l & 127) >> 4 === SAY_GUN)).toBe(true);
+        expect(said.some((l) => lineCat(l) === SAY_GUN)).toBe(true);
       } else if (q.state === 'flee') ran++;
     }
     expect(up + ran).toBe(12);
@@ -193,15 +193,15 @@ describe('crowd', () => {
       const snap = decodeSnapshot(new Reader(w.finish()));
       expect((snap.ents[0].v as { state: string }).state).toBe(state);
     }
-    for (const tourist of [false, true]) for (let cat = 0; cat < 8; cat++) expect(lineText(pickLine(cat, tourist, 0.99))).not.toBe('');
+    for (const tourist of [false, true]) for (let cat = 0; cat <= SAY_UP2; cat++) expect(lineText(pickLine(cat, tourist, 0.99))).not.toBe('');
     // getting up again (docs/plans/non-violent.md): a line for whatever knocked them down, within the
-    // one category (the wire's line numbers have room for 16 lines a category, 8 categories)
+    // one category (16 lines a category: the toys' first shelf in SAY_UP, the second in SAY_UP2)
     for (const tourist of [false, true])
-      for (const mess of ['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'soot'] as const)
+      for (const mess of ['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'soot', 'kofola', 'perfume', 'pea', 'leaves', 'foam', 'egg', 'pigeon'] as const)
         for (const r of [0, 0.5, 0.99]) {
           const l = pickUpLine(mess, tourist, r);
           expect(lineText(l), `${mess} ${tourist}`).not.toBe('');
-          expect((l & 127) >> 4).toBe(SAY_UP);
+          expect(lineCat(l)).toBe(['water', 'bubbles', 'confetti', 'tickle', 'bonk', 'soot'].includes(mess) ? SAY_UP : SAY_UP2);
         }
   });
 });

@@ -6,7 +6,7 @@
 // `touchButtons`, one-shot key presses with `press`. Layout numbers come from src/ui/layout.ts.
 import type { Game } from '../game/Game';
 import type { WeaponId } from '../shared/entities/Ped';
-import { WEAPONS } from '../shared/sim/Combat';
+import { TOY_IDS, WEAPONS } from '../shared/sim/Combat';
 import { KEYS } from '../game/Input';
 import { isModalOpen } from './kit/dom';
 import { drawWeaponIcon } from './Hud';
@@ -344,7 +344,7 @@ export class TouchControls {
     const pr = ctx === 'foot' || ctx === 'car-d' || ctx === 'car-c' ? g.prompt() : null;
     const useText = pr?.use ? pr.text : v ? (v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
     const miniText = g.host.live.mini?.act ?? '';
-    const hasGun = g.ammo.pistol > 0 || g.ammo.uzi > 0 || g.ammo.shotgun > 0;
+    const hasGun = TOY_IDS.some((w) => g.ammo[w] > 0);
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
     const acts = g.hud.activitiesRect;
     const voice = g.features.find((f) => f.id === 'voice') as { pushToTalk?: boolean } | undefined;

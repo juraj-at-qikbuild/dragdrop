@@ -11,6 +11,7 @@ import { TRAM_SEG } from '../../entities/Tram';
 import { dist, hypot } from '../../util/math';
 import { SECONDS_PER_HOUR } from '../Clock';
 import type { Sim } from '../Sim';
+import type { Mess } from '../../entities/Ped';
 import type { PlayerState, SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
 
@@ -43,11 +44,19 @@ export const STYLE: Record<StyleMove, { label: string; cash: number }> = {
 };
 
 /** soaking someone through, by the toy that did it: [a civilian, a cop] */
-export const SOAK_LABEL: Record<'water' | 'bubbles' | 'confetti' | 'tickle', [string, string]> = {
+export const SOAK_LABEL: Partial<Record<Mess, [string, string]>> & { water: [string, string] } = {
   water: ['SPRCHA!', 'POLICAJT V SPRCHE!'],
   bubbles: ['BUBLI-BUBLI!', 'POLICAJT V PENE!'],
   confetti: ['KONFETY!', 'POLICAJT NA OSLAVE!'],
   tickle: ['ŠTEKLI-ŠTEKLI!', 'ŠTEKLI-ŠTEKLI POLICAJTA!'],
+  bonk: ['PÍÍÍSK!', 'PÍSK PO POLICAJTOVI!'],
+  kofola: ['LEPÍ SA!', 'POLICAJT S KOFOLOU!'],
+  perfume: ['VOŇAVKA!', 'VOŇAVÝ POLICAJT!'],
+  pea: ['HRÁŠOK!', 'HRÁŠOK DO ČAPICE!'],
+  leaves: ['VYFÚKANÉ!', 'POLICAJT V LÍSTÍ!'],
+  foam: ['PENA!', 'POLICAJT V PENE!'],
+  egg: ['VAJEČNÁ!', 'POLICAJT S VAJCOM!'],
+  pigeon: ['DARČEK!', 'DARČEK PRE POLICAJTA!'],
 };
 
 /** seconds a combo waits for the next move before it pays */

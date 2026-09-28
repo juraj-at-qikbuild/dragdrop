@@ -421,6 +421,28 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.fill();
   }
   if (v.livery !== LIVERY_NONE && !v.wrecked) drawLivery(v, ctx);
+  // the thrown toys (sim/Toys.ts): an egg on the windscreen, a yellow clamp on the front wheel
+  if (v.egg > 0 && !v.wrecked) {
+    ctx.globalAlpha = Math.min(1, v.egg / 0.6);
+    ctx.fillStyle = 'rgba(255,248,225,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(L * 0.2, 0.05, 0.42, 0.32, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffc107';
+    ctx.beginPath();
+    ctx.arc(L * 0.2 + 0.05, 0.02, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  if (v.clamp > 0) {
+    ctx.fillStyle = '#fdd835';
+    ctx.strokeStyle = '#212121';
+    ctx.lineWidth = 0.05;
+    ctx.fillRect(wx0 - 0.3, -W / 2 - 0.28, 0.6, 0.3);
+    ctx.strokeRect(wx0 - 0.3, -W / 2 - 0.28, 0.6, 0.3);
+    ctx.fillStyle = '#212121';
+    ctx.fillRect(wx0 - 0.06, -W / 2 - 0.24, 0.12, 0.22);
+  }
   if (v.mission && !v.wrecked) {
     ctx.strokeStyle = `rgba(255,214,0,${0.5 + 0.5 * Math.sin(time * 6)})`;
     ctx.lineWidth = 0.25;

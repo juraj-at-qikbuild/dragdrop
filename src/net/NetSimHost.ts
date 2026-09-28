@@ -6,17 +6,17 @@ import type { Game } from '../game/Game';
 import { applyLive, emptyLive, type MeView, type NetView, type SimHost } from '../game/SimHost';
 import { Ped, setPlayerHat, setPlayerLook, type WeaponId } from '../shared/entities/Ped';
 import { FALL_GRACE, FALL_KNOCK, Vehicle } from '../shared/entities/Vehicle';
-import type { Observer, Profile } from '../shared/sim/SimPlayer';
-import type { ShotReport } from '../shared/sim/Combat';
-import type { PrivateEvent } from '../shared/sim/events';
+import { START_AMMO, type Observer, type Profile } from '../shared/sim/SimPlayer';
+import { WEAPONS, type ShotReport } from '../shared/sim/Combat';
+import type { PrivateEvent, ToyFx } from '../shared/sim/events';
 import type { JobKind } from '../shared/sim/rules/types';
 import type { ShopReq } from '../shared/sim/rules/Shops';
 import { atTramStop, type TramOp } from '../shared/sim/rules/Trams';
 import type { MiniReq } from '../shared/sim/rules/minigames/types';
 import type { Gear } from '../shared/sim/shops/catalog';
-import { VehiclePhysics, pedContact } from '../shared/sim/Physics';
+import { VehiclePhysics, pedContact, type Slick } from '../shared/sim/Physics';
 import { spikeHit } from '../shared/sim/Police';
-import { Writer, Reader, decodeSnapshot, encodeState, MSG_SNAPSHOT, type Snapshot, type StateReport } from '../shared/net/codec';
+import { AMMO_LIST, Writer, Reader, decodeSnapshot, encodeState, MSG_SNAPSHOT, type Snapshot, type StateReport } from '../shared/net/codec';
 import {
   INTERP_DELAY_MS, PROTOCOL_VERSION, STATE_HZ,
   type ClientMsg, type RosterRow, type ServerMsg, type VehFull, type WelcomeMsg, type WorldEvent,
@@ -55,6 +55,8 @@ export class NetSimHost implements SimHost, NetView {
   private queue: { st: number; e: WorldEvent }[] = [];
   /** shots fired but not yet counted by the server: [state seq after which it's processed, weapon] */
   private pendingAmmo: { seq: number; w: WeaponId }[] = [];
+  /** the soap bombs' patches we've been told of (our car's physics and our footing read them) */
+  readonly slicks: Slick[] = [];
   private entering = 0;
   private enteringAt = 0;
   /** performance.now() we were last thrown off a scooter or a bike (see FALL_GRACE) */
@@ -91,9 +93,10 @@ export class NetSimHost implements SimHost, NetView {
 
   constructor(private game: Game, url: string, private identity: Identity, private claimPending = false) {
     this.nick = identity.nick;
+    this.physics.slicks = this.slicks;
     const ped = new Ped('player', 0, 0, 1);
     this.me = {
-      id: 0, ped, wanted: 0, state: 'play', stateTimer: 0, ammo: { fist: Infinity, pistol: 0, uzi: 0, shotgun: 0 },
+      id: 0, ped, wanted: 0, state: 'play', stateTimer: 0, ammo: { fist: Infinity, ...START_AMMO, pistol: 0 },
       profile: { money: 0, done: [], found: [], cumils: [] }, searchZone: null, searching: false, lastCar: null,
     };
     this.mirrors = new Mirrors((id) => id === this.me.ped.id || (!!this.ownCar && id === this.ownCar.id));
@@ -274,9 +277,7 @@ export class NetSimHost implements SimHost, NetView {
     // ammo: the server's count, minus shots it hasn't seen yet
     this.pendingAmmo = this.pendingAmmo.filter((q) => ((s.ack - q.seq) & 0xffff) > 0x8000);
     const pend = (w: WeaponId) => this.pendingAmmo.reduce((n, q) => n + (q.w === w ? 1 : 0), 0);
-    me.ammo.pistol = Math.max(0, ps.ammo[0] - pend('pistol'));
-    me.ammo.uzi = Math.max(0, ps.ammo[1] - pend('uzi'));
-    me.ammo.shotgun = Math.max(0, ps.ammo[2] - pend('shotgun'));
+    AMMO_LIST.forEach((w, i) => (me.ammo[w] = Math.max(0, (ps.ammo[i] ?? 0) - pend(w))));
   }
 
   private onMessage(m: ServerMsg) {
@@ -391,6 +392,13 @@ export class NetSimHost implements SimHost, NetView {
     // a tram standing at a stop has its doors open (a snapshot doesn't say: the server's own trams know)
     for (const t of this.trams) t.dwell = atTramStop(game.world.tramStops, t) ? 1 : 0;
     Vehicle.env.wet = game.atmos.wet;
+    for (let i = this.slicks.length - 1; i >= 0; i--) if ((this.slicks[i].t -= dt) <= 0) this.slicks.splice(i, 1);
+    // (driving, the physics counts the eggs and clamps down; on foot, here, for drawing them)
+    if (!this.ownCar)
+      for (const v of this.vehicles) {
+        if (v.egg > 0) v.egg = Math.max(0, v.egg - dt);
+        if (v.clamp > 0) v.clamp = Math.max(0, v.clamp - dt);
+      }
     world.gates.sweep(this.vehicles, dt);
     // (a stall knocked over, seen here: the server pays for it)
     world.stalls.sweep(this.vehicles, dt);
@@ -540,6 +548,10 @@ export class NetSimHost implements SimHost, NetView {
       case 'five':
         ev.highFive(e.id, e.x, e.y);
         break;
+      case 'toy':
+        this.onToy(e);
+        ev.toy(e);
+        break;
     }
   }
 
@@ -571,6 +583,24 @@ export class NetSimHost implements SimHost, NetView {
     ev.shot({ by: this.me.ped.id, pid: 0, x: shot.ox, y: shot.oy, a: shot.a, w: shot.w, lvl: shot.lvl, ends: shot.pellets.flatMap((p) => [p.hx, p.hy]), sparks: shot.pellets.reduce((m, p, i) => m | (p.kind === 1 || p.kind === 3 ? 1 << i : 0), 0) });
     this.pendingAmmo.push({ seq: (this.seq + 1) & 0xffff, w: shot.w });
     this.conn.send({ t: 'fire', w: shot.w, ox: r2(shot.ox), oy: r2(shot.oy), a: r3(shot.a), lvl: shot.lvl, rt: Math.round(this.renderTime()), pellets: shot.pellets.map((p) => ({ a: r3(p.a), kind: p.kind, hit: p.hit, hx: r2(p.hx), hy: r2(p.hy) })) });
+  }
+
+  throwToy(w: WeaponId, tx: number, ty: number) {
+    const spec = WEAPONS[w], f = this.me.ped.vehicle ?? this.me.ped;
+    // show our own throw right away (the server's echo is skipped), as far as it goes
+    const d = Math.hypot(tx - f.x, ty - f.y);
+    if (d > spec.range) (tx = f.x + ((tx - f.x) / d) * spec.range), (ty = f.y + ((ty - f.y) / d) * spec.range);
+    this.game.events.toy({ op: 'throw', w, pid: this.me.id, x: f.x, y: f.y, tx, ty, d: Math.max(0.25, Math.min(d, spec.range) / (spec.thrown ?? 10)), lvl: f.level });
+    this.pendingAmmo.push({ seq: (this.seq + 1) & 0xffff, w });
+    this.conn.send({ t: 'throw', w, tx: r2(tx), ty: r2(ty) });
+  }
+
+  /** what a thrown toy does to our own simulation: an egg or a clamp on the car we drive, a soap
+   *  patch our car slides on (and we slip on, on foot: Game) */
+  private onToy(e: ToyFx) {
+    const car = this.ownCar;
+    if (e.op === 'stick' && car && e.vid === car.id) car[e.what] = e.t;
+    else if (e.op === 'slick') this.slicks.push({ x: e.x, y: e.y, r: e.r, t: e.t });
   }
 
   punch(target: number) {
@@ -738,6 +768,17 @@ export class NetSimHost implements SimHost, NetView {
         p.levelInit = false;
         this.epoch = e.epoch;
         break;
+      case 'sticky':
+        p.sticky = e.t;
+        break;
+      case 'foam': {
+        const v = this.ownCar;
+        if (v && v.id === e.vehicle && !v.wrecked) {
+          v.fire = -1;
+          v.health = Math.max(v.health, v.spec.health * 0.12);
+        }
+        break;
+      }
       case 'vehDamage': {
         const v = this.ownCar;
         if (!v || v.id !== e.vehicle) return;

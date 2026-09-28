@@ -21,9 +21,10 @@ import { POINTS } from '../../shared/sim/rules/points';
 import { dist, formatMoney } from '../../shared/util/math';
 import { mapMarker, type MapAction, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
+import { TOY_IDS, isThrown } from '../../shared/sim/Combat';
 import { isModalOpen, openModal } from '../../ui/kit/dom';
 import {
-  GUN_NAME, HAT_NAMES, ammoLine, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, distanceLine, gunLine, modName,
+  HAT_NAMES, TOY_ABOUT, ammoLine, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, distanceLine, gunLine, modName,
   modsLine, paintName, placesWord, storedCarLine,
 } from './shops/text';
 
@@ -226,7 +227,7 @@ export class ShopsUi implements ClientFeature {
     const shop = live.shop && performance.now() - live.shop.at < STATUS_MS ? live.shop.at : 0;
     const car = v ? [v.id, v.color, v.mods, Math.round(v.health), ownable(v)] : 0;
     return JSON.stringify([
-      this.place?.id, Math.round(g.save.money), g.save.gear ?? {}, g.ammo.pistol, g.ammo.uzi, g.ammo.shotgun, Math.round(g.player.armor), g.player.look, g.player.hat, car, live.catalog, shop,
+      this.place?.id, Math.round(g.save.money), g.save.gear ?? {}, TOY_IDS.map((w) => g.ammo[w]), Math.round(g.player.armor), g.player.look, g.player.hat, car, live.catalog, shop,
       g.wanted > 0,
     ]);
   }
@@ -242,7 +243,7 @@ export class ShopsUi implements ClientFeature {
     const parts: HTMLElement[] = [el('p', 'kit-shop-about', SHOP_KIND[place.kind].about), el('p', 'kit-shop-money', `Máš ${formatMoney(g.save.money)}`)];
     switch (place.kind) {
       case 'guns':
-        parts.push(this.guns(prices));
+        parts.push(...this.guns(prices));
         break;
       case 'clothes':
         parts.push(...this.clothes(prices));
@@ -335,17 +336,23 @@ export class ShopsUi implements ClientFeature {
   }
 
   // ------------------------------------------------------------------------------ Hračkárstvo
-  private guns(prices: Prices): HTMLElement {
+  private guns(prices: Prices): HTMLElement[] {
     const g = this.g;
-    const list = el('div', 'kit-shop-list');
-    for (const w of ['pistol', 'uzi', 'shotgun'] as const) {
-      const have = g.ammo[w];
-      const about = have > 0 ? `Máš ${ammoLine(w, have)}.` : `${GUN_NAME[w]} zatiaľ nemáš.`;
-      list.appendChild(have >= 999 ? this.row({ k: w, name: gunLine(w), about, note: 'Viac neunesieš' }) : this.row({ k: w, name: gunLine(w), about, price: prices[w], req: { op: 'buy', item: w } }));
-    }
+    // the squirted and swung on one shelf, the thrown on the other (sim/Toys.ts)
+    const shelf = (thrown: boolean) => {
+      const list = el('div', 'kit-shop-list');
+      for (const w of TOY_IDS) {
+        if (isThrown(w) !== thrown) continue;
+        const have = g.ammo[w];
+        const about = `${TOY_ABOUT[w]} ${have > 0 ? `Máš ${ammoLine(w, have)}.` : 'Zatiaľ nemáš.'}`;
+        list.appendChild(have >= 999 ? this.row({ k: w, name: gunLine(w), about, note: 'Viac neunesieš' }) : this.row({ k: w, name: gunLine(w), about, price: prices[w], req: { op: 'buy', item: w } }));
+      }
+      return list;
+    };
+    const first = shelf(false);
     const vest = { k: 'vest', name: 'Pršiplášť', about: 'Nepremokavý: zachytí 100 bodov striekania.' };
-    list.appendChild(g.player.armor >= 100 ? this.row({ ...vest, note: 'Máš ho na sebe' }) : this.row({ ...vest, price: prices.vest, req: { op: 'buy', item: 'vest' } }));
-    return list;
+    first.appendChild(g.player.armor >= 100 ? this.row({ ...vest, note: 'Máš ho na sebe' }) : this.row({ ...vest, price: prices.vest, req: { op: 'buy', item: 'vest' } }));
+    return [this.head('Striekačky a spol.'), first, this.head('Na hádzanie'), shelf(true)];
   }
 
   // ------------------------------------------------------------------------------------------ Butik

@@ -162,6 +162,10 @@ export class Fx {
   private wets: WetMark[] = [];
   /** wrecked cars still smouldering: vehicle -> seconds left (~20s) */
   private burning = new Map<Vehicle, number>();
+  /** thrown toys in the air (sim/Toys.ts): seconds so far of `d` */
+  private flying: Toss[] = [];
+  /** soap bombs' slippery patches */
+  private slicks: { x: number; y: number; r: number; t: number; max: number; shape: number[] }[] = [];
 
   /** One shot from a toy: a water jet, a stream of bubbles or a burst of confetti along each
    *  pellet's path, and where one ended on a wall or a car (bit set in `sparks`) a splash, a pop or
@@ -181,7 +185,8 @@ export class Fx {
     for (let i = 0; i + 1 < ends.length; i += 2) {
       const ex = ends[i], ey = ends[i + 1];
       const hit = !!(sparks & (1 << (i / 2)));
-      if (w === 'uzi') {
+      if (w !== 'pistol' && w !== 'uzi' && w !== 'shotgun') this.shelfShot(w, x, y, a, ex, ey, hit);
+      else if (w === 'uzi') {
         this.tracers.push({ x, y, x2: ex, y2: ey, life: 0.08, max: 0.08, color: 'rgba(230,200,255,0.45)', width: 0.05 });
         for (let k = 0; k < 3; k++) {
           const t = Math.random();
@@ -208,7 +213,9 @@ export class Fx {
 
   /** what comes out of the toy's front: a spray of droplets, a bubble, a puff of paper */
   private nozzle(x: number, y: number, a: number, w: WeaponId) {
-    if (w === 'uzi') this.bubble(x, y, Math.cos(a) * 1.5, Math.sin(a) * 1.5, 0.12);
+    if (w === 'hammer' || w === 'pea' || w === 'perfume' || w === 'blower' || w === 'foam') return;
+    if (w === 'kofola') for (let i = 0; i < 3; i++) this.fizz(x, y, Math.cos(a + rand(-0.5, 0.5)) * rand(2, 5), Math.sin(a + rand(-0.5, 0.5)) * rand(2, 5));
+    else if (w === 'uzi') this.bubble(x, y, Math.cos(a) * 1.5, Math.sin(a) * 1.5, 0.12);
     else if (w === 'shotgun') for (let i = 0; i < 6; i++) this.confetti(x, y, Math.cos(a + rand(-0.6, 0.6)) * rand(3, 8), Math.sin(a + rand(-0.6, 0.6)) * rand(3, 8));
     else for (let i = 0; i < 3; i++) this.drop(x, y, Math.cos(a + rand(-0.4, 0.4)) * rand(2, 5), Math.sin(a + rand(-0.4, 0.4)) * rand(2, 5));
   }
@@ -300,6 +307,34 @@ export class Fx {
         for (let i = 0; i < 3; i++) this.dust(x, y);
         this.stars(x, y, 3);
         break;
+      case 'kofola':
+        for (let i = 0; i < 3 + Math.round(size * 6); i++) this.fizz(x, y, rand(-2, 2), rand(-2, 1));
+        this.wet(x, y, 0.25 + size * 0.4, 'rgba(90,40,15,0.35)', 16 + size * 10);
+        break;
+      case 'perfume':
+        for (let i = 0; i < 2 + Math.round(size * 3); i++) this.smoke(x + rand(-0.4, 0.4), y + rand(-0.4, 0.4), rand(0.4, 0.8), '255,170,215');
+        break;
+      case 'pea':
+        this.pea(x, y, rand(-1.5, 1.5), rand(-2, -0.5));
+        break;
+      case 'leaves':
+        this.leaves(x, y, 3 + Math.round(size * 6), 3);
+        break;
+      case 'foam':
+        for (let i = 0; i < 2 + Math.round(size * 3); i++) this.smoke(x + rand(-0.3, 0.3), y + rand(-0.3, 0.3), rand(0.3, 0.6), '248,250,252');
+        this.wet(x, y, 0.3 + size * 0.4, 'rgba(255,255,255,0.45)', 12 + size * 8);
+        break;
+      case 'egg':
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2, sp = rand(0.5, 2.5);
+          this.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.3, 0.6), max: 0.6, size: rand(0.06, 0.11), grow: 0, color: pick(['#ffca28', '#fff8e1', '#ffe082']), alphaMax: 1, top: true, kind: 'splash' });
+        }
+        this.wet(x, y, 0.3 + size * 0.3, 'rgba(255,202,40,0.4)', 20);
+        break;
+      case 'pigeon':
+        this.feathers(x, y, 3);
+        this.wet(x, y, 0.2 + size * 0.2, 'rgba(245,245,240,0.6)', 20);
+        break;
       default: // 'tickle': a flurry of little stars
         this.stars(x, y, 2 + Math.round(size * 3));
     }
@@ -311,6 +346,108 @@ export class Fx {
       const a = Math.random() * Math.PI * 2, s = rand(0.6, 2);
       this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 0.8, life: rand(0.5, 0.9), max: 0.9, size: rand(0.07, 0.12), grow: 0, color: '#ffe082', alphaMax: 1, top: true, kind: 'star', rot: Math.random() * Math.PI, vr: rand(-6, 6) });
     }
+  }
+
+  /** a drop of fizzing Kofola */
+  private fizz(x: number, y: number, vx: number, vy: number) {
+    this.particles.push({ x, y, vx, vy, life: rand(0.25, 0.5), max: 0.5, size: rand(0.05, 0.1), grow: 0, color: pick(['rgba(92,38,12,0.9)', 'rgba(140,70,30,0.85)', 'rgba(230,200,160,0.8)']), alphaMax: 1, top: true, kind: 'splash' });
+  }
+
+  /** a pea bouncing off */
+  private pea(x: number, y: number, vx: number, vy: number) {
+    this.particles.push({ x, y, vx, vy, life: 0.7, max: 0.7, size: 0.07, grow: 0, color: '#7cb342', alphaMax: 1, top: true, kind: 'splash' });
+  }
+
+  /** leaves swirling off (the blower), rocking like feathers */
+  leaves(x: number, y: number, n: number, speed: number) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = rand(0.5, speed);
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.8, 1.6), max: 1.6, size: rand(0.1, 0.16), grow: 0, color: pick(['#8d6e2f', '#c0862b', '#a1887f', '#7c8b2a', '#d4a02b']), alphaMax: 1, top: true, kind: 'feather', rot: Math.random() * Math.PI * 2, vr: rand(-8, 8) });
+    }
+  }
+
+  /** the second shelf's squirts and swings (Combat.ts WEAPONS): a squeak and stars, a jet of Kofola,
+   *  a cloud of perfume, a pea's flight, a gust with leaves in it, a jet of foam */
+  private shelfShot(w: WeaponId, x: number, y: number, a: number, ex: number, ey: number, hit: boolean) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    switch (w) {
+      case 'hammer':
+        // a squeak where the swing lands
+        this.particles.push({ x: ex, y: ey, vx: 0, vy: 0, life: 0.16, max: 0.16, size: 0.15, grow: 3, color: 'rgba(255,82,82,0.8)', alphaMax: 1, top: true, kind: 'ring' });
+        if (hit) this.stars(ex, ey, 2);
+        break;
+      case 'kofola':
+        this.tracers.push({ x, y, x2: ex, y2: ey, life: 0.1, max: 0.1, color: 'rgba(110,50,20,0.8)', width: 0.12 });
+        for (let k = 0; k < 2; k++) {
+          const t = rand(0.3, 1);
+          this.fizz(x + (ex - x) * t, y + (ey - y) * t, ca * rand(0.5, 2), sa * rand(0.5, 2));
+        }
+        if (hit) this.wet(ex, ey, 0.3, 'rgba(90,40,15,0.3)', 10);
+        break;
+      case 'perfume':
+        for (let k = 0; k < 2; k++) {
+          const t = rand(0.2, 1);
+          this.particles.push({ x: x + (ex - x) * t, y: y + (ey - y) * t, vx: ca * rand(0.5, 1.5), vy: sa * rand(0.5, 1.5), life: rand(0.6, 1.1), max: 1.1, size: rand(0.25, 0.45), grow: 0.6, color: '255,170,215', alphaMax: 0.45, top: true, kind: 'smoke' });
+        }
+        break;
+      case 'pea':
+        this.tracers.push({ x, y, x2: ex, y2: ey, life: 0.06, max: 0.06, color: 'rgba(124,179,66,0.5)', width: 0.04 });
+        this.pea(ex, ey, -ca * rand(0.5, 1.5), -sa * rand(0.5, 1.5));
+        break;
+      case 'blower':
+        this.tracers.push({ x, y, x2: ex, y2: ey, life: 0.07, max: 0.07, color: 'rgba(230,240,230,0.25)', width: 0.35 });
+        if (Math.random() < 0.5) {
+          const t = rand(0.2, 1);
+          this.leaves(x + (ex - x) * t, y + (ey - y) * t, 1, 1);
+        }
+        break;
+      case 'foam':
+        this.tracers.push({ x, y, x2: ex, y2: ey, life: 0.12, max: 0.12, color: 'rgba(250,250,255,0.85)', width: 0.22 });
+        this.particles.push({ x: ex, y: ey, vx: rand(-0.4, 0.4), vy: rand(-0.4, 0.4), life: rand(0.8, 1.4), max: 1.4, size: rand(0.25, 0.4), grow: 0.3, color: '248,250,252', alphaMax: 0.85, top: true, kind: 'smoke' });
+        if (hit) this.wet(ex, ey, 0.35, 'rgba(255,255,255,0.4)', 10);
+        break;
+    }
+  }
+
+  /** a thrown toy's flight (sim/Toys.ts), from (x, y) to (tx, ty) in `d` s */
+  toss(w: WeaponId, x: number, y: number, tx: number, ty: number, d: number) {
+    this.flying.push({ w, x, y, tx, ty, t: 0, d: Math.max(0.1, d) });
+  }
+
+  /** where a thrown toy came down: soap bubbling up, egg yolk, a clank, a bucket's splash, a pigeon */
+  landed(w: WeaponId, x: number, y: number, hit: boolean) {
+    switch (w) {
+      case 'soap':
+        for (let i = 0; i < 14; i++) this.bubble(x + rand(-1, 1), y + rand(-1, 1), rand(-1.5, 1.5), rand(-1.5, 1), rand(0.08, 0.2));
+        break;
+      case 'egg':
+        this.soak(x, y, 0.6, 'egg');
+        break;
+      case 'clamp':
+        this.metalSpark(x, y);
+        if (!hit) this.dust(x, y);
+        break;
+      case 'bucket':
+        this.drops(x, y, 26, 6);
+        this.particles.push({ x, y, vx: 0, vy: 0, life: 0.45, max: 0.45, size: 0.4, grow: 7, color: 'rgba(225,242,255,0.8)', alphaMax: 1, top: true, kind: 'ring' });
+        this.wet(x, y, 2.4, 'rgba(40,70,110,0.32)', 22);
+        break;
+      case 'pigeon':
+        this.feathers(x, y, 6);
+        if (hit) this.soak(x, y, 0.6, 'pigeon');
+        break;
+    }
+  }
+
+  /** a soap bomb's slippery patch, for `t` s */
+  slick(x: number, y: number, r: number, t: number) {
+    this.slicks.push({ x, y, r, t, max: t, shape: blobShape() });
+  }
+
+  /** foam over a car whose fire it put out */
+  foamPuff(x: number, y: number) {
+    for (let i = 0; i < 10; i++) this.particles.push({ x: x + rand(-1.5, 1.5), y: y + rand(-1, 1), vx: rand(-0.5, 0.5), vy: rand(-0.5, 0.5), life: rand(1, 2), max: 2, size: rand(0.4, 0.8), grow: 0.3, color: '248,250,252', alphaMax: 0.9, top: true, kind: 'smoke' });
+    this.wet(x, y, 2, 'rgba(255,255,255,0.45)', 16);
   }
 
   /** a market stall's goods flung the way the car went (MOJE LOKŠE!): lokše, langoše, sausages,
@@ -505,6 +642,17 @@ export class Fx {
     if (this.particles.length > PARTICLE_CAP) this.particles.splice(0, this.particles.length - PARTICLE_CAP);
     for (const t of this.tracers) t.life -= dt;
     this.tracers = this.tracers.filter((t) => t.life > 0);
+    if (this.flying.length) {
+      for (const f of this.flying) f.t += dt;
+      this.flying = this.flying.filter((f) => f.t < f.d);
+    }
+    if (this.slicks.length) {
+      for (const s of this.slicks) {
+        s.t -= dt;
+        if (Math.random() < dt * s.r * 0.6) this.bubble(s.x + rand(-s.r, s.r) * 0.7, s.y + rand(-s.r, s.r) * 0.7, rand(-0.2, 0.2), rand(-0.3, 0), rand(0.06, 0.14));
+      }
+      this.slicks = this.slicks.filter((s) => s.t > 0);
+    }
     for (const w of this.wets) w.life -= dt;
     if (this.wets.length && this.wets[0].life <= 0) this.wets = this.wets.filter((w) => w.life > 0);
     for (const ev of this.lightEvents) ev.life -= dt;
@@ -539,6 +687,16 @@ export class Fx {
   /** the baked marks (skids, confetti), then the wet ones, fading as they dry */
   drawDecals(ctx: CanvasRenderingContext2D, v: { x0: number; y0: number; x1: number; y1: number }) {
     this.decals.draw(ctx, v.x0, v.y0, v.x1, v.y1);
+    for (const s of this.slicks) {
+      if (s.x < v.x0 - s.r || s.x > v.x1 + s.r || s.y < v.y0 - s.r || s.y > v.y1 + s.r) continue;
+      const k = Math.max(0, Math.min(1, s.t / 2, (s.max - s.t) * 4));
+      ctx.globalAlpha = 0.55 * k;
+      ctx.fillStyle = 'rgba(236,230,255,0.9)';
+      drawBlob(ctx, s.x, s.y, s.r, s.shape);
+      ctx.globalAlpha = 0.35 * k;
+      ctx.fillStyle = 'rgba(255,190,230,0.9)';
+      drawBlob(ctx, s.x + 0.3, s.y - 0.2, s.r * 0.6, s.shape);
+    }
     for (const w of this.wets) {
       if (w.x < v.x0 - w.r || w.x > v.x1 + w.r || w.y < v.y0 - w.r || w.y > v.y1 + w.r) continue;
       ctx.globalAlpha = Math.max(0, Math.min(1, (w.life / w.max) * 2.5));
@@ -643,6 +801,7 @@ export class Fx {
     ctx.globalCompositeOperation = prevOp;
     ctx.globalAlpha = 1;
     if (!top) return;
+    for (const f of this.flying) drawToss(ctx, f);
     // the toys' jets: water, and a stream of bubbles' faint trail
     ctx.lineCap = 'round';
     for (const t of this.tracers) {
@@ -660,6 +819,90 @@ export class Fx {
 
 
 const PARTICLE_CAP = 600;
+
+/** a thrown toy in the air (sim/Toys.ts) */
+interface Toss {
+  w: WeaponId;
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  /** seconds so far of `d` */
+  t: number;
+  d: number;
+}
+
+/** A thrown toy in the air: an arc (its height drawn as a lift up the screen, over a shadow that stays
+ *  on the ground), but the pigeon, which flies straight and flaps. */
+function drawToss(ctx: CanvasRenderingContext2D, f: Toss) {
+  const k = f.t / f.d;
+  const x = f.x + (f.tx - f.x) * k, y = f.y + (f.ty - f.y) * k;
+  const len = Math.hypot(f.tx - f.x, f.ty - f.y);
+  const h = f.w === 'pigeon' ? 1.2 : Math.min(4, 0.8 + len * 0.18) * 4 * k * (1 - k);
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(x, y, 0.3, 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.save();
+  ctx.translate(x, y - h);
+  const spin = f.t * 9;
+  switch (f.w) {
+    case 'soap':
+      ctx.fillStyle = '#f8bbd0';
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      ctx.arc(-0.08, -0.08, 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'egg':
+      ctx.rotate(spin);
+      ctx.fillStyle = '#fff8e1';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 0.17, 0.23, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'clamp':
+      ctx.rotate(spin);
+      ctx.strokeStyle = '#fdd835';
+      ctx.lineWidth = 0.14;
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.28, 0.4, Math.PI * 2 - 0.4);
+      ctx.stroke();
+      break;
+    case 'bucket':
+      ctx.rotate(Math.sin(spin * 0.5) * 0.5);
+      ctx.fillStyle = '#42a5f5';
+      ctx.fillRect(-0.25, -0.22, 0.5, 0.44);
+      ctx.fillStyle = 'rgba(190,230,255,0.9)';
+      ctx.fillRect(-0.22, -0.22, 0.44, 0.1);
+      break;
+    case 'pigeon': {
+      ctx.rotate(Math.atan2(f.ty - f.y, f.tx - f.x));
+      const flap = Math.sin(f.t * 30);
+      ctx.fillStyle = '#b0bec5';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(-0.02, s * (0.2 + flap * 0.08), 0.14, 0.24 + flap * 0.06, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#90a4ae';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 0.3, 0.13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#546e7a';
+      ctx.beginPath();
+      ctx.arc(0.28, 0, 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
 
 function drawBlob(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, shape?: number[]) {
   const pts = shape ?? blobShape();

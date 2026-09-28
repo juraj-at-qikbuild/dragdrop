@@ -8,6 +8,7 @@ import type { Prop } from '../shared/entities/Props';
 import type { Helicopter } from '../shared/entities/Helicopter';
 import type { Pickup } from '../shared/sim/Pickups';
 import type { ShotReport } from '../shared/sim/Combat';
+import type { Slick } from '../shared/sim/Physics';
 import type { PrivateEvent } from '../shared/sim/events';
 import type { Observer, PlayerState, Profile } from '../shared/sim/SimPlayer';
 import type { NetStatus } from '../net/Connection';
@@ -188,6 +189,10 @@ export interface SimHost {
   fire(shot: ShotReport): void;
   /** the local player punched (target ped id, 0 = air) */
   punch(targetId: number): void;
+  /** the local player threw toy `w` at (tx, ty) (sim/Toys.ts) */
+  throwToy(w: WeaponId, tx: number, ty: number): void;
+  /** the soap bombs' slippery patches (the local player slides on them on foot) */
+  readonly slicks: readonly Slick[];
   requestEnter(v: Vehicle): void;
   requestExit(): void;
   horn(): void;

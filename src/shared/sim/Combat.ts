@@ -5,7 +5,7 @@
 // own client against what it sees (`traceShot`) and applied here (`applyShot`), the server first
 // validating the claim.
 import type { Level } from '../world/World';
-import type { Mess, Ped, WeaponId } from '../entities/Ped';
+import { WEAPON_IDS, type Mess, type Ped, type WeaponId } from '../entities/Ped';
 export type { Mess } from '../entities/Ped';
 import type { Vehicle } from '../entities/Vehicle';
 import type { World } from '../world/World';
@@ -13,18 +13,69 @@ import { dist } from '../util/math';
 import { SOAK_LABEL } from './rules/Style';
 import type { Sim } from './Sim';
 
-/** each toy: its name (and what the HUD calls it, `short`), how much it soaks (dmg), cooldown,
- *  spread, range and pellets */
-export const WEAPONS: Record<WeaponId, { name: string; short: string; dmg: number; cd: number; spread: number; range: number; pellets: number }> = {
+export interface WeaponSpec {
+  name: string;
+  /** what the HUD calls it */
+  short: string;
+  /** how much it soaks */
+  dmg: number;
+  cd: number;
+  spread: number;
+  /** how far it reaches (a thrown toy: how far it's thrown at most) */
+  range: number;
+  pellets: number;
+  /** a thrown toy (Toys.ts): how fast it flies (m/s); a player's client sends a `throw`, not a `fire` */
+  thrown?: number;
+  /** what a hit does to a car, of what it does to a person (default 1) */
+  car?: number;
+  /** a pellet by a wheel bursts the tyre (the first three toys) */
+  tyres?: boolean;
+  /** makes no noise: no crime for firing it, nobody around runs (the peashooter) */
+  quiet?: boolean;
+}
+
+/** each toy: its name, how much it soaks (dmg), cooldown, spread, range and pellets. The second
+ *  shelf's gags (Kofola's stickiness, the blower's push, the foam putting out a fire...) are in
+ *  CombatRules.toyHit and toyCar; the thrown ones land in Toys.ts. */
+export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   fist: { name: 'Šteklenie', short: 'Šteklenie', dmg: 34, cd: 0.45, spread: 0, range: 1.4, pellets: 1 },
-  pistol: { name: 'Vodná pištoľ', short: 'Striekačka', dmg: 55, cd: 0.3, spread: 0.035, range: 45, pellets: 1 },
-  uzi: { name: 'Bublinkový samopal', short: 'Bublifuk', dmg: 28, cd: 0.085, spread: 0.08, range: 38, pellets: 1 },
-  shotgun: { name: 'Konfetová brokovnica', short: 'Konfeťák', dmg: 34, cd: 0.9, spread: 0.22, range: 22, pellets: 6 },
+  pistol: { name: 'Vodná pištoľ', short: 'Striekačka', dmg: 55, cd: 0.3, spread: 0.035, range: 45, pellets: 1, tyres: true },
+  uzi: { name: 'Bublinkový samopal', short: 'Bublifuk', dmg: 28, cd: 0.085, spread: 0.08, range: 38, pellets: 1, tyres: true },
+  shotgun: { name: 'Konfetová brokovnica', short: 'Konfeťák', dmg: 34, cd: 0.9, spread: 0.22, range: 22, pellets: 6, tyres: true },
+  // a bonk that sits anyone down with a squeak (the reach of a swing)
+  hammer: { name: 'Pískacie kladivko', short: 'Kladivko', dmg: 100, cd: 0.55, spread: 0.3, range: 1.9, pellets: 1, car: 0.1 },
+  // a shaken bottle of Kofola: short and fizzy, and whoever it hits is sticky and slow for a while
+  kofola: { name: 'Kofolový sifón', short: 'Kofola', dmg: 12, cd: 0.1, spread: 0.16, range: 11, pellets: 3, car: 0.2 },
+  // grandma's perfume: barely wet, but everyone near coughs and runs
+  perfume: { name: 'Babkin parfém', short: 'Parfém', dmg: 6, cd: 0.3, spread: 0.4, range: 7, pellets: 4, car: 0 },
+  // a peashooter: a sniper, as a joke (weak, quiet, very far)
+  pea: { name: 'Hrach cez slamku', short: 'Hrach', dmg: 10, cd: 0.2, spread: 0.004, range: 90, pellets: 1, car: 0.05, quiet: true },
+  // the leaf blower: pushes people over, and scooters and bikes aside
+  blower: { name: 'Fúkač na lístie', short: 'Fúkač', dmg: 22, cd: 0.08, spread: 0.18, range: 8, pellets: 1, car: 0 },
+  // the foam extinguisher: puts out a burning car (your own too)
+  foam: { name: 'Hasiaci prístroj', short: 'Hasiák', dmg: 10, cd: 0.1, spread: 0.1, range: 12, pellets: 2, car: 0 },
+  // thrown: a slippery patch, an egg on a windscreen, a clamp on a wheel, a bucket of water, a pigeon
+  soap: { name: 'Mydlová bomba', short: 'Mydlo', dmg: 0, cd: 1, spread: 0, range: 20, pellets: 1, thrown: 14 },
+  egg: { name: 'Vajíčko', short: 'Vajce', dmg: 100, cd: 0.5, spread: 0, range: 24, pellets: 1, thrown: 18 },
+  clamp: { name: 'Parkovacia papuča', short: 'Papuča', dmg: 0, cd: 1.2, spread: 0, range: 12, pellets: 1, thrown: 11 },
+  bucket: { name: 'Veľkonočná oblievačka', short: 'Oblievačka', dmg: 100, cd: 1.2, spread: 0, range: 10, pellets: 1, thrown: 10 },
+  pigeon: { name: 'Holub z Hlavného', short: 'Holub', dmg: 60, cd: 1.5, spread: 0, range: 45, pellets: 1, thrown: 13 },
 };
 
 /** what each toy leaves on a person it hits (the look ClientEvents gives them) */
-export const WEAPON_MESS: Record<WeaponId, Mess> = { fist: 'tickle', pistol: 'water', uzi: 'bubbles', shotgun: 'confetti' };
-export const WEAPON_IDS: WeaponId[] = ['fist', 'pistol', 'uzi', 'shotgun'];
+export const WEAPON_MESS: Record<WeaponId, Mess> = {
+  fist: 'tickle', pistol: 'water', uzi: 'bubbles', shotgun: 'confetti',
+  hammer: 'bonk', kofola: 'kofola', perfume: 'perfume', pea: 'pea', blower: 'leaves', foam: 'foam',
+  soap: 'bubbles', egg: 'egg', clamp: 'bonk', bucket: 'water', pigeon: 'pigeon',
+};
+export { WEAPON_IDS };
+/** every toy but tickling: what a player has refills of (SimPlayer.ammo), in WEAPON_IDS' order */
+export const TOY_IDS = WEAPON_IDS.filter((w): w is Exclude<WeaponId, 'fist'> => w !== 'fist');
+/** a thrown toy (Toys.ts) */
+export const isThrown = (w: WeaponId) => !!WEAPONS[w].thrown;
+
+/** how long a Kofola hit keeps someone sticky (s) */
+export const STICKY_S = 5;
 
 /** what a pellet ended on */
 export const enum HitKind {
@@ -167,17 +218,21 @@ export class CombatRules {
       ends.push(pl.hx, pl.hy);
       if (pl.kind === HitKind.Ped) {
         const p = sim.pedById(pl.hit);
-        if (p && !p.dazed) this.hurtPed(p, w.dmg, shooter, pid, false, mess);
+        if (p && !p.dazed) {
+          this.hurtPed(p, w.dmg, shooter, pid, false, mess);
+          if (shooter.id !== 0) this.toyHit(shot.w, p, shooter, pid, pl.a, pl.hx, pl.hy);
+        }
       } else if (pl.kind === HitKind.Car) {
         sparks |= 1 << i;
         const car = sim.vehicleById(pl.hit);
         if (!car || car.wrecked) return;
-        const carDmg = w.dmg * 0.35 * car.armor;
-        sim.damageVehicle(car, carDmg, pid);
+        if (shooter.id !== 0) this.toyCar(shot.w, car, pid, pl.a);
+        const carDmg = w.dmg * 0.35 * car.armor * (w.car ?? 1);
+        if (carDmg > 0) sim.damageVehicle(car, carDmg, pid);
         for (const r of sim.rules) r.onVehicleHit?.(car, carDmg, pid, pl.hx, pl.hy);
         // a pellet near a wheel bursts the tyres, for any car (Horúca Kofolka's box-in-and-ram dynamic),
         // but for run-flats (the Dielňa's tuning)
-        if (hitsWheel(car, pl.hx, pl.hy) && car.burstTyres() && car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
+        if (w.tyres && hitsWheel(car, pl.hx, pl.hy) && car.burstTyres() && car.owner) sim.events.toPlayer(car.owner, { k: 'tyres', vehicle: car.id });
         if (player && car.kind === 'police' && !car.isPlayer) sim.crime(player, 'shootCop');
         if (car.driver && !car.driver.playerId && !car.isPlayer && sim.rng.chance(0.15)) this.hurtPed(car.driver, w.dmg, shooter, pid, false, mess);
         if (car.isPlayer && car.owner !== pid) {
@@ -188,12 +243,50 @@ export class CombatRules {
       } else if (pl.kind === HitKind.Wall) sparks |= 1 << i;
     });
     sim.events.shot({ by: shooter.id, pid, x: shot.ox, y: shot.oy, a: shot.a, w: shot.w, lvl: shot.lvl, ends, sparks });
-    if (player) {
+    // (a peashooter makes no noise: nobody hears it, nobody runs)
+    if (player && !w.quiet) {
       sim.crime(player, 'shoot');
       sim.police.danger(shooter.x, shooter.y, 16);
       for (const p of sim.pedsNear(shooter.x, shooter.y, 35))
         if (p.kind === 'civ' && !p.dazed && !p.vehicle && dist(p.x, p.y, shooter.x, shooter.y) < 35) this.scare(p, shooter.x, shooter.y);
     }
+  }
+
+  /** The second shelf's gags on someone a toy hit (after the soaking itself, hurtPed): Kofola makes
+   *  them sticky, the perfume makes everyone near cough and run, a pea on the neck gets a word, the
+   *  blower throws whoever it pushed over. */
+  private toyHit(w: WeaponId, p: Ped, by: Shooter, pid: number, a: number, hx: number, hy: number) {
+    const sim = this.sim;
+    const victim = p.playerId ? sim.players.get(p.playerId) : undefined;
+    if (p.playerId && (!victim || victim.id === pid || !sim.touchable(victim, pid))) return;
+    switch (w) {
+      case 'kofola':
+        p.sticky = STICKY_S;
+        if (victim) sim.events.toPlayer(victim.id, { k: 'sticky', t: STICKY_S });
+        break;
+      case 'perfume':
+        if (victim) break;
+        for (const q of sim.pedsNear(hx, hy, 5))
+          if (q.kind === 'civ' && !q.dazed && !q.vehicle && dist(q.x, q.y, hx, hy) < 5) this.scare(q, by.x, by.y);
+        if (!p.dazed && sim.time - p.saidAt > 2) sim.crowd.sayUp(p, 'perfume');
+        break;
+      case 'pea':
+        if (!victim && !p.dazed && sim.time - p.saidAt > 2 && sim.rng.chance(0.6)) sim.crowd.sayUp(p, 'pea');
+        break;
+      case 'blower':
+        if (victim) sim.events.toPlayer(victim.id, { k: 'knock', dx: Math.cos(a) * 0.6, dy: Math.sin(a) * 0.6 });
+        // pushed over: blown a good way off
+        else if (p.dazed) (p.vx = Math.cos(a) * 8), (p.vy = Math.sin(a) * 8);
+        break;
+    }
+  }
+
+  /** ...and on a car: the foam puts its fire out, the blower pushes a scooter, a bike or the
+   *  football along */
+  private toyCar(w: WeaponId, car: Vehicle, pid: number, a: number) {
+    const sim = this.sim;
+    if (w === 'foam') sim.extinguish(car);
+    else if (w === 'blower' && (car.spec.twoWheeler || car.spec.ball)) sim.damageVehicle(car, 0, pid, { dvx: Math.cos(a) * 1.1, dvy: Math.sin(a) * 1.1, dav: 0 });
   }
 
   applyMelee(shooter: Shooter, pid: number, target: Ped | null) {
@@ -226,7 +319,7 @@ export class CombatRules {
         if (first) {
           sim.dropCash(p.x, p.y, p.money);
           p.money = 0;
-          const labels = SOAK_LABEL[mess === 'bubbles' || mess === 'confetti' || mess === 'tickle' ? mess : 'water'];
+          const labels = SOAK_LABEL[mess] ?? SOAK_LABEL.water;
           sim.style(player, p.kind === 'cop' ? 'copsoak' : 'soak', p.x, p.y, { label: labels[p.kind === 'cop' ? 1 : 0] });
         }
       }

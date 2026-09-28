@@ -2,7 +2,7 @@
 // HUD flashes and messages. Offline the Sim calls this directly; online NetSimHost replays the server's
 // events here once the entities they refer to have been interpolated to the same moment.
 import type { Game } from './Game';
-import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents } from '../shared/sim/events';
+import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents, ToyFx } from '../shared/sim/events';
 import { WEAPONS, type Mess } from '../shared/sim/Combat';
 import type { WeaponId } from '../shared/entities/Ped';
 import { LANDMARK_INFO, RADIO } from '../data/brands';
@@ -155,6 +155,48 @@ export class ClientEvents implements SimEvents {
     }
   }
 
+  /** a thrown toy in flight, where it came down, an egg or a clamp on a car, a soap bomb's patch, a
+   *  fire put out by the foam (sim/Toys.ts) */
+  toy(e: ToyFx) {
+    const g = this.g;
+    switch (e.op) {
+      case 'throw': {
+        g.fx.toss(e.w, e.x, e.y, e.tx, e.ty, e.d);
+        const d = this.distTo(e.x, e.y);
+        if (d < 50) e.w === 'pigeon' ? g.audio.flutter(d) : g.audio.whoosh();
+        break;
+      }
+      case 'land': {
+        g.fx.landed(e.w, e.x, e.y, !!e.hit);
+        g.pigeons.scare(e.x, e.y, 14);
+        const d = this.distTo(e.x, e.y);
+        if (d > 70) break;
+        if (e.w === 'bucket') g.audio.splash(d);
+        else if (e.w === 'clamp') g.audio.thud(e.hit ? 0.7 : 0.35);
+        else if (e.w === 'egg' || e.w === 'pigeon') g.audio.splat(d);
+        else g.audio.splash(d);
+        break;
+      }
+      case 'stick': {
+        const v = g.host.vehicleById(e.vid);
+        if (!v) break;
+        v[e.what] = e.t;
+        if (v === g.player.vehicle) {
+          g.rumble(0.4, 0.5, 160);
+          g.message('', e.what === 'clamp' ? 'Parkovacia papuča! Nikam nejdeš.' : 'Na skle máš vajce!', 2, '#ffd740');
+        }
+        break;
+      }
+      case 'slick':
+        g.fx.slick(e.x, e.y, e.r, e.t);
+        break;
+      case 'foam':
+        g.fx.foamPuff(e.x, e.y);
+        if (this.distTo(e.x, e.y) < 50) g.audio.whoosh();
+        break;
+    }
+  }
+
   /** city-wide news: the features (radio, HUD, map) take it from here */
   global(e: GlobalEvent) {
     for (const f of this.g.features) f.onGlobal?.(e);
@@ -250,6 +292,16 @@ export class ClientEvents implements SimEvents {
         break;
       case 'tyres':
         g.audio.snap();
+        break;
+      // the Hračkárstvo's second shelf, on us: sticky with Kofola, blown along, our fire put out
+      case 'sticky':
+        g.message('', 'Lepíš sa od Kofoly!', 1.6, '#bcaaa4');
+        break;
+      case 'knock':
+        if (!g.player.vehicle && !g.host.live.tram) g.player.move(0.2, g.world, e.dx / 0.2, e.dy / 0.2);
+        break;
+      case 'foam':
+        g.message('', 'Oheň uhasený!', 1.6, '#e0f7fa');
         break;
       // the shops (docs/plans/gameplay.md, Phase 2): a purchase rings the till; a car parked in the
       // garage takes its engine and radio with it

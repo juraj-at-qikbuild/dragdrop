@@ -80,7 +80,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     drawRim(ctx, pose, buildQ / 20, atmos);
   } else {
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
-    const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : five ? 'five' : diving ? 'dive' : 'rest';
+    const arms: Arms = armed ? (ONE_HAND.has(p.weapon) ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : five ? 'five' : diving ? 'dive' : 'rest';
     // a dive: stretched out flat, arms first
     if (diving) ctx.scale(1.25, 0.85);
     drawBody(ctx, p, pose, swing, b, atmos, arms, punchT);
@@ -160,6 +160,8 @@ function drawMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['
       ctx.arc(0.06 - w * 0.3 + Math.sin(t * 2 + i) * 0.04, -w * 0.35, 0.04 + w * 0.07, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (mess !== 'confetti') {
+    drawShelfMess(ctx, p, mess, t);
   } else {
     // confetti: bits of paper stuck all over
     const colors = ['#ff5252', '#ffeb3b', '#69f0ae', '#40c4ff', '#ff4081', '#b388ff'];
@@ -411,8 +413,181 @@ function drawToy(ctx: CanvasRenderingContext2D, w: Ped['weapon'], cop = false) {
     ctx.fill();
     ctx.fillStyle = '#ffd54f';
     for (const x of [0.42, 0.56, 0.7]) ctx.fillRect(x, -0.062, 0.04, 0.124);
+  } else drawShelfToy(ctx, w);
+}
+
+/** the Hračkárstvo's second shelf in hand, from above (the hand at about x 0.33) */
+function drawShelfToy(ctx: CanvasRenderingContext2D, w: Ped['weapon']) {
+  const dot = (x: number, y: number, r: number) => {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  switch (w) {
+    case 'hammer':
+      // a red rubber head on a yellow handle
+      ctx.fillStyle = '#fdd835';
+      ctx.fillRect(0.3, -0.025, 0.28, 0.05);
+      ctx.fillStyle = '#e53935';
+      ctx.fillRect(0.56, -0.1, 0.12, 0.2);
+      break;
+    case 'kofola':
+      ctx.fillStyle = '#4e2a10';
+      ctx.fillRect(0.3, -0.06, 0.26, 0.12);
+      ctx.fillStyle = '#d32f2f';
+      ctx.fillRect(0.36, -0.061, 0.08, 0.122);
+      ctx.fillStyle = '#eeeeee';
+      ctx.fillRect(0.56, -0.03, 0.06, 0.06);
+      break;
+    case 'perfume':
+      ctx.fillStyle = 'rgba(244,143,177,0.9)';
+      dot(0.42, 0, 0.08);
+      ctx.fillStyle = '#ffd54f';
+      ctx.fillRect(0.5, -0.02, 0.06, 0.04);
+      ctx.fillStyle = '#ec407a';
+      dot(0.3, 0.07, 0.04);
+      break;
+    case 'pea':
+      // a striped straw
+      ctx.fillStyle = '#fafafa';
+      ctx.fillRect(0.3, -0.018, 0.4, 0.036);
+      ctx.fillStyle = '#e53935';
+      for (const x of [0.34, 0.46, 0.58]) ctx.fillRect(x, -0.018, 0.05, 0.036);
+      break;
+    case 'blower':
+      ctx.fillStyle = '#fb8c00';
+      ctx.fillRect(0.26, -0.1, 0.2, 0.2);
+      ctx.fillStyle = '#424242';
+      ctx.fillRect(0.46, -0.04, 0.4, 0.08);
+      break;
+    case 'foam':
+      ctx.fillStyle = '#d32f2f';
+      ctx.beginPath();
+      ctx.ellipse(0.4, 0, 0.13, 0.09, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#212121';
+      ctx.fillRect(0.52, -0.02, 0.18, 0.04);
+      break;
+    case 'soap':
+      ctx.fillStyle = '#f8bbd0';
+      dot(0.42, 0, 0.1);
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      dot(0.39, -0.03, 0.03);
+      break;
+    case 'egg':
+      ctx.fillStyle = '#fff8e1';
+      ctx.beginPath();
+      ctx.ellipse(0.42, 0, 0.09, 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'clamp':
+      ctx.strokeStyle = '#fdd835';
+      ctx.lineWidth = 0.06;
+      ctx.beginPath();
+      ctx.arc(0.44, 0, 0.1, 0.5, Math.PI * 2 - 0.5);
+      ctx.stroke();
+      break;
+    case 'bucket':
+      ctx.fillStyle = '#42a5f5';
+      ctx.fillRect(0.3, -0.13, 0.26, 0.26);
+      ctx.fillStyle = 'rgba(190,230,255,0.95)';
+      dot(0.43, 0, 0.09);
+      break;
+    case 'pigeon':
+      ctx.fillStyle = '#90a4ae';
+      ctx.beginPath();
+      ctx.ellipse(0.44, 0, 0.13, 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#546e7a';
+      dot(0.56, 0, 0.045);
+      break;
   }
 }
+
+/** what the Hračkárstvo's second shelf leaves on someone (Combat.ts WEAPON_MESS) */
+function drawShelfMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['mess']>, t: number) {
+  const dot = (x: number, y: number, r: number) => {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  switch (mess) {
+    case 'kofola': {
+      // a brown stain, and a fizz of bubbles popping off it
+      ctx.fillStyle = 'rgba(80,35,10,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0.02, 0.04, 0.18, 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(240,210,170,0.9)';
+      for (let i = 0; i < 3; i++) {
+        const f = (t * 1.6 + i / 3) % 1;
+        dot(-0.1 + i * 0.1, 0.1 - f * 0.3, 0.02 * (1 - f));
+      }
+      break;
+    }
+    case 'perfume': {
+      // a pink haze, and a heart drifting off
+      ctx.fillStyle = 'rgba(255,170,215,0.28)';
+      dot(0, 0, 0.36);
+      const f = (t * 0.6) % 1;
+      ctx.fillStyle = `rgba(255,105,180,${0.9 * (1 - f)})`;
+      const hx = 0.1 - f * 0.2, hy = -0.25 - f * 0.3, r = 0.035;
+      dot(hx - r * 0.7, hy, r);
+      dot(hx + r * 0.7, hy, r);
+      ctx.beginPath();
+      ctx.moveTo(hx - r * 1.6, hy + r * 0.3);
+      ctx.lineTo(hx, hy + r * 2);
+      ctx.lineTo(hx + r * 1.6, hy + r * 0.3);
+      ctx.fill();
+      break;
+    }
+    case 'pea':
+      // a red spot on the neck where it hit, and the pea itself
+      ctx.fillStyle = 'rgba(255,82,82,0.55)';
+      dot(-0.1, 0.05, 0.045);
+      ctx.fillStyle = '#7cb342';
+      dot(-0.14, 0.12, 0.025);
+      break;
+    case 'leaves':
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = ['#8d6e2f', '#c0862b', '#7c8b2a', '#d4a02b'][(i + p.seed) % 4];
+        const a = hashRand(p.seed, 70 + i) * Math.PI * 2, r = 0.06 + hashRand(p.seed, 80 + i) * 0.2;
+        ctx.save();
+        ctx.translate(Math.cos(a) * r, Math.sin(a) * r * 1.3);
+        ctx.rotate(a);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 0.06, 0.03, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      break;
+    case 'foam':
+      ctx.fillStyle = 'rgba(250,252,255,0.92)';
+      for (const [dx, dy, r] of [[0.05, -0.1, 0.1], [0.08, 0.08, 0.09], [-0.05, 0.2, 0.08], [-0.06, -0.22, 0.08]] as const) dot(dx, dy, r * (1 + 0.06 * Math.sin(t * 2 + dx * 30)));
+      break;
+    case 'egg':
+      // yolk on the head, the white running down
+      ctx.fillStyle = 'rgba(255,248,225,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(0.04, 0.02, 0.16, 0.12, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffc107';
+      dot(0.06, 0, 0.065);
+      break;
+    case 'pigeon':
+      // a pigeon's gift, right on top
+      ctx.fillStyle = 'rgba(250,250,245,0.95)';
+      ctx.beginPath();
+      ctx.ellipse(0.06, -0.02, 0.09, 0.06, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(120,120,110,0.8)';
+      dot(0.07, -0.02, 0.025);
+      break;
+  }
+}
+
+/** the toys held in one hand (a pistol's pose); the rest take both */
+const ONE_HAND = new Set<Ped['weapon']>(['pistol', 'hammer', 'kofola', 'perfume', 'pea', 'soap', 'egg', 'clamp', 'pigeon']);
 
 /** a tickling feather held out at (x, y), wiggling as the tickle lands (`t` 1 → 0) */
 function drawFeather(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {

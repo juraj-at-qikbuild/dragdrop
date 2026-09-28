@@ -13,7 +13,7 @@ build was made with `VITE_SERVER_URL` set.
 ## Deploy order
 
 Client and server speak the same wire protocol (`PROTOCOL_VERSION` in `src/shared/net/protocol.ts`, now
-**7**); the server refuses an older client outright ("Nová verzia hry – obnov stránku."). Deploy both
+**8**); the server refuses an older client outright ("Nová verzia hry – obnov stránku."). Deploy both
 together, as with every earlier protocol bump — there's no compatibility window to stagger through.
 `fly deploy` (server) and the Cloudflare Workers Build (client, triggered by a push to `main`) are two
 independent pipelines, so trigger both around the same time, ideally at a quiet hour: a server deploy

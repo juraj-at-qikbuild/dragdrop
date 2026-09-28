@@ -20,6 +20,7 @@ import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
 import { DROP_KEEP, DROP_LIFE, tuned } from './shops/catalog';
 import { STYLE, type Style, type StyleMove } from './rules/Style';
 import { CombatRules, WEAPONS, type Mess, type Shooter, type ShotReport } from './Combat';
+import { Toys } from './Toys';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
 import { SPAWNS, SPAWN_SPREAD } from '../world/spawns';
@@ -102,6 +103,8 @@ export class Sim {
   /** the police's side of each chase: who sees whom, the description, the search, lying low, bribes */
   pursuit: Pursuit;
   combat: CombatRules;
+  /** the thrown toys in flight, and the soap bombs' patches */
+  toys: Toys;
   physics = new VehiclePhysics();
   /** base target counts around each player (scaled by quality, time of day, player count, governor) */
   density: Density = { ...BASE_DENSITY };
@@ -157,6 +160,8 @@ export class Sim {
     this.police = new Police(this);
     this.pursuit = new Pursuit(this);
     this.combat = new CombatRules(this);
+    this.toys = new Toys(this);
+    this.physics.slicks = this.toys.slicks;
     for (const p of placePickups(world)) this.pickups.push({ ...p, id: this.ids.alloc(0) });
     this.downed = !!opts.downed;
     this.randomSpawn = !!opts.randomSpawn;
@@ -377,6 +382,7 @@ export class Sim {
     this.ai.update(dt);
     this.crowd.update(dt);
     this.police.update(dt);
+    this.toys.step(dt);
     this.updateVehicles(dt);
     this.world.gates.sweep(this.vehicles, dt);
     this.world.stalls.sweep(this.vehicles, dt, (i, v) => this.stallHit(i, v));
@@ -728,6 +734,30 @@ export class Sim {
     if (p.state !== 'play') return;
     const t = targetId ? this.pedById(targetId) : null;
     this.combat.applyMelee(p.ped, p.id, t);
+  }
+
+  /** A player threw a toy (Toys.ts) at (tx, ty): offline straight from the local player, online a
+   *  checked `throw`. False when they can't. */
+  throwToy(p: SimPlayer, w: WeaponId, tx: number, ty: number): boolean {
+    return this.toys.throw(p, w, tx, ty);
+  }
+
+  /** can what player `byPid` (0: nobody's) does reach player `victim`? Not while they're shielded or
+   *  out of play, nor when a rule keeps the two of them apart (a party, the derby) */
+  touchable(victim: SimPlayer, byPid: number): boolean {
+    if (victim.state !== 'play' || victim.shielded) return false;
+    const attacker = byPid && byPid !== victim.id ? this.players.get(byPid) : undefined;
+    return !attacker || !this.rules.some((r) => r.allowPvp?.(attacker, victim) === false);
+  }
+
+  /** Put a burning car's fire out (the foam): enough of it left not to catch fire again at once. A
+   *  player's car is simulated by their client, so they are told. */
+  extinguish(v: Vehicle) {
+    if (v.wrecked || v.fire < 0) return;
+    v.fire = -1;
+    v.health = Math.max(v.health, v.spec.health * 0.12);
+    if (v.kinematic && v.owner) this.events.toPlayer(v.owner, { k: 'foam', vehicle: v.id });
+    this.events.toy({ op: 'foam', vid: v.id, x: v.x, y: v.y });
   }
 
   // -------------------------------------------------------------------- crime

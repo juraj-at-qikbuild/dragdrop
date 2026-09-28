@@ -169,6 +169,10 @@ export interface Controls {
 }
 
 const STOPPED: Controls = { throttle: 0, steer: 0, handbrake: true, boost: false };
+/** a clamped car's speed dies away at this rate (1/s) */
+const CLAMP_HOLD = 9;
+/** the grip left on a soap bomb's patch (sim/Toys.ts), of the road's */
+export const SLICK_MU = 0.22;
 
 export class Vehicle {
   /** network id, assigned by Sim.addVehicle (or the server, for mirrors) */
@@ -259,6 +263,13 @@ export class Vehicle {
   air = 0;
   /** a ball: the pitch it's kept on, set by the game that put it there (null: loose in the city) */
   pen: Pen | null = null;
+  /** the Hračkárstvo's thrown toys (sim/Toys.ts), seconds left of each: an egg (or a pigeon's gift)
+   *  on the windscreen (traffic stops to wipe it: AI.steerTo; a player sees through the yolk), a
+   *  wheel clamp (it doesn't move at all). Counted down by VehiclePhysics, drawn by drawVehicle */
+  egg = 0;
+  clamp = 0;
+  /** on a soap bomb's slippery patch this step (VehiclePhysics sets it): the tyres barely grip */
+  slick = false;
   private surf: Surface = 'asphalt';
   private surfT = 0;
 
@@ -336,8 +347,15 @@ export class Vehicle {
   update(dt: number, world: World): number {
     const s = this.spec;
     if (s.ball) return this.roll(dt, world);
-    const c = this.wrecked || this.sinking ? STOPPED : this.ctrl;
+    const c = this.wrecked || this.sinking || this.clamp > 0 ? STOPPED : this.ctrl;
     const a0 = this.angle;
+    // clamped (the Parkovacia papuča): a wheel that won't turn holds the car where it is
+    if (this.clamp > 0) {
+      const k = Math.max(0, 1 - CLAMP_HOLD * dt);
+      this.vx *= k;
+      this.vy *= k;
+      this.av *= k;
+    }
 
     // surface, cached and re-queried every metre or so (often enough to catch a kerb); a boat's is
     // the water, the same all over
@@ -353,6 +371,7 @@ export class Vehicle {
     if (this.bounce > 0) this.bounce = Math.max(0, this.bounce - dt);
     let muSurf = this.surf === 'cobble' ? 0.9 : this.surf === 'offroad' ? 0.65 : this.surf === 'steps' ? 0.6 : this.surf === 'kerb' ? 0.8 : 1;
     if (!s.boat) muSurf *= 1 - 0.28 * Vehicle.env.wet;
+    if (this.slick && !s.boat) muSurf *= SLICK_MU;
     // flying off a speed bump: nothing to push, brake or steer with until the wheels land
     const airborne = this.air > 0;
     if (airborne) this.air = Math.max(0, this.air - dt);

@@ -174,6 +174,15 @@ export class Audio {
       this.noiseBurst(0.35, 5500, 0.22 * v, 0.7, 'highpass');
       this.tone(700, 0.2, 'square', 0.04 * v, 0, undefined, 1.6);
     } else if (w === 'uzi') this.tone(420 + Math.random() * 600, 0.07, 'sine', 0.16 * v, 0, undefined, 2.2);
+    else if (w === 'hammer') {
+      // PÍÍSK: the squeaky hammer's rubber squeal
+      this.tone(1500, 0.16, 'square', 0.07 * v, 0, undefined, 1.35);
+      this.tone(2100, 0.1, 'sine', 0.06 * v, this.ctx ? this.now() + 0.05 : 0, undefined, 0.8);
+    } else if (w === 'kofola') this.noiseBurst(0.12, 2600, 0.3 * v, 1.2, 'highpass');
+    else if (w === 'perfume') this.noiseBurst(0.09, 6000, 0.18 * v, 0.8, 'highpass');
+    else if (w === 'pea') this.tone(520, 0.05, 'sine', 0.12 * v, 0, undefined, 0.5);
+    else if (w === 'blower') this.noiseBurst(0.1, 700, 0.18 * v, 0.6, 'bandpass');
+    else if (w === 'foam') this.noiseBurst(0.13, 1700, 0.28 * v, 0.7, 'bandpass');
     else {
       this.noiseBurst(0.15, 3400, 0.4 * v, 2.5, 'bandpass');
       this.tone(240, 0.06, 'sine', 0.1 * v, 0, undefined, 0.7);
@@ -225,6 +234,13 @@ export class Audio {
     if (!v) return;
     this.noiseBurst(0.45, 1100, 0.55 * v, 0.8, 'bandpass');
     this.noiseBurst(0.3, 3800, 0.2 * v, 1, 'highpass');
+  }
+  /** an egg cracking, a pigeon's gift landing: splat */
+  splat(d = 0) {
+    const v = this.vol(d);
+    if (!v) return;
+    this.noiseBurst(0.12, 900, 0.5 * v, 1.4, 'bandpass');
+    this.tone(180, 0.08, 'sine', 0.12 * v, 0, undefined, 0.6);
   }
   /** a flock of pigeons taking off: FRRR */
   flutter(d = 0) {

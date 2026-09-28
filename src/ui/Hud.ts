@@ -837,7 +837,7 @@ export function drawWeaponIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, cx
       ctx.arc(bx * s, by * s, br * s, 0, Math.PI * 2);
       ctx.stroke();
     }
-  } else {
+  } else if (kind === 'shotgun') {
     // a confetti tube: striped, a burst of paper out of its mouth
     ctx.rotate(-0.25);
     ctx.fillStyle = '#7e57c2';
@@ -861,8 +861,96 @@ export function drawWeaponIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, cx
       ctx.fillRect(-s * 0.1, -s * 0.05, s * 0.2, s * 0.1);
       ctx.restore();
     });
-  }
+  } else drawShelfIcon(ctx, kind, s);
   ctx.restore();
+}
+
+/** the Hračkárstvo's second shelf (Combat.ts WEAPONS), in the same outlined style, centred on 0, 0 */
+function drawShelfIcon(ctx: CanvasRenderingContext2D, kind: WeaponId, s: number) {
+  const shape = (fill: string, draw: () => void) => {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    draw();
+    ctx.fill();
+    ctx.stroke();
+  };
+  const circle = (x: number, y: number, r: number) => ctx.arc(x * s, y * s, r * s, 0, Math.PI * 2);
+  const rect = (x: number, y: number, w: number, h: number) => ctx.rect(x * s, y * s, w * s, h * s);
+  const oval = (x: number, y: number, rx: number, ry: number, a = 0) => ctx.ellipse(x * s, y * s, rx * s, ry * s, a, 0, Math.PI * 2);
+  switch (kind) {
+    case 'hammer':
+      ctx.rotate(-0.6);
+      shape('#fdd835', () => rect(-1, -0.12, 1.4, 0.24));
+      shape('#e53935', () => rect(0.3, -0.55, 0.6, 1.1));
+      break;
+    case 'kofola':
+      ctx.rotate(-0.5);
+      shape('#4e2a10', () => rect(-0.95, -0.35, 1.35, 0.7));
+      shape('#4e2a10', () => rect(0.4, -0.16, 0.5, 0.32));
+      shape('#d32f2f', () => rect(-0.65, -0.35, 0.55, 0.7));
+      shape('#eeeeee', () => rect(0.85, -0.2, 0.2, 0.4));
+      break;
+    case 'perfume':
+      shape('#f48fb1', () => circle(0, 0.2, 0.65));
+      shape('#ffd54f', () => rect(-0.18, -0.75, 0.36, 0.35));
+      shape('#ec407a', () => circle(0.65, -0.65, 0.22));
+      break;
+    case 'pea':
+      ctx.rotate(-0.6);
+      shape('#fafafa', () => rect(-1.1, -0.14, 1.9, 0.28));
+      ctx.fillStyle = '#e53935';
+      for (const x of [-0.8, -0.3, 0.2]) ctx.fillRect(x * s, -0.13 * s, 0.22 * s, 0.26 * s);
+      shape('#7cb342', () => circle(1.0, 0, 0.25));
+      break;
+    case 'blower':
+      ctx.rotate(-0.4);
+      shape('#fb8c00', () => rect(-1, -0.45, 0.8, 0.9));
+      shape('#424242', () => rect(-0.2, -0.18, 1.2, 0.36));
+      shape('#c0862b', () => oval(1.05, -0.55, 0.22, 0.11, 0.5));
+      break;
+    case 'foam':
+      shape('#d32f2f', () => rect(-0.45, -0.55, 0.9, 1.4));
+      shape('#212121', () => rect(-0.2, -0.9, 0.4, 0.35));
+      shape('#f5f5f5', () => circle(0.75, -0.75, 0.3));
+      break;
+    case 'soap':
+      shape('#f8bbd0', () => circle(0, 0.1, 0.8));
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      circle(-0.25, -0.15, 0.2);
+      ctx.fill();
+      break;
+    case 'egg':
+      shape('#fff8e1', () => oval(0, 0, 0.62, 0.85));
+      break;
+    case 'clamp':
+      ctx.lineWidth = s * 0.34;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.beginPath();
+      circle(0, 0, 0.7);
+      ctx.stroke();
+      ctx.lineWidth = s * 0.2;
+      ctx.strokeStyle = '#fdd835';
+      ctx.beginPath();
+      circle(0, 0, 0.7);
+      ctx.stroke();
+      break;
+    case 'bucket':
+      shape('#42a5f5', () => {
+        ctx.moveTo(-0.75 * s, -0.55 * s);
+        ctx.lineTo(0.75 * s, -0.55 * s);
+        ctx.lineTo(0.55 * s, 0.8 * s);
+        ctx.lineTo(-0.55 * s, 0.8 * s);
+        ctx.closePath();
+      });
+      shape('#b3e5fc', () => oval(0, -0.55, 0.75, 0.2));
+      break;
+    case 'pigeon':
+      shape('#b0bec5', () => oval(-0.1, -0.25, 0.45, 0.7, -0.6));
+      shape('#90a4ae', () => oval(0, 0.1, 0.9, 0.45));
+      shape('#546e7a', () => circle(0.8, -0.2, 0.3));
+      break;
+  }
 }
 
 function drawSunGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, strength: number) {

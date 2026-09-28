@@ -5,7 +5,8 @@ import {
   PROTOCOL_VERSION, ROSTER_ACCOUNT, ROSTER_AWAY, ROSTER_DOWNED, ROSTER_SHIELD, ROSTER_VOICE, TICK_HZ, cleanNick, isToken,
   type ClientMsg, type FireMsg, type HelloMsg, type PartyTag, type RosterRow, type ServerMsg, type VehFull, type WevMsg,
 } from '../../src/shared/net/protocol';
-import { Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
+import { AMMO_LIST, Reader, decodeState, type StateReport } from '../../src/shared/net/codec';
+import type { WeaponId } from '../../src/shared/entities/Ped';
 import type { Level, World } from '../../src/shared/world/World';
 import { Sim } from '../../src/shared/sim/Sim';
 import { START_AMMO, SimPlayer, type Profile } from '../../src/shared/sim/SimPlayer';
@@ -331,6 +332,8 @@ export class Room {
         return this.onExit(s, msg.x, msg.y, msg.veh, msg.fall);
       case 'fire':
         return this.onFire(s, msg);
+      case 'throw':
+        return this.onThrow(s, msg.w, msg.tx, msg.ty);
       case 'punch':
         return this.onPunch(s, msg.target, msg.rt);
       case 'horn':
@@ -541,9 +544,8 @@ export class Room {
         p.ped.health = Math.min(100, Math.max(1, last.health));
         p.ped.armor = Math.min(100, Math.max(0, last.armor));
         // (never below the starting pistol: someone back with it emptied gets it refilled)
-        p.ammo.pistol = Math.max(START_AMMO.pistol, last.ammo.pistol);
-        p.ammo.uzi = last.ammo.uzi;
-        p.ammo.shotgun = last.ammo.shotgun;
+        for (const w of AMMO_LIST) p.ammo[w] = last.ammo[w] ?? 0;
+        p.ammo.pistol = Math.max(START_AMMO.pistol, p.ammo.pistol);
         p.ped.weapon = last.weapon === 'fist' || p.ammo[last.weapon] > 0 ? last.weapon : 'fist';
         // back within half an hour: the police still remember them; later they've given up
         if (this.wall() - last.savedAt < WANTED_RESUME_MS) p.wanted = Math.min(5, Math.max(0, last.wanted));
@@ -728,7 +730,7 @@ export class Room {
     const p = s.player;
     const t = this.now();
     const w = WEAPONS[m.w];
-    if (!w || m.w === 'fist' || p.state !== 'play' || !(p.ammo[m.w] > 0)) return;
+    if (!w || m.w === 'fist' || w.thrown || p.state !== 'play' || !(p.ammo[m.w] > 0)) return;
     if (!s.fireBucket.take(t, w.cd < 0.2 ? 0.5 : 1)) return;
     if (![m.ox, m.oy, m.a].every(Number.isFinite) || !Array.isArray(m.pellets) || m.pellets.length !== w.pellets) return;
     const f = p.focus();
@@ -756,6 +758,15 @@ export class Room {
     p.ammo[m.w]--;
     this.counters.shots++;
     this.sim.applyShot(p, { w: m.w, ox: m.ox, oy: m.oy, a: m.a, lvl: m.lvl, pellets });
+  }
+
+  /** a thrown toy (Toys.ts): it flies from where the server has them, no further than it goes */
+  private onThrow(s: Session, w: WeaponId, tx: number, ty: number) {
+    const p = s.player;
+    const spec = WEAPONS[w];
+    if (!spec?.thrown || p.state !== 'play' || !(p.ammo[w] > 0) || !Number.isFinite(tx) || !Number.isFinite(ty)) return;
+    if (!s.fireBucket.take(this.now())) return;
+    if (this.sim.throwToy(p, w, tx, ty)) p.ammo[w]--;
   }
 
   /** where a ped (or car) was at time t, with its body radius, for validating hit claims */

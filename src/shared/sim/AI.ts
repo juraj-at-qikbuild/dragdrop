@@ -1125,6 +1125,11 @@ export class AI {
 
   private steerTo(v: Vehicle, d: Driver, diff: number, desired: number, dt: number, waiting: boolean, boost = false) {
     const sp = v.fwdSpeed;
+    // an egg (or a pigeon's gift) on the windscreen: they can't see a thing, so they stop and wipe it
+    if (v.egg > 0) {
+      v.setControls(sp > 0.5 ? -1 : 0, 0, sp <= 0.5);
+      return;
+    }
     if (d.reverse > 0) {
       d.reverse -= dt;
       v.setControls(-1, -Math.sign(diff), false);

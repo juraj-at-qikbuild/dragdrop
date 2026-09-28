@@ -13,7 +13,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { Profile, SimPlayer } from '../../src/shared/sim/SimPlayer';
-import type { WeaponId } from '../../src/shared/entities/Ped';
+import { WEAPON_IDS, type WeaponId } from '../../src/shared/entities/Ped';
+import { AMMO_LIST } from '../../src/shared/net/codec';
 import { RESUME_MS, type ClockSync } from '../../src/shared/net/protocol';
 import type { Level } from '../../src/shared/world/World';
 import { SPECS, type VehicleKind } from '../../src/shared/entities/Vehicle';
@@ -41,7 +42,8 @@ export interface SessionRow {
   health: number;
   armor: number;
   weapon: WeaponId;
-  ammo: { pistol: number; uzi: number; shotgun: number };
+  /** each toy's refills (a save from before v8 has the first three: the rest are 0) */
+  ammo: Record<Exclude<WeaponId, 'fist'>, number>;
   wanted: number;
   /** null: on foot (or in a car that doesn't come along: police, event vehicles) */
   car: SavedCar | null;
@@ -220,8 +222,8 @@ export class Store {
     const r = this.q.getSession.get(key);
     if (!r || now - r.saved_at > SESSION_TTL_MS) return null;
     return {
-      x: r.x, y: r.y, level: r.level === 1 || r.level === 2 || r.level === -1 ? r.level : 0, health: r.health, armor: r.armor, weapon: (r.weapon as WeaponId) ?? 'fist',
-      ammo: { pistol: 0, uzi: 0, shotgun: 0, ...safeJson(r.ammo, {}) }, wanted: r.wanted, car: savedCar(safeJson(r.car ?? 'null', null)), savedAt: r.saved_at,
+      x: r.x, y: r.y, level: r.level === 1 || r.level === 2 || r.level === -1 ? r.level : 0, health: r.health, armor: r.armor, weapon: WEAPON_IDS.includes(r.weapon as WeaponId) ? (r.weapon as WeaponId) : 'fist',
+      ammo: savedAmmo(safeJson(r.ammo, {})), wanted: r.wanted, car: savedCar(safeJson(r.car ?? 'null', null)), savedAt: r.saved_at,
     };
   }
 
@@ -237,7 +239,7 @@ export class Store {
         const f = p.focus();
         this.q.upsertSession.run({
           h, x: f.x, y: f.y, level: p.ped.level, health: p.state === 'play' ? Math.max(1, p.ped.health) : 100, armor: p.ped.armor, weapon: p.ped.weapon,
-          ammo: JSON.stringify({ pistol: p.ammo.pistol, uzi: p.ammo.uzi, shotgun: p.ammo.shotgun }), wanted: p.state === 'play' ? p.wanted : 0,
+          ammo: JSON.stringify(Object.fromEntries(AMMO_LIST.map((w) => [w, p.ammo[w]]))), wanted: p.state === 'play' ? p.wanted : 0,
           car: car ? JSON.stringify(car) : null, now,
         });
       }
@@ -394,4 +396,13 @@ function savedCar(v: unknown): SavedCar | null {
   const dmg = c.dmg.map((d) => Math.max(0, Math.min(1, d))) as SavedCar['dmg'];
   const mods = cleanMods(c.mods);
   return { kind: c.kind, color: c.color, hp: Math.min(c.hp, SPECS[c.kind].health), dmg, a: c.a, ...(tuned(mods) ? { mods } : {}) };
+}
+
+/** a saved session's refills: every toy's count, 0 for whatever the save doesn't have (or garbled) */
+function savedAmmo(v: unknown): Record<Exclude<WeaponId, 'fist'>, number> {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  return Object.fromEntries(AMMO_LIST.map((w) => {
+    const n = o[w];
+    return [w, typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(999, Math.floor(n))) : 0];
+  })) as Record<Exclude<WeaponId, 'fist'>, number>;
 }

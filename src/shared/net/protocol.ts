@@ -6,7 +6,7 @@
 //  - Everything else is JSON text frames: handshake, requests (enter/exit/fire…), events, roster, clock.
 import type { WeaponId } from '../entities/Ped';
 import type { VehicleKind } from '../entities/Vehicle';
-import type { GlobalEvent, PrivateEvent } from '../sim/events';
+import type { GlobalEvent, PrivateEvent, ToyFx } from '../sim/events';
 import type { Mess, PelletReport } from '../sim/Combat';
 import type { Level } from '../world/World';
 import type { DailyState, EventEntry, EventKind, EventSchedule, JobKind } from '../sim/rules/types';
@@ -29,8 +29,13 @@ import type { MiniKind, MiniOpen, MiniReq } from '../sim/rules/minigames/types';
  *  kinds older clients ignore, and a client only sends `bribe` in answer to a `bribe` offer. And so
  *  are the shops (Phase 2): a server that has them sends a `catalog` after every welcome, a client only
  *  sends `shop` once it has seen one, and the rest (gear, a car's tuning, a hat) rides in fields and
- *  spare snapshot bits an older client never reads. */
-export const PROTOCOL_VERSION = 7;
+ *  spare snapshot bits an older client never reads.
+ *  v8: the Hračkárstvo's second shelf (the squeaky hammer, Kofola, perfume, the peashooter, the leaf
+ *  blower, the foam; and thrown: the soap bomb, the egg, the wheel clamp, the Easter bucket, the
+ *  pigeon). A ped record carries a player's toy in a byte of its own (15 don't fit the old 2 bits),
+ *  the snapshot's private state counts every toy's refills, and a thrown toy is a `throw` message,
+ *  its flight a `toy` world event. */
+export const PROTOCOL_VERSION = 8;
 
 /** server simulation / snapshot rate */
 export const TICK_HZ = 20;
@@ -110,6 +115,8 @@ export interface FireMsg {
 export type ClientMsg =
   | HelloMsg
   | FireMsg
+  /** a thrown toy (Toys.ts), at (tx, ty) */
+  | { t: 'throw'; w: WeaponId; tx: number; ty: number }
   | { t: 'punch'; target: number; rt: number }
   | { t: 'enter'; vid: number }
   /** `fall`: thrown off a scooter or a bike by a knock that hard (m/s), which hurts (Vehicle.fallHurt;
@@ -241,7 +248,9 @@ export type WorldEvent =
   | { k: 'say'; id: number; l: number }
   // (optional kinds, still protocol 7: an older client ignores them; docs/plans/non-violent.md)
   | { k: 'splash'; id: number; x: number; y: number; a: number; s: number }
-  | { k: 'five'; id: number; x: number; y: number };
+  | { k: 'five'; id: number; x: number; y: number }
+  // (protocol 8: the Hračkárstvo's second shelf, Toys.ts)
+  | ({ k: 'toy' } & ToyFx);
 
 /** roster row: [id, nick, x, y, wanted, inCar, pedId, partyId (0 = none), flags (ROSTER_*)] */
 export type RosterRow = [number, string, number, number, number, 0 | 1, number, number, number];

@@ -82,6 +82,19 @@ export const PRICES = {
   uzi: 700,
   shotgun: 900,
   vest: 300,
+  // ...the second shelf (docs/plans/gameplay.md, Phase 4): swung and squirted...
+  hammer: 200,
+  kofola: 300,
+  perfume: 200,
+  pea: 350,
+  blower: 800,
+  foam: 500,
+  // ...and thrown (sim/Toys.ts)
+  soap: 450,
+  egg: 150,
+  clamp: 900,
+  bucket: 300,
+  pigeon: 600,
   // Butik
   jacket: 150,
   hat: 120,
@@ -108,7 +121,13 @@ export type Prices = typeof PRICES;
 export type PriceId = keyof Prices;
 
 /** what a refill holds, per toy (as the pickups do) */
-export const AMMO_BOX: Record<Exclude<WeaponId, 'fist'>, number> = { pistol: 36, uzi: 120, shotgun: 16 };
+export const AMMO_BOX: Record<Exclude<WeaponId, 'fist'>, number> = {
+  pistol: 36, uzi: 120, shotgun: 16,
+  // squeaks, sprays, puffs, peas...
+  hammer: 20, kofola: 60, perfume: 30, pea: 80, blower: 150, foam: 120,
+  // ...and one of each thrown toy a piece
+  soap: 3, egg: 6, clamp: 2, bucket: 3, pigeon: 3,
+};
 
 /** the collection: every kind there is (the kinds Phase 3 adds included) */
 export const COLLECTION: readonly VehicleKind[] = ['hatch', 'sedan', 'taxi', 'van', 'bus', 'sport', 'classic', 'police', 'ambulance', 'scooter', 'bike', 'boat', 'policeboat'];

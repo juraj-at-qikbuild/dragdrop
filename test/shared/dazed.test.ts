@@ -11,7 +11,7 @@ import { nullEvents, type PrivateEvent } from '../../src/shared/sim/events';
 import type { Caps } from '../../src/shared/sim/density';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { STYLE } from '../../src/shared/sim/rules/Style';
-import { SAY_UP, lineText } from '../../src/shared/sim/phrases';
+import { SAY_UP, lineCat, lineText } from '../../src/shared/sim/phrases';
 import { loadWorld } from './helpers';
 
 const NO_NPCS: Caps = { traffic: 0, parked: 0, peds: 0, trams: 0, police: 0, helis: 0, roadblocks: 0 };
@@ -74,7 +74,7 @@ describe('knocked down, not killed', () => {
     expect(ped.leaving).toBe(true);
     expect(ped.state).toBe('flee');
     // their line: one of the getting-up ones, about being wet
-    const up = said.filter((l) => ((l & 127) >> 4) === SAY_UP);
+    const up = said.filter((l) => lineCat(l) === SAY_UP);
     expect(up).toHaveLength(1);
     expect(['Moje nové topánky!', 'Mokro až do ponožiek!', 'Idem sa prezliecť!', 'Práve idem od kaderníčky!', 'My shoes!', "I'm soaked!", 'Not the hair!', 'So wet!']).toContain(lineText(up[0]));
     expect(sim.peds.includes(ped)).toBe(true);

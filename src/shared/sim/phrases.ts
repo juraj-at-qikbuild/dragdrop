@@ -20,6 +20,11 @@ export const SAY_DODGE = 5;
 export const SAY_CHAT = 6;
 /** getting up again after being knocked down: lines by what did it (`pickUpLine`) */
 export const SAY_UP = 7;
+/** ...more of them: what the Hračkárstvo's second shelf leaves (sticky, perfumed, a pea on the
+ *  neck...), also said on a hit that doesn't sit them down (a cough, a pea) */
+export const SAY_UP2 = 8;
+/** a tourist's line: this bit set (English); the category is the next four bits up from the index */
+const TOURIST_BIT = 256;
 
 const LINES: string[][] = [
   ['Hej!', 'Pozor!', 'Dávaj pozor!', 'Kam sa ženieš?', 'Čo strkáš?', 'Aspoň sa ospravedlň!', 'Au!', 'No dovoľ!'],
@@ -36,6 +41,16 @@ const LINES: string[][] = [
     'Toto budem vyberať do Vianoc!', 'Konfety aj v topánkach!', 'Veď nie je Silvester!',
     'Ešte ma to šteklí!', 'Chi-chi… nabudúce!',
     'Vieš vôbec šoférovať?!', 'Vidím hviezdičky!', 'Kde to som?', 'Khe-khe… vyzerám ako kominár!',
+  ],
+  // SAY_UP2, in UP_LINES' groups: Kofola, perfume, a pea, leaves, foam, an egg, a pigeon
+  [
+    'Celý sa lepím!', 'Kofola aj v topánkach!', 'Veď ja pijem len vodu!',
+    'Khe-khe! Čo je to?!', 'Voniam ako babka!', 'Fuj, to je Tosca?!',
+    'Au! Čo to bolo?', 'Niekto po mne pľuje hrach!',
+    'Mám lístie všade!', 'Ako na jeseň!',
+    'Veď nehorím!', 'Som ako snehuliak!',
+    'Vajce?! Veď ešte nie je Veľká noc!', 'Mám praženicu vo vlasoch!',
+    'Vraj to prináša šťastie…', 'Holuby! Zasa!',
   ],
 ];
 
@@ -54,32 +69,51 @@ const TOURIST: string[][] = [
     'Still tickles!', 'Hee-hee… stop!',
     'Learn to drive!', 'I see stars!', 'Where am I?', 'Cough… I look like a chimney sweep!',
   ],
+  [
+    'So sticky!', 'Kofola? What is Kofola?!', 'My shoes are glued!',
+    'Cough! What is that smell?', 'I smell like grandma!', 'Too much perfume!',
+    'Ow! A pea?', 'Who spits peas?!',
+    'Leaves everywhere!', 'Is it autumn already?',
+    "I'm not on fire!", "I'm a snowman!",
+    'An egg?! Really?', 'Scrambled hair!',
+    "They say it's lucky…", 'Pigeons! Again!',
+  ],
 ];
 
-/** SAY_UP's lines by what knocked them down: [first, how many] (the same for tourists) */
-const UP_LINES: Record<Mess, [number, number]> = {
-  water: [0, 4],
-  bubbles: [4, 3],
-  confetti: [7, 3],
-  tickle: [10, 2],
-  bonk: [12, 3],
-  soot: [13, 3],
+/** the getting-up lines by what knocked them down: [category, first, how many] (the same for tourists) */
+const UP_LINES: Record<Mess, [number, number, number]> = {
+  water: [SAY_UP, 0, 4],
+  bubbles: [SAY_UP, 4, 3],
+  confetti: [SAY_UP, 7, 3],
+  tickle: [SAY_UP, 10, 2],
+  bonk: [SAY_UP, 12, 3],
+  soot: [SAY_UP, 13, 3],
+  kofola: [SAY_UP2, 0, 3],
+  perfume: [SAY_UP2, 3, 3],
+  pea: [SAY_UP2, 6, 2],
+  leaves: [SAY_UP2, 8, 2],
+  foam: [SAY_UP2, 10, 2],
+  egg: [SAY_UP2, 12, 2],
+  pigeon: [SAY_UP2, 14, 2],
 };
 
-/** a line number (category × 16 + index) for `cat`, picked with `r` in [0, 1) */
+/** a line number (category × 16 + index, TOURIST_BIT for English) for `cat`, picked with `r` in [0, 1) */
 export function pickLine(cat: number, tourist: boolean, r: number): number {
   const lines = (tourist ? TOURIST : LINES)[cat];
-  return (tourist ? 128 : 0) + cat * 16 + Math.min(lines.length - 1, Math.floor(r * lines.length));
+  return (tourist ? TOURIST_BIT : 0) + cat * 16 + Math.min(lines.length - 1, Math.floor(r * lines.length));
 }
 
-/** a SAY_UP line for someone getting up after `mess` knocked them down, picked with `r` in [0, 1) */
+/** a getting-up line for someone after `mess` knocked them down, picked with `r` in [0, 1) */
 export function pickUpLine(mess: Mess, tourist: boolean, r: number): number {
-  const [first, n] = UP_LINES[mess];
-  return (tourist ? 128 : 0) + SAY_UP * 16 + first + Math.min(n - 1, Math.floor(r * n));
+  const [cat, first, n] = UP_LINES[mess];
+  return (tourist ? TOURIST_BIT : 0) + cat * 16 + first + Math.min(n - 1, Math.floor(r * n));
 }
+
+/** the category of a line number */
+export const lineCat = (line: number) => (line & (TOURIST_BIT - 1)) >> 4;
 
 /** the text of a line number from `pickLine` */
 export function lineText(line: number): string {
-  const tourist = line >= 128, l = line & 127;
+  const tourist = line >= TOURIST_BIT, l = line & (TOURIST_BIT - 1);
   return (tourist ? TOURIST : LINES)[l >> 4]?.[l & 15] ?? '';
 }

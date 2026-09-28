@@ -74,6 +74,20 @@ export function slipstream(v: Vehicle, vehicles: readonly Vehicle[], trams: read
   return best;
 }
 
+/** a soap bomb's slippery patch (sim/Toys.ts): where, how big, seconds left */
+export interface Slick {
+  x: number;
+  y: number;
+  r: number;
+  t: number;
+}
+
+/** is (x, y) on one of the patches? */
+export function onSlick(slicks: readonly Slick[], x: number, y: number): boolean {
+  for (const s of slicks) if ((x - s.x) ** 2 + (y - s.y) ** 2 < s.r * s.r) return true;
+  return false;
+}
+
 export class VehiclePhysics {
   private accum = 0;
   readonly hash = new SpatialHash<Vehicle>(10);
@@ -82,6 +96,8 @@ export class VehiclePhysics {
   /** substep length; the server can use 1/60 for its AI traffic (players drive at 1/120 on their clients) */
   step_ = PHYS_STEP;
   private substep = 0;
+  /** the soap bombs' slippery patches (sim/Toys.ts): whoever runs this physics keeps it current */
+  slicks: readonly Slick[] = [];
 
   /** Advance `dt` seconds in fixed substeps. Call with every vehicle and tram that can touch. */
   step(dt: number, vehicles: readonly Vehicle[], trams: readonly Tram[], world: World, hooks: PhysicsHooks) {
@@ -95,6 +111,13 @@ export class VehiclePhysics {
       // (a boat is on the water, under any bridge)
       v.level = v.spec.boat ? 0 : world.spawnLevel(v.x, v.y, v.spec.width / 2, v.angle);
       v.levelInit = true;
+    }
+    // the thrown toys' timers (an egg on the windscreen, a clamp), on every car (a mirror's too: it's
+    // drawn with them), and who's on a soap bomb's patch
+    for (const v of vehicles) {
+      if (v.egg > 0) v.egg = Math.max(0, v.egg - dt);
+      if (v.clamp > 0) v.clamp = Math.max(0, v.clamp - dt);
+      v.slick = !v.kinematic && onSlick(this.slicks, v.x, v.y);
     }
     // a player's car behind a bus, a van or a tram gets its slipstream (the server's players drive
     // on their own clients: kinematic here)

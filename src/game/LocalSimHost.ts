@@ -1,6 +1,7 @@
 // Offline play: the whole simulation runs in the page, with the local player as its only player.
 import type { World } from '../shared/world/World';
 import type { Vehicle } from '../shared/entities/Vehicle';
+import type { WeaponId } from '../shared/entities/Ped';
 import type { Clock } from '../shared/sim/Clock';
 import type { ShotReport } from '../shared/sim/Combat';
 import type { PrivateEvent, SimEvents } from '../shared/sim/events';
@@ -85,6 +86,14 @@ export class LocalSimHost implements SimHost {
 
   punch(targetId: number) {
     this.sim.applyMelee(this.me, targetId);
+  }
+
+  throwToy(w: WeaponId, tx: number, ty: number) {
+    this.sim.throwToy(this.me, w, tx, ty);
+  }
+
+  get slicks() {
+    return this.sim.toys.slicks;
   }
 
   requestEnter(v: Vehicle) {

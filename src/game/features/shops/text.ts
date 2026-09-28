@@ -3,12 +3,13 @@
 // test/client/shops.test.ts can check it.
 import { SPECS, type VehicleKind } from '../../../shared/entities/Vehicle';
 import { PLAYER_SHIRTS, type WeaponId } from '../../../shared/entities/Ped';
+import { TOY_IDS, WEAPONS } from '../../../shared/sim/Combat';
 import { AMMO_BOX, COLLECTION, MOD_MAX, type Mods, type ShopKind, type StoredCar } from '../../../shared/sim/shops/catalog';
 import { colorWord } from '../police/text';
 
 /** each kind of shop, generically, and what it's for (the panel's first line) */
 export const SHOP_KIND: Record<ShopKind, { name: string; about: string }> = {
-  guns: { name: 'Hračkárstvo', about: 'Vodná pištoľ, bublinkový samopal a konfety, každé s náplňou. A pršiplášť, nech nezmokneš.' },
+  guns: { name: 'Hračkárstvo', about: 'Striekačky, bublifuky, konfety, kladivko, Kofola aj holub. Všetko s náplňou. A pršiplášť, nech nezmokneš.' },
   clothes: { name: 'Butik', about: 'Polícia hľadá oblečenie, v ktorom ťa naposledy videla. Prezleč sa, kým sa nepozerá.' },
   lawyer: { name: 'Advokát', about: 'Pri ďalšom zatknutí ťa JUDr. Paragraf zastúpi: hračky ti ostanú a pokutu zaplatíš polovičnú.' },
   tuning: { name: 'Dielňa', about: 'Lak s opravou, výkon, pancier, pneumatiky, nitro a neón. Úpravy patria autu: aby ti ostali, nechaj ho v garáži.' },
@@ -22,7 +23,25 @@ export function distanceLine(m: number): string {
 }
 
 /** the toys, as the shop names them (docs/plans/non-violent.md) */
-export const GUN_NAME: Record<Exclude<WeaponId, 'fist'>, string> = { pistol: 'Vodná pištoľ', uzi: 'Bublinkový samopal', shotgun: 'Konfetová brokovnica' };
+export const GUN_NAME = Object.fromEntries(TOY_IDS.map((w) => [w, WEAPONS[w].name])) as Record<Exclude<WeaponId, 'fist'>, string>;
+
+/** what each toy does, as the shop's shelf says it */
+export const TOY_ABOUT: Record<Exclude<WeaponId, 'fist'>, string> = {
+  pistol: 'Klasika. Premočí na diaľku.',
+  uzi: 'Bubliny rýchlo za sebou.',
+  shotgun: 'Konfety zblízka, do šírky.',
+  hammer: 'Píísk! Zblízka posadí hocikoho.',
+  kofola: 'Zatrepaná fľaša. Koho oblejete, lepí sa a chodí pomaly.',
+  perfume: 'Babkina voňavka. Kto je blízko, kašle a uteká.',
+  pea: 'Tichý hrášok na veľkú diaľku. Nikto nevie, odkiaľ letel.',
+  blower: 'Zhodí ľudí a odfúkne kolobežky aj bicykle.',
+  foam: 'Uhasí horiace auto. Aj tvoje.',
+  soap: 'Hodíš a vznikne šmykľavka: autá sa šmýkajú, ľudia padajú.',
+  egg: 'Na čelné sklo: vodič zastaví a utiera. Alebo rovno na hlavu.',
+  clamp: 'Parkovacia papuča na koleso. Auto 10 sekúnd nepohne ani policajt.',
+  bucket: 'Veľkonočná oblievačka. Premočí všetkých naokolo.',
+  pigeon: 'Holub z Hlavného. Letí k najbližšiemu a nechá mu darček.',
+};
 
 /** "Vodná pištoľ + 36 striekancov" */
 export function gunLine(w: Exclude<WeaponId, 'fist'>): string {
@@ -39,6 +58,17 @@ const AMMO_WORDS: Record<Exclude<WeaponId, 'fist'>, [string, string, string]> = 
   pistol: ['striekanec', 'striekance', 'striekancov'],
   uzi: ['bublinka', 'bublinky', 'bubliniek'],
   shotgun: ['dávka konfiet', 'dávky konfiet', 'dávok konfiet'],
+  hammer: ['písknutie', 'písknutia', 'písknutí'],
+  kofola: ['strek', 'streky', 'strekov'],
+  perfume: ['fŕŕk', 'fŕŕky', 'fŕŕkov'],
+  pea: ['hrášok', 'hrášky', 'hráškov'],
+  blower: ['fúknutie', 'fúknutia', 'fúknutí'],
+  foam: ['dávka peny', 'dávky peny', 'dávok peny'],
+  soap: ['bomba', 'bomby', 'bômb'],
+  egg: ['vajíčko', 'vajíčka', 'vajíčok'],
+  clamp: ['papuča', 'papuče', 'papúč'],
+  bucket: ['vedro', 'vedrá', 'vedier'],
+  pigeon: ['holub', 'holuby', 'holubov'],
 };
 
 const capital = (w: string) => `${w[0].toUpperCase()}${w.slice(1)}`;

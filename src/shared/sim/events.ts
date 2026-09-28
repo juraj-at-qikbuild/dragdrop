@@ -126,7 +126,23 @@ export type PrivateEvent =
   | { k: 'stored'; vehicle: number; x: number; y: number }
   /** the mini-game round this player is in, whenever what they're shown changes (null: none any more;
    *  docs/plans/minigames.md). Optional both ways, like the above */
-  | { k: 'mini'; s: MiniState | null };
+  | { k: 'mini'; s: MiniState | null }
+  // ---- the Hračkárstvo's second shelf (Combat.ts, Toys.ts; protocol 8)
+  /** Kofola hit you: sticky (walking at STICKY_PACE) for `t` s */
+  | { k: 'sticky'; t: number }
+  /** someone's foam put out the fire of the car you drive */
+  | { k: 'foam'; vehicle: number };
+
+/** What the thrown toys (Toys.ts) and the foam show: a toy in flight from (x, y) to (tx, ty) for `d`
+ *  s; where it came down (`hit`: on someone or a car); an egg or a clamp stuck on car `vid` for `t`
+ *  s (the car's driver, if it's a player's, applies it to their own simulation); a soap bomb's
+ *  slippery patch; a car's fire put out */
+export type ToyFx =
+  | { op: 'throw'; w: WeaponId; pid: number; x: number; y: number; tx: number; ty: number; d: number; lvl: Level }
+  | { op: 'land'; w: WeaponId; x: number; y: number; hit: 0 | 1 }
+  | { op: 'stick'; what: 'egg' | 'clamp'; vid: number; x: number; y: number; t: number }
+  | { op: 'slick'; x: number; y: number; r: number; t: number }
+  | { op: 'foam'; vid: number; x: number; y: number };
 
 export type DazeCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 
@@ -170,6 +186,8 @@ export interface SimEvents {
   splash(pedId: number, x: number, y: number, a: number, s: number): void;
   /** a fan high-fived a player's car going past, their hands meeting at (x, y) (rules/Splash.ts) */
   highFive(pedId: number, x: number, y: number): void;
+  /** a thrown toy, the foam (Toys.ts) */
+  toy(e: ToyFx): void;
   toPlayer(pid: number, e: PrivateEvent): void;
   /** news for every player, wherever they are */
   global(e: GlobalEvent): void;
@@ -190,6 +208,7 @@ export const nullEvents: SimEvents = {
   say() {},
   splash() {},
   highFive() {},
+  toy() {},
   toPlayer() {},
   global() {},
 };
