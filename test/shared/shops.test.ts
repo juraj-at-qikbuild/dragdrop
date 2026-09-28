@@ -68,9 +68,9 @@ describe('where the shops are', () => {
 
   it('every kind is there, each shop once, with a stable id', () => {
     const count = (k: ShopPlace['kind']) => all.filter((s) => s.kind === k).length;
-    expect(count('guns')).toBe(10);
-    expect(count('clothes')).toBe(3);
-    expect(count('lawyer')).toBe(1);
+    expect(count('guns')).toBe(20);
+    expect(count('clothes')).toBe(6);
+    expect(count('lawyer')).toBe(3);
     expect(count('garage')).toBe(6);
     expect(count('teleport')).toBe(SPAWNS.length);
     expect(count('tuning')).toBe(w.pois('fuel').length);

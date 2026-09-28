@@ -3,8 +3,8 @@
 // can check a purchase against it.
 // - Dielňa: the fuel stations (the old spray shops), in a car.
 // - Garáž: a door on a quiet street by six of the spawn places, in a car or on foot.
-// - Hračkárstvo (the toy shop, ten of them round the city), Butik, the lawyer: shopfronts by
-//   landmarks, on foot.
+// - Hračkárstvo (the toy shop, twenty of them round the city), Butik (six), the lawyer (three
+//   branches): shopfronts by landmarks, on foot.
 // - Teleport: a bay in the street by each of the ten spawn places, on foot or in a car; from any of
 //   them to any other, for a price (rules/Shops.ts).
 import type { World } from '../../world/World';
@@ -60,10 +60,27 @@ const FRONTS: { kind: ShopKind; id: string; name: string; at: string; dx: number
   { kind: 'guns', id: 'guns-skypark', name: 'Hračkárstvo Sky Park', at: 'skypark', dx: 0, dy: 40 },
   { kind: 'guns', id: 'guns-podhradie', name: 'Hračkárstvo v Podhradí', at: 'mikulas', dx: 0, dy: 30 },
   { kind: 'guns', id: 'guns-incheba', name: 'Hračkárstvo Incheba', at: 'incheba', dx: 0, dy: 0 },
+  // ...and out where there were none: the hills, the far west, Nivy, the riverside, south Petržalka
+  { kind: 'guns', id: 'guns-slavin', name: 'Hračkárstvo pod Slavínom', at: 'slavin', dx: 0, dy: 40 },
+  { kind: 'guns', id: 'guns-cerveny-kriz', name: 'Hračkárstvo na Červenom kríži', at: 'slavin', dx: -500, dy: 300 },
+  { kind: 'guns', id: 'guns-chatam', name: 'Hračkárstvo pri Chatam Sofer', at: 'chatam', dx: 0, dy: 0 },
+  { kind: 'guns', id: 'guns-blumental', name: 'Hračkárstvo na Blumentáli', at: 'blumental', dx: 0, dy: 40 },
+  { kind: 'guns', id: 'guns-nivy', name: 'Hračkárstvo Nivy', at: 'nivytower', dx: 0, dy: 40 },
+  { kind: 'guns', id: 'guns-500-bytov', name: 'Hračkárstvo v Päťsto bytoch', at: 'nivytower', dx: 100, dy: -600 },
+  { kind: 'guns', id: 'guns-snm', name: 'Hračkárstvo na nábreží', at: 'snm', dx: 0, dy: 0 },
+  { kind: 'guns', id: 'guns-starymost', name: 'Hračkárstvo za Starým mostom', at: 'oldbridge', dx: 0, dy: 150 },
+  { kind: 'guns', id: 'guns-apollo', name: 'Hračkárstvo pod Apollom', at: 'apollo', dx: 0, dy: 60 },
+  { kind: 'guns', id: 'guns-lido', name: 'Hračkárstvo Lido', at: 'apollo', dx: -250, dy: 280 },
   { kind: 'clothes', id: 'clothes-kamenne', name: 'Butik na Kamennom', at: 'kamenne', dx: 0, dy: 0 },
   { kind: 'clothes', id: 'clothes-eurovea', name: 'Butik Eurovea', at: 'eurovea', dx: -40, dy: 0 },
   { kind: 'clothes', id: 'clothes-aupark', name: 'Butik Aupark', at: 'aupark', dx: 0, dy: -40 },
+  { kind: 'clothes', id: 'clothes-hlavne', name: 'Butik na Hlavnom', at: 'main', dx: 0, dy: 0 },
+  { kind: 'clothes', id: 'clothes-skypark', name: 'Butik Sky Park', at: 'skypark', dx: 0, dy: -40 },
+  { kind: 'clothes', id: 'clothes-nivy', name: 'Butik Nivy', at: 'nivytower', dx: -40, dy: 0 },
   { kind: 'lawyer', id: 'lawyer', name: 'Advokátska kancelária JUDr. Paragraf', at: 'primate', dx: 0, dy: 0 },
+  // (the same firm's branches: JUDr. Paragraf takes the case whichever door you walk in by)
+  { kind: 'lawyer', id: 'lawyer-nbs', name: 'JUDr. Paragraf – pobočka pri NBS', at: 'nbs', dx: 0, dy: 0 },
+  { kind: 'lawyer', id: 'lawyer-petrzalka', name: 'JUDr. Paragraf – pobočka Petržalka', at: 'sad', dx: 0, dy: 0 },
 ];
 
 /** the spawn places with a garage on a quiet street nearby */
