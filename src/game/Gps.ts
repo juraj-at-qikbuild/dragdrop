@@ -72,16 +72,24 @@ export class Gps {
     this.trim(f.x, f.y);
   }
 
-  /** Work the route out on `graph` (A*). Falls back to a straight line when there is none. */
+  /** Work the route out on `graph` (A*). Falls back to a straight line when there is none. From the
+   *  same street corner to the same one as last time it's the same route (the graph doesn't change):
+   *  the search isn't run again every REFRESH while the player stands or walks along a street. */
   private plan(graph: Graph, fx: number, fy: number, tx: number, ty: number) {
     const a = graph.nearest(fx, fy, 250), b = graph.nearest(tx, ty, 400);
-    const links = a >= 0 && b >= 0 ? graph.path(a, b, 40000) : null;
-    const out = [fx, fy];
-    if (links) for (const l of links) out.push(...linkPoints(l).slice(2));
-    else if (a >= 0 && b >= 0 && a === b) out.push(graph.nx(a), graph.ny(a));
-    out.push(tx, ty);
-    this.route = out;
+    const m = this.memo;
+    let mid: number[];
+    if (m && m.graph === graph && m.a === a && m.b === b) mid = m.mid;
+    else {
+      const links = a >= 0 && b >= 0 ? graph.path(a, b, 40000) : null;
+      mid = [];
+      if (links) for (const l of links) mid.push(...linkPoints(l).slice(2));
+      else if (a >= 0 && b >= 0 && a === b) mid.push(graph.nx(a), graph.ny(a));
+      this.memo = { graph, a, b, mid };
+    }
+    this.route = [fx, fy, ...mid, tx, ty];
   }
+  private memo: { graph: Graph; a: number; b: number; mid: number[] } | null = null;
 
   /** further than OFF_ROUTE from every segment of the route? */
   private offRoute(x: number, y: number) {
