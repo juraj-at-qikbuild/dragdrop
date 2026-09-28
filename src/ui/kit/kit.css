@@ -383,6 +383,59 @@ button.danger:hover {
   line-height: 1;
   border-radius: 50%;
 }
+/* Čo teraz?: the best thing to do now, and two more, across the top */
+.kit-act-nextsec {
+  grid-column: 1 / -1;
+}
+.kit-act-now {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kit-act-now button {
+  flex: 1 1 180px;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 0 8px;
+  padding: 7px 12px;
+  text-align: left;
+}
+.kit-act-now .ic {
+  grid-row: 1 / span 2;
+  font-size: 20px;
+}
+.kit-act-now .t {
+  font-weight: 700;
+  font-size: 14px;
+}
+.kit-act-now .why {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+/* a phone on its side: one line a row (a tap shows what it's about), its button beside it */
+@media (max-height: 480px) {
+  .kit-act-row {
+    grid-template-columns: 26px 1fr auto auto;
+    padding: 5px 8px;
+  }
+  .kit-act-row .about {
+    display: none;
+  }
+  .kit-act-row.open .about {
+    display: block;
+  }
+  .kit-act-row.game > .kit-act-acts {
+    grid-column: 4;
+    grid-row: 1 / span 2;
+    align-self: center;
+    margin-top: 0;
+  }
+  .kit-act-now button {
+    flex-basis: 150px;
+  }
+}
 .kit-act h3 {
   margin: 0 0 6px;
   font-family: var(--font-head);

@@ -15,6 +15,7 @@ import { addPauseControl, isModalOpen, openModal, toast } from '../../ui/kit/dom
 import type { ClientFeature } from './ClientFeature';
 import { liveForecast, type Forecast } from './activities/forecast';
 import { markActivitiesSeen } from './activities/seen';
+import { suggest, type Suggestion } from './activities/suggest';
 import { EVENT_ABOUT, EVENT_COLOR, EVENT_LABEL, EVENT_ORDER, candidatesLine, clock, morePlayersLine, nextLine, players, statusText } from './activities/text';
 
 /** the open panel's countdowns tick this often (ms); its rows are rebuilt only when what they hold
@@ -159,7 +160,8 @@ export class ActivitiesUi implements ClientFeature {
     const others = g.online ? Math.max(0, g.online.roster.length - 1) : -1;
     const mini = live.mini ? `${live.mini.id}:${live.mini.phase}:${live.mini.n}:${live.mini.owner}` : '';
     const open = live.miniOpen.map((o) => `${o.id}:${o.n}:${o.phase}`).join(',');
-    return [this.input, !!g.online, g.online?.account, others, f ? `${f.busy}:${f.next === null}:${f.candidates}` : 'none', kinds, events, job, daily, party, !!live.score, mini, open, g.host.takesMini].join('|');
+    const next = this.suggestions().map((x) => x.title + x.label).join(',');
+    return [this.input, !!g.online, g.online?.account, others, next, f ? `${f.busy}:${f.next === null}:${f.candidates}` : 'none', kinds, events, job, daily, party, !!live.score, mini, open, g.host.takesMini].join('|');
   }
 
   private render(shape: string) {
@@ -167,7 +169,63 @@ export class ActivitiesUi implements ClientFeature {
     if (!body) return;
     this.shape = shape;
     this.tickers = [];
-    body.replaceChildren(this.miniSection(), this.eventsSection(), this.gamesSection());
+    const next = this.nextSection();
+    body.replaceChildren(...(next ? [next] : []), this.miniSection(), this.eventsSection(), this.gamesSection());
+    // on a phone the rows keep to a line: a tap on one shows what it's about
+    body.onclick = (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('button')) t.closest('.kit-act-row')?.classList.toggle('open');
+    };
+  }
+
+  // -------------------------------------------------------------------------------- Čo teraz?
+  /** what's worth doing right now (activities/suggest.ts); TouchControls' "Čo teraz?" button too */
+  suggestions(): Suggestion[] {
+    const g = this.g;
+    const live = g.host.live;
+    const v = g.player.vehicle;
+    return suggest({
+      me: g.focus(),
+      inCar: !!v && !v.spec.twoWheeler && !v.spec.boat,
+      online: !!g.online,
+      wanted: g.wanted,
+      busy: !!g.missions.active || !!live.job || (!!live.mini && live.mini.phase !== 'done'),
+      events: live.events,
+      open: live.miniOpen.filter((o) => o.nick !== g.host.net?.nick),
+      booths: g.missions.enabled ? g.missions.available().map((b) => ({ x: b.x, y: b.y, title: b.def.title })) : [],
+      sprayShops: g.world.pois('fuel'),
+      // (a different mini-game every ten minutes)
+      turn: Math.floor(Date.now() / 600_000),
+    });
+  }
+
+  /** the top of the panel: the best thing to do now as one big button, and two more beside it */
+  private nextSection(): HTMLElement | null {
+    const list = this.suggestions();
+    if (!list.length) return null;
+    const sec = el('section', 'kit-act-sec kit-act-nextsec');
+    sec.appendChild(el('h3', undefined, 'Čo teraz?'));
+    const row = el('div', 'kit-act-now');
+    list.forEach((x, i) => {
+      const b = button('', () => this.doSuggestion(x), i === 0 ? 'primary' : undefined);
+      b.append(el('span', 'ic', x.icon), el('span', 't', x.title), el('span', 'why', x.why));
+      row.appendChild(b);
+    });
+    sec.appendChild(row);
+    return sec;
+  }
+
+  /** Do a suggestion: set the GPS, join or start a round, start a shift. */
+  doSuggestion(x: Suggestion) {
+    const g = this.g;
+    const a = x.act;
+    if (a.op === 'gps') {
+      g.gps.setWaypoint(a.x, a.y);
+      this.go();
+      toast(`${x.icon} ${x.title}: navigácia nastavená – sleduj fialovú šípku.`, '#b388ff');
+    } else if (a.op === 'join') this.miniReq({ op: 'join', id: a.id });
+    else if (a.op === 'mini') this.miniReq({ op: 'start', kind: a.kind });
+    else this.startJob(a.kind);
   }
 
   // ------------------------------------------------------------------------------- mini-games

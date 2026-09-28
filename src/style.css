@@ -444,6 +444,11 @@ button.primary:hover {
     box-shadow: 0 0 0 6px rgba(179, 136, 255, 0.28), 0 2px 10px rgba(0, 0, 0, 0.35);
   }
 }
+.t-next {
+  /* "Čo teraz?" (TouchControls): a quiet teal pill where a mini-game's action would be */
+  background: rgba(38, 198, 218, 0.9);
+  animation: none;
+}
 .t-brake {
   background: rgba(229, 57, 53, 0.5);
 }

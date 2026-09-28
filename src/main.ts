@@ -272,9 +272,17 @@ async function boot() {
       // where the game put them (a random spawn place)
       const at = spawnAt(game.player.x, game.player.y);
       const where = at ? `${at.name}. ` : '';
+      // on a touch screen the GPS goes straight to the nearest booth: no hunting on a small map first
+      const me = game.player;
+      const booth = t && !game.gps.waypoint ? game.missions.available().sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0] : undefined;
+      if (booth) game.gps.setWaypoint(booth.x, booth.y);
       onboarding.greet({
         title: 'Vitaj v Bratislave',
-        text: t ? `${where}Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.` : `${where}Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).`,
+        text: booth
+          ? `${where}Fialová šípka ťa dovedie k žltej telefónnej búdke ☎ s prvou misiou – alebo si jednoducho ukradni auto.`
+          : t
+            ? `${where}Nájdi žltú telefónnu búdku ☎ (mapa: ťukni na minimapu) alebo si jednoducho ukradni auto.`
+            : `${where}Nájdi žltú telefónnu búdku ☎ (mapa: M) alebo si jednoducho ukradni auto (F).`,
         secs: 7,
         newcomer: true,
       });

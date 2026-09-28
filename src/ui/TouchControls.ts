@@ -12,6 +12,8 @@ import { isModalOpen } from './kit/dom';
 import { drawWeaponIcon } from './Hud';
 import type { HudLayout } from './layout';
 import { TouchTips } from './TouchTips';
+import type { ActivitiesUi } from '../game/features/ActivitiesUi';
+import type { Suggestion } from '../game/features/activities/suggest';
 
 /** busted: arrested (with an offer to buy it off, Úplatok, src/game/features/PoliceUi.ts, the
  *  Podplatiť button); tram: riding one; cab: driving one (the stick along the tram, the bell) */
@@ -38,6 +40,10 @@ const FOLLOW = 1.3;
 const RUN_OVER = 1.08;
 /** a drag this far from the fire button (px at scale 1) aims by hand */
 const AIM_DRAG = 18;
+/** nothing going (no job, round, mission or GPS target) this long (s): the "Čo teraz?" button shows */
+const IDLE_S = 15;
+/** ...and after it was used, not again for this long (s) */
+const NEXT_SNOOZE_S = 120;
 /** the toy button held this long (ms) opens the toy picker (a tap is the next toy) */
 const WHEEL_MS = 320;
 /** faster than this (m/s, about 15 km/h) getting out of a car is a hold of the use button, not a tap */
@@ -80,6 +86,11 @@ export class TouchControls {
   private wheelOn = false;
   /** the picker's toy under the finger still sliding from the toy button */
   private wheelHover: WeaponId | null = null;
+  /** "Čo teraz?": what it would do, seconds with nothing going, when it may show again (performance.now) */
+  private next: Suggestion | null = null;
+  private idleS = 0;
+  private nextAt = 0;
+  private nextCheck = 0;
   readonly tips: TouchTips;
 
   constructor(private g: Game) {
@@ -113,6 +124,8 @@ export class TouchControls {
     this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car, ...tram], label: '', cls: 't-use' });
     // a mini-game's action (docs/plans/minigames.md): shown with what it does, while there's one
     this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car, ...tram], label: '', cls: 't-use t-mini' });
+    // with nothing going for a while: the best thing to do now (the top of the Aktivity panel), one tap
+    this.add('next', 'act', '', { act: () => this.doNext(), in: [...foot, ...car], label: 'Čo teraz?', cls: 't-use t-next' });
     this.add('brake', 'hold', 'BRZDA', { code: 'brake', in: ['car-d'], label: 'Brzda', cls: 't-brake' });
     this.add('pedal', 'pedal', '', { in: ['car-c'], label: 'Plyn a brzda', cls: 't-pedal' });
     this.add('handbrake', 'hold', 'RUČNÁ', { code: 'handbrake', in: car, label: 'Ručná brzda', cls: 't-hand' });
@@ -322,6 +335,28 @@ export class TouchControls {
     this.wheel.classList.add('off');
   }
 
+  // ------------------------------------------------------------------------------------ Čo teraz?
+  private activities(): ActivitiesUi | null {
+    return (this.g.features.find((f) => f.id === 'activities') as ActivitiesUi | undefined) ?? null;
+  }
+
+  /** once a second: is there nothing going, and what would be worth doing */
+  private checkNext(dt: number) {
+    const g = this.g;
+    const idle = !g.gps.waypoint && !g.missions.active;
+    const s = idle ? (this.activities()?.suggestions()[0] ?? null) : null;
+    this.idleS = s ? this.idleS + dt : 0;
+    this.next = s && this.idleS >= IDLE_S && performance.now() >= this.nextAt ? s : null;
+  }
+
+  private doNext() {
+    const s = this.next;
+    this.next = null;
+    this.idleS = 0;
+    this.nextAt = performance.now() + NEXT_SNOOZE_S * 1000;
+    if (s) this.activities()?.doSuggestion(s);
+  }
+
   private endExitHold() {
     this.useHeldAt = null;
     this.byId.get('use')!.el.style.setProperty('--hold', '0');
@@ -469,6 +504,11 @@ export class TouchControls {
     const useText = pr?.use ? pr.text : v && playing ? (this.exitHold ? (v.spec.twoWheeler ? 'Podrž: zoskočiť' : 'Podrž: vyskočiť') : v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
     const offer = g.host.live.bribe;
     const miniText = g.host.live.mini?.act ?? '';
+    if (performance.now() >= this.nextCheck) {
+      this.nextCheck = performance.now() + 1000;
+      this.checkNext(playing ? 1 : 0);
+    }
+    const nextText = playing && this.next && !miniText ? `${this.next.icon} ${this.next.title}` : '';
     const hasGun = TOY_IDS.some((w) => g.ammo[w] > 0);
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
     const acts = g.hud.activitiesRect;
@@ -485,9 +525,10 @@ export class TouchControls {
       daily: !!daily,
       activities: !!acts,
       bribe: !!offer && performance.now() < offer.until && g.save.money >= offer.price,
+      next: !!nextText,
     };
     const rectKey = (r: { x: number; y: number; w: number; h: number } | null) => (r ? `${r.x},${r.y},${r.w},${r.h}` : '');
-    const key = `${ctx}|${useText}|${this.exitHold}|${miniText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
+    const key = `${ctx}|${useText}|${this.exitHold}|${miniText}|${nextText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
     if (key !== this.shown) {
       this.shown = key;
       for (const c of this.controls) {
@@ -501,6 +542,7 @@ export class TouchControls {
       use.classList.toggle('t-quiet', !!v && playing && !pr?.use);
       use.classList.toggle('t-holdexit', this.exitHold);
       this.byId.get('mini')!.el.textContent = miniText;
+      this.byId.get('next')!.el.textContent = nextText ? `▶ ${nextText}` : '';
       if (daily) setRect(this.byId.get('daily')!.el, daily);
       // (the chip is drawn 22-32 px tall: its target is a fingertip's 44)
       if (acts) setRect(this.byId.get('activities')!.el, { x: acts.x, y: acts.y - Math.max(0, 44 - acts.h) / 2, w: acts.w, h: Math.max(44, acts.h) });
@@ -590,6 +632,7 @@ export class TouchControls {
         at('talk', -150, -112, 46);
         this.pill('use', ax - 10 * ts, ay - 118 * ts);
         this.pill('mini', ax - 10 * ts, ay - 176 * ts);
+        this.pill('next', ax - 10 * ts, ay - 176 * ts);
       },
       car: (classic: boolean) => {
         if (classic) {
@@ -620,6 +663,7 @@ export class TouchControls {
         at('talk', tight ? -200 : -252, tight ? -146 : -150, tight ? 44 : 40);
         this.pill('use', ax - 10 * ts, ay - (tight ? 176 : 196) * ts);
         this.pill('mini', ax - 10 * ts, ay - (tight ? 230 : 254) * ts);
+        this.pill('next', ax - 10 * ts, ay - (tight ? 230 : 254) * ts);
       },
       downed: () => this.pill('giveup', ax - 10 * ts, ay - 40 * ts),
       busted: () => this.pill('bribe', ax - 10 * ts, ay - 40 * ts),
