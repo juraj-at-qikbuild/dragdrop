@@ -15,7 +15,7 @@ import { roundRect } from '../../../../render/shapes';
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
 /** the parody sponsors along the boards */
-const BOARDS = ['KOFOLKA', 'HOPÍK TAXI', 'BLAVA CITY', 'BILLKA', 'RÁDIO KECY', 'LIDEL', 'DPB'];
+const BOARDS = ['KOFOLKA', 'HOPÍK TAXI', 'GTA SK', 'BILLKA', 'RÁDIO KECY', 'LIDEL', 'DPB'];
 
 interface Pitch {
   x: number;
