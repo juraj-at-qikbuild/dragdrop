@@ -36,11 +36,11 @@ export function cleanGear(v: unknown): Gear {
 }
 
 /** a car kept in a garage, or null when it doesn't make sense (never a police car: garages don't
- *  take one) */
+ *  take one; nor the car football's ball, which is no car) */
 export function cleanStoredCar(v: unknown): StoredCar | null {
   if (!v || typeof v !== 'object') return null;
   const c = v as Partial<Record<keyof StoredCar, unknown>>;
-  if (typeof c.kind !== 'string' || !(c.kind in SPECS) || c.kind === 'police') return null;
+  if (typeof c.kind !== 'string' || !(c.kind in SPECS) || c.kind === 'police' || c.kind === 'ball') return null;
   const kind = c.kind as VehicleKind;
   if (typeof c.color !== 'string' || !c.color || c.color.length > 32) return null;
   if (typeof c.hp !== 'number' || !Number.isFinite(c.hp) || c.hp <= 0) return null;

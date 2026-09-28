@@ -8,8 +8,10 @@ import type { Ped } from './Ped';
 import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog';
 
 /** New kinds go at the end (docs/plans/gameplay.md, Phase 3): the wire sends a kind as its index in
- *  SPECS, and a client from before draws one it doesn't know as a sedan. */
-export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance' | 'scooter' | 'bike' | 'boat' | 'policeboat';
+ *  SPECS, and a client from before draws one it doesn't know as a sedan. The last one, `ball`, isn't a
+ *  vehicle at all but the car football's ball (docs/plans/minigames.md, Vydrž do 95. minúty): a body
+ *  the physics pushes about and every client sees, like any NPC car. */
+export type VehicleKind = 'hatch' | 'sedan' | 'taxi' | 'police' | 'van' | 'bus' | 'sport' | 'classic' | 'ambulance' | 'scooter' | 'bike' | 'boat' | 'policeboat' | 'ball';
 
 /** a located-damage zone: front/rear/left/right of the car's local frame */
 export type DamageZone = 'front' | 'rear' | 'left' | 'right';
@@ -52,6 +54,23 @@ export interface CarSpec {
   /** a boat (docs/plans/gameplay.md, Phase 3): kept to the water (land is a wall to it), and it
    *  doesn't sink */
   boat?: boolean;
+  /** a ball (docs/plans/minigames.md, Vydrž do 95. minúty): one round body with no driver, engine or
+   *  tyres that rolls where it's knocked and bounces off walls and cars. Nothing about it breaks,
+   *  burns or sinks, nobody gets in, and it knocks nobody down (Vehicle.roll, Physics' ballContact) */
+  ball?: boolean;
+}
+
+/** A pitch a ball is kept on (Vehicle.pen): a rectangle centred at (x, y), its length along the angle
+ *  `a`, `hl` × `hw` its half-extents; at each end a goal `gw` wide opens into a net `gd` deep. The
+ *  ball bounces off its boards, the goalposts and the nets; the cars come and go as they like. */
+export interface Pen {
+  x: number;
+  y: number;
+  a: number;
+  hl: number;
+  hw: number;
+  gw: number;
+  gd: number;
 }
 
 // All vehicles are parody models, loosely styled on cars you see on Bratislava streets.
@@ -90,9 +109,24 @@ export const SPECS: Record<VehicleKind, CarSpec> = {
     drive: 'rwd', frontGrip: 1, rearGrip: 0.8, inertia: 0, vCap: 0, colors: ['#fafafa', '#1565c0', '#c62828', '#263238'], boat: true },
   policeboat: { kind: 'policeboat', name: 'Policajný čln', length: 6.2, width: 2.4, maxSpeed: 18, accel: 5, brake: 4, grip: 3.5, mass: 1400, health: 170,
     drive: 'rwd', frontGrip: 1, rearGrip: 0.85, inertia: 0, vCap: 0, colors: ['#eceff1'], boat: true },
+  // docs/plans/minigames.md, Vydrž do 95. minúty: the car football's ball, 1.6 m across and light next
+  // to a car (a car's knock sends it off at about one and a half times the car's speed). It has no
+  // engine: the driving numbers are only there to fill the spec
+  ball: { kind: 'ball', name: 'Lopta', length: 1.6, width: 1.6, maxSpeed: 40, accel: 1, brake: 1, grip: 1, mass: 70, health: 100,
+    drive: 'rwd', frontGrip: 1, rearGrip: 1, inertia: 0, vCap: 0, colors: ['#fafafa'], ball: true },
 };
 /** rolling resistance (m/s²) and air drag (per m of speed², i.e. m/s² at 1 m/s) */
 const ROLL = 0.15, AERO = 0.00065;
+/** a ball's (CarSpec.ball) rolling resistance and air drag, as above: a good knock at 15 m/s rolls on
+ *  about 60 m, a nudge at 5 m/s about 8 (it can be dribbled) */
+export const BALL_ROLL = 1.5, BALL_AIR = 0.004;
+/** how much of the speed it hits them with a ball keeps, off a wall, a car, a goalpost or the pitch's
+ *  boards; a goal's net takes nearly all of it, and inside one the ball soon lies still (the net
+ *  sags round it: NET_DAMP of its speed goes each second) */
+export const BALL_BOUNCE = 0.55;
+const NET_BOUNCE = 0.05, NET_DAMP = 4;
+/** a goalpost's radius (m) */
+const POST_R = 0.2;
 /** the slipstream's top speed gain at its strongest, and how much faster the nitro fills (per s) */
 const DRAFT_TOP = 0.05;
 const DRAFT_NITRO = 0.12;
@@ -123,8 +157,8 @@ const drag = (v: number) => ROLL + AERO * v * v;
 for (const k of Object.keys(SPECS) as VehicleKind[]) {
   const s = SPECS[k];
   s.inertia = (s.mass * (s.length * s.length + s.width * s.width)) / 12;
-  // accel * (1 - v / vCap) = drag(v) at v = maxSpeed
-  s.vCap = s.maxSpeed / (1 - drag(s.maxSpeed) / s.accel);
+  // accel * (1 - v / vCap) = drag(v) at v = maxSpeed (a ball has no engine to cap)
+  s.vCap = s.ball ? s.maxSpeed : s.maxSpeed / (1 - drag(s.maxSpeed) / s.accel);
 }
 
 export interface Controls {
@@ -220,8 +254,11 @@ export class Vehicle {
   joltK = 0;
   /** jolts so far: the client watches its own car's count for camera shake and rumble */
   jolts = 0;
-  /** seconds left in the air after flying over a bump: the tyres barely touch the road */
+  /** seconds left in the air after flying over a bump: the tyres barely touch the road (a ball: kicked
+   *  up, for drawing; it still meets whatever is in its way) */
   air = 0;
+  /** a ball: the pitch it's kept on, set by the game that put it there (null: loose in the city) */
+  pen: Pen | null = null;
   private surf: Surface = 'asphalt';
   private surfT = 0;
 
@@ -236,12 +273,13 @@ export class Vehicle {
     this.color = color;
     this.health = this.spec.health;
     this.vCapT = this.spec.vCap;
-    if (this.spec.twoWheeler) this.nitro = 0;
+    if (this.spec.twoWheeler || this.spec.ball) this.nitro = 0;
     const r = this.spec.width / 2;
-    const n = Math.max(2, Math.ceil(this.spec.length / this.spec.width));
+    // (a ball is the one circle)
+    const n = this.spec.ball ? 1 : Math.max(2, Math.ceil(this.spec.length / this.spec.width));
     this.circles = [];
-    for (let i = 0; i < n; i++) this.circles.push(-this.spec.length / 2 + r + ((this.spec.length - 2 * r) * i) / (n - 1));
-    this.radius = Math.hypot(this.spec.length / 2, this.spec.width / 2);
+    for (let i = 0; i < n; i++) this.circles.push(n < 2 ? 0 : -this.spec.length / 2 + r + ((this.spec.length - 2 * r) * i) / (n - 1));
+    this.radius = this.spec.ball ? r : Math.hypot(this.spec.length / 2, this.spec.width / 2);
   }
 
   get speed() {
@@ -277,7 +315,7 @@ export class Vehicle {
 
   /** Burst the tyres (a spike strip, a shot at a wheel): not run-flats. Returns whether they burst. */
   burstTyres(): boolean {
-    if (this.mods.tyres > 0 || this.tyresBurst) return false;
+    if (this.mods.tyres > 0 || this.tyresBurst || this.spec.ball) return false;
     this.tyresBurst = 1;
     return true;
   }
@@ -297,6 +335,7 @@ export class Vehicle {
   /** Fixed-step (Game calls this at 1/120 s) tyre-model update: axle slip-angle forces, weight transfer, yaw inertia. */
   update(dt: number, world: World): number {
     const s = this.spec;
+    if (s.ball) return this.roll(dt, world);
     const c = this.wrecked || this.sinking ? STOPPED : this.ctrl;
     const a0 = this.angle;
 
@@ -495,6 +534,75 @@ export class Vehicle {
     return impact;
   }
 
+  /** A ball's step (CarSpec.ball): it rolls on the way it was knocked, slowing down, and bounces off
+   *  walls and, on a pitch (`pen`), off its boards, the goalposts and the nets. No tyres, no engine,
+   *  no spin worth simulating (the way it turns is only drawn), and nothing it meets damages it:
+   *  returns 0, so a ball against a wall is never a crash. It never goes under either: it floats. */
+  private roll(dt: number, world: World): number {
+    const sp = Math.hypot(this.vx, this.vy);
+    if (sp > 0) {
+      const slow = Math.min(sp, (BALL_ROLL + BALL_AIR * sp * sp) * dt);
+      this.vx -= (this.vx / sp) * slow;
+      this.vy -= (this.vy / sp) * slow;
+    }
+    this.av = 0;
+    if (this.air > 0) this.air = Math.max(0, this.air - dt);
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    const hit = world.collideCircle(this.x, this.y, this.spec.width / 2, this.level);
+    if (hit) {
+      this.x += hit.nx * hit.depth;
+      this.y += hit.ny * hit.depth;
+      const vn = this.vx * hit.nx + this.vy * hit.ny;
+      if (vn < 0) (this.vx -= (1 + BALL_BOUNCE) * vn * hit.nx), (this.vy -= (1 + BALL_BOUNCE) * vn * hit.ny);
+    }
+    if (this.pen) this.keepOn(this.pen, dt);
+    return 0;
+  }
+
+  /** Keep a ball on its pitch: off the four goalposts; in a net once it's over a goal line between
+   *  the posts (where the net soon stops it); inside the boards everywhere else. Worked out in the
+   *  pitch's own frame, where every edge is straight, so however hard a car shoves the ball through one
+   *  it comes back on the right side of it. */
+  private keepOn(p: Pen, dt: number) {
+    const r = this.spec.width / 2;
+    const ca = Math.cos(p.a), sa = Math.sin(p.a);
+    const dx = this.x - p.x, dy = this.y - p.y;
+    let lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+    let vl = this.vx * ca + this.vy * sa, vw = -this.vx * sa + this.vy * ca;
+    let moved = false;
+    for (let i = 0; i < 4; i++) {
+      const px = (i & 1 ? 1 : -1) * p.hl, py = (i & 2 ? 1 : -1) * (p.gw / 2);
+      const ex = lx - px, ey = ly - py, d = Math.hypot(ex, ey), rr = r + POST_R;
+      if (d >= rr || d < 1e-6) continue;
+      const nx = ex / d, ny = ey / d;
+      lx = px + nx * rr;
+      ly = py + ny * rr;
+      const vn = vl * nx + vw * ny;
+      if (vn < 0) (vl -= (1 + BALL_BOUNCE) * vn * nx), (vw -= (1 + BALL_BOUNCE) * vn * ny);
+      moved = true;
+    }
+    // (an edge the ball is over sends back what it still carries toward it, `e` of it)
+    const clamp1 = (v: number, lim: number) => (v > lim ? lim : v < -lim ? -lim : v);
+    const mouth = Math.abs(ly) < p.gw / 2;
+    if (mouth && Math.abs(lx) > p.hl) {
+      const side = p.gw / 2 - r, back = p.hl + p.gd - r;
+      if (Math.abs(ly) > side) (ly = clamp1(ly, side)), (vw = vw * ly > 0 ? -vw * NET_BOUNCE : vw);
+      if (Math.abs(lx) > back) (lx = clamp1(lx, back)), (vl = vl * lx > 0 ? -vl * NET_BOUNCE : vl);
+      const k = Math.max(0, 1 - NET_DAMP * dt);
+      (vl *= k), (vw *= k), (moved = true);
+    } else {
+      const side = p.hw - r, end = p.hl - r;
+      if (Math.abs(ly) > side) (ly = clamp1(ly, side)), (vw = vw * ly > 0 ? -vw * BALL_BOUNCE : vw), (moved = true);
+      if (!mouth && Math.abs(lx) > end) (lx = clamp1(lx, end)), (vl = vl * lx > 0 ? -vl * BALL_BOUNCE : vl), (moved = true);
+    }
+    if (!moved) return;
+    this.x = p.x + lx * ca - ly * sa;
+    this.y = p.y + lx * sa + ly * ca;
+    this.vx = vl * ca - vw * sa;
+    this.vy = vl * sa + vw * ca;
+  }
+
   /** A boat's bow or stern ran onto the bank (or a pier): it's back where it was and bounces off, and
    *  its speed is how hard it hit. */
   private afloat(world: World, x0: number, y0: number, a0: number): number {
@@ -551,7 +659,8 @@ export class Vehicle {
   }
 
   damage(amount: number) {
-    if (this.wrecked) return;
+    // (a ball takes no damage, so it never burns either)
+    if (this.wrecked || this.spec.ball) return;
     this.health -= amount * PLATING[this.mods.plating];
     // a car catches fire and blows up 3.5 s later; a scooter or a bike is just broken (Sim.wreck)
     if (this.health <= 0 && this.fire < 0) this.fire = this.spec.twoWheeler ? 0 : 3.5;
@@ -569,14 +678,14 @@ export class Vehicle {
 
   /** Convert a world-space impact point to a local damage zone and accumulate. */
   applyDamageAt(px: number, py: number, amount: number) {
-    if (amount <= 0) return;
+    if (amount <= 0 || this.spec.ball) return;
     const zone = this.damageZoneAt(px, py);
     this.dmg[zone] = clamp(this.dmg[zone] + amount, 0, 1);
   }
 
-  /** Top up nitro charge (0..1), e.g. from a pickup (none on two wheels). */
+  /** Top up nitro charge (0..1), e.g. from a pickup (none on two wheels, nor in a ball). */
   addNitro(x: number) {
-    if (!this.spec.twoWheeler) this.nitro = clamp(this.nitro + x, 0, 1);
+    if (!this.spec.twoWheeler && !this.spec.ball) this.nitro = clamp(this.nitro + x, 0, 1);
   }
 
   /** Apply AI or player controls (clamped). */
@@ -629,7 +738,8 @@ function tireCurve(slip: number): number {
  * doesn't move). Restitution + Coulomb friction + angular terms from r×n keep it bounded (no energy gain)
  * and let side-swipes spin cars. `n` points from `a` towards `b` (into the wall/tram), i.e. opposite to the
  * direction `a` gets pushed out. `yawInertiaMul` > 1 makes `a` harder to spin (arcade-tuned wall hits).
- * Applies located damage on every party hit. Returns the impact severity.
+ * Applies located damage on every party hit, unless `dent` is false (a ball: nobody's dented by one).
+ * Returns the impact severity.
  */
 export function resolveContact(
   a: Vehicle, cax: number, cay: number,
@@ -638,6 +748,7 @@ export function resolveContact(
   restitution: number, friction: number,
   bVel?: { vx: number; vy: number; av: number },
   yawInertiaMul = 1,
+  dent = true,
 ): number {
   const invMa = 1 / a.spec.mass, invIa = 1 / (a.spec.inertia * yawInertiaMul);
   const invMb = b ? 1 / b.spec.mass : 0, invIb = b ? 1 / b.spec.inertia : 0;
@@ -679,6 +790,7 @@ export function resolveContact(
   }
 
   const sev = -vn;
+  if (!dent) return sev;
   a.applyDamageAt(cax, cay, clamp((sev - 3) * 0.06, 0, 0.4));
   if (b) b.applyDamageAt(cbx, cby, clamp((sev - 3) * 0.06, 0, 0.4));
   return sev;

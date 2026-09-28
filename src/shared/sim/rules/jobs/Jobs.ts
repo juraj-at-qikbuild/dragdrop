@@ -13,6 +13,7 @@ import type { PlayerState, SimPlayer } from '../../SimPlayer';
 import type { Vehicle } from '../../../entities/Vehicle';
 import type { SimRule } from '../SimRule';
 import type { JobKind, JobState } from '../types';
+import type { MiniGames } from '../minigames/MiniGames';
 import { clamp, dist, formatMoney } from '../../../util/math';
 import { POINTS, jobPoints } from '../points';
 import { offerCourier, roadMetres } from './courier';
@@ -96,10 +97,20 @@ export class Jobs implements SimRule {
 
   constructor(private sim: Sim) {}
 
+  /** a shift is on for `p` (between jobs too) */
+  active(p: SimPlayer) {
+    return this.jobs.has(p.id);
+  }
+
   /** J with no job running: start a shift. A no-op if one is already active (the UI offers "stop"
    *  instead), if the player isn't playing, or — for a taxi — if they aren't in a car yet. */
   start(p: SimPlayer, kind: JobKind) {
     if ((kind !== 'courier' && kind !== 'taxi') || p.state !== 'play' || this.jobs.has(p.id)) return;
+    // one thing at a time: a mini-game round (docs/plans/minigames.md) has the HUD
+    if (this.sim.rule<MiniGames>('minigames')?.roundOf(p)) {
+      this.sim.events.toPlayer(p.id, { k: 'msg', title: '', text: 'Najprv dohraj minihru.', time: 3, color: '#ff8a80' });
+      return;
+    }
     const job: Job = {
       kind, waitUntil: 0, stage: 'pickup', x: 0, y: 0, label: '', next: { x: 0, y: 0, label: '' },
       deadline: 0, totalTime: 1, routeM: 0, condition: 100, tips: 0, tipCount: 0, stopTimer: 0, sendAcc: 0,
@@ -341,7 +352,8 @@ export class Jobs implements SimRule {
     if (car && car.speed > TIP_MIN_SPEED) {
       const r = car.spec.width / 2 + TIP_GAP + 3; // a little slack around the real query radius
       this.sim.forVehiclesNear(car.x, car.y, r, (v) => {
-        if (v !== car && !v.wrecked) this.tryNearMiss(job, car, v.id, v.x, v.y, v.spec.width / 2, v.vx, v.vy);
+        // (a football rolling by tips nobody: docs/plans/minigames.md)
+        if (v !== car && !v.wrecked && !v.spec.ball) this.tryNearMiss(job, car, v.id, v.x, v.y, v.spec.width / 2, v.vx, v.vy);
       });
       this.sim.forPedsNear(car.x, car.y, r, (q) => {
         if (!q.dazed && !q.vehicle) this.tryNearMiss(job, car, q.id, q.x, q.y, q.r, q.vx, q.vy);

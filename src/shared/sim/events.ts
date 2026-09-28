@@ -7,6 +7,7 @@ import type { Mess } from './Combat';
 import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
 import type { ScoreSource } from './rules/points';
 import type { Gear, Mods } from './shops/catalog';
+import type { MiniKind, MiniState } from './rules/minigames/types';
 
 /** News everyone in the city hears about, wherever they are: world events, the most wanted, race
  *  results, the daily puzzle. The radio (Rádio Kecy) and the HUD turn them into lines; `x, y` is
@@ -39,7 +40,14 @@ export type GlobalEvent =
   /** someone took the lead of today's leaderboard */
   | { k: 'leader'; nick: string; pts: number }
   /** the day is over: who scored the most */
-  | { k: 'dayWinner'; nick: string; pts: number };
+  | { k: 'dayWinner'; nick: string; pts: number }
+  // ---- mini-games (docs/plans/minigames.md; rules/minigames). Optional both ways: a client from
+  // before ignores them, and a server from before never sends them
+  /** a player opened a round others near them can join */
+  | { k: 'miniOpen'; kind: MiniKind; nick: string; x: number; y: number }
+  /** a round played by two or more is over: who won (none: a team round), how many played, and for a
+   *  team round whether they made it */
+  | { k: 'miniResult'; kind: MiniKind; winner?: string; n: number; won: boolean; x: number; y: number };
 
 /** Messages meant for one player only (HUD, sounds, their own car). */
 export type PrivateEvent =
@@ -115,7 +123,10 @@ export type PrivateEvent =
   /** the workshop tuned the car you drive: apply it to your simulation */
   | { k: 'mods'; vehicle: number; mods: Mods }
   /** you parked the car you drove in a garage: it's gone, you stand at (x, y) */
-  | { k: 'stored'; vehicle: number; x: number; y: number };
+  | { k: 'stored'; vehicle: number; x: number; y: number }
+  /** the mini-game round this player is in, whenever what they're shown changes (null: none any more;
+   *  docs/plans/minigames.md). Optional both ways, like the above */
+  | { k: 'mini'; s: MiniState | null };
 
 export type DazeCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 

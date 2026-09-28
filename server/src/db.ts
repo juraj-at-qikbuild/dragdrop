@@ -378,11 +378,12 @@ function safeJson<T>(s: string, fallback: T): T {
   }
 }
 
-/** a stored car, checked field by field (null when it's missing or doesn't make sense any more) */
+/** a stored car, checked field by field (null when it's missing or doesn't make sense any more; the
+ *  car football's ball is never anyone's car) */
 function savedCar(v: unknown): SavedCar | null {
   if (!v || typeof v !== 'object') return null;
   const c = v as Partial<SavedCar>;
-  if (typeof c.kind !== 'string' || !(c.kind in SPECS) || c.kind === 'police') return null;
+  if (typeof c.kind !== 'string' || !(c.kind in SPECS) || c.kind === 'police' || c.kind === 'ball') return null;
   if (typeof c.color !== 'string' || c.color.length > 32) return null;
   if (typeof c.hp !== 'number' || !Number.isFinite(c.hp) || c.hp <= 0 || typeof c.a !== 'number' || !Number.isFinite(c.a)) return null;
   if (!Array.isArray(c.dmg) || c.dmg.length !== 4 || !c.dmg.every((d) => typeof d === 'number' && Number.isFinite(d))) return null;

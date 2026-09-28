@@ -29,7 +29,8 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | H | horn (a bell on a scooter, a bike or in a tram's cab) · the siren on and off in a police car or an ambulance · hold it next to another player's car to challenge them to a race (**Závod?**, online) |
 | V | push-to-talk voice chat (online, signed-in accounts only) |
 | N | party panel (**Partia**, online) |
-| U | **Aktivity**: the world events on now and when the next one may come, and every mini-game with its key |
+| U | **Aktivity**: the **Minihry** to start or join, the world events on now and when the next one may come, and everything else to do with its key |
+| B | a mini-game's own action, which the HUD names (pay for parking, paste a poster, set a flood panel…); in its lobby, start now |
 | J | jobs: **Vlk courier / Hopík taxi** |
 | K | **"Kde to je?"** daily photo card (online) |
 | L | leaderboard (**Rebríček**, online) |
@@ -38,7 +39,7 @@ npm run build && npm run smoke && npm run smoke:mobile   # desktop and touch smo
 | Mouse wheel | zoom in / out |
 | Esc / P | pause |
 
-**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (squirts on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and squirts from the car when pushed hard), X honks (rings the bell, or switches a police car's or an ambulance's siren), B switches toys, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, and online the left stick click (L3) is push-to-talk.
+**Gamepad** (standard mapping): left stick drives or walks, RT accelerates (squirts on foot), LT brakes and reverses, RB is the handbrake, A runs (nitro in a car), Y gets in and out, the right stick aims (and squirts from the car when pushed hard), X honks (rings the bell, or switches a police car's or an ambulance's siren), B switches toys, Start pauses, Back opens the map. D-pad down opens **Aktivity**, d-pad left jobs, the right stick click (R3) is a mini-game's action, and online the left stick click (L3) is push-to-talk.
 
 A prompt at the bottom of the screen says what the use button does where you stand: get in a parked car, pull a driver out, steal a police car, get on a scooter or a tram, steal a tram, get out of a stopped car (and hints such as walking up to a phone booth or stopping at a spray shop). It shows the button the way you play: the F key or the pad's Y; on a touch screen the use button itself says it. When you pick up a gamepad, and whenever you get in or out of a car with one, its buttons are shown for a few seconds. The pad rumbles on crashes, hits, a car giving up nearby, every squirt, speed bumps and kerbs.
 
@@ -56,6 +57,7 @@ In a car, steering in reverse works like a real car: steer right and the tail sw
 | 💦 (held) | squirt at the best target in front (cops and people after you first), brackets show who; drag from the button to aim yourself, pulled onto a target right beside the line |
 | Toy button | next toy (it shows the one in hand and the refills left) |
 | Yellow button | says what it does and does it: get in, pull a driver out, steal a police car, get out |
+| Violet button | a mini-game's own action, saying what it does (only while a round has one) |
 | BRZDA · RUČNÁ · N₂O | brake (held at a standstill: reverse) · handbrake · nitro, with its charge |
 | 📣 · 📻 | horn (held next to another player's car: a race challenge) · next radio station |
 | Minimap | tap for the city map: drag, pinch, tap for a waypoint; ✕, +/− and ⌖ on the side, layers from the "Vrstvy" chip |
@@ -127,6 +129,21 @@ The game is paused while the cards are open (online the player is away, and shie
   - time trial along the Danube embankment;
   - car theft from the Blue Church to Aupark;
   - a finale in Sad Janka Kráľa.
+- **Minihry: twelve mini-games from five years of Bratislava** ([docs/plans/minigames.md](docs/plans/minigames.md)). Short rounds of a few minutes, each a joke every Bratislavan gets, started from **Aktivity** (U) wherever you are, online or off. Every one can be played alone; online, whoever is near can join, and then it's against each other (or, in Povodeň and Električkár, together). B (the pad's R3, the violet button on a touch screen) is the round's own action:
+  - **Súrna potreba**: the bladder is filling, and the Old Town's toilets are free, paid (have coins) or locked; a café's is for customers only;
+  - **Parkovací hon**: pay the parking app before the PAAS scan car comes round the zone; with others, musical chairs for the bays;
+  - **Revízor**: ride the trams without a ticket past the inspectors; with others, dodgers against inspectors;
+  - **Vydrž do 95. minúty**: car football, 1:0 up in stoppage time against "England" (or 2:0 against "Germany"); with others, two teams;
+  - **AKCIA! Maslo**: butter on offer at €1.49, ten blocks a visit past the grannies at the door, sold on before it melts;
+  - **Bilbordová vojna**: paste your candidate's posters over the billboards, bus shelters and columns (and moustaches on the rival's) before the campaign silence;
+  - **Punčová cesta**: six Christmas market stalls in order, the wobble growing, pickpockets after your mugs and the deposit back at the end;
+  - **Kolobežky všade**: park the dumped shared scooters at the docks before the city fines them, and not along the pavement;
+  - **Rozkopávky**: deliveries through streets that keep getting dug up; with others, some are the builders;
+  - **Električkár**: drive a tram to its schedule, stop by stop, with cars parked on the tracks; a second player drives the tow truck;
+  - **Povodeň**: set the mobile flood wall's panels in the gaps before each peak of the Danube, tourists taking selfies in the way;
+  - **Horúčava**: 42 °C, ice cream from Stará tržnica to customers before it melts (and you do), by the shade, the fountains and a tram whose air conditioning works.
+
+  A round pays when it's over (up to €600), online scores on the **Minihry** board, and a group round makes Rádio Kecy's news.
 - **Collectibles.** There are 10 hidden **Čumil** statues and 52 landmarks to discover.
 - **Parody brands.** Rooftop ads and shop signs use spoofs (Kofolka, Strieborný Bažant, Dolinky, Billka, Starbáks, Slovnafta…). No real logos are used.
 - **Procedural audio.** Engine, siren, explosions, the toys (squirts, bubble plops, party poppers, a boing, a sad trombone) and four radio stations (*Rádio Expreso*, *Fan Rádio*, *Rádio Dévin Folk*, *Rádio Kecy*) with Slovak DJ chatter.
@@ -187,8 +204,9 @@ src/
                        low, bribes) and sight.ts (cones, darkness, the helicopter's view), the toys
                        and who gets soaked (Combat.ts), pickups, clock; phrases.ts (what people
                        say); shops/ (the catalog, where the shops and teleports are, gear from a
-                       save) and rules/Shops.ts (what money buys); rules/Splash.ts (the splash, the high five,
-                       the dive: what replaced road kills)
+                       save) and rules/Shops.ts (what money buys); rules/Splash.ts (the splash, the
+                       high five, the dive: what replaced road kills); rules/minigames/ (the Minihry:
+                       MiniGames.ts runs a round, MiniGame.ts is the base every game in games/ extends)
     net/               wire protocol and binary codec
   game/Game.ts         game state, player, wanted level, drawing
   game/LocalSimHost.ts runs the shared Sim offline; net/NetSimHost.ts mirrors the server's online
@@ -212,7 +230,9 @@ src/
                        TouchTips.ts (the touch screen's controls and first-run tips); kit/ (panels,
                        with gamepad navigation)
   game/features/       the social features' and the gameplay plan's screens: PoliceUi (the chase),
-                       ShopsUi (the shops' signs, map badges and panels), and more
+                       ShopsUi (the shops' signs, map badges and panels), MiniGamesUi (a mini-game
+                       round's HUD, marks and result; minigames/draw/ has each game's own drawing),
+                       and more
   audio/Audio.ts       WebAudio sound effects and radio
   data/brands.ts       parody brands, radio stations, landmark texts
 server/src/            the multiplayer game server (see docs/multiplayer.md)
@@ -254,6 +274,10 @@ On top of that shared world, there's a set of social features (protocol 7):
 - **Závod?**: pull up next to another player and hold the horn to challenge them to a race to a
   landmark 1–2 km away, for a stake.
 - **Vlk courier / Hopík taxi**: city jobs — deliver food or drive a fare — that work solo, online or off.
+- **Minihry** (see *What's in the game*): start one and a line on screen invites the players within
+  500 m. They (from up to 600 m away) and your party (from anywhere) have 20 s to join it from Aktivity,
+  where 📍 sets the GPS there; with nobody around, it's a 3 s count-in. Most are against each other, for
+  places and a bonus; Povodeň and Električkár are played together.
 - **Rádio Kecy** breaks in with news of whatever's happening around the city.
 - **Proximity voice chat**, for signed-in accounts only: nearby players hear each other over WebRTC,
   with mute, report and a kill switch.
@@ -262,7 +286,7 @@ On top of that shared world, there's a set of social features (protocol 7):
   progress into a fresh account once.
 - **Rebríček** (L, or the pause menu): points for nearly everything above — events, jobs, races,
   getaways from the police, landmarks and Čumils, reviving others — on boards for today, this week and
-  all time, overall and per kind of thing (Udalosti, Na úteku, Práca, Závody, Mesto, Pomoc). Points
+  all time, overall and per kind of thing (Udalosti, Na úteku, Práca, Závody, Mesto, Pomoc, Minihry). Points
   float up as you score them, the HUD shows today's total and rank, and Rádio Kecy names the day's
   leader. See [docs/plans/leaderboard.md](docs/plans/leaderboard.md) for what everything is worth.
 
@@ -275,7 +299,7 @@ the director's plan with the world events (`wev.up`) and resends it when players
 Alone online, only Hon na Čumila can start (the others need 2–3 players), so the panel says so and
 suggests inviting a friend.
 
-Hon na Čumila, Obrnené auto and the Vlk/Hopík jobs also run solo, offline. Everything else above —
+Hon na Čumila, Obrnené auto, the Vlk/Hopík jobs and all twelve Minihry also run solo, offline. Everything else above —
 Horúca Kofolka, Najhľadanejší, Derby na parkovisku, Partia, revive, Kde to je?, voice chat and the
 leaderboard — is online only. See `docs/multiplayer.md` for the design and `docs/deploy.md` for running the server.
 
@@ -293,10 +317,11 @@ your stars only if you're back within 30 minutes. A dropped connection keeps you
 
 The button only shows when the client was built with `VITE_SERVER_URL`. The client and the server must
 speak the same protocol version (now 7): deploy the server (`fly deploy`) together with the client, or
-older clients are refused. (The pausing and coming-back additions, the Aktivity plan and the gameplay plan's
-phases kept protocol 7: they're optional on both sides, so either one can go out first. A client from before
-the gameplay plan's Phase 3 draws the new vehicles as sedans, and a server from before it offers no trams to
-ride: its welcome doesn't list them.)
+older clients are refused. (The pausing and coming-back additions, the Aktivity plan, the gameplay plan's
+phases and the mini-games kept protocol 7: they're optional on both sides, so either one can go out first. A
+client from before the gameplay plan's Phase 3 draws the new vehicles as sedans, and a server from before it
+offers no trams to ride: its welcome doesn't list them. Likewise a server from before the mini-games doesn't
+list `mini`, and Aktivity says it has none.)
 
 ```bash
 npm --prefix server install

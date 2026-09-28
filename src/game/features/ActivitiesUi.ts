@@ -8,7 +8,9 @@ import type { Game } from '../Game';
 import { KEYS } from '../Input';
 import { eventLeft } from '../SimHost';
 import type { EventEntry, EventKind } from '../../shared/sim/rules/types';
-import { formatMoney, formatPoints } from '../../shared/util/math';
+import { dist, formatMoney, formatPoints } from '../../shared/util/math';
+import { MINI_INFO, playersLine } from '../../shared/sim/rules/minigames/catalog';
+import { MINI_KINDS, type MiniReq } from '../../shared/sim/rules/minigames/types';
 import { addPauseControl, isModalOpen, openModal, toast } from '../../ui/kit/dom';
 import type { ClientFeature } from './ClientFeature';
 import { liveForecast, type Forecast } from './activities/forecast';
@@ -155,7 +157,9 @@ export class ActivitiesUi implements ClientFeature {
     const daily = live.daily ? `${live.daily.img}:${live.daily.solvedBy}:${live.daily.hints.length}` : '';
     const party = live.party ? `${live.party.tag}:${live.party.members.length}` : '';
     const others = g.online ? Math.max(0, g.online.roster.length - 1) : -1;
-    return [this.input, !!g.online, g.online?.account, others, f ? `${f.busy}:${f.next === null}:${f.candidates}` : 'none', kinds, events, job, daily, party, !!live.score].join('|');
+    const mini = live.mini ? `${live.mini.id}:${live.mini.phase}:${live.mini.n}:${live.mini.owner}` : '';
+    const open = live.miniOpen.map((o) => `${o.id}:${o.n}:${o.phase}`).join(',');
+    return [this.input, !!g.online, g.online?.account, others, f ? `${f.busy}:${f.next === null}:${f.candidates}` : 'none', kinds, events, job, daily, party, !!live.score, mini, open, g.host.takesMini].join('|');
   }
 
   private render(shape: string) {
@@ -163,7 +167,85 @@ export class ActivitiesUi implements ClientFeature {
     if (!body) return;
     this.shape = shape;
     this.tickers = [];
-    body.replaceChildren(this.eventsSection(), this.gamesSection());
+    body.replaceChildren(this.miniSection(), this.eventsSection(), this.gamesSection());
+  }
+
+  // ------------------------------------------------------------------------------- mini-games
+  /** the mini-games (docs/plans/minigames.md): the round this player is in, rounds nearby to join,
+   *  and every game with a button to start it, alone or with whoever joins */
+  private miniSection(): HTMLElement {
+    const g = this.g;
+    const live = g.host.live;
+    const sec = el('section', 'kit-act-sec');
+    sec.appendChild(el('h3', undefined, 'Minihry'));
+    if (!g.host.takesMini) {
+      sec.appendChild(el('p', 'hint', 'Tento server minihry ešte nemá.'));
+      return sec;
+    }
+    const cur = live.mini;
+    if (cur && cur.phase !== 'done') {
+      const info = MINI_INFO[cur.kind];
+      const row = el('div', 'kit-act-live');
+      row.appendChild(el('span', undefined, `${info.emoji} Hráš: ${info.title}${cur.n > 1 ? ` (${cur.n} hráči)` : ''}`));
+      if (cur.phase === 'lobby' && cur.owner) row.appendChild(button('▶ Začať hneď', () => this.miniReq({ op: 'go' })));
+      row.appendChild(button('Odísť z hry', () => this.miniReq({ op: 'leave' }), 'danger'));
+      sec.appendChild(row);
+    }
+    // rounds others opened, to join
+    const f = g.focus();
+    const me = g.host.net?.nick;
+    const open = live.miniOpen.filter((o) => o.nick !== me && cur?.id !== o.id);
+    if (open.length) {
+      const list = el('ul', 'kit-act-list');
+      for (const o of open.sort((a, b) => dist(a.x, a.y, f.x, f.y) - dist(b.x, b.y, f.x, f.y)).slice(0, 5)) {
+        const info = MINI_INFO[o.kind];
+        const li = el('li', 'kit-act-row live');
+        li.style.setProperty('--c', info.color);
+        li.append(el('span', 'ic', info.emoji), el('span', 'name', `${o.nick}: ${info.title}`), el('span', 'st live', `${o.n}/${o.max}`));
+        const d = Math.round(dist(o.x, o.y, f.x, f.y));
+        li.appendChild(el('span', 'about', `${d < 1000 ? `${d} m` : `${(d / 1000).toFixed(1)} km`} odtiaľto · ${o.phase === 'lobby' ? 'čaká na hráčov' : 'už beží, dá sa pridať'}`));
+        const acts = el('div', 'kit-act-acts');
+        acts.append(
+          button('➕ Pridať sa', () => this.miniReq({ op: 'join', id: o.id })),
+          button('📍 Navigovať', () => {
+            g.gps.setWaypoint(o.x, o.y);
+            this.go();
+          }),
+        );
+        li.appendChild(acts);
+        list.appendChild(li);
+      }
+      sec.appendChild(list);
+    }
+    const busy = !!cur && cur.phase !== 'done';
+    const list = el('ul', 'kit-act-list');
+    for (const kind of MINI_KINDS) {
+      const info = MINI_INFO[kind];
+      const li = el('li', 'kit-act-row game');
+      li.style.setProperty('--c', info.color);
+      li.append(el('span', 'ic', info.emoji), el('span', 'name', info.title), el('span', 'st', playersLine(kind)));
+      li.appendChild(el('span', 'about', info.about));
+      if (info.needs) li.appendChild(el('span', 'state', `Treba: ${info.needs}.`));
+      if (!busy) {
+        const acts = el('div', 'kit-act-acts');
+        acts.append(button('▶ Hrať', () => this.miniReq({ op: 'start', kind })));
+        li.appendChild(acts);
+      }
+      list.appendChild(li);
+    }
+    sec.appendChild(list);
+    sec.appendChild(el('p', 'hint small kit-act-more', g.online ? 'Kto je blízko alebo v tvojej partii, môže sa pridať počas odpočtu. Sám hráš proti mestu.' : 'Online sa k tvojej hre môžu pridať ostatní hráči.'));
+    return sec;
+  }
+
+  private miniReq(req: MiniReq) {
+    this.go();
+    // offline, a mission (the phone booths) has the HUD and the city to itself
+    if ((req.op === 'start' || req.op === 'join') && this.g.missions.active) {
+      toast('Najprv dokonči misiu.', '#ff8a80');
+      return;
+    }
+    this.g.host.mini(req);
   }
 
   // ------------------------------------------------------------------------------ world events

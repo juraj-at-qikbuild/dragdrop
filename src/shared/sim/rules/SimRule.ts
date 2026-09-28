@@ -44,4 +44,6 @@ export type PayoutReason =
   | 'kofolka' | 'bounty' | 'wanted' | 'escape' | 'cumil' | 'armored' | 'derby'
   | 'courier' | 'taxi' | 'tip' | 'samaritan' | 'race' | 'daily'
   /** a combo paid out (rules/Style.ts) */
-  | 'style';
+  | 'style'
+  /** a mini-game round's result (rules/minigames, docs/plans/minigames.md) */
+  | 'minigame';

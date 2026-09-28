@@ -493,9 +493,11 @@ export class Game {
             };
       return v.speed < 1 ? { use: true, text: 'Vystúpiť' } : null;
     }
-    // at a tram's door (at a stop), or its nose (stopped): on it, or into its cab
+    // at a tram's door (at a stop), or its nose (stopped): on it, or into its cab (which, while the
+    // tram driver's mini-game is on, is the job: games/tram.ts)
     const use = this.tramHere();
-    if (use) return { use: true, text: use.op === 'cab' ? 'Ukradnúť električku' : 'Nastúpiť do električky' };
+    const hired = this.host.live.mini?.kind === 'tram' && this.host.live.mini.phase === 'live';
+    if (use) return { use: true, text: use.op === 'cab' ? (hired ? 'Do kabíny' : 'Ukradnúť električku') : 'Nastúpiť do električky' };
     const car = this.findEnterable();
     if (car) {
       // (online, a car's NPC driver isn't known: one that isn't parked has someone in it)
@@ -507,6 +509,19 @@ export class Game {
     if (this.missions.enabled && !this.missions.active)
       for (const b of this.missions.available()) if (dist(b.x, b.y, p.x, p.y) < 8) return { use: false, text: `☎ Podíď k búdke: ${b.def.title}` };
     return null;
+  }
+
+  /** how unsteady the controls are, 0..1: a mini-game says so in its state (`x.wobble`: the punch
+   *  crawl's punch, the heat; docs/plans/minigames.md) */
+  wobble(): number {
+    const w = this.host.live.mini?.phase === 'live' ? this.host.live.mini.x?.wobble : undefined;
+    return typeof w === 'number' && w > 0 ? Math.min(1, w) : 0;
+  }
+
+  /** a slow sway, -1..1, that doesn't repeat itself too obviously */
+  private wobbleNoise() {
+    const t = this.time;
+    return Math.sin(t * 1.3) * 0.55 + Math.sin(t * 2.9 + 1.7) * 0.3 + Math.sin(t * 0.47 + 0.4) * 0.15;
   }
 
   /** the tram this player is on (LiveState.tram), if the host still has it */
@@ -525,7 +540,8 @@ export class Game {
     const p = this.player;
     let best: Vehicle | null = null, bd = 4.2;
     for (const v of this.host.vehicles) {
-      if (v.wrecked || v.sinking || v.level !== p.level) continue;
+      // (the car football's ball is no car to get into)
+      if (v.wrecked || v.sinking || v.level !== p.level || v.spec.ball) continue;
       const d = dist(v.x, v.y, p.x, p.y) - v.spec.width / 2;
       if (d < bd) (bd = d), (best = v);
     }
@@ -671,6 +687,9 @@ export class Game {
         // touch: the stick points where to go ('direction') or steers ('classic'), see touchDrive.ts
         ({ throttle, steer } = touchDrive(this.driveControls, t.move, { gas: inp.touchButtons.has('gas'), brake: inp.touchButtons.has('brake') }, v, this.driveState, dt));
       }
+      // a mini-game's wobble (the punch crawl, the heat): the wheel pulls one way and then the other
+      const wob = this.wobble();
+      if (wob) steer = Math.max(-1, Math.min(1, steer + wob * 0.55 * this.wobbleNoise()));
       v.setControls(this.lockThrottle ? 0 : throttle, steer, inp.down('Space', 'handbrake'), inp.down('ShiftLeft', 'ShiftRight', 'nitro'));
       if (inp.hit('KeyH')) {
         // a police car's or an ambulance's siren, on and off (docs/plans/gameplay.md, Phase 3; online
@@ -723,6 +742,14 @@ export class Game {
       const fwd = -ax.y, side = ax.x;
       ax.x = fx * fwd - fy * side;
       ax.y = fy * fwd + fx * side;
+    }
+    // a mini-game's wobble (the punch crawl, the heat): the legs don't quite go where they're told
+    const wob = this.wobble();
+    if (wob && (ax.x || ax.y)) {
+      const turn = wob * 0.9 * this.wobbleNoise(), c = Math.cos(turn), sn = Math.sin(turn);
+      const wx = ax.x * c - ax.y * sn, wy = ax.x * sn + ax.y * c;
+      ax.x = wx;
+      ax.y = wy;
     }
     const len = Math.hypot(ax.x, ax.y);
     // touch: the stick walks up to 85% of its throw and runs past it
