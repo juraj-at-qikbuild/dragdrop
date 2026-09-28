@@ -112,6 +112,9 @@ try{
   const verify=await fetch(link.action_link??link.properties?.action_link,{redirect:'manual'});
   const callback=new URL(verify.headers.get('location'));
   assert(callback.hash.includes('access_token='));
+  assert.equal(callback.origin,'https://gta-sk.fun');
+  assert.equal(callback.pathname,'/admin/');
+  assert.equal(callback.searchParams.get('setup'),'1');
   await page.goto(web+'/admin/?setup=1'+callback.hash);
   await page.getByRole('heading',{name:'Nastav si heslo',exact:true}).waitFor();
   const replacement=randomBytes(24).toString('base64url')+'Aa1!';
