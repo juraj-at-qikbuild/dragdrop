@@ -98,8 +98,6 @@ interface Granny {
   ax: number;
   ay: number;
   until: number;
-  /** sim.time she was knocked down (0: she wasn't) */
-  down: number;
 }
 
 interface Buyer {
@@ -278,7 +276,7 @@ class Butter extends MiniGame {
     let best: Granny | null = null, bd = Infinity;
     for (const g of this.grannies) {
       const d = dist(g.ped.x, g.ped.y, x, y);
-      if (g.mode === 'crowd' && !g.ped.dead && d < bd) (bd = d), (best = g);
+      if (g.mode === 'crowd' && !g.ped.dazed && d < bd) (bd = d), (best = g);
     }
     return best;
   }
@@ -287,7 +285,7 @@ class Butter extends MiniGame {
   private addGranny(slot: number, x: number, y: number, mode: Granny['mode']) {
     const ped = this.spawnPed(elderly(this.sim, x, y));
     ped.state = 'idle';
-    this.grannies.push({ ped, slot, mode, tx: x, ty: y, t: this.sim.time, ax: 0, ay: 0, until: 0, down: 0 });
+    this.grannies.push({ ped, slot, mode, tx: x, ty: y, t: this.sim.time, ax: 0, ay: 0, until: 0 });
   }
 
   /** A spot a granny comes from or goes to: the pavement a dozen metres from the door. */
@@ -306,7 +304,7 @@ class Butter extends MiniGame {
     // one of them has got hers: she goes (and the stock with her), and another one comes
     if (now >= this.grannyAt) {
       this.grannyAt = now + sim.rng.range(GRANNY_EVERY[0], GRANNY_EVERY[1]);
-      const inCrowd = this.grannies.filter((g) => g.mode === 'crowd' && !g.ped.dead);
+      const inCrowd = this.grannies.filter((g) => g.mode === 'crowd' && !g.ped.dazed);
       if (this.stock > 0 && inCrowd.length) {
         const g = inCrowd[sim.rng.int(inCrowd.length)];
         this.stock = Math.max(0, this.stock - (1 + sim.rng.int(2)));
@@ -318,15 +316,14 @@ class Butter extends MiniGame {
     }
     for (const g of [...this.grannies]) {
       const ped = g.ped;
-      if (ped.dead) {
-        // (a player's doing: she's taken away after a while, and another one takes her place)
-        g.down ||= now;
-        if (now - g.down > 10) {
-          this.drop(g);
-          if (g.mode !== 'leave') {
-            const from = this.offstage();
-            this.addGranny(g.slot, from.x, from.y, 'arrive');
-          }
+      if (ped.dazed) {
+        // knocked down (a player's doing): she gets up by herself and heads home to change, and
+        // another one takes her place
+        this.grannies.splice(this.grannies.indexOf(g), 1);
+        this.release(ped);
+        if (g.mode !== 'leave') {
+          const from = this.offstage();
+          this.addGranny(g.slot, from.x, from.y, 'arrive');
         }
         continue;
       }
@@ -369,7 +366,7 @@ class Butter extends MiniGame {
     const nx = -ly / len, ny = lx / len;
     let said = false;
     for (const g of this.grannies) {
-      if (g.mode !== 'crowd' || g.ped.dead) continue;
+      if (g.mode !== 'crowd' || g.ped.dazed) continue;
       // how far along the way in, and to which side of it
       const rx = g.ped.x - px, ry = g.ped.y - py;
       const along = (rx * lx + ry * ly) / len, side = rx * nx + ry * ny;
@@ -422,9 +419,11 @@ class Butter extends MiniGame {
   private stepBuyers() {
     const sim = this.sim, now = sim.time;
     for (const b of [...this.buyers]) {
-      if (b.want > 0 && now < b.until && !b.ped.dead) continue;
+      if (b.want > 0 && now < b.until && !b.ped.dazed) continue;
       this.buyers.splice(this.buyers.indexOf(b), 1);
-      this.despawn(b.ped);
+      // (someone knocked down gets up and heads home by themselves)
+      if (b.ped.dazed) this.release(b.ped);
+      else this.despawn(b.ped);
       this.nextBuyers.push(now + sim.rng.range(NEXT_BUYER[0], NEXT_BUYER[1]));
     }
     for (let i = this.nextBuyers.length - 1; i >= 0; i--) {

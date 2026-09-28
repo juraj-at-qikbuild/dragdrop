@@ -205,6 +205,12 @@ export abstract class MiniGame {
     return p;
   }
 
+  /** hand one of the round's people back to the city: the AI moves them from now on (someone knocked
+   *  down gets up by themselves and heads home to change), and the round won't take them away */
+  release(p: Ped) {
+    if (this.owned.peds.delete(p)) p.kinematic = false;
+  }
+
   /** take one of the round's things out of the city now */
   despawn(o: Vehicle | Ped | Prop) {
     const sim = this.sim;

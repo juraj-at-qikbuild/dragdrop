@@ -308,9 +308,14 @@ class Punch extends MiniGame {
   /** the visitors stand at the counters, sway a little and step aside for a player going through */
   private stepVisitors(dt: number) {
     const now = this.sim.time;
-    for (const v of this.visitors) {
+    for (const v of [...this.visitors]) {
       const ped = v.ped;
-      if (ped.dead) continue;
+      if (ped.dazed) {
+        // knocked down: they get up by themselves and head home to change
+        this.visitors.splice(this.visitors.indexOf(v), 1);
+        this.release(ped);
+        continue;
+      }
       for (const p of this.players) {
         if (p.ped.vehicle || p.ped.aboard) continue;
         const dx = ped.x - p.ped.x, dy = ped.y - p.ped.y, d = Math.hypot(dx, dy);
@@ -380,8 +385,16 @@ class Punch extends MiniGame {
     const sim = this.sim, now = sim.time;
     for (const k of [...this.pickpockets]) {
       const ped = k.ped;
-      if (ped.dead) {
+      if (ped.dazed) {
+        // knocked down: he drops the mug he was running off with, gets up by himself and heads home
+        const p = k.mode === 'flee' ? this.playerById(k.pid) : undefined;
+        const s = p ? this.state.get(p.id) : undefined;
+        if (p && s && k.mug) {
+          s.mugs += k.mug;
+          this.msg(p, 'Vreckár je na zemi. Hrnček je späť.', '#69f0ae');
+        }
         this.pickpockets.splice(this.pickpockets.indexOf(k), 1);
+        this.release(ped);
         this.comeback.push(now + RESPAWN);
         continue;
       }

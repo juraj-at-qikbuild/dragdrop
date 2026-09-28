@@ -5,6 +5,7 @@
 // time and mugs; with others the first one through the list wins; the crowd goes with the round.
 import { describe, expect, it } from 'vitest';
 import { dist } from '../../../src/shared/util/math';
+import type { Ped } from '../../../src/shared/entities/Ped';
 import { DEPOSIT, SAUSAGE, SAUSAGE_WOB, WOB, WOB_DECAY, marketStalls, type Stall } from '../../../src/shared/sim/rules/minigames/games/punch';
 import { DONE_S } from '../../../src/shared/sim/rules/minigames/MiniGames';
 import type { SimPlayer } from '../../../src/shared/sim/SimPlayer';
@@ -160,6 +161,21 @@ describe('Punčová cesta', () => {
     }
     expect(g.of(p).mugs).toBe(1);
     expect(messages(s.priv, p.id)).toContain('Máš ho! Hrnček je späť.');
+  });
+
+  it('a pickpocket knocked down drops the mug and heads home by himself', () => {
+    const { s, p, g } = punch(4);
+    drinkNext(s, p, g);
+    for (let i = 0; i < 90 && g.of(p).mugs > 0; i++) run(s.sim, 1);
+    run(s.sim, 0.3);
+    const thief = g.pickpockets.find((k) => k.mode === 'flee' && k.pid === p.id)!;
+    const ped = thief.ped as unknown as Ped;
+    ped.knockDown(p.ped.x, p.ped.y);
+    run(s.sim, 0.3);
+    expect(g.of(p).mugs).toBe(1);
+    expect(messages(s.priv, p.id)).toContain('Vreckár je na zemi. Hrnček je späť.');
+    expect(g.pickpockets).not.toContain(thief);
+    expect(ped.kinematic).toBe(false);
   });
 
   it('keeps moving, keeps the mug', () => {

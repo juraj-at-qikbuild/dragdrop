@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { dist } from '../../../src/shared/util/math';
 import { Vehicle } from '../../../src/shared/entities/Vehicle';
+import type { Ped } from '../../../src/shared/entities/Ped';
 import { BONUS, DOOR_R, GROCERS, HEAT_S, LIMIT, SQUEEZE_S, eur } from '../../../src/shared/sim/rules/minigames/games/butter';
 import { DONE_S } from '../../../src/shared/sim/rules/minigames/MiniGames';
 import type { SimPlayer } from '../../../src/shared/sim/SimPlayer';
@@ -306,6 +307,22 @@ describe('AKCIA! Maslo', () => {
     expect(ra.result!.place).toBe(1);
     expect(rb.result!.place).toBe(2);
     expect(miniPay(s.priv, a.id)).toBeGreaterThan(miniPay(s.priv, b.id));
+  });
+
+  it('a granny knocked down gets up and heads home to change by herself; another one takes her place', () => {
+    const { s, p, g } = butter();
+    toDoor(s, p, g, 8);
+    const crowd = g.grannies.length;
+    const her = g.grannies[0].ped as unknown as Ped;
+    her.knockDown(her.x + 1, her.y);
+    run(s.sim, 0.5);
+    // the round lets go of her (she's the city's again) and another one is on her way
+    expect(g.grannies.some((q) => q.ped === her)).toBe(false);
+    expect(g.grannies.length).toBe(crowd);
+    expect(her.kinematic).toBe(false);
+    run(s.sim, 8);
+    expect(her.dazed).toBe(false);
+    expect(her.leaving).toBe(true);
   });
 
   it('the grannies and the buyers leave with the round', () => {
