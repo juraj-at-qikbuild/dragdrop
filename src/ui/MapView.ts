@@ -13,10 +13,11 @@ const BODY = `'Inter', system-ui, sans-serif`;
 
 /** POI groups on the city map, each switched on and off in the legend: only places a player can do
  *  something at (the city's cafés, churches, banks… are left off: nothing happens there) */
-type Group = 'landmarks' | 'missions' | 'shops' | 'services' | 'transit';
+type Group = 'landmarks' | 'missions' | 'shops' | 'teleports' | 'services' | 'transit';
 const GROUPS: { id: Group; label: string; icon: string; minZoom: number }[] = [
   { id: 'missions', label: 'Misie', icon: 'phone', minZoom: 0 },
-  { id: 'shops', label: 'Hračkárstvá, obchody, teleporty', icon: 'guns', minZoom: 0 },
+  { id: 'shops', label: 'Hračkárstvá, obchody', icon: 'guns', minZoom: 0 },
+  { id: 'teleports', label: 'Teleporty', icon: 'teleport', minZoom: 0 },
   { id: 'landmarks', label: 'Pamiatky', icon: 'star', minZoom: 0 },
   { id: 'services', label: 'Polícia, nemocnica, dielňa', icon: 'police', minZoom: 0 },
   { id: 'transit', label: 'Električky, taxi', icon: 'tram', minZoom: 0.9 },
@@ -89,10 +90,10 @@ export class MapView {
   private cy = 0;
   private detail: { canvas: HTMLCanvasElement; key: string } | null = null;
   /** every layer is on to start with (each still waits for its zoom, GROUPS' minZoom) */
-  private groups: Record<Group, boolean> = { missions: true, shops: true, landmarks: true, services: true, transit: true };
-  /** is the shops' layer on (ShopsUi draws those markers)? */
-  get shopsShown() {
-    return this.groups.shops;
+  private groups: Record<Group, boolean> = { missions: true, shops: true, teleports: true, landmarks: true, services: true, transit: true };
+  /** is a layer on (ShopsUi draws the shops' and teleports' markers)? */
+  shown(layer: Group) {
+    return this.groups[layer];
   }
   /** street name candidates: one per named road, at its longest stretch */
   private streets: { x: number; y: number; a: number; len: number; name: string; cls: number }[] | null = null;
@@ -534,21 +535,39 @@ export class MapView {
       }
     // the social features' markers (world events, party members…)
     for (const ft of g.features) ft.drawMap?.(ctx, toScreen, full, size);
-    // player arrow
+    // player arrow; on the full map a cyan disc and a ring rippling out of it, to find at a glance
     const f = g.focus();
     const a = g.player.vehicle ? g.player.vehicle.angle : g.player.angle;
     const [px, py] = toScreen(f.x, f.y);
+    const s = full ? size * 1.3 : size;
     ctx.save();
+    if (full) {
+      const t = (g.time % 1.4) / 1.4;
+      ctx.strokeStyle = '#00e5ff';
+      ctx.globalAlpha = 1 - t;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px, py, s * (1.8 + t * 2.6), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(0,229,255,0.3)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, s * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.translate(px, py);
     ctx.rotate(a);
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = full ? 2 : 1.5;
+    ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.moveTo(size * 1.5, 0);
-    ctx.lineTo(-size, -size);
-    ctx.lineTo(-size * 0.4, 0);
-    ctx.lineTo(-size, size);
+    ctx.moveTo(s * 1.5, 0);
+    ctx.lineTo(-s, -s);
+    ctx.lineTo(-s * 0.4, 0);
+    ctx.lineTo(-s, s);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -581,7 +600,7 @@ export class MapView {
     };
     const z = g.searchZone;
     if (z) this.searchZone(ctx, cx + (z.x - f.x) * k, cy + (z.y - f.y) * k, z.r * k);
-    this.blips(ctx, toScreen, Math.max(3, r / 22), false);
+    this.blips(ctx, toScreen, Math.max(4, r / 17), false);
     // night dimming: a translucent navy wash over the tile, before the frame
     const night = g.atmos.night;
     if (night > 0.02) {
@@ -697,7 +716,7 @@ export class MapView {
     this.drawRoute(ctx, this.toScreen, Math.max(3, Math.min(7, this.zoom * 3)));
     picks = [];
     this.drawLabels(ctx, f);
-    this.blips(ctx, this.toScreen, 5 + Math.min(3, this.zoom), true);
+    this.blips(ctx, this.toScreen, 8 + Math.min(4, this.zoom * 1.5), true);
     this.picks = picks.map((p) => ({ ...this.toWorld(p.sx, p.sy), r: p.r, title: p.title, sub: p.sub, icon: p.icon, action: p.action }));
     picks = null;
     this.select(f);
@@ -738,7 +757,7 @@ export class MapView {
       ? 'Páčka: posun · RT/LT: priblíženie · Y: cieľ · X: zrušiť cieľ · Back: zavrieť'
       : L.touch
         ? 'Ťahaj: posun · Štipni: priblíženie · Ťukni na ikonu: čo to je · Ťukni inde: cieľ GPS'
-        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Klik na ikonu: navigovať · Pravý klik: zrušiť · 1–5: vrstvy · M: zavrieť';
+        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Klik na ikonu: navigovať · Pravý klik: zrušiť · 1–6: vrstvy · M: zavrieť';
     const stats = `Čumil ${g.save.cumils.length}/10 · pamiatky ${g.save.found.length}/${g.world.landmarks.size}   ·   © OpenStreetMap`;
     const line = `${help}   ·   ${stats}`;
     if (L.touch && ctx.measureText(line).width > W - L.padL - L.padR - 8) {
@@ -797,13 +816,13 @@ export class MapView {
         if (!onScreen(sx, sy, 20)) continue;
         const found = g.save.found.includes(l.id);
         icons.push({ x: sx, y: sy, kind: found ? 'starFound' : 'star', title: l.name, sub: KIND_NAME[found ? 'starFound' : 'star'], prio: 0.5 });
-        labels.push({ x: sx, y: sy - 17, text: l.name, a: 0, font: `700 ${z > 1.5 ? 12 : 11}px ${BODY}`, color: found ? '#e1f5fe' : '#cfd8dc', prio: 0.8 });
+        labels.push({ x: sx, y: sy - 22, text: l.name, a: 0, font: `700 ${z > 1.5 ? 12 : 11}px ${BODY}`, color: found ? '#e1f5fe' : '#cfd8dc', prio: 0.8 });
       }
     // mission booths' titles
     if (!g.missions.active && this.groups.missions)
       for (const bth of g.missions.available()) {
         const [sx, sy] = this.toScreen(bth.x, bth.y);
-        if (onScreen(sx, sy, 20)) labels.push({ x: sx, y: sy - 18, text: bth.def.title, a: 0, font: `700 12px ${BODY}`, color: '#ffd600', prio: 0.2 });
+        if (onScreen(sx, sy, 20)) labels.push({ x: sx, y: sy - 24, text: bth.def.title, a: 0, font: `700 12px ${BODY}`, color: '#ffd600', prio: 0.2 });
       }
     // places, by group and zoom
     for (const p of w.data.places ?? []) {
@@ -814,7 +833,7 @@ export class MapView {
       if (!onScreen(sx, sy, 10)) continue;
       const name = p.n !== undefined ? w.names[p.n] : undefined;
       icons.push({ x: sx, y: sy, kind: p.k, title: name ?? KIND_NAME[p.k], sub: name ? KIND_NAME[p.k] : undefined, prio: 4 });
-      if (p.n !== undefined && z >= 2.4) labels.push({ x: sx, y: sy + 13, text: w.names[p.n], a: 0, font: `600 10px ${BODY}`, color: '#eceff1', prio: 5 });
+      if (p.n !== undefined && z >= 2.4) labels.push({ x: sx, y: sy + 17, text: w.names[p.n], a: 0, font: `600 10px ${BODY}`, color: '#eceff1', prio: 5 });
     }
     if (this.groups.transit && z >= 0.9) {
       const ts = w.tramStops;
@@ -823,7 +842,7 @@ export class MapView {
         if (!onScreen(sx, sy, 10)) continue;
         const name = w.tramStopNames[i / 2];
         icons.push({ x: sx, y: sy, kind: 'tram', title: name || KIND_NAME.tram, sub: name ? KIND_NAME.tram : undefined, prio: 3.5 });
-        if (name && z >= 1.6) labels.push({ x: sx, y: sy + 13, text: name, a: 0, font: `600 10px ${BODY}`, color: '#ffcdd2', prio: 4.5 });
+        if (name && z >= 1.6) labels.push({ x: sx, y: sy + 17, text: name, a: 0, font: `600 10px ${BODY}`, color: '#ffcdd2', prio: 4.5 });
       }
     }
     // declutter, most important first (a landmark's star before a street name before a café):
@@ -836,7 +855,7 @@ export class MapView {
     type Item = { prio: number; icon?: (typeof icons)[number]; label?: Label };
     const items: Item[] = [...icons.map((icon) => ({ prio: icon.prio, icon })), ...labels.map((label) => ({ prio: label.prio, label }))];
     items.sort((a, b) => a.prio - b.prio);
-    const r = 7;
+    const r = 10;
     for (const it of items) {
       const ic = it.icon;
       if (ic) {
@@ -921,7 +940,7 @@ export class MapView {
       const ry = y + 26 + i * rowH;
       const on = this.groups[gr.id];
       ctx.globalAlpha = on ? 1 : 0.4;
-      badge(ctx, x + 18, ry + rowH / 2 - 2, 7, gr.icon);
+      badge(ctx, x + 18, ry + rowH / 2 - 2, 8, gr.icon);
       ctx.fillStyle = on ? '#eceff1' : '#90a4ae';
       ctx.font = `600 12px ${BODY}`;
       ctx.textAlign = 'left';
