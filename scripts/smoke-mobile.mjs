@@ -305,9 +305,13 @@ try {
     await fingers.tap(pb.x, pb.y);
     await until(page, () => !document.getElementById('pause').classList.contains('hidden'));
     await shot(page, 'land-pause');
+    // the driving scheme is in the pause menu's settings view
+    await tapEl('#btn-settings');
+    await until(page, () => !document.getElementById('pause-settings').classList.contains('hidden'));
     await tapEl('#pause .opt-drive');
     const label = await until(page, () => /Klasické/.test(document.querySelector('#pause .opt-drive').textContent) && document.querySelector('#pause .opt-drive').textContent);
     check(!!label, `the pause menu switches the driving scheme (${label})`);
+    await tapEl('#btn-settings-back');
     await tapEl('#btn-resume');
     const classic = await until(page, () => document.getElementById('touch').dataset.ctx === 'car-c');
     check(!!classic, 'the classic scheme shows its pedals');
@@ -395,16 +399,19 @@ try {
     const opened = await until(p, () => !!document.querySelector('.kit-intro-card'), null, 8000);
     check(!!opened, 'the introduction opens on a phone');
     const cards = [];
-    for (let i = 0; i < 3 && opened; i++) {
+    // every card there is (three, or four with the shops), until "Hrať!" closes the last one
+    for (let i = 0; i < 6 && opened; i++) {
       await sleep(200);
-      cards.push(await p.evaluate(() => {
+      const card = await p.evaluate(() => {
         const c = document.querySelector('.kit-intro-card');
-        return { title: c.querySelector('h2').textContent, whole: c.scrollHeight <= c.clientHeight + 1 && c.getBoundingClientRect().bottom <= innerHeight };
-      }));
+        return c && { title: c.querySelector('h2').textContent, whole: c.scrollHeight <= c.clientHeight + 1 && c.getBoundingClientRect().bottom <= innerHeight };
+      });
+      if (!card) break;
+      cards.push(card);
       await shot(p, `land-intro-${i + 1}`);
       await tapIn('.kit-intro-foot button.primary');
     }
-    check(cards.length === 3 && cards.every((c) => c.whole), `each of its cards fits the screen (${cards.map((c) => `${c.title}: ${c.whole ? 'whole' : 'scrolls'}`).join(', ')})`);
+    check(cards.length >= 3 && cards.every((c) => c.whole), `each of its cards fits the screen (${cards.map((c) => `${c.title}: ${c.whole ? 'whole' : 'scrolls'}`).join(', ')})`);
     check(!!(await until(p, () => !window.game.paused && document.getElementById('touch').dataset.ctx === 'foot')), '"Hrať!" goes on to the game, controls and all');
     check(errors.length === 0, 'no page errors (the introduction)' + (errors.length ? '\n' + errors.join('\n') : ''));
     await ctx.close();

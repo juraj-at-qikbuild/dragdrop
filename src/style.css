@@ -311,7 +311,7 @@ button.primary:hover {
   display: block;
 }
 #touch.sticking .t-idle,
-#touch:is([data-ctx='off'], [data-ctx='map'], [data-ctx='busted']) :is(.t-zone, .t-idle, .t-stick) {
+#touch:is([data-ctx='off'], [data-ctx='map'], [data-ctx='busted'], [data-ctx='tram']) :is(.t-zone, .t-idle, .t-stick) {
   display: none;
 }
 /* classic driving: the stick only steers, so it reads as a left-right track */
@@ -409,13 +409,25 @@ button.primary:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   display: block;
-  line-height: calc(46px * var(--ts));
   background: rgba(255, 214, 0, 0.92);
   border-color: rgba(255, 255, 255, 0.8);
   color: #15161a;
   text-shadow: none;
+  /* (the line height after the font shorthand, which would reset it: the text centred in the pill) */
   font: 700 calc(15px * var(--ts)) var(--font-body);
+  line-height: calc(46px * var(--ts));
   animation: t-pulse 1.4s ease-in-out infinite;
+}
+/* in a car the use button is always there (get out): no pulsing for it */
+.t-use.t-quiet {
+  animation: none;
+  background: rgba(255, 214, 0, 0.72);
+}
+/* moving: getting out is a hold, the fill shows how far along it is */
+.t-use.t-holdexit {
+  background: linear-gradient(90deg, rgba(255, 214, 0, 0.95) calc(var(--hold, 0) * 100%), rgba(10, 12, 18, 0.6) 0);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 @keyframes t-pulse {
   50% {

@@ -29,6 +29,7 @@ import { drawNametags } from '../render/nametags';
 import { ROSTER_AWAY } from '../shared/net/protocol';
 import { Banners } from '../ui/kit/Banners';
 import { hudLayout, NO_INSETS, type HudLayout, type Insets } from '../ui/layout';
+import { forDevice, type Device } from '../ui/deviceText';
 import { Bubbles } from '../render/bubbles';
 import { drawVehicle, emitVehicleLights } from '../render/drawVehicle';
 import { drawPed } from '../render/drawPed';
@@ -37,7 +38,7 @@ import { drawHeli, emitHeliLights } from '../render/drawHeli';
 import { drawProps } from '../render/drawProps';
 import { roundRect } from '../render/shapes';
 import { Clock, SECONDS_PER_HOUR } from '../shared/sim/Clock';
-import { WEAPONS, WEAPON_IDS, isThrown, traceMelee, traceShot } from '../shared/sim/Combat';
+import { TOY_IDS, WEAPONS, WEAPON_IDS, isThrown, traceMelee, traceShot } from '../shared/sim/Combat';
 import type { PickupKind } from '../shared/sim/Pickups';
 import type { Observer, Profile } from '../shared/sim/SimPlayer';
 import { Fx } from './Fx';
@@ -156,6 +157,8 @@ export class Game {
   /** touch driving scheme, user choice from the menus (see touchDrive.ts) */
   driveControls: DriveScheme = 'direction';
   private driveState = newDriveState();
+  /** the player's figure last given a toy (a new one, after an arrest or the hospital, gets one) */
+  private armedPed: Ped | null = null;
   /** the player's zoom (mouse wheel), a factor on the automatic camera zoom */
   zoomPref = 1;
   private lastFrameT = 0;
@@ -366,7 +369,12 @@ export class Game {
   };
 
   message(title: string, text: string, time = 3, color = '#ffd740') {
-    this.messages.push({ title, text, time, color });
+    this.messages.push({ title: forDevice(title, this.device), text: forDevice(text, this.device), time, color });
+  }
+
+  /** how the player plays right now, for texts that name a key (src/ui/deviceText.ts) */
+  get device(): Device {
+    return this.input.pad.active ? 'pad' : this.touch ? 'touch' : 'keys';
   }
 
   /** Open or close the pause menu. The one way to pause (Esc/P, the touch ❚❚, the pad's Start, the
@@ -702,7 +710,10 @@ export class Game {
       const w = WEAPON_IDS[i];
       if (inp.hit(`Digit${(i + 1) % 10}`) && this.ammo[w] > 0) p.weapon = w;
     }
-    if (this.ammo[p.weapon] <= 0) p.weapon = 'fist';
+    // out of refills, or a fresh start (a new game, back from the hospital or the police): a squirting
+    // toy in hand rather than the tickling, which a touch player's 💦 button would otherwise do
+    if (this.ammo[p.weapon] <= 0 || (p !== this.armedPed && p.weapon === 'fist')) p.weapon = TOY_IDS.find((w) => !isThrown(w) && this.ammo[w] > 0) ?? 'fist';
+    this.armedPed = p;
 
     // aboard a tram (rules/Trams.ts): the host keeps us where the tram has us. In the cab: the throttle
     // and the brake, the steering for the branch at the next junction, and the bell
@@ -710,9 +721,17 @@ export class Game {
     if (on) {
       if (on.cab) {
         const ax = inp.axis();
-        let throttle = -ax.y;
+        let throttle = -ax.y, branch = ax.x;
         if (inp.pad.active && Math.abs(inp.pad.rt - inp.pad.lt) > 0.05) throttle = inp.pad.rt - inp.pad.lt;
-        this.host.tramDrive(throttle, ax.x, inp.hit('KeyH'));
+        const tram = inp.touch.move.on ? this.aboardTram() : null;
+        if (tram) {
+          // touch: the stick along the tram is the throttle (back: the brake), across it the branch,
+          // whichever way it faces on the screen (as a car's stick points where it should go)
+          const c = Math.cos(tram.angle), sn = Math.sin(tram.angle);
+          throttle = ax.x * c + ax.y * sn;
+          branch = -ax.x * sn + ax.y * c;
+        }
+        this.host.tramDrive(throttle, branch, inp.hit('KeyH'));
       }
       if (p.cooldown > 0) p.cooldown -= dt;
       return;

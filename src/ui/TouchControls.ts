@@ -13,8 +13,9 @@ import { drawWeaponIcon } from './Hud';
 import type { HudLayout } from './layout';
 import { TouchTips } from './TouchTips';
 
-/** busted: an arrest that can still be bought off (Úplatok, src/game/features/PoliceUi.ts) */
-type Ctx = 'off' | 'foot' | 'car-d' | 'car-c' | 'downed' | 'busted' | 'map';
+/** busted: arrested (with an offer to buy it off, Úplatok, src/game/features/PoliceUi.ts, the
+ *  Podplatiť button); tram: riding one; cab: driving one (the stick along the tram, the bell) */
+type Ctx = 'off' | 'foot' | 'car-d' | 'car-c' | 'downed' | 'busted' | 'map' | 'tram' | 'cab';
 
 /** How a control behaves: `press` a key once, `hold` a code while down (`key` also pressed once on
  *  the way down), `act` call a function, or one of the special ones handled below. */
@@ -35,6 +36,10 @@ const DEAD = 0.12;
 const FOLLOW = 1.3;
 /** a drag this far from the fire button (px at scale 1) aims by hand */
 const AIM_DRAG = 18;
+/** faster than this (m/s, about 15 km/h) getting out of a car is a hold of the use button, not a tap */
+const EXIT_SPEED = 4;
+/** ...held this long (ms) */
+const EXIT_HOLD_MS = 600;
 
 export class TouchControls {
   readonly root: HTMLElement;
@@ -56,9 +61,15 @@ export class TouchControls {
   private shown = '';
   private weaponShown = '';
   private nitroShown = -1;
-  private icons = new Map<WeaponId, HTMLCanvasElement>();
+  private icons = new Map<string, HTMLCanvasElement>();
   private weaponIcon: HTMLElement;
   private weaponAmmo: HTMLElement;
+  private fireIcon: HTMLElement;
+  private fireShown = '';
+  /** moving in a car: the use button gets you out only when held (a tap mid-chase used to) */
+  private exitHold = false;
+  /** when the use button went down while `exitHold` (null: it isn't held) */
+  private useHeldAt: number | null = null;
   readonly tips: TouchTips;
 
   constructor(private g: Game) {
@@ -80,23 +91,24 @@ export class TouchControls {
     root.append(this.moveZone, this.idleRing, this.stickBase);
     this.bindStick();
 
-    const foot: Ctx[] = ['foot'], car: Ctx[] = ['car-d', 'car-c'], play: Ctx[] = ['foot', 'car-d', 'car-c', 'downed'];
-    this.add('pause', 'press', '', { code: 'Escape', in: play, label: 'Pauza', cls: 't-util t-pause' });
+    const foot: Ctx[] = ['foot'], car: Ctx[] = ['car-d', 'car-c'], tram: Ctx[] = ['tram', 'cab'];
+    const play: Ctx[] = ['foot', 'car-d', 'car-c', 'downed', ...tram];
+    this.add('pause', 'press', '', { code: 'Escape', in: [...play, 'busted'], label: 'Pauza', cls: 't-util t-pause' });
     this.add('radio', 'press', '📻', { code: 'KeyR', in: car, label: 'Rádio', cls: 't-util' });
     this.add('map', 'press', '', { code: 'KeyM', in: play, label: 'Mapa mesta', cls: 't-hit' });
     this.add('daily', 'press', '', { code: KEYS.daily, in: play, label: 'Kde to je?', cls: 't-hit' });
     this.add('activities', 'press', '', { code: KEYS.activities, in: play, label: 'Aktivity', cls: 't-hit' });
     this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Striekať', cls: 't-fire' });
     this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Hračka', cls: 't-weapon' });
-    this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car], label: '', cls: 't-use' });
+    this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car, ...tram], label: '', cls: 't-use' });
     // a mini-game's action (docs/plans/minigames.md): shown with what it does, while there's one
-    this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car], label: '', cls: 't-use t-mini' });
+    this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car, ...tram], label: '', cls: 't-use t-mini' });
     this.add('brake', 'hold', 'BRZDA', { code: 'brake', in: ['car-d'], label: 'Brzda', cls: 't-brake' });
     this.add('pedal', 'pedal', '', { in: ['car-c'], label: 'Plyn a brzda', cls: 't-pedal' });
     this.add('handbrake', 'hold', 'RUČNÁ', { code: 'handbrake', in: car, label: 'Ručná brzda', cls: 't-hand' });
     this.add('nitro', 'hold', 'N₂O', { code: 'nitro', in: car, label: 'Nitro', cls: 't-nitro' });
     // the horn is held as well as pressed: holding it next to another player's car challenges them
-    this.add('horn', 'hold', '📣', { code: KEYS.horn, key: KEYS.horn, in: car, label: 'Klaksón', cls: 't-small' });
+    this.add('horn', 'hold', '📣', { code: KEYS.horn, key: KEYS.horn, in: [...car, 'cab'], label: 'Klaksón', cls: 't-small' });
     this.add('talk', 'hold', '🎙', { code: KEYS.talk, in: play, label: 'Hovoriť', cls: 't-small' });
     this.add('giveup', 'press', 'Vzdať sa', { code: KEYS.giveUp, in: ['downed'], label: 'Vzdať sa', cls: 't-use' });
     this.add('bribe', 'press', 'Podplatiť', { code: 'KeyF', in: ['busted'], label: 'Podplatiť policajta', cls: 't-use' });
@@ -113,7 +125,8 @@ export class TouchControls {
     this.weaponIcon = el('span', 't-weapon-icon');
     this.weaponAmmo = el('span', 't-weapon-ammo');
     weapon.append(this.weaponIcon, this.weaponAmmo);
-    this.byId.get('fire')!.el.append(el('span', 't-fire-icon', '💦'));
+    this.fireIcon = el('span', 't-fire-icon', '💦');
+    this.byId.get('fire')!.el.append(this.fireIcon);
 
     this.tips = new TouchTips(g, this);
   }
@@ -157,7 +170,9 @@ export class TouchControls {
       this.tips.did(c.id);
       switch (c.kind) {
         case 'press':
-          inp.press(c.code!);
+          // moving: the use button's hold gets out (update() presses it once it's held long enough)
+          if (c.id === 'use' && this.exitHold) this.useHeldAt = performance.now();
+          else inp.press(c.code!);
           break;
         case 'act':
           c.act!();
@@ -199,6 +214,7 @@ export class TouchControls {
   private release(c: Control) {
     const inp = this.g.input;
     c.el.classList.remove('down');
+    if (c.id === 'use') this.endExitHold();
     if (c.kind === 'hold') inp.touchButtons.delete(c.code!);
     else if (c.kind === 'fire') {
       inp.touch.fire = false;
@@ -208,6 +224,11 @@ export class TouchControls {
       inp.touchButtons.delete('brake');
       c.el.classList.remove('gas', 'brake');
     }
+  }
+
+  private endExitHold() {
+    this.useHeldAt = null;
+    this.byId.get('use')!.el.style.setProperty('--hold', '0');
   }
 
   /** the classic pedal: the half under the thumb */
@@ -316,11 +337,10 @@ export class TouchControls {
     if (!g.running || g.paused || isModalOpen() || g.input.pad.active) return 'off';
     if (g.showMap) return 'map';
     if (g.state === 'downed') return 'downed';
-    if (g.state === 'busted') {
-      const offer = g.host.live.bribe;
-      return offer && performance.now() < offer.until && g.save.money >= offer.price ? 'busted' : 'off';
-    }
+    if (g.state === 'busted') return 'busted';
     if (g.state !== 'play') return 'off';
+    const tram = g.host.live.tram;
+    if (tram) return tram.cab ? 'cab' : 'tram';
     if (g.player.vehicle) return g.driveControls === 'classic' ? 'car-c' : 'car-d';
     return 'foot';
   }
@@ -341,8 +361,13 @@ export class TouchControls {
     }
     // what's shown besides the context
     const v = g.player.vehicle;
-    const pr = ctx === 'foot' || ctx === 'car-d' || ctx === 'car-c' ? g.prompt() : null;
-    const useText = pr?.use ? pr.text : v ? (v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
+    const playing = ctx === 'foot' || ctx === 'car-d' || ctx === 'car-c';
+    const pr = playing || ctx === 'tram' || ctx === 'cab' ? g.prompt() : null;
+    // in a car getting out is always there: a tap at a crawl, a hold when moving
+    this.exitHold = !!v && playing && !pr?.use && v.speed >= EXIT_SPEED;
+    if (!this.exitHold && this.useHeldAt !== null) this.endExitHold();
+    const useText = pr?.use ? pr.text : v && playing ? (this.exitHold ? (v.spec.twoWheeler ? 'Podrž: zoskočiť' : 'Podrž: vyskočiť') : v.spec.twoWheeler ? 'Zosadnúť' : 'Vystúpiť') : '';
+    const offer = g.host.live.bribe;
     const miniText = g.host.live.mini?.act ?? '';
     const hasGun = TOY_IDS.some((w) => g.ammo[w] > 0);
     const daily = (g.features.find((f) => f.id === 'daily') as { cardRect?: { x: number; y: number; w: number; h: number } | null } | undefined)?.cardRect ?? null;
@@ -359,9 +384,10 @@ export class TouchControls {
       talk: !!voice?.pushToTalk,
       daily: !!daily,
       activities: !!acts,
+      bribe: !!offer && performance.now() < offer.until && g.save.money >= offer.price,
     };
     const rectKey = (r: { x: number; y: number; w: number; h: number } | null) => (r ? `${r.x},${r.y},${r.w},${r.h}` : '');
-    const key = `${ctx}|${useText}|${miniText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
+    const key = `${ctx}|${useText}|${this.exitHold}|${miniText}|${Object.entries(show).map(([k, b]) => (b ? k : '')).join(',')}|${rectKey(daily)}|${rectKey(acts)}`;
     if (key !== this.shown) {
       this.shown = key;
       for (const c of this.controls) {
@@ -372,9 +398,20 @@ export class TouchControls {
       }
       const use = this.byId.get('use')!.el;
       use.textContent = useText;
+      use.classList.toggle('t-quiet', !!v && playing && !pr?.use);
+      use.classList.toggle('t-holdexit', this.exitHold);
       this.byId.get('mini')!.el.textContent = miniText;
       if (daily) setRect(this.byId.get('daily')!.el, daily);
       if (acts) setRect(this.byId.get('activities')!.el, acts);
+    }
+    // getting out while moving: held long enough, out
+    if (this.useHeldAt !== null) {
+      const k = (performance.now() - this.useHeldAt) / EXIT_HOLD_MS;
+      this.byId.get('use')!.el.style.setProperty('--hold', String(Math.min(1, k)));
+      if (k >= 1) {
+        g.input.press('KeyF');
+        this.endExitHold();
+      }
     }
     // the weapon button: the icon and ammo
     const w = g.player.weapon;
@@ -384,6 +421,13 @@ export class TouchControls {
       this.weaponIcon.textContent = '';
       this.weaponIcon.appendChild(this.icon(w));
       this.weaponAmmo.textContent = w === 'fist' ? WEAPONS.fist.short : String(g.ammo[w]);
+    }
+    // the fire button shows what it does: the toy in hand (in a car, the fists give way to a drive-by)
+    const fw = v && (w === 'fist' || w === 'hammer') ? '' : w;
+    if (fw !== this.fireShown) {
+      this.fireShown = fw;
+      this.fireIcon.textContent = fw ? '' : '💦';
+      if (fw) this.fireIcon.appendChild(this.icon(fw, 44));
     }
     // the nitro charge ring, in 5% steps
     if (v) {
@@ -396,17 +440,18 @@ export class TouchControls {
     this.tips.update();
   }
 
-  private icon(w: WeaponId): HTMLCanvasElement {
-    let c = this.icons.get(w);
+  private icon(w: WeaponId, s = 30): HTMLCanvasElement {
+    const key = `${w}@${s}`;
+    let c = this.icons.get(key);
     if (!c) {
-      const dpr = Math.min(2, devicePixelRatio || 1), s = 30;
+      const dpr = Math.min(2, devicePixelRatio || 1);
       c = document.createElement('canvas');
       c.width = c.height = s * dpr;
       c.style.width = c.style.height = s + 'px';
       const cx = c.getContext('2d')!;
       cx.scale(dpr, dpr);
       drawWeaponIcon(cx, w, s / 2, s / 2, s * 0.4);
-      this.icons.set(w, c);
+      this.icons.set(key, c);
     }
     return c;
   }
@@ -466,6 +511,11 @@ export class TouchControls {
       },
       downed: () => this.pill('giveup', ax - 10 * ts, ay - 40 * ts),
       busted: () => this.pill('bribe', ax - 10 * ts, ay - 40 * ts),
+      tram: (cab: boolean) => {
+        if (cab) at('horn', -46, -46, 64);
+        this.pill('use', ax - 10 * ts, ay - (cab ? 118 : 40) * ts);
+        this.pill('mini', ax - 10 * ts, ay - (cab ? 176 : 98) * ts);
+      },
     };
     // the map's buttons: close top-right, zoom and "where am I" down the right edge
     const mb = 46 * ts, mx = L.W - L.padR - mb - 4;
@@ -474,7 +524,7 @@ export class TouchControls {
     this.placeCluster();
   }
 
-  private spots: { foot: () => void; car: (classic: boolean) => void; downed: () => void; busted: () => void } | null = null;
+  private spots: { foot: () => void; car: (classic: boolean) => void; downed: () => void; busted: () => void; tram: (cab: boolean) => void } | null = null;
 
   /** the cluster's spots for the current context (the same button sits elsewhere on foot and driving) */
   private placeCluster() {
@@ -484,6 +534,7 @@ export class TouchControls {
     if (c === 'car-d' || c === 'car-c') s.car(c === 'car-c');
     else if (c === 'downed') s.downed();
     else if (c === 'busted') s.busted();
+    else if (c === 'tram' || c === 'cab') s.tram(c === 'cab');
     else s.foot();
   }
 

@@ -20,6 +20,7 @@ import { KEYS } from '../Input';
 import { miniLeft } from '../SimHost';
 import { boardLine, countdown, headline, inviteLine, resultLines } from './minigames/text';
 import { MINI_DRAW } from './minigames/draw';
+import { forDevice } from '../../ui/deviceText';
 
 const HEAD = `'Rajdhani', 'Arial Black', Impact, sans-serif`;
 const BODY = `'Inter', system-ui, sans-serif`;
@@ -66,7 +67,7 @@ export class MiniGamesUi implements ClientFeature {
     if (s.phase === 'done') return this.drawResult(ctx, s, top);
 
     // the headline and the objective, then the countdown
-    let y = this.drawObjective(ctx, s.goal, top, info.color, headline(s));
+    let y = this.drawObjective(ctx, forDevice(s.goal, g.device), top, info.color, headline(s));
     const left = miniLeft(g.host.live);
     const cd = countdown(s, left);
     if (cd) {
@@ -379,7 +380,7 @@ export class MiniGamesUi implements ClientFeature {
         }
         if (m.label) {
           ctx.font = `700 ${11 * k}px ${BODY}`;
-          outlined(ctx, m.label, at.x, iy + (m.icon ? 13 * k : 0), '#fff', 3 * k);
+          outlined(ctx, forDevice(m.label, g.device), at.x, iy + (m.icon ? 13 * k : 0), '#fff', 3 * k);
         }
         ctx.restore();
       }
@@ -435,7 +436,7 @@ export class MiniGamesUi implements ClientFeature {
         ctx.save();
         if (m.dim) ctx.globalAlpha = 0.5;
         // on the big map only the target's label: a city full of them would be unreadable
-        this.emoji(ctx, m.icon, x, y, size, full && m.arrow ? (m.label ?? '') : '');
+        this.emoji(ctx, m.icon, x, y, size, full && m.arrow ? forDevice(m.label ?? '', g.device) : '');
         ctx.restore();
       } else if (m.w || m.r) {
         ctx.fillStyle = color;

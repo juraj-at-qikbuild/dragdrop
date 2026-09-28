@@ -13,6 +13,7 @@ import { formatPoints } from '../../shared/util/math';
 import { addPauseControl, isModalOpen, openModal } from '../../ui/kit/dom';
 import type { ClientFeature } from './ClientFeature';
 import { BOARD_INFO, PERIOD_LABEL, PREV_LABEL, pointsHelp, until } from './leaderboard/text';
+import { forDevice } from '../../ui/deviceText';
 
 /** while the panel is open, the page on show is asked for again this often (ms) */
 const REFRESH_MS = 5000;
@@ -241,7 +242,7 @@ export class LeaderboardUi implements ClientFeature {
     d.addEventListener('toggle', () => (this.helpOpen = d.open));
     d.appendChild(el('summary', undefined, 'Za čo sú body'));
     const ul = el('ul');
-    for (const line of pointsHelp()) ul.appendChild(el('li', undefined, line));
+    for (const line of pointsHelp()) ul.appendChild(el('li', undefined, forDevice(line, this.g.device)));
     d.appendChild(ul);
     return d;
   }

@@ -87,7 +87,7 @@ export class TouchTips {
     const g = this.g;
     const dt = 1 / 60;
     const ctx = this.tc.root.dataset.ctx;
-    const playing = ctx !== 'off' && ctx !== 'map' && ctx !== 'busted';
+    const playing = ctx !== 'off' && ctx !== 'map' && ctx !== 'busted' && ctx !== 'tram' && ctx !== 'cab';
     // the rotate hint: held upright, once a session, a few seconds
     const upright = playing && g.layout.portrait && !this.rotateSeen;
     if (upright) {
