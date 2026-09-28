@@ -122,7 +122,7 @@ async function trams({ A, B, check, log, sleep, waitFor }) {
     const g = window.game, t = g.host.trams.find((q) => q.id === id);
     return { d: t ? Math.hypot(t.x - x, t.y - y) : 0, wanted: g.wanted, withIt: !!t && Math.hypot(g.player.x - t.x, g.player.y - t.y) < 4 };
   }, { id: tram.id, ...t0 });
-  check(drove.d > 3 && drove.withIt && drove.wanted >= 2, `the tram drives from its cab, and it's a crime (${JSON.stringify(drove)})`);
+  check(drove.d > 3 && drove.withIt && drove.wanted >= 1, `the tram drives from its cab, and it's a crime (${JSON.stringify(drove)})`);
   await A.keyboard.down('KeyS');
   await sleep(3500);
   await A.keyboard.up('KeyS');

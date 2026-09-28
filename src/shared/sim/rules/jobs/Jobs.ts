@@ -109,6 +109,12 @@ export class Jobs implements SimRule {
     this.beginOffer(p, job);
   }
 
+  /** a delivery or a fare under way (not between offers): no teleporting out of it (rules/Shops.ts) */
+  busy(p: SimPlayer): boolean {
+    const job = this.jobs.get(p.id);
+    return !!job && job.waitUntil <= 0;
+  }
+
   /** ends the shift outright, whether a job is running or the player is between offers */
   stop(p: SimPlayer) {
     const job = this.jobs.get(p.id);

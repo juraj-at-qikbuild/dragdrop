@@ -263,6 +263,13 @@ export class ClientEvents implements SimEvents {
         g.audio.setStation(null);
         g.audio.engine(0, 0, false);
         break;
+      case 'teleport':
+        // (joining a party, or a teleport's ride): the camera jumps there with us
+        g.cam.x = e.x;
+        g.cam.y = e.y;
+        g.fx.stars(e.x, e.y, 8);
+        g.audio.jingle(true);
+        break;
     }
     for (const f of g.features) f.onPrivate?.(e);
   }

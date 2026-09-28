@@ -3,8 +3,8 @@
 // (vitest.config.ts): the panels themselves are DOM, checked in the browser (scripts/smoke.mjs).
 import { describe, expect, it } from 'vitest';
 import {
-  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, ammoLine, collectionLine, condition, gunLine, modName, modsLine, paintName,
-  placesWord, storedCarLine,
+  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, ammoLine, collectionLine, condition, distanceLine, gunLine, modName, modsLine,
+  paintName, placesWord, storedCarLine,
 } from '../../src/game/features/shops/text';
 import { DISPATCH, describeClothes, describeWalker, wantedLine } from '../../src/game/features/police/text';
 import { COLLECTION, HATS, MOD_MAX, NEONS, NO_MODS, PAINTS } from '../../src/shared/sim/shops/catalog';
@@ -23,7 +23,7 @@ describe("the shops' words", () => {
   });
 
   it('every kind of shop says what it is; every toy and upgrade has a name', () => {
-    for (const k of ['guns', 'clothes', 'lawyer', 'tuning', 'garage'] as const) expect(SHOP_KIND[k].name && SHOP_KIND[k].about).toBeTruthy();
+    for (const k of ['guns', 'clothes', 'lawyer', 'tuning', 'garage', 'teleport'] as const) expect(SHOP_KIND[k].name && SHOP_KIND[k].about).toBeTruthy();
     // the toy shop (docs/plans/non-violent.md): toys and refills, not guns and bullets
     expect(SHOP_KIND.guns.name).toBe('Hračkárstvo');
     expect(Object.keys(GUN_NAME)).toEqual(['pistol', 'uzi', 'shotgun']);
@@ -44,6 +44,10 @@ describe("the shops' words", () => {
     expect(storedCarLine({ kind: 'hatch', color: '#fff', mods: NO_MODS, hp: 50, dmg: [0, 0, 0, 0] })).toBe('Škodovka Felícia · 50 %');
     expect(storedCarLine({ kind: 'sport', color: '#fff', mods: { ...NO_MODS, engine: 1 }, hp: 90, dmg: [0, 0, 0, 0] })).toBe('Porše 911 Blava · 100 % · Motor I');
     expect(condition('hatch', 0.2)).toBe(1);
+  });
+
+  it("says how far each teleport is", () => {
+    expect([40, 320, 949, 974, 975, 2440].map(distanceLine)).toEqual(['50 m', '300 m', '950 m', '950 m', '1,0 km', '2,4 km']);
   });
 
   it('counts garage places and the collection', () => {

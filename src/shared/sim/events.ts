@@ -88,8 +88,10 @@ export type PrivateEvent =
   | { k: 'revive'; s: ReviveState | null }
   /** money from an event, a job, a bounty… (floating text + HUD counter) */
   | { k: 'payout'; amount: number; reason: string; x: number; y: number }
-  /** the server moved this player (party join): snap there and tag reports with the new epoch */
-  | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number }
+  /** the server moved this player (party join, a teleport): snap there and tag reports with the new
+   *  epoch. With `car`, in the car they drive (that id), now facing `a` and standing still; without,
+   *  on foot */
+  | { k: 'teleport'; x: number; y: number; lvl: Level; epoch: number; car?: number; a?: number }
   /** away and safe: nobody can hurt, arrest or carjack this player (rules/Presence.ts) */
   | { k: 'shield'; on: boolean }
   /** leaderboard points (online only, Sim.score): `n` points for `src`, scored at (x, y) */

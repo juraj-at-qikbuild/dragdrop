@@ -771,9 +771,18 @@ export class NetSimHost implements SimHost, NetView {
       case 'shield':
         this.shielded = e.on;
         break;
-      case 'teleport':
-        // the server moved us (joining a party): drop the car, snap there, new epoch
-        this.releaseCar();
+      case 'teleport': {
+        // the server moved us (joining a party, a teleport): snap there, new epoch. A teleport with
+        // the car keeps us at its wheel, standing still in the bay; anything else leaves it behind
+        const v = this.ownCar;
+        if (v && e.car === v.id) {
+          v.x = e.x;
+          v.y = e.y;
+          v.angle = e.a ?? v.angle;
+          v.vx = v.vy = v.av = v.steer = 0;
+          v.level = e.lvl;
+          v.levelInit = true;
+        } else this.releaseCar();
         p.x = e.x;
         p.y = e.y;
         p.vx = p.vy = 0;
@@ -783,6 +792,7 @@ export class NetSimHost implements SimHost, NetView {
         this.game.cam.x = e.x;
         this.game.cam.y = e.y;
         break;
+      }
     }
   }
 

@@ -71,6 +71,13 @@ export const SWIM_S = 20;
 /** a car this long under water (s) lets its driver out to swim for it */
 const SINK_OUT = 1;
 const SPRAY_COST = 250;
+/** Heat a crime has to add to go from n★ to n+1★ (index n). The first star comes with any crime the
+ *  police know about; each one after it takes more, so a few squirts or a bump don't make a manhunt.
+ *  A crime's heat is its `raise` amount (Sim.crime). */
+export const STAR_HEAT = [0, 1.5, 2, 2.5, 3] as const;
+/** a car blowing up (or a stall going over) this close to a police unit is heard, whichever way it
+ *  faces (m) */
+const HEAR_BLAST = 40;
 const LANDMARK_REWARD = 100;
 /** seconds a player's damage to a car/player still earns them the kill */
 const CREDIT_WINDOW = 10;
@@ -549,8 +556,9 @@ export class Sim {
 
   /** BOING (docs/plans/non-violent.md): a car or a tram that hits someone bounces them off like a
    *  rubber ball; they sit dazed, then get up. Never a reward: the reward is for a close pass (the
-   *  splash, rules/Splash.ts), not for contact. The one who drove it gets the stars for reckless
-   *  driving (the crimes keep their ids: +1★, +2★ for a cop) and a "BOING!" that banks nothing. */
+   *  splash, rules/Splash.ts), not for contact. The one who drove it gets the heat for reckless
+   *  driving if the police see it, or a witness may phone it in (the crimes keep their ids: killPed,
+   *  killCop), and a "BOING!" that banks nothing. */
   private bonk(p: Ped, fromX: number, fromY: number, force: number, cause: 'road' | 'tram', driver: SimPlayer | undefined) {
     this.knockDown(p, fromX, fromY, force, cause, driver?.id ?? 0, 'bonk');
     if (driver) {
@@ -731,74 +739,91 @@ export class Sim {
     const cd = p.crimeCooldown.get(kind) ?? -Infinity;
     const f = p.focus();
     // a crime the police see for themselves (a police car or a cop with the player in sight, see
-    // Pursuit) raises the stars at once; one they don't may still be phoned in by a witness. Gunfire
-    // they also hear, close by.
+    // Pursuit) raises the heat at once; one they don't may still be phoned in by a witness. Gunfire
+    // and a car blowing up they also hear, close by. The amounts are heat (STAR_HEAT: the first star
+    // comes with any crime, the next take 1.5, 2, 2.5 and 3 of it), each crime at most once per its
+    // cooldown (s).
     const seen = (hear = 0) => this.pursuit.policeWatching(p, hear);
+    const ready = now > cd;
     switch (kind) {
       case 'shoot':
         this.police.danger(f.x, f.y, 20);
         if (seen(HEAR_SHOT)) {
-          if (now > cd) this.raise(p, 1, kind, 5);
+          if (ready) this.raise(p, 0.3, kind, 5);
         } else this.crowd.witness(p, f.x, f.y, null);
         break;
       case 'killPed':
-        this.raise(p, 1, kind, 0.5);
+        // someone soaked through, or bounced off the player's car
+        if (seen()) {
+          if (ready) this.raise(p, 0.6, kind, 2);
+        } else this.crowd.witness(p, f.x, f.y, null);
         break;
       case 'killCop':
         this.police.danger(f.x, f.y, 25);
-        this.raise(p, 2, kind, 0.5);
         p.shotCops = true;
+        if (ready) this.raise(p, 1, kind, 1);
         break;
       case 'shootCop':
         this.police.danger(f.x, f.y, 22);
         p.shotCops = true;
-        if (now > cd) this.raise(p, 1, kind, 6);
+        if (ready) this.raise(p, 0.4, kind, 6);
         break;
       case 'carjack':
-        if (seen()) this.raise(p, 1, kind, 3);
-        else this.crowd.witness(p, f.x, f.y, victim);
+        if (seen()) {
+          if (ready) this.raise(p, 0.6, kind, 3);
+        } else this.crowd.witness(p, f.x, f.y, victim);
         break;
       case 'hitCop':
-        if (now > cd) this.raise(p, 1, kind, 8);
+        if (ready) this.raise(p, 0.4, kind, 8);
         break;
       case 'stealCop':
       case 'stealTram':
-        this.raise(p, 2, kind, 1);
+        if (ready) this.raise(p, 1.5, kind, 1);
         break;
       case 'destroy':
         this.police.danger(f.x, f.y, 18);
-        if (now > cd) this.raise(p, 0.6, kind, 3);
+        if (seen(HEAR_BLAST)) {
+          if (ready) this.raise(p, 0.5, kind, 3);
+        } else this.crowd.witness(p, f.x, f.y, null);
         break;
       case 'hitPlayer':
         this.police.danger(f.x, f.y, 20);
-        if (now > cd) this.raise(p, 1, kind, 6);
+        if (ready) this.raise(p, 0.5, kind, 6);
         break;
       case 'killPlayer':
         this.police.danger(f.x, f.y, 25);
-        this.raise(p, 1, kind, 0.5);
+        if (ready) this.raise(p, 1.5, kind, 0.5);
         break;
       case 'robbery':
-        this.raise(p, 2, kind, 10);
+        if (ready) this.raise(p, 2.5, kind, 10);
         break;
       case 'loot':
-        if (now > cd) this.raise(p, 1, kind, 10);
+        if (ready) this.raise(p, 1, kind, 10);
         break;
       case 'splashCop':
-        if (now > cd) this.raise(p, 1, kind, 5);
+        if (ready) this.raise(p, 0.5, kind, 5);
         break;
     }
   }
 
-  /** More stars for a crime. The police know where it happened and what the player was in (the
+  /** Heat for a crime (STAR_HEAT): from no stars it's one star at once (whatever is left over of
+   *  `amount` above 1 counts as heat toward the next), and past that a star goes up each time the
+   *  heat reaches its price. The police know where it happened and what the player was in (the
    *  search starts there), unless `know` is false: a witness's report says that itself. */
   private raise(p: SimPlayer, amount: number, kind: string, cooldown: number, know = true) {
-    const before = Math.ceil(p.wanted);
-    p.wanted = clamp(Math.max(p.wanted, 0) + amount, 0, 5);
-    if (p.wanted < 1) p.wanted = 1;
+    const before = p.stars;
+    let stars = clamp(before, 0, 5);
+    if (stars <= 0) {
+      stars = 1;
+      p.heat = Math.max(0, amount - 1);
+    } else p.heat += amount;
+    while (stars < 5 && p.heat >= STAR_HEAT[stars] - 1e-9) p.heat -= STAR_HEAT[stars++];
+    if (stars >= 5) p.heat = 0;
+    p.wanted = stars;
     p.unseen = 0;
     if (know) this.pursuit.know(p);
     p.crimeCooldown.set(kind, this.time + cooldown);
-    if (Math.ceil(p.wanted) > before) this.events.toPlayer(p.id, { k: 'stars' });
+    if (stars > before) this.events.toPlayer(p.id, { k: 'stars' });
     this.anyWanted = true;
   }
 
@@ -821,6 +846,7 @@ export class Sim {
   setWanted(p: SimPlayer, level: number) {
     const before = Math.ceil(p.wanted);
     p.wanted = clamp(level, 0, 5);
+    p.heat = 0;
     if (Math.ceil(p.wanted) > before) {
       this.pursuit.know(p);
       this.events.toPlayer(p.id, { k: 'stars' });
@@ -1079,10 +1105,29 @@ export class Sim {
     }
   }
 
-  /** Move a player somewhere else (joining a party): out of any car, onto a clear spot, with a new
-   *  epoch so their client's reports from the old place are ignored. */
-  teleport(p: SimPlayer, x: number, y: number, lvl: Level = 0) {
-    if (p.ped.vehicle) this.exitVehicle(p, true);
+  /** Move a player somewhere else (joining a party, a teleport): out of any car onto a clear spot,
+   *  or with `car` in the car they drive (to exactly there: see Shops' carSpot), with a new epoch so
+   *  their client's reports from the old place are ignored. */
+  teleport(p: SimPlayer, x: number, y: number, lvl: Level = 0, car?: { a: number }) {
+    const v = p.ped.vehicle;
+    if (v && car) {
+      // with the car they drive (a teleport, rules/Shops.ts): there, facing `a`, standing still
+      v.x = x;
+      v.y = y;
+      v.angle = car.a;
+      v.vx = v.vy = v.av = v.steer = 0;
+      v.level = lvl;
+      v.levelInit = true;
+      p.ped.x = x;
+      p.ped.y = y;
+      p.ped.level = lvl;
+      p.epoch = (p.epoch + 1) & 0xff;
+      p.observer.fx = p.observer.cx = x;
+      p.observer.fy = p.observer.cy = y;
+      this.events.toPlayer(p.id, { k: 'teleport', x, y, lvl, epoch: p.epoch, car: v.id, a: car.a });
+      return;
+    }
+    if (v) this.exitVehicle(p, true);
     // (off any tram too: rules/Trams.ts hands its cab back)
     p.ped.aboard = null;
     const pos = this.world.clearSpot(x, y);

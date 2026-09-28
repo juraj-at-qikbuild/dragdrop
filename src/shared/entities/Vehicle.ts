@@ -379,7 +379,7 @@ export class Vehicle {
     const wheelbase = s.length * 0.6;
     const a = wheelbase * 0.5, b = wheelbase * 0.5; // axle distances from CG
     const vAbs = Math.abs(vF);
-    const gripK = assist ? PLAYER_GRIP : 1;
+    const gripK = assist ? PLAYER_GRIP * (1 + PLAYER_GRIP_FAST * clamp((vAbs - FAST_FROM) / (FAST_TO - FAST_FROM), 0, 1)) : 1;
     const latMax = 2 * TIRE_FORCE * 0.9 * (s.grip / 7) * muSurf * gripK;
     const maxSteer = Math.min(0.6, (1.15 * wheelbase * latMax) / Math.max(1, vAbs * vAbs) + 0.04) * dmgSteer;
     const steerAngle = this.steer * maxSteer;
@@ -435,10 +435,15 @@ export class Vehicle {
     // ordinary car doesn't spin. Off with the handbrake, and gentler in the sports car, so drifts and
     // handbrake turns still work.
     if (!c.handbrake && vAbs > 3) {
-      const pathRate = (FyF + FyR) / s.mass / vAbs;
+      // (the path turns the other way for the same sideways push when the car rolls backwards: with
+      // the sign of vF dropped, a reversing car's own turn read as a spin and was braked away)
+      const pathRate = (FyF + FyR) / s.mass / vF;
       const excess = this.av - pathRate;
       const slip = Math.abs(Math.atan2(vR, vAbs));
-      if (slip > 0.06 && Math.sign(excess) === Math.sign(this.av)) avAccel -= excess * (s.kind === 'sport' ? 6 : 14) * Math.min(1, (slip - 0.06) / 0.06);
+      // (a player braking into a bend gets the full help in the sports car too: its tail no longer
+      // comes round on the brakes, while a lift-off or the handbrake still lets it slide)
+      const lively = s.kind === 'sport' && !(assist && braking > 0);
+      if (slip > 0.06 && Math.sign(excess) === Math.sign(this.av)) avAccel -= excess * (lively ? 6 : 14) * Math.min(1, (slip - 0.06) / 0.06);
     }
     this.av += avAccel * dt;
     this.angle += this.av * dt;
@@ -590,6 +595,12 @@ const TIRE_FORCE = 5.6;
 /** A player's car grips this much harder than traffic (about 2 g round a bend on dry asphalt): at
  *  real-car grip a junction has to be taken at 40 km/h, and at 90 km/h full lock needs a 60 m circle. */
 const PLAYER_GRIP = 2;
+/** ...and more still the faster it goes (an arcade car's downforce): this much more by FAST_TO m/s,
+ *  from nothing at FAST_FROM, so full lock still turns it briskly on a boulevard (at 90 km/h about a
+ *  20 m circle instead of 30 m, at 130 km/h about 35 m instead of 60 m) */
+const PLAYER_GRIP_FAST = 0.6;
+const FAST_FROM = 12;
+const FAST_TO = 30;
 /** how fast a player's steering follows the key or stick (1/s): turning in, and back to centre */
 const PLAYER_STEER_IN = 12;
 const PLAYER_STEER_CENTRE = 16;

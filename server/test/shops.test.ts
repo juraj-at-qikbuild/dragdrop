@@ -14,11 +14,11 @@ import { parseShop } from '../src/features/Shops';
 import { PROTOCOL_VERSION, type ClientMsg } from '../../src/shared/net/protocol';
 import { Ent } from '../../src/shared/net/codec';
 import { AMMO_BOX, PRICES } from '../../src/shared/sim/shops/catalog';
-import { shopById, shopPlaces } from '../../src/shared/sim/shops/places';
+import { shopById, shopPlaces, teleports } from '../../src/shared/sim/shops/places';
 import { PLAYER_SHIRTS } from '../../src/shared/entities/Ped';
 import { Vehicle } from '../../src/shared/entities/Vehicle';
 import type { PrivateEvent } from '../../src/shared/sim/events';
-import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, disabledSupa, loadWorld } from './helpers';
+import { FakeClock, FakeLink, TOKEN_A, TOKEN_B, disabledSupa, loadWorld, stateMsg } from './helpers';
 
 const NO_NPCS = { traffic: 0, parked: 0, peds: 0, trams: 0, police: 0, helis: 0, roadblocks: 0 };
 
@@ -148,6 +148,34 @@ describe('the shops over the wire', () => {
     const stored = privs(a.link).find((e) => e.k === 'stored');
     expect(stored).toMatchObject({ vehicle: v.id, x: a.p.ped.x, y: a.p.ped.y });
     expect(a.p.profile.gear?.cars).toHaveLength(1);
+  });
+
+  it('a teleport with the car: the server moves it, the driver\'s client hears where, and its reports from there count', () => {
+    const { room, join, tick } = setup();
+    const a = join();
+    a.p.profile.money = 1000;
+    const tps = teleports(room.sim.world);
+    const t = a.goTo(tps[0].id);
+    const v = room.sim.addVehicle(new Vehicle('sedan', t.x, t.y, t.a, '#123456'));
+    a.send({ t: 'enter', vid: v.id });
+    expect(a.p.ped.vehicle).toBe(v);
+    a.send({ t: 'shop', op: 'buy', item: 'teleport:8' });
+    expect(a.p.profile.money).toBe(1000 - PRICES.teleport);
+    expect(Math.hypot(v.x - tps[8].x, v.y - tps[8].y)).toBeLessThanOrEqual(12.01);
+    tick();
+    const tp = privs(a.link).find((e): e is Extract<PrivateEvent, { k: 'teleport' }> => e.k === 'teleport');
+    expect(tp).toMatchObject({ car: v.id, x: v.x, y: v.y, epoch: a.p.epoch });
+    // the client drives on from there, in the new epoch: accepted, not corrected back
+    const veh = { vid: v.id, av: 0, steer: 0, throttle: 0.5, handbrake: false, boost: false, siren: false, horn: false, boosting: false, wrecked: false, tyres: false, health: v.health, dmg: [0, 0, 0, 0] as [number, number, number, number], fire: -1, sinking: 0, nitro: 1, skid: 0 };
+    a.link.clear();
+    const x0 = v.x;
+    room.onMessage(a.conn, stateMsg(x0 + 1, v.y, { epoch: a.p.epoch, veh }));
+    expect(v.x).toBeCloseTo(x0 + 1, 1);
+    tick();
+    expect(a.link.last('correct')).toBeUndefined();
+    // (a report from before the ride, in the old epoch, doesn't pull it back)
+    room.onMessage(a.conn, stateMsg(t.x, t.y, { epoch: (a.p.epoch + 255) & 0xff, veh }));
+    expect(v.x).toBeCloseTo(x0 + 1, 1);
   });
 
   it('game_config\'s prices reach the rule and everyone online', async () => {

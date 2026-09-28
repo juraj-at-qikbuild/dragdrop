@@ -159,7 +159,9 @@ describe('driving a tram', () => {
     expect(tramUse(sim.trams, p.ped.x, p.ped.y, p.ped.level)?.op).toBe('cab');
     expect(trams.act(p, 'cab')).toBe(true);
     expect(t.driver).toBe(p.id);
-    expect(p.wanted).toBeGreaterThanOrEqual(2);
+    // a star, and heat toward the second (Sim.STAR_HEAT)
+    expect(p.stars).toBe(1);
+    expect(p.heat).toBeGreaterThan(0);
     expect(sent.some((e) => e.k === 'tram' && e.id === t.id && e.cab)).toBe(true);
     // full throttle: it pulls away from the stop at once and keeps going (no dwelling)
     let dwelt = 0, top = 0;
@@ -244,7 +246,9 @@ describe('driving a tram', () => {
     p.ped.x = t.x + Math.cos(t.angle) * 1.2;
     p.ped.y = t.y + Math.sin(t.angle) * 1.2;
     expect(trams.act(p, 'cab')).toBe(true);
-    const before = p.wanted;
+    // (who knocked them down: with no police in sight it costs no heat, but it's still the driver's)
+    const by: number[] = [];
+    sim.events = { ...sim.events, pedDazed: (_id, _x, _y, pid) => by.push(pid) };
     // someone standing on the track some way ahead
     let civ: Ped | null = null;
     for (let k = 0; k < 30 * 15 && !(civ && civ.dazed); k++) {
@@ -260,6 +264,6 @@ describe('driving a tram', () => {
       sim.step(1 / 15);
     }
     expect(civ?.dazed).toBe(true);
-    expect(p.wanted).toBeGreaterThan(before);
+    expect(by).toEqual([p.id]);
   });
 });

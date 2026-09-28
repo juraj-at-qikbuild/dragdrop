@@ -138,7 +138,7 @@ describe('Obrnené auto (ArmoredVan)', () => {
     expect(van.armor).toBe(1);
   });
 
-  it('picking up van-tagged cash pays the loot star, even after the event has ended', () => {
+  it('picking up van-tagged cash is a crime of its own (loot heat), even after the event has ended', () => {
     const sim = new Sim(loadWorld(), { rng: new Rng(235), rules: 'server', caps: NO_NPCS });
     const { a } = twoPlayers(sim);
     const dir = sim.rule<WorldEvents>('worldEvents')!;
@@ -148,7 +148,7 @@ describe('Obrnené auto (ArmoredVan)', () => {
     for (let i = 0; i < 6; i++) shootCar(sim, van.id, rear.x, rear.y, a.id);
     dir.step(0.1); // the director only prunes a finished event on its own next step
     expect(dir.active.length).toBe(0); // the event is long gone
-    const before = a.wanted;
+    const before = a.stars + a.heat / 10;
     const pk = sim.pickups.find((p) => p.tag === 'van')!;
     expect(pk).toBeTruthy();
     a.ped.x = pk.x;
@@ -158,7 +158,8 @@ describe('Obrnené auto (ArmoredVan)', () => {
     // (the 12 pickups scatter close together, so standing on one may sweep up a neighbour too;
     // this only cares that real cash changed hands, not exactly how many of the 12 that was)
     expect(a.profile.money).toBeGreaterThan(moneyBefore);
-    expect(a.wanted).toBeGreaterThan(before); // the loot crime's own +1★, on top of the robbery
+    // the loot crime's own heat (Sim.STAR_HEAT), on top of the robbery's two stars
+    expect(a.stars + a.heat / 10).toBeGreaterThan(before);
   });
 
   it('a wreck spills the full $1,200 the same way and ends wrecked', () => {

@@ -35,7 +35,7 @@ const ICON_BG: Record<string, string> = {
   kofolka: '#b71c1c', goldenCumil: '#ffc400', armored: '#455a64', derby: '#ff6f00', wanted: '#8e0000', party: '#7c4dff',
   vlk: '#2e7d32', hopik: '#f9a825', race: '#263238', daily: '#0277bd', revive: '#d32f2f', voice: '#00acc1',
   // the shops (docs/plans/gameplay.md, Phase 2)
-  guns: '#bf360c', clothes: '#ad1457', lawyer: '#4e342e', tuning: '#0277bd', garage: '#33691e',
+  guns: '#bf360c', clothes: '#ad1457', lawyer: '#4e342e', tuning: '#0277bd', garage: '#33691e', teleport: '#6a1b9a',
 };
 
 interface Label {
@@ -59,7 +59,8 @@ export class MapView {
   private cx = 0;
   private cy = 0;
   private detail: { canvas: HTMLCanvasElement; key: string } | null = null;
-  private groups: Record<Group, boolean> = { missions: true, landmarks: true, services: true, culture: true, food: false, shops: false, transit: false };
+  /** every layer is on to start with (each still waits for its zoom, GROUPS' minZoom) */
+  private groups: Record<Group, boolean> = { missions: true, landmarks: true, services: true, culture: true, food: true, shops: true, transit: true };
   /** street name candidates: one per named road, at its longest stretch */
   private streets: { x: number; y: number; a: number; len: number; name: string; cls: number }[] | null = null;
   /** pointers down on the map (for drag and pinch) */
@@ -858,7 +859,7 @@ export type MapIcon =
   | 'food' | 'cafe' | 'bar' | 'pharmacy' | 'museum' | 'theatre' | 'church' | 'library' | 'view'
   | 'grocery' | 'bakery' | 'bank' | 'post' | 'hotel' | 'wc' | 'taxi' | 'tram'
   | 'kofolka' | 'goldenCumil' | 'armored' | 'derby' | 'wanted' | 'party' | 'vlk' | 'hopik' | 'race' | 'daily' | 'revive' | 'voice'
-  | 'guns' | 'clothes' | 'lawyer' | 'tuning' | 'garage';
+  | 'guns' | 'clothes' | 'lawyer' | 'tuning' | 'garage' | 'teleport';
 
 /** A pulsing ring: a light fill inside a dashed (or solid) stroke that shimmers gently with `t`
  *  (seconds, e.g. `game.time`). Extracted from the police search zone so event/hint zones can reuse it. */
@@ -1200,6 +1201,17 @@ function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k
       ctx.fillRect(x - s * 0.5, y + s * 0.05, s, s * 0.8);
       ctx.fillStyle = white;
       for (const k of [0.25, 0.5]) ctx.fillRect(x - s * 0.5, y + s * (0.05 + k), s, s * 0.1);
+      return;
+    case 'teleport': // a portal: a swirl round a spark
+      ctx.lineWidth = Math.max(1, r * 0.16);
+      ctx.arc(x, y, s * 0.9, Math.PI * 0.15, Math.PI * 1.65);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.52, Math.PI * 1.15, Math.PI * 2.65);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.2, 0, Math.PI * 2);
+      ctx.fill();
       return;
   }
   // everything else: a letter

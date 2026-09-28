@@ -1,5 +1,6 @@
 // What money buys, and where (docs/plans/gameplay.md, Phase 2). Every purchase, parking a car in a
-// garage and taking one out goes through `act`, which checks where the player is (shops/places.ts),
+// garage and taking one out, and a ride on the teleport goes through `act`, which checks where the
+// player is (shops/places.ts),
 // what they have and what it costs (the price list: shops/catalog.ts, overridden online by game_config),
 // then does it. Offline the client calls it straight; online the server does, for a `shop` request.
 // Also: the collection (every kind of vehicle driven), and a player's clothes when they arrive.
@@ -10,12 +11,13 @@ import type { Sim } from '../Sim';
 import { WEAPONS } from '../Combat';
 import type { SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
+import type { Jobs } from './jobs/Jobs';
 import { POINTS } from './points';
 import {
   AMMO_BOX, COLLECTION, COLLECTION_REWARD, HATS, MOD_MAX, NEONS, PAINTS, PRICES, SLOTS_MAX, SLOTS_START, mergePrices,
   type Gear, type Mods, type PriceId, type Prices, type StoredCar,
 } from '../shops/catalog';
-import { shopAt, type ShopPlace } from '../shops/places';
+import { shopAt, teleports, type ShopPlace } from '../shops/places';
 
 /** what a player asks a shop for */
 export type ShopReq = { op: 'buy'; item: string } | { op: 'store' } | { op: 'take'; slot: number };
@@ -103,6 +105,9 @@ export class Shops implements SimRule {
       case 'garage':
         if (item === 'garage') return this.buyGarage(p, place);
         if (item === 'slots') return this.buySlots(p);
+        break;
+      case 'teleport':
+        if (item === 'teleport') return this.teleport(p, place, n);
         break;
     }
     return no('To sa tu nepredáva.');
@@ -291,6 +296,57 @@ export class Shops implements SimRule {
     cars.splice(slot, 1);
     this.changed(p);
     return yes(`${SPECS[v.kind].name} ťa čaká pred garážou.`);
+  }
+
+  // ------------------------------------------------------------------------------- Teleport
+  /** Why `p` can't take a teleport now, or null: not on the run from the police, nor out of a job,
+   *  a race, the derby, the most wanted chase or the Kofolka van (whatever stepping away can't get
+   *  them out of: SimRule.allowShield) */
+  private teleportBlocked(p: SimPlayer): string | null {
+    if (p.stars > 0) return 'Kým ťa hľadá polícia, teleport ťa nepustí.';
+    if (this.sim.rule<Jobs>('jobs')?.busy(p)) return 'Najprv dokonči zákazku.';
+    if (!this.sim.rules.every((r) => r.allowShield?.(p) !== false)) return 'Teraz nie: dokonči, čo máš rozbehnuté.';
+    return null;
+  }
+
+  /** to teleport `to` (its index in `teleports`): on foot, or with the car they drive */
+  private teleport(p: SimPlayer, from: ShopPlace, to: number): ShopResult {
+    const dest = Number.isInteger(to) ? teleports(this.sim.world)[to] : undefined;
+    if (!dest) return no('Taký teleport nepoznáme.');
+    if (dest.id === from.id) return no('Tu už si.');
+    const why = this.teleportBlocked(p);
+    if (why) return no(why);
+    const v = p.ped.vehicle;
+    if (v && (v.wrecked || v.fire > -1 || v.sinking)) return no('S horiacim autom ťa teleport nevezme.');
+    const spot = v ? this.carSpot(v, dest) : null;
+    if (v && !spot) return no('Na druhej strane niečo stojí. Skús o chvíľu.');
+    if (!this.pay(p, 'teleport', `teleport:${dest.id}`)) return this.broke('teleport');
+    if (spot) this.sim.teleport(p, spot.x, spot.y, 0, { a: spot.a });
+    else this.sim.teleport(p, dest.x, dest.y, 0);
+    return yes(`${dest.name.replace(/^Teleport – /, '')}: si tam.`);
+  }
+
+  /** where car `v` fits in teleport `t`'s bay: its middle, or a little way along the street either
+   *  way, facing along it; null when something stands in all of them */
+  private carSpot(v: Vehicle, t: ShopPlace): { x: number; y: number; a: number } | null {
+    const x0 = v.x, y0 = v.y, a0 = v.angle, l0 = v.level;
+    const ux = Math.cos(t.a), uy = Math.sin(t.a);
+    let found: { x: number; y: number; a: number } | null = null;
+    for (const d of [0, 6, -6, 12, -12]) {
+      v.x = t.x + ux * d;
+      v.y = t.y + uy * d;
+      v.angle = t.a;
+      v.level = 0;
+      if (this.sim.clearFor(v)) {
+        found = { x: v.x, y: v.y, a: t.a };
+        break;
+      }
+    }
+    v.x = x0;
+    v.y = y0;
+    v.angle = a0;
+    v.level = l0;
+    return found;
   }
 
   // ---------------------------------------------------------------------------------- hooks

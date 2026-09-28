@@ -91,7 +91,7 @@ describe('Vehicle', () => {
       }
   });
 
-  it("a player's car corners at about 2 g: round a city junction at 60 km/h, half traffic's circle at 90", () => {
+  it("a player's car corners at about 2 g in town and more the faster it goes: a junction at 60 km/h, well under half traffic's circle at 90", () => {
     for (const k of kinds) {
       /** full lock holding `kmh`: the radius of the circle it settles on */
       const circle = (kmh: number, player: boolean) => {
@@ -99,14 +99,41 @@ describe('Vehicle', () => {
         return v.speed / Math.abs(v.av);
       };
       const r90 = circle(90, true);
-      expect(r90, k).toBeLessThan(circle(90, false) * 0.6);
+      expect(r90, k).toBeLessThan(circle(90, false) * 0.45);
       // (a van and a bus are still a van and a bus)
       if (k === 'van' || k === 'bus') continue;
-      expect(circle(60, true), k).toBeLessThan(18);
-      expect(r90, k).toBeLessThan(40);
+      expect(circle(60, true), k).toBeLessThan(16);
+      expect(r90, k).toBeLessThan(28);
       const g = (90 / 3.6) ** 2 / r90 / 9.81;
-      expect(g, k).toBeGreaterThan(1.5);
-      expect(g, k).toBeLessThan(2.6);
+      expect(g, k).toBeGreaterThan(2.3);
+      expect(g, k).toBeLessThan(3.6);
+      // flat out on a boulevard it still turns: 130 km/h holds a circle under 48 m (60 m and more before)
+      expect(circle(130, true), k).toBeLessThan(48);
+    }
+  });
+
+  it("a player's car reverses round as tight a circle as it drives forwards slowly, and straightens up when let go", () => {
+    for (const k of kinds) {
+      if (k === 'bus') continue;
+      const v = new Vehicle(k, -4900, 0, 0, '#fff');
+      v.owner = 1;
+      let atRelease = 0;
+      const radii: number[] = [];
+      for (let t = 0; t < 4.5; t += dt) {
+        v.setControls(-1, t < 3 ? 1 : 0, false);
+        v.update(dt, track);
+        if (t > 1.5 && t < 3) radii.push(Math.abs(v.fwdSpeed / v.av));
+        if (t < 3) atRelease = v.angle;
+      }
+      // steer right in reverse: the tail swings right, the nose left (a real car's way round)
+      expect(atRelease, k).toBeLessThan(-Math.PI / 2);
+      // a few metres across at 15-30 km/h (it was 17-23 m at 30 km/h, braked by stability control
+      // that read the reverse turn as a spin)
+      expect(Math.max(...radii), k).toBeLessThan(k === 'van' || k === 'ambulance' ? 7 : 6);
+      expect(-v.fwdSpeed * 3.6, k).toBeGreaterThan(15);
+      // let go: straight again, barely further round
+      expect(Math.abs(v.av), k).toBeLessThan(0.02);
+      expect(Math.abs(v.angle - atRelease), k).toBeLessThan(0.3);
     }
   });
 

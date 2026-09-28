@@ -40,6 +40,17 @@ function soak(sim: Sim, p: SimPlayer, ped: Ped) {
     sim.applyShot(p, { ox: p.ped.x, oy: p.ped.y, a: 0, w: 'pistol', lvl: 0, pellets: [{ a: 0, hx: ped.x, hy: ped.y, kind: 2, hit: ped.id }], rt: 0 } as never);
 }
 
+/** a police car with a cop at the wheel, parked facing `angle` (nobody drives it: it stays put) */
+function policeCar(sim: Sim, x: number, y: number, angle: number) {
+  const v = new Vehicle('police', x, y, angle, '#f5f5f5');
+  const cop = new Ped('cop', x, y, 7);
+  cop.vehicle = v;
+  v.driver = cop;
+  sim.addVehicle(v);
+  sim.addPed(cop);
+  return v;
+}
+
 function run(sim: Sim, seconds: number, dt = 0.05) {
   for (let t = 0; t < seconds - 1e-9; t += dt) {
     for (const v of sim.vehicles) if (v.kinematic) (v.x += v.vx * dt), (v.y += v.vy * dt);
@@ -104,8 +115,10 @@ describe('knocked down, not killed', () => {
     expect(p.wanted).toBeGreaterThanOrEqual(stars);
   });
 
-  it("a car that hits someone bounces them off (BOING): a star, but no combo and no cash; they get up", () => {
+  it("a car that hits someone bounces them off (BOING): a star in front of the police, but no combo and no cash; they get up", () => {
     const { sim, p, sent } = setup();
+    // a patrol car up the street, facing the player's way: it sees the bump
+    policeCar(sim, A.x + DX * 45 - DY * 5, A.y + DY * 45 + DX * 5, WEST + Math.PI);
     const v = sim.addVehicle(new Vehicle('sedan', A.x, A.y, WEST, '#1565c0'));
     expect(sim.enterVehicle(p, v, 5)).toBe(true);
     // (close enough that they can't jump out of the way any more: AI.dodge)
@@ -135,6 +148,19 @@ describe('knocked down, not killed', () => {
     run(sim, dazeTime(ped) + 0.5);
     expect(ped.dazed).toBe(false);
     expect(ped.health).toBe(100);
+  });
+
+  it('a BOING nobody sees and nobody is there to phone in costs no stars', () => {
+    const { sim, p, sent } = setup();
+    const v = sim.addVehicle(new Vehicle('sedan', A.x, A.y, WEST, '#1565c0'));
+    expect(sim.enterVehicle(p, v, 5)).toBe(true);
+    const ped = sim.addPed(new Ped('civ', A.x + DX * 3.8, A.y + DY * 3.8, 14));
+    v.vx = DX * 12;
+    v.vy = DY * 12;
+    for (let i = 0; i < 40 && !ped.dazed; i++) run(sim, 0.05);
+    expect(ped.dazed).toBe(true);
+    expect(sent('style').map((e) => e.label)).toContain('BOING!');
+    expect(p.wanted).toBe(0);
   });
 
   it('a cop knocked down goes off duty once up: no chase, not armed', () => {

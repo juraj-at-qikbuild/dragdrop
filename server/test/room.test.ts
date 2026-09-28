@@ -144,7 +144,7 @@ describe('Room', () => {
     let state = '';
     for (const s of b.link.snapshots()) for (const e of s.ents) if (e.id === victim.id && e.type === Ent.Ped) state = e.v.state;
     expect(state).toBe('dazed');
-    expect(room.sim.players.get(a.id!)!.wanted).toBeGreaterThanOrEqual(1);
+    // (the stars it costs depend on who saw it: test/shared/pursuit.test.ts and dazed.test.ts)
   });
 
   it('rejects hit claims on targets that were not there', () => {
@@ -319,7 +319,7 @@ describe('Room', () => {
     room.onMessage(a.conn, JSON.stringify({ t: 'tram', op: 'cab' }));
     tick();
     expect(t.driver).toBe(a.id);
-    expect(pa.wanted).toBeGreaterThanOrEqual(2);
+    expect(pa.wanted).toBeGreaterThanOrEqual(1);
     const x0 = t.x, y0 = t.y;
     // (ten times a second, as NetSimHost sends them)
     for (let i = 0; i < 60; i++) {

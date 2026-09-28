@@ -46,8 +46,13 @@ export async function run({ A, B, check, log, sleep }) {
   await sleep(500);
   const dazedForB = victim ? await B.evaluate((id) => window.game.host.pedById(id)?.dazed ?? null, victim) : null;
   check(dazedForB === true, `B sees that civilian sitting dazed too (${dazedForB})`);
-  const wanted = await A.evaluate(() => window.game.wanted);
-  check(wanted >= 1, `A is wanted for it (${wanted})`);
+  // (no police saw it: someone looking on runs off and phones them, and gets through in a few seconds)
+  let wanted = 0;
+  for (let i = 0; i < 30 && wanted < 1; i++) {
+    wanted = await A.evaluate(() => window.game.wanted);
+    if (wanted < 1) await sleep(500);
+  }
+  check(wanted >= 1, `A is wanted for it: the police saw it, or a witness phoned them (${wanted})`);
 }
 
 /** walk A to 4 m from a civilian on their feet with a clear line of fire and squirt at them; returns their id */
@@ -62,6 +67,9 @@ async function shootSomeone(A, skip, sleep) {
         const x = q.x + Math.cos(a) * 4, y = q.y + Math.sin(a) * 4;
         if (g.world.collideCircle(x, y, 0.5) || g.world.raycast(x, y, q.x, q.y) < 1 || g.world.inWater(x, y, 0)) continue;
         if (Math.hypot(x - p.x, y - p.y) > 35) continue;
+        // with someone else looking on, to phone the police (Sim.crime: they didn't see it themselves)
+        const onlooker = h.peds.some((o) => o !== q && o.kind === 'civ' && !o.dazed && !o.vehicle && Math.hypot(o.x - x, o.y - y) > 8 && Math.hypot(o.x - x, o.y - y) < 30 && g.world.raycast(x, y, o.x, o.y) >= 1);
+        if (!onlooker) continue;
         return { id: q.id, x, y };
       }
     }

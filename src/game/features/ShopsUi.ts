@@ -14,7 +14,7 @@ import { SPECS, type Vehicle } from '../../shared/entities/Vehicle';
 import {
   COLLECTION, COLLECTION_REWARD, HATS, MOD_MAX, NEONS, PAINTS, SLOTS_MAX, SLOTS_START, type PriceId, type Prices, type ShopKind,
 } from '../../shared/sim/shops/catalog';
-import { shopAt, shopPlaces, type ShopPlace } from '../../shared/sim/shops/places';
+import { shopAt, shopPlaces, teleports, type ShopPlace } from '../../shared/sim/shops/places';
 import { ownable, type ShopReq } from '../../shared/sim/rules/Shops';
 import { POINTS } from '../../shared/sim/rules/points';
 import { dist, formatMoney } from '../../shared/util/math';
@@ -22,13 +22,13 @@ import { mapMarker, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
 import { isModalOpen, openModal } from '../../ui/kit/dom';
 import {
-  GUN_NAME, HAT_NAMES, ammoLine, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, gunLine, modName, modsLine,
-  paintName, placesWord, storedCarLine,
+  GUN_NAME, HAT_NAMES, ammoLine, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, distanceLine, gunLine, modName,
+  modsLine, paintName, placesWord, storedCarLine,
 } from './shops/text';
 
 const BODY = `'Inter', system-ui, sans-serif`;
-const ICON: Record<ShopKind, MapIcon> = { guns: 'guns', clothes: 'clothes', lawyer: 'lawyer', tuning: 'tuning', garage: 'garage' };
-const COLOR: Record<ShopKind, string> = { guns: '#ff7043', clothes: '#f06292', lawyer: '#bcaaa4', tuning: '#4fc3f7', garage: '#aed581' };
+const ICON: Record<ShopKind, MapIcon> = { guns: 'guns', clothes: 'clothes', lawyer: 'lawyer', tuning: 'tuning', garage: 'garage', teleport: 'teleport' };
+const COLOR: Record<ShopKind, string> = { guns: '#ff7043', clothes: '#f06292', lawyer: '#bcaaa4', tuning: '#4fc3f7', garage: '#aed581', teleport: '#ce93d8' };
 /** a shop's answer stays at the bottom of the panel this long (ms) */
 const STATUS_MS = 5000;
 /** the panel opens for someone this slow (m/s): a car pulled up, a player stopped at the door */
@@ -126,6 +126,18 @@ export class ShopsUi implements ClientFeature {
       this.panel?.close();
     }
     if (e.k === 'shop') this.asked = null;
+    // a teleport's ride: arriving in the other bay isn't walking into it (its panel would open at
+    // once). (Moved anywhere else, joining a party, a shop there opens as usual.)
+    if (e.k === 'teleport') {
+      const at = shopAt(this.g.world, e.x, e.y, e.car !== undefined, LEAVE_SLACK);
+      if (at?.kind === 'teleport') {
+        this.panel?.close();
+        this.visited.clear();
+        this.visitedAt = at.id;
+        this.visited.add(`${at.id}|car`).add(`${at.id}|foot`);
+        this.gotInAt = null;
+      }
+    }
   }
 
   reset() {
@@ -185,6 +197,7 @@ export class ShopsUi implements ClientFeature {
     const car = v ? [v.id, v.color, v.mods, Math.round(v.health), ownable(v)] : 0;
     return JSON.stringify([
       this.place?.id, Math.round(g.save.money), g.save.gear ?? {}, g.ammo.pistol, g.ammo.uzi, g.ammo.shotgun, Math.round(g.player.armor), g.player.look, g.player.hat, car, live.catalog, shop,
+      g.wanted > 0,
     ]);
   }
 
@@ -212,6 +225,9 @@ export class ShopsUi implements ClientFeature {
         break;
       case 'garage':
         parts.push(...this.garage(prices, place, g.player.vehicle));
+        break;
+      case 'teleport':
+        parts.push(...this.teleport(prices, place));
         break;
     }
     parts.push(this.status());
@@ -399,6 +415,27 @@ export class ShopsUi implements ClientFeature {
     }
     out.push(...this.collection());
     return out;
+  }
+
+  // ---------------------------------------------------------------------------------------- Teleport
+  /** every other teleport, nearest first, each with its price; or why not now */
+  private teleport(prices: Prices, place: ShopPlace): HTMLElement[] {
+    const g = this.g;
+    // (an older server has no teleports in its price list: nothing to sell)
+    if (prices.teleport === undefined) return [this.note('Teleport je dnes mimo prevádzky.')];
+    if (g.wanted > 0) return [this.note('Kým ťa hľadá polícia, teleport ťa nepustí. Zmizni jej najprv z očí.')];
+    if (g.missions.active) return [this.note('Počas misie teleport nejde: dokonči ju po svojom.')];
+    const v = g.player.vehicle;
+    const list = el('div', 'kit-shop-list');
+    const all = teleports(g.world);
+    all
+      .map((t, i) => ({ t, i, d: dist(t.x, t.y, place.x, place.y) }))
+      .filter(({ t }) => t.id !== place.id)
+      .sort((a, b) => a.d - b.d)
+      .forEach(({ t, i, d }) =>
+        list.appendChild(this.row({ k: `tp:${i}`, name: t.name.replace(/^Teleport – /, ''), about: distanceLine(d), price: prices.teleport, req: { op: 'buy', item: `teleport:${i}` } })),
+      );
+    return [this.head(v ? `Kam? Auto ide s tebou.` : 'Kam?', formatMoney(prices.teleport)), list];
   }
 
   /** the collection: every kind of vehicle driven, ticked off */

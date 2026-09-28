@@ -243,6 +243,7 @@ export class Pursuit {
       if ((outside || p.low > 0) && p.unseen > 9 + Math.ceil(p.wanted) * 1.5) {
         p.unseen = 0;
         p.wanted = Math.max(0, Math.ceil(p.wanted) - 1);
+        p.heat = 0;
         if (p.wanted === 0) {
           p.shotCops = false;
           p.searchZone = null;

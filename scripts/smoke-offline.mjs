@@ -195,7 +195,7 @@ try {
       const g = window.game, t = g.host.trams.find((q) => q.id === id);
       return { d: Math.hypot(t.x - x, t.y - y), withIt: Math.hypot(g.player.x - t.x, g.player.y - t.y) < 3, wanted: g.wanted };
     }, { id: tram.id, ...t0 });
-    check(drove.d > 3 && drove.withIt && drove.wanted >= 2, `the tram drives, with the player in its cab, and stealing it is a crime (${JSON.stringify(drove)})`);
+    check(drove.d > 3 && drove.withIt && drove.wanted >= 1, `the tram drives, with the player in its cab, and stealing it is a crime (${JSON.stringify(drove)})`);
     await page.keyboard.down('KeyS');
     await sleep(3000);
     await page.keyboard.up('KeyS');
@@ -254,18 +254,22 @@ try {
     await sleep(300);
   }
 
-  // soak the nearest civilian with the water pistol
+  // soak the nearest civilian with the water pistol, with someone else looking on (no police about,
+  // it's a crime once a witness gets through to them: Sim.crime)
   const shot = await page.evaluate(async () => {
     const g = window.game, p = g.player;
+    g.wanted = 0;
     g.ammo.pistol = 50;
     p.weapon = 'pistol';
+    const onlooker = (x, y, q) =>
+      g.peds.some((o) => o !== q && o.kind === 'civ' && !o.dazed && !o.vehicle && Math.hypot(o.x - x, o.y - y) > 8 && Math.hypot(o.x - x, o.y - y) < 30 && g.world.raycast(x, y, o.x, o.y) >= 1);
     // any civilian we can stand 4 m from with a clear line of fire
     for (const q of g.peds) {
       if (q.kind !== 'civ' || q.dazed || q.vehicle || q.level !== 0) continue;
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
         const x = q.x + Math.cos(a) * 4, y = q.y + Math.sin(a) * 4;
-        if (g.world.collideCircle(x, y, 0.5) || g.world.raycast(x, y, q.x, q.y) < 1 || g.world.inWater(x, y, 0)) continue;
+        if (g.world.collideCircle(x, y, 0.5) || g.world.raycast(x, y, q.x, q.y) < 1 || g.world.inWater(x, y, 0) || !onlooker(x, y, q)) continue;
         p.x = x;
         p.y = y;
         // (the camera there too, so the clicks land where the target is on screen)
@@ -291,9 +295,15 @@ try {
       await page.mouse.up();
       await sleep(400);
     }
-    const res = await page.evaluate((id) => ({ dazed: window.game.host.pedById(id)?.dazed ?? true, wanted: window.game.wanted, money: window.game.save.money }), shot.id);
-    check(res.dazed, 'soaked a civilian till they sat down');
-    check(res.wanted >= 1, `soaking someone raised the wanted level (${res.wanted})`);
+    const dazed = await page.evaluate((id) => window.game.host.pedById(id)?.dazed ?? true, shot.id);
+    check(dazed, 'soaked a civilian till they sat down');
+    // (the police saw it, or a witness runs off and phones them: they get through in a few seconds)
+    let res = null;
+    for (let i = 0; i < 30 && !(res?.wanted >= 1); i++) {
+      res = await page.evaluate(() => ({ wanted: window.game.wanted, calling: window.game.peds.some((q) => q.callPid === window.game.host.me.id) }));
+      if (res.wanted < 1) await sleep(500);
+    }
+    check(res.wanted >= 1, `soaking someone is a crime: the police saw it, or a witness phoned them (${JSON.stringify(res)})`);
   } else check(false, 'found a civilian to squirt');
 
   // 3 stars: police show up
@@ -406,6 +416,26 @@ try {
     await padPress(1);
     check(!(await page.$('.kit-shop-card')), 'the pad\'s B leaves the shop');
   } else check(false, 'walking into the Butik opens its panel');
+  // the teleport: walk into one, pick another from its list, arrive there (money spent, the panel of
+  // the one arrived at doesn't open by itself)
+  const tp = await page.evaluate(() => {
+    const g = window.game;
+    g.wanted = 0;
+    const all = g.features.find((f) => f.id === 'shops').places.filter((s) => s.kind === 'teleport');
+    g.player.x = all[0].x;
+    g.player.y = all[0].y;
+    g.player.levelInit = false;
+    return all.map((s) => ({ id: s.id, x: s.x, y: s.y }));
+  });
+  if (await page.waitForSelector('.kit-shop-card', { timeout: 3000 }).then(() => true, () => false)) {
+    const rows = await page.$$eval('.kit-shop-row button[data-k^="tp:"]', (bs) => bs.map((b) => b.dataset.k));
+    const money0 = await page.evaluate(() => window.game.save.money);
+    await page.click('.kit-shop-row button[data-k="tp:5"]');
+    await sleep(800);
+    const there = await page.evaluate(() => ({ x: window.game.player.x, y: window.game.player.y, money: window.game.save.money, open: !!document.querySelector('.kit-shop-card') }));
+    const d = Math.hypot(there.x - tp[5].x, there.y - tp[5].y);
+    check(rows.length === tp.length - 1 && d < 3 && there.money === money0 - 100 && !there.open, `a teleport lists the other ${rows.length} and takes you to one (${Math.round(d)} m from it, €${money0 - there.money}, panel ${there.open ? 'open' : 'closed'})`);
+  } else check(false, 'walking into a teleport opens its panel');
   await page.evaluate(() => delete navigator.getGamepads);
 
   // persistence

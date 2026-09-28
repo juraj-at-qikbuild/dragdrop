@@ -808,3 +808,52 @@ from the plan above, or fills it in.
   - `npm run smoke` rides a scooter, drives a tram and swims and takes a boat on the Danube; `npm run e2e`
     now runs `scripts/e2e-trams.mjs`: on and off a tram with another player watching, and its cab.
   - `npm test` (the whole suite), `npm run smoke`, `npm run smoke:mobile` and `npm run e2e` pass.
+
+## After Phase 3: tuning from play
+
+Changes asked for after playing the first three phases, still on protocol 7.
+
+- **The stars come one at a time** (`Sim.raise`, `STAR_HEAT`). Players got several stars from a few
+  squirts or bumps: every soaked or bumped passer-by was a star, seen or not, and any crime past the
+  first star was a whole star more. Now a crime from no stars is one star, and past that each crime adds
+  heat (`SimPlayer.heat`); a star goes up when the heat reaches its price, 1.5, 2, 2.5 and 3 heat for
+  the 2nd to the 5th. The crimes' heat: a squirt the police hear 0.3; soaking or bumping someone 0.6,
+  soaking a cop 1, squirting a cop or ramming a police car 0.4, a carjacking 0.6, stealing a police car
+  or a tram 1.5, a car blown up 0.5, hurting another player 0.5 and soaking them through 1.5, the
+  armoured van's doors 2.5 (two stars from none) and its cash 1, splashing a cop 0.5, a witness's report
+  1. Each crime counts at most once in its cooldown (the soaked, bumped and killed ones didn't check
+  theirs). Soaking or bumping someone, and a car blowing up, now need the police to see it (a blast is
+  heard within 40 m), else a witness may phone it in, as with a squirt or a carjacking. A star fading,
+  and `setWanted`, clear the heat.
+- **Steering** (`Vehicle.update`).
+  - In reverse, stability control read the car's own turn as a spin (the path's turning rate didn't
+    take the sign of the speed) and braked it away: backing up at 30 km/h turned a 17–23 m circle. It
+    now turns about 4 m, as tight as going forwards at a crawl, and straightens when the key is let go.
+  - A player's car grips up to 60 % more at speed (from 43 km/h, all of it by 108 km/h): at 90 km/h
+    full lock holds about 20 m (was 30 m), at 130 km/h about 35 m (was 60 m), and a 90° turn from
+    100 km/h takes 1.4 s instead of 2.2 s.
+  - Braking into a bend, a player's Porše gets the full stability control (it slid more than before
+    with the extra grip); lifting off and the handbrake still let it slide.
+- **Wider roads** (`src/shared/world/widen.ts`, baked into the map by `scripts/widen-map.mjs`, and by the
+  map builder from now on). Each car road (not a bridge deck) is widened by up to 35 %, as far as its
+  street has room: the nearest a building, wall, fence, hedge, post, tree trunk or the river comes to its
+  centre line anywhere along it (its first and last 3 m aside), less 0.35 m. 2,900 of the 3,750 car
+  roads got wider, by 1.8 m on average; most main roads by the full 35 %. The graph edges along each road
+  take its factor (found by the edge's midpoint and heading), and so do zebra crossings, bumps and stop
+  signs; furniture, lamps and trees standing on the pavement the road now covers move out to 0.4 m
+  beyond its new edge. The lanes and walking lines were fitted again for the new widths.
+- **The teleport** (`shops/places.ts`, `rules/Shops.ts`): a bay by each of the ten spawn places, at the
+  nearest street corner on the through network, at street level and 25 m from any other shop. €100 to
+  any of the others, on foot or with the car (put in the bay facing along the street, or up to 12 m along
+  it either way if something stands there; refused, and nothing charged, if all of it is taken). Not
+  while wanted, in a job, or where stepping away couldn't take them out either (`SimRule.allowShield`:
+  a race, the derby, the most wanted chase, the Kofolka van); not in a burning car; offline, the panel
+  doesn't offer it during a mission. Arriving in a bay doesn't open its panel.
+- **Seven more toy shops** (ten in all), by Hotel Kyjev, Hodžovo námestie, the Slovak Radio, Medická
+  záhrada, Sky Park, in Podhradie and by Incheba.
+- **The city map** starts with every layer on.
+- **Tests.** New: the heat in `test/shared/pursuit.test.ts`, a BOING nobody sees in
+  `test/shared/dazed.test.ts`, reversing and the new cornering in `test/shared/vehicle.test.ts`, the
+  teleport in `test/shared/shops.test.ts` and `server/test/shops.test.ts`; `npm run smoke` takes a
+  teleport. Tests that counted on a whole star per crime now check the heat, or that the crime was the
+  driver's.

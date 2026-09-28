@@ -11,7 +11,8 @@ import { nullEvents, type PrivateEvent } from '../../src/shared/sim/events';
 import type { Caps } from '../../src/shared/sim/density';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
 import { Shops, carFrom, ownable } from '../../src/shared/sim/rules/Shops';
-import { FOOT_R, shopAt, shopById, shopPlaces, type ShopPlace } from '../../src/shared/sim/shops/places';
+import type { Jobs } from '../../src/shared/sim/rules/jobs/Jobs';
+import { FOOT_R, shopAt, shopById, shopPlaces, teleports, type ShopPlace } from '../../src/shared/sim/shops/places';
 import { SPAWNS, SPAWN_SPREAD } from '../../src/shared/world/spawns';
 import {
   AMMO_BOX, COLLECTION, COLLECTION_REWARD, DROP_KEEP, DROP_LIFE, NEONS, NO_MODS, PAINTS, PRICES, SLOTS_MAX, SLOTS_START, cleanMods, mergePrices, tuned,
@@ -67,10 +68,11 @@ describe('where the shops are', () => {
 
   it('every kind is there, each shop once, with a stable id', () => {
     const count = (k: ShopPlace['kind']) => all.filter((s) => s.kind === k).length;
-    expect(count('guns')).toBe(3);
+    expect(count('guns')).toBe(10);
     expect(count('clothes')).toBe(3);
     expect(count('lawyer')).toBe(1);
     expect(count('garage')).toBe(6);
+    expect(count('teleport')).toBe(SPAWNS.length);
     expect(count('tuning')).toBe(w.pois('fuel').length);
     expect(new Set(all.map((s) => s.id)).size).toBe(all.length);
     // worked out the same way every time (the server checks a purchase against the client's idea of it)
@@ -81,7 +83,7 @@ describe('where the shops are', () => {
     for (const s of all) {
       expect(w.collideCircle(s.x, s.y, 0.4, 0, false), s.id).toBeFalsy();
       expect(w.inWater(s.x, s.y, 0), s.id).toBe(false);
-      if (s.kind === 'garage') expect(w.car.nearest(s.x, s.y, 1), s.id).toBeGreaterThanOrEqual(0);
+      if (s.kind === 'garage' || s.kind === 'teleport') expect(w.car.nearest(s.x, s.y, 1), s.id).toBeGreaterThanOrEqual(0);
       if (s.kind === 'tuning') expect(w.car.nearest(s.x, s.y, 45), s.id).toBeGreaterThanOrEqual(0);
     }
   });
@@ -458,6 +460,90 @@ describe('the garage', () => {
     expect(p.profile.gear?.cars?.length).toBe(1);
     sim.removeVehicle(blocker);
     expect(shops.act(p, { op: 'take', slot: 0 }).ok).toBe(true);
+  });
+});
+
+describe('the teleport', () => {
+  const w = loadWorld();
+  const tps = teleports(w);
+
+  it('one by each spawn place, in the street at ground level, where a car can drive off, away from the other shops', () => {
+    expect(tps.map((t) => t.id)).toEqual(SPAWNS.map((s) => `teleport-${s.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]+/g, '-')}`));
+    tps.forEach((t, i) => {
+      expect(dist(t.x, t.y, SPAWNS[i].x, SPAWNS[i].y), t.id).toBeLessThan(260);
+      expect(w.onBridge(t.x, t.y) || w.tunnelDepth(t.x, t.y) >= 0, t.id).toBe(false);
+      expect(w.car.depth?.[w.car.nearest(t.x, t.y, 1)], t.id).toBe(0);
+      expect(t.car && t.foot, t.id).toBe(true);
+      for (const s of shopPlaces(w)) if (s !== t) expect(dist(s.x, s.y, t.x, t.y), `${t.id} / ${s.id}`).toBeGreaterThanOrEqual(25);
+    });
+  });
+
+  it('on foot: pays, and arrives at the other one', () => {
+    const { sim, shops, sent } = setup();
+    const p = player(sim, tps[0]);
+    const epoch = p.epoch;
+    const r = shops.act(p, { op: 'buy', item: 'teleport:4' });
+    expect(r.ok).toBe(true);
+    expect(p.profile.money).toBe(10_000 - PRICES.teleport);
+    expect(dist(p.ped.x, p.ped.y, tps[4].x, tps[4].y)).toBeLessThan(3);
+    expect(shopAt(w, p.ped.x, p.ped.y, false)?.id).toBe(tps[4].id);
+    expect(p.epoch).not.toBe(epoch);
+    expect(sent('teleport').at(-1)).toMatchObject({ x: p.ped.x, y: p.ped.y, lvl: 0, epoch: p.epoch });
+    expect(sent('teleport').at(-1)?.car).toBeUndefined();
+  });
+
+  it('in a car: the car goes too, standing still in the bay, facing along the street', () => {
+    const { sim, shops, sent } = setup();
+    const p = player(sim, tps[2]);
+    const v = drive(sim, p, tps[2]);
+    expect(shops.act(p, { op: 'buy', item: 'teleport:7' }).ok).toBe(true);
+    expect(p.ped.vehicle).toBe(v);
+    expect(dist(v.x, v.y, tps[7].x, tps[7].y)).toBeLessThanOrEqual(12.01);
+    expect(v.speed).toBe(0);
+    expect(v.angle).toBeCloseTo(tps[7].a, 6);
+    expect(sent('teleport').at(-1)).toMatchObject({ car: v.id, x: v.x, y: v.y, a: tps[7].a });
+    // and it drives on from there
+    run(sim, 1);
+    expect(p.ped.vehicle).toBe(v);
+    expect(dist(v.x, v.y, tps[7].x, tps[7].y)).toBeLessThan(13);
+  });
+
+  it('refuses (and charges nothing): the same place, one that isn\'t there, no money, on the run, a job under way, a burning car', () => {
+    const { sim, shops } = setup();
+    const p = player(sim, tps[1]);
+    for (const item of ['teleport:1', 'teleport:99', 'teleport:x', 'teleport']) expect(shops.act(p, { op: 'buy', item }).ok, item).toBe(false);
+    p.profile.money = PRICES.teleport - 1;
+    expect(shops.act(p, { op: 'buy', item: 'teleport:0' }).text).toContain(`€${PRICES.teleport}`);
+    p.profile.money = 10_000;
+    sim.setWanted(p, 1);
+    expect(shops.act(p, { op: 'buy', item: 'teleport:0' }).ok).toBe(false);
+    sim.setWanted(p, 0);
+    const jobs = sim.rule<Jobs>('jobs')!;
+    jobs.start(p, 'courier');
+    expect(jobs.busy(p)).toBe(true);
+    expect(shops.act(p, { op: 'buy', item: 'teleport:0' }).text).toBe('Najprv dokonči zákazku.');
+    jobs.stop(p);
+    const v = drive(sim, p, tps[1]);
+    v.fire = 3;
+    expect(shops.act(p, { op: 'buy', item: 'teleport:0' }).ok).toBe(false);
+    expect(p.profile.money).toBe(10_000);
+    expect(dist(p.ped.x, p.ped.y, tps[1].x, tps[1].y)).toBeLessThan(13);
+    v.fire = -1;
+    expect(shops.act(p, { op: 'buy', item: 'teleport:0' }).ok).toBe(true);
+  });
+
+  it('a car needs room in the bay at the other end', () => {
+    const { sim, shops } = setup();
+    const p = player(sim, tps[3]);
+    const v = drive(sim, p, tps[3]);
+    const t = tps[6], ux = Math.cos(t.a), uy = Math.sin(t.a);
+    const blockers = [0, 6, -6, 12, -12].map((d) => sim.addVehicle(new Vehicle('van', t.x + ux * d, t.y + uy * d, t.a, '#eeeeee')));
+    expect(shops.act(p, { op: 'buy', item: 'teleport:6' }).ok).toBe(false);
+    expect(p.profile.money).toBe(10_000);
+    expect(dist(v.x, v.y, tps[3].x, tps[3].y)).toBeLessThan(13);
+    sim.removeVehicle(blockers[0]);
+    expect(shops.act(p, { op: 'buy', item: 'teleport:6' }).ok).toBe(true);
+    expect(dist(v.x, v.y, t.x, t.y)).toBeLessThan(1);
   });
 });
 

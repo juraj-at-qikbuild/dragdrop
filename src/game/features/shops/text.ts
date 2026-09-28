@@ -13,7 +13,13 @@ export const SHOP_KIND: Record<ShopKind, { name: string; about: string }> = {
   lawyer: { name: 'Advokát', about: 'Pri ďalšom zatknutí ťa JUDr. Paragraf zastúpi: hračky ti ostanú a pokutu zaplatíš polovičnú.' },
   tuning: { name: 'Dielňa', about: 'Lak s opravou, výkon, pancier, pneumatiky, nitro a neón. Úpravy patria autu: aby ti ostali, nechaj ho v garáži.' },
   garage: { name: 'Garáž', about: 'Auto, ktoré tu necháš, vyberieš v ktorejkoľvek svojej garáži, s lakom, úpravami aj škrabancami.' },
+  teleport: { name: 'Teleport', about: 'Metro Bratislava nemá, tak má teleport. Vyber si, kam chceš, a si tam: pešo, aj s autom, v ktorom sedíš.' },
 };
+
+/** how far a place is, as the teleport's list says it: "350 m", "2,4 km" */
+export function distanceLine(m: number): string {
+  return m < 975 ? `${Math.round(m / 50) * 50} m` : `${(Math.round(m / 100) / 10).toFixed(1).replace('.', ',')} km`;
+}
 
 /** the toys, as the shop names them (docs/plans/non-violent.md) */
 export const GUN_NAME: Record<Exclude<WeaponId, 'fist'>, string> = { pistol: 'Vodná pištoľ', uzi: 'Bublinkový samopal', shotgun: 'Konfetová brokovnica' };
