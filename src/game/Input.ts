@@ -9,8 +9,8 @@ export class Input {
   mouseDown = false;
   /** Touch controls: the left stick (screen-relative, [-1, 1]), the aim drag from the fire button
    *  (a unit vector once dragged far enough), the fire button held, and whether touch is what the
-   *  player last used (like `pad.active`). */
-  touch = { move: { x: 0, y: 0, on: false }, aim: { x: 0, y: 0, on: false }, fire: false, active: false };
+   *  player last used (like `pad.active`). `move.run`: the thumb is out past the stick's rim. */
+  touch = { move: { x: 0, y: 0, on: false, run: false }, aim: { x: 0, y: 0, on: false }, fire: false, active: false };
   /** held touch buttons, read by `down()`: 'gas', 'brake', 'handbrake', 'nitro', or a key code they
    *  stand in for (the horn's KeyH, push-to-talk) */
   touchButtons = new Set<string>();
@@ -101,7 +101,7 @@ export class Input {
   resetTouch() {
     const t = this.touch;
     t.move.x = t.move.y = t.aim.x = t.aim.y = 0;
-    t.move.on = t.aim.on = t.fire = false;
+    t.move.on = t.move.run = t.aim.on = t.fire = false;
     this.touchButtons.clear();
   }
 

@@ -11,7 +11,7 @@ describe('key names said the way the player plays', () => {
     expect(forDevice('Nastúp do kabíny električky – F pri jej čele.', 'touch')).toBe('Nastúp do kabíny električky – žlté tlačidlo pri jej čele.');
     expect(forDevice('postav sa na cestu a stlač B.', 'touch')).toBe('postav sa na cestu a ťukni na fialové tlačidlo.');
     expect(forDevice('Zvoň (H), odťahovka (B)', 'touch')).toBe('Zvoň (📣), odťahovka (fialové tlačidlo)');
-    expect(forDevice('Revízor ťa naháňa – bež (Shift)!', 'touch')).toBe('Revízor ťa naháňa – bež (páčka naplno)!');
+    expect(forDevice('Revízor ťa naháňa – bež (Shift)!', 'touch')).toBe('Revízor ťa naháňa – bež (palec za okraj kruhu)!');
   });
   it('names the pad buttons with a pad', () => {
     expect(forDevice('Najprv ukonči prácu (J).', 'pad')).toBe('Najprv ukonči prácu (krížik vľavo).');

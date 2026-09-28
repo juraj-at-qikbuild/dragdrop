@@ -586,6 +586,31 @@ export class Game {
     return null;
   }
 
+  /** Touch: the stick let go at a crawl over a mini-game's bay (a parking box, a stall: a mark with a
+   *  size), the car is drawn into it, lined up and stopped, as a thumb can't do to the half metre. */
+  private bayAssist(v: Vehicle, dt: number) {
+    const mini = this.host.live.mini;
+    if (!mini || mini.phase !== 'live' || !mini.marks || v.speed > 2.5 || v.spec.twoWheeler) return;
+    for (const m of mini.marks) {
+      if (!m.w || !m.h || m.dim || m.e !== undefined) continue;
+      const a = m.a ?? 0, c = Math.cos(a), sn = Math.sin(a);
+      const dx = v.x - m.x, dy = v.y - m.y;
+      if (Math.abs(dx * c + dy * sn) > m.w / 2 + 0.8 || Math.abs(-dx * sn + dy * c) > m.h / 2 + 0.8) continue;
+      // lined up with the bay (either way round), within a quarter turn or so of it
+      const off = Math.atan2(Math.sin(v.angle - a), Math.cos(v.angle - a));
+      const turn = Math.abs(off) > Math.PI / 2 ? off - Math.sign(off) * Math.PI : off;
+      if (Math.abs(turn) > 0.6) return;
+      const k = Math.min(1, dt * 1.6);
+      v.x -= dx * k;
+      v.y -= dy * k;
+      v.angle -= turn * k;
+      v.vx *= 1 - k;
+      v.vy *= 1 - k;
+      v.av *= 1 - k;
+      return;
+    }
+  }
+
   /** how unsteady the controls are, 0..1: a mini-game says so in its state (`x.wobble`: the punch
    *  crawl's punch, the heat; docs/plans/minigames.md) */
   wobble(): number {
@@ -781,6 +806,8 @@ export class Game {
         // touch: the stick points where to go ('direction') or steers ('classic'), see touchDrive.ts
         ({ throttle, steer } = touchDrive(this.driveControls, t.move, { gas: inp.touchButtons.has('gas'), brake: inp.touchButtons.has('brake') }, v, this.driveState, dt));
       }
+      // touch, let go at a crawl by a mini-game's bay: it settles into it
+      else if (inp.touch.active && !inp.touchButtons.size) this.bayAssist(v, dt);
       // a mini-game's wobble (the punch crawl, the heat): the wheel pulls one way and then the other
       const wob = this.wobble();
       if (wob) steer = Math.max(-1, Math.min(1, steer + wob * 0.55 * this.wobbleNoise()));
@@ -847,10 +874,11 @@ export class Game {
       ax.y = wy;
     }
     const len = Math.hypot(ax.x, ax.y);
-    // touch: the stick walks up to 85% of its throw and runs past it
+    // touch: the stick walks, at full pace from 85% of its throw, and runs with the thumb out past
+    // its rim (so a firm push doesn't sprint where running costs: the heat, a full bladder)
     const stick = inp.touch.move.on;
     // swimming: a third of walking pace, and no running
-    const run = swim ? SWIM_SPEED : inp.down('ShiftLeft', 'ShiftRight') || (stick && len > 0.85) ? 7.2 : 4.6;
+    const run = swim ? SWIM_SPEED : inp.down('ShiftLeft', 'ShiftRight') || (stick && inp.touch.move.run) ? 7.2 : 4.6;
     const push = stick ? Math.min(1, len / 0.85) : Math.min(1, len);
     let vx = len ? (ax.x / len) * run * push : 0;
     let vy = len ? (ax.y / len) * run * push : 0;
@@ -1017,6 +1045,24 @@ export class Game {
     this.host.throwToy(w, at.x, at.y);
   }
 
+  /** Touch: a tap on the city with a thrown toy in hand (an egg, a soap bomb…) throws it at that
+   *  spot, as far as it reaches (TouchControls). False when it can't be thrown now. */
+  throwAt(sx: number, sy: number): boolean {
+    const p = this.player, w = p.weapon, spec = WEAPONS[w];
+    if (!spec.thrown || this.state !== 'play' || this.paused || this.showMap || this.host.live.tram || this.swimT > 0) return false;
+    if (p.cooldown > 0 || this.ammo[w] <= 0) return false;
+    const from = p.vehicle ?? p;
+    const tx = this.cam.x + (sx - this.viewW / 2) / this.cam.scale, ty = this.cam.y + (sy - this.viewH / 2) / this.cam.scale;
+    const d = Math.hypot(tx - from.x, ty - from.y), k = d > spec.range ? spec.range / d : 1;
+    const at = { x: from.x + (tx - from.x) * k, y: from.y + (ty - from.y) * k };
+    if (!p.vehicle) p.angle = Math.atan2(ty - from.y, tx - from.x);
+    p.cooldown = spec.cd;
+    this.ammo[w]--;
+    this.rumble(0.15, 0.2, 60);
+    this.host.throwToy(w, at.x, at.y);
+    return true;
+  }
+
   /** trace a shot from (x, y) against what this client sees, and hand it to the world */
   private fireFrom(x: number, y: number, angle: number) {
     const p = this.player;
@@ -1082,10 +1128,24 @@ export class Game {
     }
   }
 
-  /** Gamepad vibration (when a pad is what the player is using). */
+  /** Gamepad vibration (when a pad is what the player is using), or the phone's own on a touch
+   *  screen (Android: the browser's vibrate, which has no strength, so a stronger one is longer;
+   *  iOS has none). The touch one can be turned off in the settings. */
   rumble(strong: number, weak: number, ms: number) {
     if (this.input.pad.active) this.input.rumble(strong, weak, ms);
+    else if (this.input.touch.active && this.haptics) {
+      const k = Math.max(strong, weak), now = performance.now();
+      // (not the faintest ones, and not more than every 70 ms: a hose of squirts would be one buzz)
+      if (k < 0.12 || now - this.buzzAt < 70 || typeof navigator === 'undefined' || !navigator.vibrate) return;
+      this.buzzAt = now;
+      navigator.vibrate(Math.round(clamp(ms * k * 0.5, 8, 45)));
+    }
   }
+  /** touch: vibrate the phone with rumble() (the settings' "Vibrácie") */
+  haptics = true;
+  private buzzAt = 0;
+  /** the frame rate the game is held to (main.ts: 30 in the settings' battery saver), 0 = the screen's */
+  fpsCap = 0;
 
   /** police siren and helicopter rotor loudness from the nearest unit */
   private updateAudio() {
@@ -1693,7 +1753,9 @@ export class Game {
     if (this.qualityPref === 'auto') {
       const g = this.governor;
       if (!hud || this.paused || this.showMap) g.skipFrames();
-      else if (ft) g.sample(ft);
+      // (held to 30 fps to save the battery: a frame counts at half, so only a device slower than
+      // that steps down)
+      else if (ft) g.sample(this.fpsCap ? ft * (this.fpsCap / 60) : ft);
       if (g.rung !== this.savedRung && g.settledFor > 20) this.saveAutoRung(g.rung);
       rung = g.current;
     } else rung = PINNED[this.qualityPref];

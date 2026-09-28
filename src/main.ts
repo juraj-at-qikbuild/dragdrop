@@ -142,9 +142,13 @@ async function boot() {
   if (game.touch) {
     const drive = setting<Game['driveControls']>('drive-controls', 'direction', (v): v is Game['driveControls'] => v === 'direction' || v === 'classic');
     const camera = setting<CameraPref>('camera', 'normal', (v): v is CameraPref => typeof v === 'string' && v in CAMERA_ZOOM);
+    const haptics = setting<boolean>('haptics', true, (v): v is boolean => typeof v === 'boolean');
+    const battery = setting<boolean>('battery-saver', false, (v): v is boolean => typeof v === 'boolean');
     game.driveControls = drive.get();
     game.zoomPref = CAMERA_ZOOM[camera.get()];
-    for (const cls of ['opt-drive', 'opt-camera']) {
+    game.haptics = haptics.get();
+    game.fpsCap = battery.get() ? 30 : 0;
+    for (const cls of ['opt-drive', 'opt-camera', 'opt-haptics', 'opt-battery']) {
       const b = document.createElement('button');
       b.className = cls;
       addPauseControl(b, { settings: true });
@@ -162,10 +166,29 @@ async function boot() {
     pauseKey('Partia', KEYS.party, true);
     const drives = document.querySelectorAll<HTMLButtonElement>('.opt-drive');
     const cams = document.querySelectorAll<HTMLButtonElement>('.opt-camera');
+    const buzzes = document.querySelectorAll<HTMLButtonElement>('.opt-haptics');
+    const savers = document.querySelectorAll<HTMLButtonElement>('.opt-battery');
     const show = () => {
       drives.forEach((b) => (b.textContent = `Riadenie auta: ${DRIVE_LABEL[game.driveControls]}`));
       cams.forEach((b) => (b.textContent = `Kamera: ${CAMERA_LABEL[camera.get()]}`));
+      buzzes.forEach((b) => (b.textContent = `Vibrácie: ${game.haptics ? 'zap.' : 'vyp.'}`));
+      savers.forEach((b) => (b.textContent = `Úspora batérie: ${game.fpsCap ? '30 fps' : 'vyp.'}`));
     };
+    buzzes.forEach((b) => {
+      b.onclick = () => {
+        game.haptics = !game.haptics;
+        haptics.set(game.haptics);
+        if (game.haptics) navigator.vibrate?.(20);
+        show();
+      };
+    });
+    savers.forEach((b) => {
+      b.onclick = () => {
+        game.fpsCap = game.fpsCap ? 0 : 30;
+        battery.set(!!game.fpsCap);
+        show();
+      };
+    });
     drives.forEach((b) => {
       b.onclick = () => {
         game.driveControls = game.driveControls === 'direction' ? 'classic' : 'direction';
@@ -472,6 +495,14 @@ async function boot() {
 
   let last = performance.now();
   const frame = (now: number) => {
+    // held to 30 fps: the attract mode behind the menu always (it only drifts), the game with the
+    // battery saver on (a frame is skipped until 1/30 s has passed, with a little slack for the
+    // screen's own timing)
+    const cap = mode === 'play' ? game.fpsCap : 30;
+    if (cap && now - last < 1000 / cap - 4) {
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
     game.frameNow = now;

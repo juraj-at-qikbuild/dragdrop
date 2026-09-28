@@ -155,3 +155,36 @@ describe('touch driving: classic', () => {
     expect(r.car.fwdSpeed).toBeGreaterThan(10);
   });
 });
+
+describe('touch driving: a gentle push', () => {
+  /** a push of `m` (0..1) toward `a` for `seconds`: the car's top speed forward and backward */
+  function gentle(a: number, m: number, seconds: number) {
+    const w = track();
+    const car = new Vehicle('sedan', 0, 0, 0, '#fff');
+    car.id = 7;
+    car.owner = 1;
+    const st = newDriveState();
+    let fwd = 0, back = 0;
+    for (let t = 0; t < seconds; t += dt) {
+      const c = touchDrive('direction', { x: Math.cos(a) * m, y: Math.sin(a) * m, on: true }, { gas: false, brake: false }, { id: car.id, angle: car.angle, fwdSpeed: car.fwdSpeed }, st, dt);
+      car.setControls(c.throttle, c.steer);
+      car.update(dt, w);
+      fwd = Math.max(fwd, car.fwdSpeed);
+      back = Math.max(back, -car.fwdSpeed);
+    }
+    return { car, fwd, back };
+  }
+  it('holds a crawl instead of speeding up', () => {
+    const r = gentle(0, 0.3, 6);
+    expect(r.fwd).toBeGreaterThan(0.8);
+    expect(r.fwd).toBeLessThan(4);
+  });
+  it('backs straight up when pointed behind, slowly, without turning round', () => {
+    const r = gentle(Math.PI, 0.35, 4);
+    expect(r.back).toBeGreaterThan(0.8);
+    expect(r.back).toBeLessThanOrEqual(3);
+    expect(r.car.x).toBeLessThan(-1);
+    // still facing the way it was: a reverse, not a K-turn
+    expect(Math.abs(wrap(r.car.angle))).toBeLessThan(0.3);
+  });
+});

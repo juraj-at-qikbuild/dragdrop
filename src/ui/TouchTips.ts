@@ -4,6 +4,7 @@
 // upright on its side, once a session.
 import type { Game } from '../game/Game';
 import { setting } from './kit/settings';
+import { WEAPONS, WEAPON_IDS } from '../shared/sim/Combat';
 import type { TouchControls } from './TouchControls';
 
 interface Tip {
@@ -16,11 +17,23 @@ interface Tip {
 }
 
 const TIPS: Tip[] = [
-  { id: 'stick', at: 'idle', when: (g) => !g.player.vehicle, text: () => 'Polož ľavý palec kamkoľvek vľavo a ťahaj. Potlačíš naplno = beh.' },
+  { id: 'stick', at: 'idle', when: (g) => !g.player.vehicle, text: () => 'Polož ľavý palec kamkoľvek vľavo a ťahaj. Palec za okraj kruhu = beh.' },
   { id: 'fire', at: 'fire', when: (g) => !g.player.vehicle, text: () => 'Podrž: strieka na najbližšieho. Ťahaj z tlačidla: mieriš sám.' },
   { id: 'map', at: 'map', when: (g) => !g.player.vehicle, text: () => 'Ťukni na minimapu: mapa mesta a navigácia. ⏸ pauza a nastavenia.' },
   { id: 'activities', at: 'activities', when: (g) => !g.player.vehicle && !!g.hud.activitiesRect, text: () => 'Ťukni na Aktivity: čo sa deje v meste a čo môžeš robiť – práca, závody, udalosti.' },
   { id: 'use', at: 'use', when: (g) => !g.player.vehicle && !!g.prompt()?.use, text: () => 'Ťukni: nastúpiš do auta (aj cudzieho).' },
+  {
+    id: 'wheel',
+    at: 'weapon',
+    when: (g) => !g.player.vehicle && WEAPON_IDS.filter((w) => g.ammo[w] > 0).length >= 3,
+    text: () => 'Podrž tlačidlo hračky: vyberieš si zo všetkých. Ťuknutie = ďalšia.',
+  },
+  {
+    id: 'throw',
+    at: 'fire',
+    when: (g) => !!WEAPONS[g.player.weapon].thrown,
+    text: () => 'Ťukni kamkoľvek do mesta a hodíš to tam. 💦 hodí na najbližšieho.',
+  },
   {
     id: 'car',
     at: 'nitro',
@@ -32,7 +45,7 @@ const TIPS: Tip[] = [
   },
 ];
 /** which tip a control's use finishes */
-const DONE_BY: Record<string, string> = { stick: 'stick', fire: 'fire', map: 'map', pause: 'map', activities: 'activities', use: 'use', brake: 'car', pedal: 'car' };
+const DONE_BY: Record<string, string> = { wheel: 'wheel', throw: 'throw', stick: 'stick', fire: 'fire', map: 'map', pause: 'map', activities: 'activities', use: 'use', brake: 'car', pedal: 'car' };
 /** seconds a tip stays up at most */
 const SHOW_FOR = 9;
 

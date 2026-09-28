@@ -487,6 +487,63 @@ button.primary:hover {
   background: rgba(10, 12, 18, 0.85);
   font-size: calc(24px * var(--ts));
 }
+/* the toy picker (hold the toy button): the toys with refills, in columns of four */
+.t-wheel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), max(48px, calc(56px * var(--ts))));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(10, 12, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  touch-action: none;
+}
+.t-wcell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: max(52px, calc(60px * var(--ts)));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  color: #fff;
+  font: 700 11px var(--font-body);
+}
+.t-wcell canvas {
+  display: block;
+}
+.t-wcell.on {
+  border-color: rgba(255, 214, 0, 0.6);
+}
+.t-wcell.hover {
+  background: rgba(255, 214, 0, 0.35);
+  border-color: var(--gold);
+}
+/* a thrown toy: a small arc in the corner */
+.t-wcell.thrown::after {
+  content: '↷';
+  position: absolute;
+  top: 1px;
+  right: 5px;
+  color: #ffd740;
+  font-size: 13px;
+}
+.t-wcell-name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  font-size: 9.5px;
+  color: #cfd8dc;
+}
 .t-tip {
   position: absolute;
   left: 0;

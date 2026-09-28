@@ -5,6 +5,9 @@
 // camera is north-up); the car steers there and speeds up by how far the stick is pushed. Pointed
 // behind the car, it turns around with a K-turn: back up slowly with the nose swinging toward the
 // stick, then drive off. BRAKE brakes, and after a moment standing still, reverses.
+// A gentle push (under half the way) is for parking: it holds a crawl, faster the further it's
+// pushed (up to 25 km/h), and pointed behind it backs up that way, tail first, with no K-turn and
+// no backing out on its own.
 // 'classic': the stick's x steers, GAS and BRAKE pedals (BRAKE reverses once stopped).
 import { clamp } from '../shared/util/math';
 
@@ -59,6 +62,11 @@ const REV_CAP = 2.5;
 const TURN_SPEED = 12;
 /** BRAKE at a standstill: seconds before it turns into reverse, so a stop can be held */
 const BRAKE_REVERSE_DELAY = 0.3;
+/** a push under this (of the throttle's range) is a precise one: a speed held, not a throttle */
+const PRECISE_K = 0.45;
+/** ...from this crawl (m/s) at the least push to this at PRECISE_K */
+const CRAWL = 1.2;
+const PRECISE_TOP = 7;
 
 export function newDriveState(): TouchDriveState {
   return { car: 0, gear: 'fwd', hold: 0, revT: 0, stuckT: 0, side: 0, stillT: 0 };
@@ -137,6 +145,20 @@ export function touchDrive(
     if (!st.side) st.side = Math.sign(diff) || 1;
     diff = st.side * turn;
   } else st.side = 0;
+
+  // a gentle push: a crawl toward where it points, backing straight up when that's behind
+  if (k < PRECISE_K) {
+    st.gear = 'fwd';
+    st.hold = st.revT = st.stuckT = 0;
+    const vt = CRAWL + ((PRECISE_TOP - CRAWL) * k) / PRECISE_K;
+    if (turn > K_ENTER) {
+      const back = -Math.min(vt, REV_CAP);
+      // (the tail leads: steer it toward the stick once rolling back, as BRAKE's reverse does)
+      const steer = v < -0.3 ? -clamp(wrap(want - car.angle - Math.PI) * 2, -1, 1) : 0;
+      return { throttle: clamp((back - v) * 0.6, -0.8, 0.8), steer };
+    }
+    return { throttle: clamp((vt - v) * 0.5, -0.6, 1), steer: steerToward(diff, v, 'fwd') };
+  }
 
   // the gear: a forced spell, the K-turn, the stuck checks
   if (st.hold > 0) {

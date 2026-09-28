@@ -12,7 +12,7 @@ const NAMES: Record<string, Record<Exclude<Device, 'keys'>, string>> = {
   H: { pad: 'X', touch: '📣' },
   J: { pad: 'krížik vľavo', touch: 'Aktivity' },
   U: { pad: 'krížik dole', touch: 'Aktivity' },
-  Shift: { pad: 'A', touch: 'páčka naplno' },
+  Shift: { pad: 'A', touch: 'palec za okraj kruhu' },
 };
 
 const PAREN = /\((B|F|H|J|U|Shift)(\s[^)]*)?\)/g;

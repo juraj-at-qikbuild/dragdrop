@@ -221,6 +221,7 @@ export class ClientEvents implements SimEvents {
       }
       case 'stars':
         g.hud.flashStars = 1.5;
+        g.rumble(0.5, 0.3, 90);
         break;
       case 'jingle':
         g.audio.jingle(e.good);

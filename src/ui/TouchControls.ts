@@ -6,7 +6,7 @@
 // `touchButtons`, one-shot key presses with `press`. Layout numbers come from src/ui/layout.ts.
 import type { Game } from '../game/Game';
 import type { WeaponId } from '../shared/entities/Ped';
-import { TOY_IDS, WEAPONS } from '../shared/sim/Combat';
+import { TOY_IDS, WEAPONS, WEAPON_IDS } from '../shared/sim/Combat';
 import { KEYS } from '../game/Input';
 import { isModalOpen } from './kit/dom';
 import { drawWeaponIcon } from './Hud';
@@ -22,7 +22,7 @@ type Ctx = 'off' | 'foot' | 'car-d' | 'car-c' | 'downed' | 'busted' | 'map' | 't
 interface Control {
   id: string;
   el: HTMLElement;
-  kind: 'press' | 'hold' | 'act' | 'fire' | 'pedal';
+  kind: 'press' | 'hold' | 'act' | 'fire' | 'pedal' | 'toy';
   code?: string;
   key?: string;
   act?: () => void;
@@ -34,8 +34,12 @@ interface Control {
 const STICK_R = 56;
 const DEAD = 0.12;
 const FOLLOW = 1.3;
+/** on foot the thumb this far out (of the base's radius) runs: past the rim, short of where it follows */
+const RUN_OVER = 1.08;
 /** a drag this far from the fire button (px at scale 1) aims by hand */
 const AIM_DRAG = 18;
+/** the toy button held this long (ms) opens the toy picker (a tap is the next toy) */
+const WHEEL_MS = 320;
 /** faster than this (m/s, about 15 km/h) getting out of a car is a hold of the use button, not a tap */
 const EXIT_SPEED = 4;
 /** ...held this long (ms) */
@@ -70,6 +74,12 @@ export class TouchControls {
   private exitHold = false;
   /** when the use button went down while `exitHold` (null: it isn't held) */
   private useHeldAt: number | null = null;
+  /** the toy button: when it went down (null: it isn't), and the picker it opens when held */
+  private toyAt: number | null = null;
+  private wheel: HTMLElement;
+  private wheelOn = false;
+  /** the picker's toy under the finger still sliding from the toy button */
+  private wheelHover: WeaponId | null = null;
   readonly tips: TouchTips;
 
   constructor(private g: Game) {
@@ -99,7 +109,7 @@ export class TouchControls {
     this.add('daily', 'press', '', { code: KEYS.daily, in: play, label: 'Kde to je?', cls: 't-hit' });
     this.add('activities', 'press', '', { code: KEYS.activities, in: play, label: 'Aktivity', cls: 't-hit' });
     this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Striekať', cls: 't-fire' });
-    this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Hračka', cls: 't-weapon' });
+    this.add('weapon', 'toy', '', { in: [...foot, ...car], label: 'Hračka (podrž: všetky)', cls: 't-weapon' });
     this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car, ...tram], label: '', cls: 't-use' });
     // a mini-game's action (docs/plans/minigames.md): shown with what it does, while there's one
     this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car, ...tram], label: '', cls: 't-use t-mini' });
@@ -127,6 +137,34 @@ export class TouchControls {
     weapon.append(this.weaponIcon, this.weaponAmmo);
     this.fireIcon = el('span', 't-fire-icon', '💦');
     this.byId.get('fire')!.el.append(this.fireIcon);
+
+    // the toy picker: every toy with refills in a grid by the toy button (hold it, slide, let go; or
+    // let go and tap one)
+    this.wheel = el('div', 't-wheel off');
+    this.wheel.setAttribute('role', 'listbox');
+    this.wheel.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const w = cellAt(e.clientX, e.clientY);
+      if (w) this.pickToy(w);
+    });
+    root.appendChild(this.wheel);
+    // a tap anywhere else closes it
+    document.addEventListener('pointerdown', (e) => {
+      if (this.wheelOn && !this.wheel.contains(e.target as Node) && this.pointers.get(e.pointerId) === undefined && !this.byId.get('weapon')!.el.contains(e.target as Node)) this.closeWheel();
+    }, { capture: true });
+
+    // a quick tap on the city itself (not a control, not the stick's side) with a thrown toy in hand
+    // throws it there
+    let tap: { id: number; x: number; y: number; t: number } | null = null;
+    g.canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' && (this.ctx === 'foot' || this.ctx === 'car-d' || this.ctx === 'car-c')) tap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() };
+    });
+    g.canvas.addEventListener('pointerup', (e) => {
+      const t = tap;
+      tap = null;
+      if (!t || t.id !== e.pointerId || performance.now() - t.t > 300 || Math.hypot(e.clientX - t.x, e.clientY - t.y) > 14) return;
+      if (g.throwAt(e.clientX, e.clientY)) this.tips.did('throw');
+    });
 
     this.tips = new TouchTips(g, this);
   }
@@ -188,11 +226,17 @@ export class TouchControls {
         case 'pedal':
           this.pedal(e);
           break;
+        case 'toy':
+          // a tap on it while the picker is open closes it; otherwise held long enough, it opens
+          if (this.wheelOn) this.closeWheel();
+          else this.toyAt = performance.now();
+          break;
       }
     });
     b.addEventListener('pointermove', (e) => {
       if (this.pointers.get(e.pointerId) !== c) return;
       if (c.kind === 'pedal') this.pedal(e);
+      else if (c.kind === 'toy' && this.wheelOn) this.hoverToy(cellAt(e.clientX, e.clientY));
       else if (c.kind === 'fire') {
         const dx = e.clientX - this.fireStart.x, dy = e.clientY - this.fireStart.y;
         const d = Math.hypot(dx, dy);
@@ -203,6 +247,11 @@ export class TouchControls {
     const up = (e: PointerEvent) => {
       if (!this.live(e) || this.pointers.get(e.pointerId) !== c) return;
       this.pointers.delete(e.pointerId);
+      // the toy button let go: a tap is the next toy; after the picker opened, the toy it's on
+      if (c.kind === 'toy' && e.type === 'pointerup') {
+        if (this.toyAt !== null && !this.wheelOn) inp.press('KeyQ');
+        else if (this.wheelOn && this.wheelHover) this.pickToy(this.wheelHover);
+      }
       this.release(c);
     };
     b.addEventListener('pointerup', up);
@@ -215,6 +264,7 @@ export class TouchControls {
     const inp = this.g.input;
     c.el.classList.remove('down');
     if (c.id === 'use') this.endExitHold();
+    if (c.kind === 'toy') this.toyAt = null;
     if (c.kind === 'hold') inp.touchButtons.delete(c.code!);
     else if (c.kind === 'fire') {
       inp.touch.fire = false;
@@ -224,6 +274,52 @@ export class TouchControls {
       inp.touchButtons.delete('brake');
       c.el.classList.remove('gas', 'brake');
     }
+  }
+
+  // ------------------------------------------------------------------------------------ the toy picker
+  private openWheel() {
+    const g = this.g;
+    const owned = WEAPON_IDS.filter((w) => g.ammo[w] > 0);
+    this.wheel.textContent = '';
+    for (const w of owned) {
+      const cell = el('div', `t-wcell${w === g.player.weapon ? ' on' : ''}${WEAPONS[w].thrown ? ' thrown' : ''}`);
+      cell.dataset.w = w;
+      cell.setAttribute('role', 'option');
+      cell.setAttribute('aria-label', WEAPONS[w].name);
+      cell.append(this.icon(w, 30), el('span', 't-wcell-n', w === 'fist' ? '∞' : String(g.ammo[w])), el('span', 't-wcell-name', WEAPONS[w].short));
+      this.wheel.appendChild(cell);
+    }
+    // up and to the left of the toy button, in columns of four
+    const b = this.byId.get('weapon')!.el.getBoundingClientRect();
+    const cols = Math.min(4, owned.length);
+    this.wheel.style.setProperty('--cols', String(cols));
+    this.wheel.classList.remove('off');
+    const r = this.wheel.getBoundingClientRect();
+    const x = Math.max(8, Math.min(innerWidth - r.width - 8, b.right - r.width));
+    const y = Math.max(8, b.top - r.height - 10);
+    this.wheel.style.transform = `translate(${x}px, ${y}px)`;
+    this.wheelOn = true;
+    this.wheelHover = null;
+    this.tips.did('wheel');
+  }
+
+  private hoverToy(w: WeaponId | null) {
+    if (w === this.wheelHover) return;
+    this.wheelHover = w;
+    for (const c of this.wheel.children) (c as HTMLElement).classList.toggle('hover', (c as HTMLElement).dataset.w === w);
+  }
+
+  private pickToy(w: WeaponId) {
+    const g = this.g;
+    if (g.ammo[w] > 0) g.player.weapon = w;
+    this.closeWheel();
+  }
+
+  private closeWheel() {
+    this.wheelOn = false;
+    this.wheelHover = null;
+    this.toyAt = null;
+    this.wheel.classList.add('off');
   }
 
   private endExitHold() {
@@ -287,6 +383,8 @@ export class TouchControls {
       d = Math.hypot(dx, dy);
     }
     const k = d > R ? R / d : 1;
+    // on foot, out past the rim runs (a push to the rim walks at full pace)
+    const run = this.ctx === 'foot' && d > R * RUN_OVER;
     let x = (dx * k) / R, y = (dy * k) / R;
     if (this.ctx === 'car-c') y = 0; // classic: the stick only steers
     this.knob.style.transform = `translate(${x * R}px, ${y * R}px)`;
@@ -298,8 +396,9 @@ export class TouchControls {
     t.x = x;
     t.y = y;
     t.on = true;
-    // on foot a full push runs: the knob lights up
-    this.knob.classList.toggle('run', this.ctx === 'foot' && Math.hypot(x, y) > 0.85);
+    t.run = run;
+    // running: the knob lights up
+    this.knob.classList.toggle('run', run);
     if (m > 0.5) this.tips.did('stick');
   }
 
@@ -307,7 +406,7 @@ export class TouchControls {
     this.stick.id = -1;
     const t = this.g.input.touch.move;
     t.x = t.y = 0;
-    t.on = false;
+    t.on = t.run = false;
     this.knob.style.transform = '';
     this.knob.classList.remove('run');
     this.root.classList.remove('sticking');
@@ -326,6 +425,7 @@ export class TouchControls {
       }
     }
     this.pointers.clear();
+    this.closeWheel();
     for (const c of this.controls) c.el.classList.remove('down', 'gas', 'brake');
     this.releaseStick();
     this.g.input.resetTouch();
@@ -405,6 +505,8 @@ export class TouchControls {
       // (the chip is drawn 22-32 px tall: its target is a fingertip's 44)
       if (acts) setRect(this.byId.get('activities')!.el, { x: acts.x, y: acts.y - Math.max(0, 44 - acts.h) / 2, w: acts.w, h: Math.max(44, acts.h) });
     }
+    // the toy button held: the picker
+    if (this.toyAt !== null && !this.wheelOn && performance.now() - this.toyAt >= WHEEL_MS) this.openWheel();
     // getting out while moving: held long enough, out
     if (this.useHeldAt !== null) {
       const k = (performance.now() - this.useHeldAt) / EXIT_HOLD_MS;
@@ -582,4 +684,10 @@ function capture(e: HTMLElement, id: number) {
   } catch {
     /* a script-made event */
   }
+}
+
+/** the toy picker's toy under a screen point, if any */
+function cellAt(x: number, y: number): WeaponId | null {
+  const e = document.elementFromPoint(x, y)?.closest<HTMLElement>('.t-wcell');
+  return (e?.dataset.w as WeaponId | undefined) ?? null;
 }
