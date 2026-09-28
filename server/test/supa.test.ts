@@ -49,6 +49,12 @@ describe('Supa (disabled)', () => {
 });
 
 describe('Supa: direct calls', () => {
+  it('accepts the empty 204 response from a PostgreSQL void RPC', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    const supa = new Supa('https://x.example', 'sb_secret_test', { fetch });
+    await expect(supa.rpc('analytics_ingest', { p_entries: [] })).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('select/patch/rpc hit the right URL and headers, apikey only (no Authorization: Bearer)', async () => {
     const { fn, calls } = fakeFetch({ status: 200, body: [] });
     const supa = new Supa('https://proj.supabase.co', 'sb_secret_abc123', { fetch: fn });

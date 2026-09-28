@@ -132,6 +132,7 @@ export class Supa {
   private async json<T>(op: string, subject: string, path: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<T> {
     const res = await this.request(path, init);
     if (!res.ok) throw await this.errorFor(op, subject, res);
+    if (res.status === 204) return undefined as T; // PostgreSQL void RPCs succeed without a JSON body
     return (await res.json()) as T;
   }
 
@@ -263,6 +264,7 @@ export class Supa {
 
 async function safeJson<T>(res: Response): Promise<Partial<T>> {
   try {
+    if (res.status === 204) return undefined as T; // PostgreSQL void RPCs succeed without a JSON body
     return (await res.json()) as T;
   } catch {
     return {};

@@ -135,11 +135,11 @@ export class Analytics implements RoomFeature {
         if (this.disposed) return;
         this.store.acknowledge(rows); this.retryMs = 1000; this.retryAt = 0;
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         this.failures++;
         this.retryAt = this.room.monotonicNow() + this.retryMs;
         this.retryMs = Math.min(60_000, this.retryMs * 2);
-        console.error('analytics upload failed; durable checkpoints retained');
+        console.error('analytics upload failed (' + (error instanceof Error ? error.name : 'unknown') + '); durable checkpoints retained');
       })
       .finally(() => { this.running = null; });
     return this.running;
