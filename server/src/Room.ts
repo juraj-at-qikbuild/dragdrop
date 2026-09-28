@@ -472,6 +472,7 @@ export class Room {
         this.drop(guest, true, 'claimed');
       }
       claimed = store.movePlayer(guestKey, acctKey);
+      if (claimed) for (const f of this.features) f.onClaim?.(guestKey, acctKey);
       store.deleteInvitesOf(guestKey); // the guest identity is gone either way: its invites must not outlive it
     }
     return { nick, claimed };
@@ -565,7 +566,7 @@ export class Room {
     this.send(c, {
       t: 'welcome', v: PROTOCOL_VERSION, id: p.id, ped: p.ped.id, nick: p.nick, look: p.look, x: p.ped.x, y: p.ped.y, lvl: p.ped.level,
       car: p.ped.vehicle?.id ?? 0, epoch: p.epoch, tickHz: TICK_HZ, st: this.wall(), clock: this.clockSync(), account: p.account, claimed, resumed,
-      caps: ['tram', 'mini'],
+      caps: ['tram', 'mini', 'analytics'],
     });
     this.send(c, { t: 'profile', money: p.profile.money, found: p.profile.found, cumils: p.profile.cumils, stats: p.profile.stats, gear: p.profile.gear ?? {} });
     // still on a tram (a reconnect): the new connection's client is told so again
@@ -1115,6 +1116,8 @@ export class Room {
   }
 
   /** wall clock, ms (timestamps, daily rollover) */
+  monotonicNow() { return this.now(); }
+
   wallNow() {
     return this.wall();
   }

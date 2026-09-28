@@ -42,7 +42,10 @@ export class Presence implements RoomFeature {
   constructor(private room: Room) {}
 
   readonly messages: FeatureHandlers = {
-    away: (s, m) => this.room.presence?.setAway(s.player, m.on === true),
+    away: (s, m) => {
+      for (const f of this.room.features) f.onAway?.(s, m.on === true);
+      this.room.presence?.setAway(s.player, m.on === true);
+    },
   };
 
   onHello(s: Session) {

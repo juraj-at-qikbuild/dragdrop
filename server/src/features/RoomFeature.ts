@@ -15,6 +15,8 @@ export interface RoomFeature {
   onHello?(s: Session, isNew: boolean, msg: HelloMsg): void;
   /** the socket closed; the session stays for the grace period */
   onLeave?(s: Session): void;
+  onAway?(s: Session, on: boolean): void;
+  onClaim?(from: string, to: string): void;
   /** the session is gone for good (grace expired, left, idle, deleted, claimed into an account) */
   onDrop?(s: Session, why: DropReason): void;
   /** a test-only `debug` message (Room.debug); Room handles the common fields itself and calls this

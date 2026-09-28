@@ -1,6 +1,8 @@
 /** Keyboard + mouse + gamepad + touch controls (src/ui/TouchControls.ts writes `touch`). */
 export class Input {
   keys = new Set<string>();
+  /** Monotonic input activity counter; never inferred from automated position reports. */
+  activity = 0;
   private pressed = new Set<string>();
   mouseX = 0;
   mouseY = 0;
@@ -26,6 +28,7 @@ export class Input {
   constructor(canvas: HTMLCanvasElement) {
     addEventListener('keydown', (e) => {
       const k = e.code;
+      if (!(e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)))) this.activity++;
       if (!this.keys.has(k)) this.pressed.add(k);
       this.keys.add(k);
       this.pad.active = false;
@@ -44,6 +47,7 @@ export class Input {
     // the player toward the tap. Pointer events say which device they came from.
     addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse') return;
+      if (e.clientX !== this.mouseX || e.clientY !== this.mouseY) this.activity++;
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
       if (!(e.buttons & 1)) this.mouseDown = false;
@@ -51,7 +55,7 @@ export class Input {
       this.touch.active = false;
     });
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'mouse' && e.button === 0) this.mouseDown = true;
+      if (e.pointerType === 'mouse' && e.button === 0) { this.mouseDown = true; this.activity++; }
     });
     addEventListener('pointerup', (e) => {
       if (e.pointerType === 'mouse' && !(e.buttons & 1)) this.mouseDown = false;
@@ -72,6 +76,7 @@ export class Input {
       (e) => {
         e.preventDefault();
         this.wheel -= Math.sign(e.deltaY);
+        this.activity++;
       },
       { passive: false },
     );
@@ -108,6 +113,7 @@ export class Input {
   }
 
   press(code: string) {
+    this.activity++;
     this.pressed.add(code);
   }
 
@@ -125,6 +131,10 @@ export class Input {
   /** Read the gamepad (call once a frame, before reading input). Buttons act as the keys they stand
    *  in for (PAD_PRESS on the press, PAD_HELD while held), sticks and triggers land in `pad`. */
   pollPad() {
+    const editable = document.activeElement instanceof HTMLElement &&
+      (document.activeElement.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    if (!editable && (this.keys.size || this.mouseDown || this.touchButtons.size || this.touch.fire ||
+      (this.touch.move.on && (this.touch.move.x || this.touch.move.y)) || this.touch.aim.on)) this.activity++;
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
     for (const g of pads) if (g && g.connected) (gp ??= g);
@@ -152,7 +162,7 @@ export class Input {
       if (!was && PAD_PRESS[i]) this.pressed.add(PAD_PRESS[i]);
       if (PAD_HELD[i]) this.padKeys.add(PAD_HELD[i]);
     });
-    if (any) P.active = true;
+    if (any) { P.active = true; this.activity++; }
   }
 
   /** Vibrate the pad (dual-rumble where the browser supports it): strong and weak motors 0..1. */

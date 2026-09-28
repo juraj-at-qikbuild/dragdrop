@@ -3,6 +3,7 @@ import { config } from '../config';
 import type { Room } from '../Room';
 import { Supa } from '../supa';
 import { Account } from './Account';
+import { Analytics } from './Analytics';
 import { Activity } from './Activity';
 import { Daily } from './Daily';
 import { Party } from './Party';
@@ -40,6 +41,7 @@ export function createFeatures(room: Room, opts: { supa?: Supa } = {}): RoomFeat
   out.push(new Race(room));
   out.push(new Jobs(room));
   out.push(new Presence(room));
+  out.push(new Analytics(room, supa));
   out.push(new Leaderboard(room));
   out.push(new Police(room));
   out.push(new Shops(room, remoteConfig));

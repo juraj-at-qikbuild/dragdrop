@@ -78,6 +78,8 @@ export interface HelloMsg {
   /** this client reports `away` and understands `bye: 'idle'` (older clients don't send it, and are
    *  never timed out for being idle) */
   presence?: boolean;
+  /** Input telemetry supported; duration is always measured by the server. */
+  analytics?: boolean;
 }
 
 /** WebRTC signalling relayed between two paired players (the server only checks who may talk to whom) */
@@ -128,6 +130,7 @@ export type ClientMsg =
    *  an away player shows as ⏸ and, when it's safe, can't be hurt (docs/plans/pause-resume.md). Sent
    *  only to a server whose welcome carried `resumed`. */
   | { t: 'away'; on: boolean }
+  | { t: 'activity' }
   // ---- social features (docs/plans/social-events.md)
   /** mint (or re-send) this player's party invite code */
   | { t: 'partyInvite' }

@@ -1,3 +1,4 @@
+import { EngagementPulse } from './engagement';
 // Online play: the world lives on the server. The client mirrors what the server sends (interpolated
 // ~100 ms in the past), simulates only the local player's own figure and car (colliding with the
 // mirrors), uploads that state 20× a second, and sends requests (enter a car, fire, …) the server grants.
@@ -68,6 +69,8 @@ export class NetSimHost implements SimHost, NetView {
   private pendingNick: string | null = null;
   /** the pause menu is open (Game.setPaused): told to the server, and again after every welcome */
   private away = false;
+  private analyticsSupported = false;
+  private engagement = new EngagementPulse();
   /** the server takes `away` (its welcome carried `resumed`; servers from before
    *  docs/plans/pause-resume.md don't, and get none) */
   serverPresence = false;
@@ -142,10 +145,13 @@ export class NetSimHost implements SimHost, NetView {
       claim: account && this.claimPending ? true : undefined,
       join,
       presence: true,
+      analytics: true,
     };
   }
 
   private onWelcome(w: WelcomeMsg, reconnect: boolean) {
+    this.analyticsSupported = w.caps?.includes('analytics') ?? false;
+    this.engagement.reset();
     // whether or not the server acted on it (see server/src/features/Party.ts): don't resend a join
     // code on the next reconnect
     try {
@@ -376,6 +382,8 @@ export class NetSimHost implements SimHost, NetView {
 
   update(dt: number) {
     this.conn.tick();
+    if (this.engagement.poll(performance.now(), this.game.input.activity, this.analyticsSupported && !this.away && !document.hidden && !this.game.paused))
+      this.conn.send({ t: 'activity' });
     const rt = this.renderTime();
     const game = this.game;
     const world = game.world;

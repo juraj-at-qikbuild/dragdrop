@@ -10,6 +10,7 @@ import type { MapJSON } from '../../src/shared/types';
 import { Store } from './db';
 import { SERVER_CAPS, scaleCaps } from '../../src/shared/sim/density';
 import { createSupabaseVerifier } from './auth';
+import { Analytics } from './features/Analytics';
 
 const t0 = performance.now();
 const world = new World(JSON.parse(readFileSync(config.mapPath, 'utf8')) as MapJSON);
@@ -130,6 +131,8 @@ async function shutdown(sig: string) {
   server.close();
   try {
     room.shutdown();
+    await room.feature<Analytics>('analytics')?.drain(3000);
+    room.feature<Analytics>('analytics')?.dispose();
     store.close();
   } catch (e) {
     console.error('shutdown failed', e);

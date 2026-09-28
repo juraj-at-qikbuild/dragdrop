@@ -8,6 +8,7 @@
 // 'acct:'+userId for a Supabase account. `server/src/Room.ts` computes the key; this module never
 // hashes a token itself (it only re-exports `hashToken` for Room and tests).
 import Database from 'better-sqlite3';
+import { AnalyticsStore, ANALYTICS_MIGRATION } from './analytics/AnalyticsStore';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -99,6 +100,7 @@ export const MIGRATIONS = [
   // what money buys (docs/plans/gameplay.md, Phase 2): clothes, garages and the cars in them, the
   // collection, a lawyer (JSON, checked field by field on load: shops/gear.ts cleanGear)
   `ALTER TABLE players ADD COLUMN gear TEXT NOT NULL DEFAULT '{}';`,
+  ANALYTICS_MIGRATION,
 ];
 
 /** a row of a leaderboard: the player key, their nickname (as saved with their profile, else as when
@@ -116,6 +118,7 @@ const SESSION_TTL_MS = RESUME_MS;
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export class Store {
+  readonly analytics: AnalyticsStore;
   private db: Database.Database;
   private q: ReturnType<Store['prepare']>;
 
@@ -127,6 +130,7 @@ export class Store {
     this.db.pragma('foreign_keys = ON');
     this.migrate();
     this.q = this.prepare();
+    this.analytics = new AnalyticsStore(this.db);
   }
 
   private migrate() {
