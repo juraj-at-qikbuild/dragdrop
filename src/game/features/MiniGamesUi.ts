@@ -30,6 +30,8 @@ export class MiniGamesUi implements ClientFeature {
   readonly id = 'minigames';
   /** the phase last seen, to mark the moment it starts or ends */
   private phase = '';
+  /** the objective box's width, as last drawn (the arrow keeps out from under the round's HUD) */
+  private boxW = 0;
 
   constructor(private g: Game) {}
 
@@ -82,13 +84,14 @@ export class MiniGamesUi implements ClientFeature {
       ctx.textBaseline = 'top';
       ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
       outlined(ctx, boardLine(s.board, g.host.net?.nick ?? ''), cx, y + 2, '#e0e0e0', 3);
+      y += small ? 16 : 19;
     }
     MINI_DRAW[s.kind]?.hud?.(ctx, s, g);
-    // the arrow to the target
+    // the arrow to the target, kept out from under all of the above
     const target = s.marks?.find((m) => m.arrow);
     if (target) {
       const at = this.markPos(target);
-      this.drawArrowTo(ctx, at.x, at.y, target.color ?? info.color);
+      this.drawArrowTo(ctx, at.x, at.y, target.color ?? info.color, { x0: cx - this.boxW / 2 - 16, x1: cx + this.boxW / 2 + 16, y1: y + 6 });
     }
     // what the action key does (on a touch screen, the violet button says it)
     const act = s.act;
@@ -111,6 +114,7 @@ export class MiniGamesUi implements ClientFeature {
     const bw = Math.min(maxW + fs * 2, g.viewW - L.padL * 2);
     const bh = lines.length * lh + fs * 1.1 + hh;
     const bx = L.band.cx - bw / 2;
+    this.boxW = bw;
     roundRect(ctx, bx, by, bw, bh, Math.min(12, bh / 2));
     const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
     grad.addColorStop(0, 'rgba(32,34,42,0.68)');
@@ -257,8 +261,9 @@ export class MiniGamesUi implements ClientFeature {
     ctx.globalAlpha = 1;
   }
 
-  /** the off-screen arrow (JobsHud's look) */
-  private drawArrowTo(ctx: CanvasRenderingContext2D, tx: number, ty: number, color: string) {
+  /** the off-screen arrow (JobsHud's look); `under`: the round's HUD at the top, which an arrow
+   *  pointing up would sit on (it goes just below it instead) */
+  private drawArrowTo(ctx: CanvasRenderingContext2D, tx: number, ty: number, color: string, under?: { x0: number; x1: number; y1: number }) {
     const g = this.g;
     const f = g.focus();
     const a = Math.atan2(ty - f.y, tx - f.x);
@@ -266,12 +271,17 @@ export class MiniGamesUi implements ClientFeature {
     const sx = g.viewW / 2 + (tx - g.cam.x) * g.cam.scale;
     const sy = g.viewH / 2 + (ty - g.cam.y) * g.cam.scale;
     const onScreen = inPlay(g.layout, sx, sy);
+    const e = edgePoint(g.layout, a), label = edgePoint(g.layout, a, 28);
+    if (under && e.x > under.x0 && e.x < under.x1 && e.y - 16 < under.y1) {
+      const dy = under.y1 + 16 - e.y;
+      e.y += dy;
+      label.y += dy;
+    }
     ctx.save();
     if (onScreen) {
       ctx.translate(sx, sy - 30 + Math.sin(g.time * 5) * 5);
       ctx.rotate(Math.PI / 2);
     } else {
-      const e = edgePoint(g.layout, a);
       ctx.translate(e.x, e.y);
       ctx.rotate(a);
     }
@@ -288,11 +298,10 @@ export class MiniGamesUi implements ClientFeature {
     ctx.stroke();
     ctx.restore();
     if (!onScreen) {
-      const e = edgePoint(g.layout, a, 28);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = `700 12px ${BODY}`;
-      outlined(ctx, `${Math.round(d)} m`, e.x, e.y, color);
+      outlined(ctx, `${Math.round(d)} m`, label.x, label.y, color);
     }
   }
 
