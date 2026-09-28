@@ -361,11 +361,13 @@ The tick runs every 50 ms, so the loop keeps its 20 Hz up to about 45 ms per tic
 share the same NPCs and cost less CPU, but each of them receives all the others (100 players together
 are about 5.6 MB/s out). Spread-out players each get their own slice of city, thinned by the governor.
 
-**`shared-cpu-1x` is enough for a handful of players, not for 100.** A shared-CPU Machine gets a baseline
-of 1/16 of a core (6.25%) and bursts above it only while it has a burst balance saved up (see Fly's
-[CPU performance](https://fly.io/docs/machines/cpu-performance/) page). One player uses about 4%. A busy
-evening drains the balance, and then Fly throttles the Machine to its baseline: ticks stretch, the governor
-drops to its floor, and NPCs thin out. For real load, switch `fly.toml` to a dedicated core:
+**Production runs `shared-cpu-2x` (1 GB), enough for a handful of players, not for 100.** A shared-CPU
+Machine gets a baseline of 1/16 of a core (6.25%) per vCPU and bursts above it only while it has a burst
+balance saved up (see Fly's [CPU performance](https://fly.io/docs/machines/cpu-performance/) page). One
+player costs about 3 ms a tick (6% of a core) with the mini-games in. A busy evening drains the balance,
+and then Fly throttles the Machine to its baseline: ticks stretch, the governor drops to its floor, and
+NPCs thin out. On 2026-09-28 `shared-cpu-1x` sat there, 93% CPU steal and 72 ms ticks, with nobody
+online, so it moved to `shared-cpu-2x`. For real load, switch `fly.toml` to a dedicated core:
 
 ```toml
 [[vm]]
