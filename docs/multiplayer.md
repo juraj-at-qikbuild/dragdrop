@@ -635,3 +635,35 @@ offline game; what changes is who simulates what.
   kind that decodes as a sedan or a message sent only when the welcome lists it.
 - **Test tools.** The test-only `debug` message can send trams to the stop nearest the player (`tram`),
   for the trams' end-to-end check (`scripts/e2e-trams.mjs`).
+
+## Mini-games
+
+The mini-games (*Minihry*) are planned and described in [plans/minigames.md](plans/minigames.md). Online
+they work like the trams and the shops: the rules are shared, the server decides.
+
+- **Shared code, server authority.** `src/shared/sim/rules/minigames/MiniGames.ts` is a `SimRule` the
+  server runs with the rest of the `Sim`; each game is a `MiniGame` in `games/`. A client asks with
+  `{ t: 'mini', op: 'start' | 'join' | 'leave' | 'go' | 'act', kind?, id? }`; `server/src/features/
+  MiniGames.ts` checks its shape (`isMiniReq`) and hands it to the rule, which checks everything else
+  (the player's state, a job, stars, the distance to the round, the player limit).
+- **What each player sees** is the private `mini` event (`MiniState`): the round, its phase and the
+  seconds left, the objective, a meter, a few numbers, marks, what the action key does, the standings,
+  the result. It's sent when it changes, checked four times a second, and at least every 2 s (the
+  countdown); `null` when the player is out of it. Everything the players must all see move (a ball,
+  a scan car, a tram, an inspector, a panel's depot) is a real entity in the snapshots; the marks are
+  only each player's own view.
+- **Rounds to join** ride along in `wev` as the optional `mg` (`MiniOpen[]`): rounds in their lobby, and
+  live ones of a game that takes latecomers. A change bumps the director's version, so `wev` goes out
+  within 150 ms; it's broadcast every second while there are any.
+- **News.** `miniOpen` (a player's lobby others could join, at most every 3 minutes a player) and
+  `miniResult` (a round two or more played) are global events for Rádio Kecy.
+- **Money and points.** A round pays through `sim.payout(…, 'minigame')` (at most €600 a player, not
+  split by parties: each player plays their own part) and scores on the `games` board (1 point per €5,
+  at most 20 awards an hour).
+- **Away.** A player in a live round others play isn't shielded in the pause menu (`allowShield`).
+- **Still protocol 7.** The welcome's `caps` lists `'mini'`, and a client sends `mini` only to a server
+  that does; the event kinds and `wev.mg` are ignored by clients from before. Client and server deploy in
+  either order.
+- **Test tools.** The test-only `debug` message's `mini` starts a round of that kind for the player
+  with its lobby cut short; `scripts/e2e-minigames.mjs` (part of `npm run e2e`, `E2E_MINI=0` leaves it
+  out) plays a round A starts and B joins.

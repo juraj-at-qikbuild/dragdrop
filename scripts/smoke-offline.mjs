@@ -408,6 +408,36 @@ try {
   } else check(false, 'walking into the Butik opens its panel');
   await page.evaluate(() => delete navigator.getGamepads);
 
+  // a mini-game (docs/plans/minigames.md): started from the Aktivity panel's Minihry section, a
+  // count-in alone, then live with its marks on the HUD; left again
+  {
+    await page.evaluate(() => {
+      const g = window.game;
+      const l = g.world.landmark('hviezdoslav');
+      const at = g.world.walkableNear(l.x, l.y);
+      if (g.player.vehicle) g.host.requestExit();
+      g.player.x = at.x;
+      g.player.y = at.y;
+      g.player.levelInit = false;
+    });
+    await sleep(300);
+    await page.keyboard.press('KeyU');
+    await sleep(500);
+    const started = await page.evaluate(() => {
+      const row = [...document.querySelectorAll('.kit-act-row.game')].find((li) => li.querySelector('.name')?.textContent === 'Súrna potreba');
+      const b = row && [...row.querySelectorAll('button')].find((x) => x.textContent.includes('Hrať'));
+      b?.click();
+      return !!b;
+    });
+    check(started, 'the Aktivity panel lists the mini-games with a button to play');
+    const live = await page.waitForFunction(() => window.game.host.live.mini?.phase === 'live', null, { timeout: 8000 }).then(() => true, () => false);
+    const st = await page.evaluate(() => window.game.host.live.mini);
+    check(live && st?.kind === 'toilet' && (st.marks?.length ?? 0) >= 2 && st.bar?.label === 'Mechúr', `Súrna potreba goes live alone, with the toilets marked (${st?.marks?.length ?? 0} marks)`);
+    await page.evaluate(() => window.game.host.mini({ op: 'leave' }));
+    await sleep(200);
+    check(await page.evaluate(() => window.game.host.live.mini === null), 'leaving the mini-game ends it');
+  }
+
   // persistence
   const saved = await page.evaluate(() => {
     window.game.persist();
