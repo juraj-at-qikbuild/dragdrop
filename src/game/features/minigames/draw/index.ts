@@ -5,6 +5,8 @@ import type { Game } from '../../../Game';
 import type { View } from '../../../../world/Renderer';
 import type { ToScreen } from '../../ClientFeature';
 import type { MiniKind, MiniState } from '../../../../shared/sim/rules/minigames/types';
+import { FLOOD_DRAW } from './flood';
+import { HEAT_DRAW } from './heat';
 
 export interface MiniDrawer {
   /** in the city (the world transform is set), under the marks */
@@ -16,5 +18,7 @@ export interface MiniDrawer {
 }
 
 export const MINI_DRAW: Partial<Record<MiniKind, MiniDrawer>> = {
+  flood: FLOOD_DRAW,
+  heat: HEAT_DRAW,
   // each game adds its line here …
 };
