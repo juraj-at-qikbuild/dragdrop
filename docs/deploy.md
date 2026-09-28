@@ -166,8 +166,8 @@ npm run db:push   # npx supabase db push
 
 `db:link` is pinned to the project in `package.json`; re-run it if the repo ever points at a different
 Supabase project. A schema change is a **new**, timestamped migration file
-(`npx supabase migration new <name>`) — never an edit to one that's already been applied. The one
-that's there today is `supabase/migrations/20260926110000_social_events.sql`.
+(`npx supabase migration new <name>`) — never an edit to one that's already been applied. The ones
+there today are `20260926110000_social_events.sql` and `20260928125947_contact_messages.sql`.
 
 ### Auth dashboard setup
 
@@ -190,6 +190,24 @@ redirect URLs included), and that command would overwrite the hosted project's s
   fine for testing, not for real signups. Set up Resend, Postmark, SES or similar under
   **Settings → Auth → SMTP** before announcing the game.
 - **Optional: Turnstile**, under **Bot and Abuse Protection**, if signups start attracting abuse.
+
+### Contact form (edge function)
+
+The main menu's **Napísať nám** (`src/ui/ContactUi.ts`) posts to the Edge Function
+`supabase/functions/contact`. It saves every message in `public.contact_messages`, then e-mails it
+through Resend from `kontakt@gta-sk.fun`, with the player's e-mail (if they gave one) as Reply-To. It
+runs with `verify_jwt = false` (guests have no JWT) and guards itself: an origin allow-list in the
+function, a honeypot field, 5 messages per IP per hour and 200 per day overall. The button only shows
+when the frontend has the two `VITE_SUPABASE_*` vars.
+
+```bash
+npx supabase functions deploy contact --project-ref eejvrdvzteyrwlhjfnfx
+npx supabase secrets set RESEND_API_KEY=re_... CONTACT_TO=you@example.com --project-ref eejvrdvzteyrwlhjfnfx
+```
+
+The Resend key needs sending access for the `gta-sk.fun` domain. Without the secrets, messages still
+land in the table with `emailed = false`, and the function logs that the secrets are missing. A new
+frontend origin has to be added to `ORIGINS` in the function.
 
 ### TURN setup and cost
 

@@ -19,6 +19,7 @@ import { markIntro } from './game/features/onboarding/seen';
 import {
   completePasswordReset, consumeClaimPending, continueOnline, hasOnlineIdentity, offerClaimAndGoOnline, openChooser, resolveOnlineIdentity, wireAccountPauseControls,
 } from './ui/AccountUi';
+import { wireContactButton } from './ui/ContactUi';
 
 const $ = (id: string) => document.getElementById(id)!;
 const QUALITY_KEY = 'blava-city-quality';
@@ -269,6 +270,7 @@ async function boot() {
     $('panel-credits').classList.toggle('hidden');
     $('panel-controls').classList.add('hidden');
   };
+  wireContactButton($('btn-contact'));
   $('btn-resume').onclick = () => game.setPaused(false);
   $('btn-mute').onclick = () => {
     game.audio.setMuted(!game.audio.muted);

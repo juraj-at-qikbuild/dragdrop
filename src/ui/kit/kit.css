@@ -21,7 +21,8 @@
   color: #b0bec5;
   margin-bottom: 4px;
 }
-.kit-field input {
+.kit-field input,
+.kit-field textarea {
   width: 100%;
   font: inherit;
   font-family: var(--font-body);
@@ -34,9 +35,24 @@
   user-select: text;
   -webkit-user-select: text;
 }
-.kit-field input:focus {
+.kit-field textarea {
+  display: block;
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.4;
+}
+.kit-field input:focus,
+.kit-field textarea:focus {
   outline: none;
   border-color: rgba(255, 214, 0, 0.6);
+}
+/* a form's honeypot field (src/ui/ContactUi.ts): there for bots, never seen or reached by people */
+.kit-trap {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 button.danger {
