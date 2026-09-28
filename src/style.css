@@ -514,7 +514,7 @@ button.primary:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: max(52px, calc(60px * var(--ts)));
+  height: max(62px, calc(66px * var(--ts)));
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.06);
   border: 2px solid transparent;

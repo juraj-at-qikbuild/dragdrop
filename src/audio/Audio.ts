@@ -30,6 +30,11 @@ export class Audio {
   private rotorFilter!: BiquadFilterNode;
   private rotorGain!: GainNode;
 
+  /** hush everything until the next init() (the page hidden) */
+  suspend() {
+    if (this.ctx?.state === 'running') void this.ctx.suspend().catch(() => {});
+  }
+
   init() {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume();

@@ -6,6 +6,14 @@
     <title>GTA SK</title>
     <meta name="description" content="Top-down open-world mischief game on the real streets of Bratislava, built from OpenStreetMap data: water pistols, bubbles and confetti, and nobody gets hurt." />
     <link rel="icon" href="./assets/erb.svg" type="image/svg+xml" />
+    <!-- installable (Android: fullscreen, sideways) and a home-screen app on an iPhone: src/ui/platform.ts -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#0e0f12" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GTA SK" />
+    <link rel="apple-touch-icon" href="./icons/icon-180.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
@@ -50,6 +58,7 @@
             <button class="opt-camera">Kamera: normálna</button>
             <button class="opt-haptics">Vibrácie: zap.</button>
             <button class="opt-battery">Úspora batérie: vyp.</button>
+            <button class="opt-fullscreen">Celá obrazovka: zap.</button>
             <button id="btn-tips">Zobraziť tipy znova</button>
             <p class="hint small">Smer: páčkou ukážeš, kam má auto ísť, a rozbehne sa samo; ukáž dozadu a otočí sa. Klasické: páčkou zatáčaš, vpravo plyn a brzda.</p>
           </div>

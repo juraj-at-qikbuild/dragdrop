@@ -215,12 +215,52 @@ try {
     check(!!w1, `the weapon button switches weapons (${w0} → ${w1})`);
   }
 
+  // held, the toy button opens the picker: slide onto a toy, let go, it's in hand
+  {
+    await page.evaluate(() => {
+      const g = window.game;
+      Object.assign(g.ammo, { pistol: 20, uzi: 30, egg: 3 });
+      g.player.weapon = 'pistol';
+    });
+    const wb = await centre(page, 'weapon');
+    await fingers.start(4, wb.x, wb.y);
+    const open = await until(page, () => !document.querySelector('.t-wheel').classList.contains('off'), null, 2000);
+    const cell = await page.evaluate(() => {
+      const r = document.querySelector('.t-wcell[data-w="uzi"]')?.getBoundingClientRect();
+      return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    });
+    await shot(page, 'land-toys');
+    if (cell) {
+      await fingers.move(4, (wb.x + cell.x) / 2, (wb.y + cell.y) / 2);
+      await fingers.move(4, cell.x, cell.y);
+    }
+    await fingers.end(4);
+    const w = await until(page, () => window.game.player.weapon === 'uzi' && document.querySelector('.t-wheel').classList.contains('off') && 'uzi');
+    check(!!open && !!w, `holding the toy button opens the picker, and letting go on a toy takes it (${w})`);
+  }
+
+  // a tap on the city with a thrown toy in hand throws it there
+  {
+    await page.evaluate(() => {
+      const g = window.game;
+      g.player.weapon = 'egg';
+      g.player.cooldown = 0;
+    });
+    const vp = page.viewportSize();
+    const eggs0 = await page.evaluate(() => window.game.ammo.egg);
+    await fingers.tap(Math.round(vp.width * 0.62), Math.round(vp.height * 0.3));
+    const eggs1 = await until(page, (e0) => window.game.ammo.egg < e0 && window.game.ammo.egg, eggs0);
+    check(eggs1 !== null && eggs1 !== undefined && eggs1 !== false, `a tap on the city throws the egg in hand (${eggs0} → ${eggs1})`);
+    await page.evaluate(() => (window.game.player.weapon = 'pistol'));
+  }
+
   // up to a parked car: the use button says what it does, and gets in
   {
     await page.evaluate(() => {
       const g = window.game, p = g.player;
       let best = null, bd = 1e9;
-      for (const v of g.vehicles) if (!v.driver && v.parked && !v.wrecked) {
+      // (a car: a parked bike or scooter says "Nasadnúť" and has no pedals)
+      for (const v of g.vehicles) if (!v.driver && v.parked && !v.wrecked && !v.spec.twoWheeler && !v.spec.boat) {
         const d = Math.hypot(v.x - p.x, v.y - p.y);
         if (d < bd) (bd = d), (best = v);
       }
@@ -283,6 +323,16 @@ try {
     const after = await page.evaluate(() => ({ a: window.game.player.vehicle.angle, v: window.game.player.vehicle.fwdSpeed }));
     await fingers.end(1);
     check(turned !== null && turned !== undefined, `a stick pointed back turns the car around (heading ${after.a.toFixed(2)}, ${after.v.toFixed(1)} m/s)`);
+    // moving, the use button gets out only when held: a tap leaves the player driving
+    await fingers.start(1, sx, sy);
+    await fingers.move(1, sx + 80, sy);
+    const moving = await until(page, () => window.game.player.vehicle.speed > 5 && document.querySelector('#touch [data-id="use"]').textContent, null, 6000);
+    const ub = await centre(page, 'use');
+    if (ub) await fingers.tap(ub.x, ub.y);
+    await sleep(300);
+    const still = await page.evaluate(() => !!window.game.player.vehicle);
+    await fingers.end(1);
+    check(/Podrž/.test(moving || '') && still, `moving, the use button asks for a hold and a tap doesn't get out ("${moving}")`);
     // BRAKE stops it
     await stickFor(page, fingers, 80, 0, 1200);
     const bb = await centre(page, 'brake');
@@ -415,6 +465,20 @@ try {
     check(!!(await until(p, () => !window.game.paused && document.getElementById('touch').dataset.ctx === 'foot')), '"Hrať!" goes on to the game, controls and all');
     check(errors.length === 0, 'no page errors (the introduction)' + (errors.length ? '\n' + errors.join('\n') : ''));
     await ctx.close();
+  }
+
+  // ------------------------------------------------------------------ a 4-inch phone on its side
+  {
+    const se = await boot(browser, devices['iPhone SE landscape'], 'small phone');
+    await sleep(500);
+    await shot(se.page, 'se-foot');
+    const walked = await stickFor(se.page, se.fingers, 25, -40, 1200);
+    check(walked > 1, `small phone: the stick walks (${walked.toFixed(1)} m)`);
+    // every round control there is a fingertip's size
+    const small = await se.page.evaluate(() => [...document.querySelectorAll('#touch .t-btn:not(.off):not(.t-hit)')].map((e) => e.getBoundingClientRect()).filter((r) => r.width && Math.min(r.width, r.height) < 43.5).length);
+    check(small === 0, `small phone: no control under 44 px (${small})`);
+    check(se.errors.length === 0, 'no page errors (small phone)' + (se.errors.length ? '\n' + se.errors.join('\n') : ''));
+    await se.ctx.close();
   }
 
   // ------------------------------------------------------------------ upright

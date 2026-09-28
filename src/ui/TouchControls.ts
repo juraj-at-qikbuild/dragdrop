@@ -299,7 +299,7 @@ export class TouchControls {
       cell.dataset.w = w;
       cell.setAttribute('role', 'option');
       cell.setAttribute('aria-label', WEAPONS[w].name);
-      cell.append(this.icon(w, 30), el('span', 't-wcell-n', w === 'fist' ? '∞' : String(g.ammo[w])), el('span', 't-wcell-name', WEAPONS[w].short));
+      cell.append(this.iconCopy(w, 30), el('span', 't-wcell-n', w === 'fist' ? '∞' : String(g.ammo[w])), el('span', 't-wcell-name', WEAPONS[w].short));
       this.wheel.appendChild(cell);
     }
     // up and to the left of the toy button, in columns of four
@@ -583,6 +583,18 @@ export class TouchControls {
       }
     }
     this.tips.update();
+  }
+
+  /** a toy's icon of its own (a canvas can only be in one place: the cached one is the toy button's) */
+  private iconCopy(w: WeaponId, s: number): HTMLCanvasElement {
+    const src = this.icon(w, s);
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    c.style.width = src.style.width;
+    c.style.height = src.style.height;
+    c.getContext('2d')?.drawImage(src, 0, 0);
+    return c;
   }
 
   private icon(w: WeaponId, s = 30): HTMLCanvasElement {

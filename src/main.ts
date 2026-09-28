@@ -9,6 +9,7 @@ import { goToMenu, markOnline, parseBootLinks } from './boot/links';
 import { askNick } from './ui/askNick';
 import { addPauseControl, openModal, setPauseOnline, toast } from './ui/kit/dom';
 import { setting } from './ui/kit/settings';
+import { enterFullscreen, isIPhone, standalone, WakeLock } from './ui/platform';
 import { KEYS } from './game/Input';
 import { handleAuthCallback, hasStoredSession, markPasswordResetPending } from './net/auth';
 import { continueNote, loadLastPlayed, noteOffline, noteOnline } from './net/lastSession';
@@ -39,6 +40,11 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
 async function boot() {
   const canvas = $('game') as HTMLCanvasElement;
+  /** touch: go fullscreen (sideways) when a game starts or resumes (the settings' "Celá obrazovka"),
+   *  and whether the next tap in the game should (set on a start or a resume; one try each) */
+  let fullPref = true;
+  let wantFull = false;
+  const wake = new WakeLock();
   let data: MapJSON;
   try {
     const res = await fetch(new URL('data/bratislava.json', document.baseURI));
@@ -144,11 +150,13 @@ async function boot() {
     const camera = setting<CameraPref>('camera', 'normal', (v): v is CameraPref => typeof v === 'string' && v in CAMERA_ZOOM);
     const haptics = setting<boolean>('haptics', true, (v): v is boolean => typeof v === 'boolean');
     const battery = setting<boolean>('battery-saver', false, (v): v is boolean => typeof v === 'boolean');
+    const full = setting<boolean>('fullscreen', true, (v): v is boolean => typeof v === 'boolean');
+    fullPref = full.get();
     game.driveControls = drive.get();
     game.zoomPref = CAMERA_ZOOM[camera.get()];
     game.haptics = haptics.get();
     game.fpsCap = battery.get() ? 30 : 0;
-    for (const cls of ['opt-drive', 'opt-camera', 'opt-haptics', 'opt-battery']) {
+    for (const cls of ['opt-drive', 'opt-camera', 'opt-haptics', 'opt-battery', 'opt-fullscreen']) {
       const b = document.createElement('button');
       b.className = cls;
       addPauseControl(b, { settings: true });
@@ -168,12 +176,24 @@ async function boot() {
     const cams = document.querySelectorAll<HTMLButtonElement>('.opt-camera');
     const buzzes = document.querySelectorAll<HTMLButtonElement>('.opt-haptics');
     const savers = document.querySelectorAll<HTMLButtonElement>('.opt-battery');
+    const fulls = document.querySelectorAll<HTMLButtonElement>('.opt-fullscreen');
     const show = () => {
       drives.forEach((b) => (b.textContent = `Riadenie auta: ${DRIVE_LABEL[game.driveControls]}`));
       cams.forEach((b) => (b.textContent = `Kamera: ${CAMERA_LABEL[camera.get()]}`));
       buzzes.forEach((b) => (b.textContent = `Vibrácie: ${game.haptics ? 'zap.' : 'vyp.'}`));
       savers.forEach((b) => (b.textContent = `Úspora batérie: ${game.fpsCap ? '30 fps' : 'vyp.'}`));
+      fulls.forEach((b) => (b.textContent = `Celá obrazovka: ${fullPref ? 'zap.' : 'vyp.'}`));
     };
+    fulls.forEach((b) => {
+      // (nothing to switch where the page can't go fullscreen: an iPhone, or opened from the home screen)
+      if (standalone() || !document.documentElement.requestFullscreen) b.classList.add('hidden');
+      b.onclick = () => {
+        fullPref = !fullPref;
+        full.set(fullPref);
+        if (!fullPref && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+        show();
+      };
+    });
     buzzes.forEach((b) => {
       b.onclick = () => {
         game.haptics = !game.haptics;
@@ -248,6 +268,7 @@ async function boot() {
   /** `welcome`: online, the first message (see onlineWelcome) */
   const startGame = (fresh: boolean, welcome?: Welcome) => {
     game.audio.init();
+    if (game.touch && fullPref) (wantFull = true), void enterFullscreen();
     if (fresh) {
       // starting over: they've played before, so the new game starts without the introduction
       markIntro('offline');
@@ -314,7 +335,10 @@ async function boot() {
     $('panel-controls').classList.add('hidden');
   };
   wireContactButton($('btn-contact'));
-  $('btn-resume').onclick = () => game.setPaused(false);
+  $('btn-resume').onclick = () => {
+    game.setPaused(false);
+    if (game.touch && fullPref) (wantFull = true), void enterFullscreen();
+  };
   // the pause menu's settings and controls: views of their own, so the menu itself stays short. The
   // controls are the main menu's own panel, borrowed while the view is open (the main menu is hidden)
   const pauseTitle = document.querySelector('#pause h2');
@@ -513,6 +537,7 @@ async function boot() {
     }
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
+    wake.set(mode === 'play' && !game.paused && !document.hidden);
     game.frameNow = now;
     if (mode === 'play') {
       game.update(dt);
@@ -543,6 +568,8 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       if (mode === 'play') game.setPaused(true);
+      // (a phone's home screen: no radio playing on under it; the next tap back in wakes it)
+      game.audio.suspend();
     } else if (game.host instanceof NetSimHost) game.host.retryNow();
   });
   addEventListener('online', () => {
@@ -560,6 +587,21 @@ async function boot() {
   addEventListener('pointerdown', unlock);
   // iOS only counts the end of a touch as the gesture that may start audio
   addEventListener('pointerup', unlock);
+  // a game that started without a tap (a new game reloads the page): fullscreen at the first one
+  addEventListener('pointerup', () => {
+    if (!wantFull && mode === 'play' && game.touch && fullPref && !fullTried) (fullTried = true), (wantFull = true);
+    if (!wantFull || mode !== 'play') return;
+    wantFull = false;
+    void enterFullscreen();
+  });
+  let fullTried = false;
+  // on an iPhone the page can't go fullscreen: from the home screen it opens without the browser's bars
+  if (game.touch && isIPhone() && !standalone()) {
+    const p = document.createElement('p');
+    p.className = 'hint small ios-home';
+    p.textContent = '📲 Na celú obrazovku: v Safari Zdieľať → Pridať na plochu, a hraj odtiaľ.';
+    document.querySelector('#menu .menu-card')?.appendChild(p);
+  }
 
   if (onlineBoot) {
     showMenu();
