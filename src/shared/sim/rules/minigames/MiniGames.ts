@@ -275,7 +275,7 @@ export class MiniGames implements SimRule {
       if (pay > 0) sim.payout(p, pay, 'minigame', f.x, f.y);
       const pts = o.points ?? miniPoints(pay);
       if (pts > 0) sim.score(p, pts, 'minigame', f.x, f.y);
-      const place = group && !coop ? ranked.indexOf(p) + 1 : undefined;
+      const place = group && !coop ? g.placeOf(p) : undefined;
       r.results.set(p.id, { text: o.text, pay, place });
       sim.events.toPlayer(p.id, { k: 'jingle', good: pay > 0 });
       const stats = (p.profile.stats ??= {});
@@ -283,7 +283,7 @@ export class MiniGames implements SimRule {
     }
     if (group) {
       const best = ranked[0];
-      const won = coop ? (g.outcomeOf(best)?.pay ?? 0) > 0 : true;
+      const won = coop ? (g.won ?? (g.outcomeOf(best)?.pay ?? 0) > 0) : true;
       sim.events.global({ k: 'miniResult', kind: r.kind, winner: coop ? undefined : best?.nick, n: r.players.length, won, x: r.x, y: r.y });
     }
     this.changed();

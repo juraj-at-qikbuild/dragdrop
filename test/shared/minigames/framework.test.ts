@@ -211,6 +211,32 @@ describe('mini-games: a round with others (online)', () => {
     expect(news).toMatchObject({ k: 'miniResult', kind: 'toilet', winner: 'Jana', n: 2, won: true });
   });
 
+  it('players on the same points share a place', () => {
+    const s = setupMini(1, 'server');
+    class Tie extends MiniGame {
+      start() {
+        for (const p of this.players) {
+          this.addPoints(p, 5);
+          this.outcome(p, { pay: 10, text: 'Remíza' });
+        }
+        this.finish();
+      }
+      update() {}
+      view() {
+        return { goal: '' };
+      }
+    }
+    s.mini.register({ kind: 'toilet', create: (sim, round) => new Tie(sim, round) });
+    const a = addPlayer(s.sim, 'main', 'Fero');
+    const b = addPlayer(s.sim, 'main', 'Jana');
+    const r = s.mini.start(a, 'toilet')!;
+    s.mini.join(b, r.id);
+    s.mini.go(a);
+    run(s.sim, LOBBY_SOLO_S + 0.3);
+    expect(lastMini(s.priv, a.id)?.result?.place).toBe(1);
+    expect(lastMini(s.priv, b.id)?.result?.place).toBe(1);
+  });
+
   it('keeps out whoever is too far, and anyone once it is full', () => {
     const s = withTestGame('server');
     const a = addPlayer(s.sim, 'main', 'Fero');

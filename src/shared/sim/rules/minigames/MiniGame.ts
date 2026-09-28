@@ -50,6 +50,9 @@ export abstract class MiniGame {
   late = false;
   /** how the round went: set by finish() */
   over = false;
+  /** a team game (`coop` in the catalog): whether the team made it, for the news. Unset, a team that
+   *  got paid made it — a game with a consolation prize says so itself */
+  won?: boolean;
   /** points per player id: the standings (board()), and the place in a group round */
   protected points = new Map<number, number>();
   private outcomes = new Map<number, MiniOutcome>();
@@ -134,9 +137,11 @@ export abstract class MiniGame {
     return [...this.round.players].sort((a, b) => this.pointsOf(b) - this.pointsOf(a));
   }
 
-  /** `p`'s place in the standings (1 = first) */
+  /** `p`'s place in the standings (1 = first; players on the same points share a place). A team game
+   *  overrides it: everyone on the winning team is first. */
   placeOf(p: SimPlayer) {
-    return this.ranked().indexOf(p) + 1;
+    const mine = this.pointsOf(p);
+    return 1 + this.round.players.filter((q) => this.pointsOf(q) > mine).length;
   }
 
   /** the standings for the HUD: [nick, points], best first (none alone) */

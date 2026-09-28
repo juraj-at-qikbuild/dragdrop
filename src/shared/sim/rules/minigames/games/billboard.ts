@@ -382,6 +382,14 @@ class Billboard extends MiniGame {
     this.finish();
   }
 
+  /** everyone on the winning campaign is first (a draw: both are), the other one second */
+  placeOf(p: SimPlayer): number {
+    const s = this.state.get(p.id);
+    const [a, b] = this.held();
+    if (!s || a === b) return 1;
+    return (a > b ? 0 : 1) === s.team ? 1 : 2;
+  }
+
   /** the standings are the campaigns': how many spots each holds */
   board(): [string, number][] {
     const [a, b] = this.held();
