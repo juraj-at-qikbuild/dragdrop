@@ -24,6 +24,7 @@ import { Atmosphere } from '../world/Atmosphere';
 import { LightLayer } from '../world/Lighting';
 import { Weather } from '../world/Weather';
 import { PostFX } from '../render/PostFX';
+import { QualityGovernor, autoLadder, type Rung } from './QualityGovernor';
 import { drawNametags } from '../render/nametags';
 import { ROSTER_AWAY } from '../shared/net/protocol';
 import { Banners } from '../ui/kit/Banners';
@@ -52,6 +53,13 @@ import { createClientFeatures, type ClientFeature } from './features';
 import { cleanGear } from '../shared/sim/shops/gear';
 import { TRAM_STOPPED, tramUse } from '../shared/sim/rules/Trams';
 import type { Tram } from '../shared/entities/Tram';
+
+/** the graphics settings the player can pin in the pause menu (Auto: QualityGovernor) */
+const PINNED: Record<'high' | 'medium' | 'low', Rung> = {
+  high: { tier: 2, scale: 1, facades: true },
+  medium: { tier: 1, scale: 1, facades: true },
+  low: { tier: 0, scale: 1, facades: false },
+};
 
 /** the offline save: the local player's profile plus the time of day */
 export type SaveData = Profile;
@@ -119,8 +127,15 @@ export class Game {
   quality = 1;
   /** 2 = high, 1 = medium, 0 = low — drives PostFX detail and quality (see `trackFrameTime`) */
   qualityTier: 0 | 1 | 2 = 2;
-  /** user choice from the pause menu: 'auto' adapts qualityTier to frame time, others pin it */
+  /** user choice from the pause menu: 'auto' adapts to frame time (QualityGovernor), others pin it */
   qualityPref: 'auto' | 'high' | 'medium' | 'low' = 'auto';
+  /** the Auto setting: render resolution first, then the effects (src/game/QualityGovernor.ts) */
+  readonly governor = new QualityGovernor(autoLadder(Math.min(2, (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1)));
+  /** the world's render resolution relative to the screen's (the governor lowers it on a slow device;
+   *  the browser scales the picture up, the HUD keeps its own full-resolution canvas) */
+  renderScale = 1;
+  /** this frame's requestAnimationFrame timestamp (main.ts), for measuring frame times */
+  frameNow = 0;
   /** textured building facades; Auto drops them only if frames stay slow with post-processing already off */
   facades = true;
   /** on-foot WASD, user choice from the menus: 'screen' = W is up the screen, 'cursor' = W walks towards the mouse */
@@ -138,9 +153,6 @@ export class Game {
   private driveState = newDriveState();
   /** the player's zoom (mouse wheel), a factor on the automatic camera zoom */
   zoomPref = 1;
-  private frameAvg = 16;
-  private goodTimer = 0;
-  private slowTimer = 0;
   private lastFrameT = 0;
   private baseLightRes: number | null = null;
   private vignette: HTMLCanvasElement | null = null;
@@ -152,7 +164,10 @@ export class Game {
   /** transparent overlay canvas the HUD + full map draw into, so post-processing never touches them */
   private hudCanvas: HTMLCanvasElement | null = null;
   private hudCtx: CanvasRenderingContext2D | null = null;
+  /** device pixels per CSS pixel of the world canvas: the screen's (uiDpr) x renderScale */
   dpr = 1;
+  /** device pixels per CSS pixel of the screen (capped at 2): the HUD canvas and the full map */
+  uiDpr = 1;
   /** where the HUD goes (src/ui/layout.ts): the thumbs' corners and the safe area on a touch screen */
   layout!: HudLayout;
   /** touch: the next free y in the layout's feature stack this frame (Hud.draw resets it) */
@@ -274,6 +289,8 @@ export class Game {
 
   /** fill the streets around the player right away (start of play) */
   prewarm() {
+    // (the first moments of play build things lazily: they don't measure the device)
+    this.governor.skipFrames(60);
     if (this.host instanceof LocalSimHost) this.host.sim.prewarm(this.host.me);
   }
 
@@ -416,23 +433,38 @@ export class Game {
   }
 
   resize() {
-    this.dpr = Math.min(2, devicePixelRatio || 1);
+    const uiDpr = Math.min(2, devicePixelRatio || 1);
+    if (uiDpr >= 1.5 !== this.uiDpr >= 1.5) this.governor.setLadder(autoLadder(uiDpr));
+    this.uiDpr = uiDpr;
     this.viewW = innerWidth;
     this.viewH = innerHeight;
-    const w = Math.round(this.viewW * this.dpr), h = Math.round(this.viewH * this.dpr);
-    this.canvas.width = w;
-    this.canvas.height = h;
-    this.canvas.style.width = this.viewW + 'px';
-    this.canvas.style.height = this.viewH + 'px';
+    // (setting a canvas's size clears and reallocates it even when it's the same: only on a change)
     if (this.hudCanvas) {
-      this.hudCanvas.width = w;
-      this.hudCanvas.height = h;
+      const w = Math.round(this.viewW * uiDpr), h = Math.round(this.viewH * uiDpr);
+      if (this.hudCanvas.width !== w || this.hudCanvas.height !== h) {
+        this.hudCanvas.width = w;
+        this.hudCanvas.height = h;
+      }
       this.hudCanvas.style.width = this.viewW + 'px';
       this.hudCanvas.style.height = this.viewH + 'px';
     }
-    this.postFx?.resize(w, h);
-    this.vignette = null; // rebuilt lazily at the new size
+    this.applyRenderScale();
     this.layout = hudLayout(this.viewW, this.viewH, this.touch, this.touch ? this.safeInsets() : NO_INSETS);
+    this.governor.skipFrames();
+  }
+
+  /** size the world canvas and PostFX for the viewport at the current render scale */
+  private applyRenderScale() {
+    this.dpr = this.uiDpr * this.renderScale;
+    const w = Math.max(1, Math.round(this.viewW * this.dpr)), h = Math.max(1, Math.round(this.viewH * this.dpr));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      this.vignette = null; // rebuilt lazily at the new size
+    }
+    this.canvas.style.width = this.viewW + 'px';
+    this.canvas.style.height = this.viewH + 'px';
+    this.postFx?.resize(w, h, this.renderScale);
   }
 
   /** the notch / home-indicator safe area (CSS env(safe-area-inset-*), via a hidden probe element) */
@@ -1049,7 +1081,7 @@ export class Game {
   }
 
   draw(hud = true) {
-    this.trackFrameTime();
+    this.trackFrameTime(hud);
     const ctx = this.ctx;
     const v = this.view();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1192,7 +1224,7 @@ export class Game {
     if (this.hudCtx && this.hudCanvas) this.hudCtx.clearRect(0, 0, this.hudCanvas.width, this.hudCanvas.height);
     if (!hud) return;
     if (this.hudCtx) {
-      this.hudCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.hudCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
       this.hud.draw(this.hudCtx);
       for (const f of this.features) f.drawHud?.(this.hudCtx);
       this.banners.draw(this.hudCtx, this.layout);
@@ -1489,42 +1521,29 @@ export class Game {
     ctx.restore();
   }
 
-  /** rolling frame-time average; adapts `qualityTier` both ways with hysteresis, pinned by `qualityPref`. */
-  private trackFrameTime() {
-    const now = performance.now();
-    if (this.lastFrameT) {
-      const ft = now - this.lastFrameT;
-      this.frameAvg += (ft - this.frameAvg) * 0.08;
-      if (this.qualityPref === 'auto') {
-        if (this.frameAvg > 26) this.slowTimer += ft / 1000;
-        else this.slowTimer = 0;
-        if (this.frameAvg < 14) this.goodTimer += ft / 1000;
-        else this.goodTimer = 0;
-        if (this.slowTimer > 1.5 && this.qualityTier > 0) {
-          this.qualityTier = (this.qualityTier - 1) as 0 | 1 | 2;
-          this.slowTimer = 0;
-          this.goodTimer = 0;
-        } else if (this.slowTimer > 3 && this.facades) {
-          // still slow with post-processing off: last resort, drop the textured facades
-          this.facades = false;
-          this.slowTimer = 0;
-        } else if (this.goodTimer > 4 && !this.facades) {
-          this.facades = true;
-          this.goodTimer = 0;
-        } else if (this.goodTimer > 4 && this.qualityTier < 2) {
-          this.qualityTier = (this.qualityTier + 1) as 0 | 1 | 2;
-          this.goodTimer = 0;
-          this.slowTimer = 0;
-        }
-      } else {
-        this.qualityTier = this.qualityPref === 'high' ? 2 : this.qualityPref === 'medium' ? 1 : 0;
-        this.facades = this.qualityPref !== 'low';
-      }
-      this.quality = this.qualityTier > 0 ? 1 : 0;
-      if (this.baseLightRes === null) this.baseLightRes = this.light.res;
-      this.light.res = this.qualityTier > 0 ? this.baseLightRes : 0.35;
-    }
+  /** Feeds the frame time to the Auto setting (only frames of play measure the device: not the menu's
+   *  attract mode, behind its blurred card, nor a paused or map-covered world) and applies its rung, or
+   *  the one the player pinned. */
+  private trackFrameTime(hud: boolean) {
+    const now = this.frameNow || performance.now();
+    const ft = this.lastFrameT ? now - this.lastFrameT : 0;
     this.lastFrameT = now;
+    let rung: Rung;
+    if (this.qualityPref === 'auto') {
+      const g = this.governor;
+      if (!hud || this.paused || this.showMap) g.skipFrames();
+      else if (ft) g.sample(ft);
+      rung = g.current;
+    } else rung = PINNED[this.qualityPref];
+    this.qualityTier = rung.tier;
+    this.facades = rung.facades;
+    this.quality = this.qualityTier > 0 ? 1 : 0;
+    if (this.baseLightRes === null) this.baseLightRes = this.light.res;
+    this.light.res = this.qualityTier > 0 ? this.baseLightRes : 0.35;
+    if (rung.scale !== this.renderScale) {
+      this.renderScale = rung.scale;
+      this.applyRenderScale();
+    }
   }
 }
 

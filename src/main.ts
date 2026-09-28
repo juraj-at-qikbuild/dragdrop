@@ -427,6 +427,7 @@ async function boot() {
   const frame = (now: number) => {
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
+    game.frameNow = now;
     if (mode === 'play') {
       game.update(dt);
       game.touchUi?.update();

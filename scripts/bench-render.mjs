@@ -7,6 +7,7 @@
 //                       top functions by self time (build with `vite build --minify false` to read them)
 //   BENCH_DIST=dir      serve this build instead of dist/
 //   BENCH_JSON=file     write the results as JSON too
+//   BENCH_RUNG=n        hold the Auto graphics setting on rung n of its ladder (src/game/QualityGovernor.ts)
 //   BENCH_ABLATE=postfx,light,buildings,ground,shadows,hud,windows,weather,bridges,street,posts
 //                       each scene again with one pass off: the drop in frame interval is what the pass
 //                       costs, the GPU's raster included (headless Chromium draws with SwiftShader, a
@@ -35,6 +36,7 @@ const SCENES = [
 ];
 const only = process.env.BENCH_SCENES?.split(',');
 let scenes = only ? SCENES.filter((s) => only.includes(s.name)) : SCENES;
+if (process.env.BENCH_RUNG) scenes = scenes.map((s) => ({ ...s, name: `${s.name}-rung${process.env.BENCH_RUNG}`, rung: +process.env.BENCH_RUNG }));
 // BENCH_ABLATE=postfx,light,...: each scene again with one of these passes turned off
 const ablate = process.env.BENCH_ABLATE?.split(',');
 // BENCH_BASE_ABLATE=postfx: these passes off in every run (the baseline too), e.g. to see the 2D passes'
@@ -191,6 +193,12 @@ try {
     await page.evaluate((sc) => {
       const g = window.game;
       g.qualityPref = 'high';
+      // BENCH_RUNG=n: hold the Auto setting on this rung of its ladder (QualityGovernor)
+      if (sc.rung !== undefined && g.governor) {
+        g.qualityPref = 'auto';
+        g.governor.rung = sc.rung;
+        g.governor.sample = () => false;
+      }
       g.player.x = sc.x;
       g.player.y = sc.y;
       g.cam.x = sc.x;

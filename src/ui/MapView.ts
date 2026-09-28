@@ -515,7 +515,7 @@ export class MapView {
   /** the city drawn from its own geometry for the current view (sharp when zoomed in), cached
    *  until the view changes */
   private detailCanvas(W: number, H: number, f: { x: number; y: number; w: number; h: number }) {
-    const g = this.g, dpr = g.dpr;
+    const g = this.g, dpr = g.uiDpr;
     const key = `${this.zoom.toFixed(4)}|${this.cx.toFixed(2)}|${this.cy.toFixed(2)}|${W}x${H}|${dpr}`;
     if (this.detail?.key === key) return this.detail.canvas;
     const canvas = this.detail?.canvas ?? document.createElement('canvas');

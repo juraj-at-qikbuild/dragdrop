@@ -30,6 +30,9 @@ const SCENES = [
   { name: 'morning-car', t: 8, x: -309.2, y: -60.2, car: true },
   { name: 'phone-night', t: 21, x: -309.2, y: -60.2, viewport: { width: 412, height: 915 }, dpr: 2.625, touch: true },
   { name: 'hidpi-dusk', t: 18.3, x: -156.6, y: -507.7, viewport: { width: 1280, height: 720 }, dpr: 2 },
+  // the graphics pinned to Low: no post-processing, the plain canvas fallback
+  { name: 'low-night-rain', t: 22, rain: 1, x: -346.9, y: -261.9, quality: 'low' },
+  { name: 'low-day', t: 12, x: -346.9, y: -261.9, quality: 'low' },
 ];
 const only = process.env.VDIFF_SCENES?.split(',');
 const scenes = only ? SCENES.filter((s) => only.includes(s.name)) : SCENES;
@@ -72,6 +75,7 @@ async function shoot(browser, url, sc, file) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(deterministic);
+  if (sc.quality) await page.addInitScript((q) => localStorage.setItem('blava-city-quality', q), sc.quality);
   const q = new URLSearchParams({ t: String(sc.t), freeze: '1', ...(sc.rain ? { rain: String(sc.rain) } : {}), ...(sc.touch ? { touch: '1' } : {}) });
   await page.goto(`${url}/?${q}`);
   await page.waitForFunction(() => window.game && !document.getElementById('menu')?.classList.contains('hidden'), null, { timeout: 30000, polling: 100 });
@@ -81,7 +85,7 @@ async function shoot(browser, url, sc, file) {
   await page.evaluate(() => window.__pump(30));
   await page.evaluate((sc) => {
     const g = window.game;
-    g.qualityPref = 'high';
+    g.qualityPref = sc.quality ?? 'high';
     g.player.x = sc.x;
     g.player.y = sc.y;
     if (sc.car) {
