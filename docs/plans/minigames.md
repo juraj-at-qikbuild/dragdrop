@@ -140,13 +140,21 @@ buy with the action key (limited stock, a few blocks each), and sell to buyers a
 the butter melts (it melts in the sun and faster in a car; `x` can carry it). Alone against the
 grannies and the clock; with others, one pallet for everyone. Pay: the profit.
 
-### Bilbordová vojna (`billboard`)
-The map's billboards (69) and bus shelters (92) near the player are the campaign's spots. Paste a
-poster (the action key, a few seconds) on a spot; paint a moustache on the rival's (also the action
-key). Promises are power-ups on the map (pick one up: "amnestia" clears your stars, "nový most" a
-speed boost…). The last minute is the campaign silence: anyone who pastes then is fined. Alone,
-against an AI campaign that pastes on its own; with others, two campaigns (teams by joining order).
-The spots held at the end decide it; Rádio Kecy calls the districts.
+### Bilbordová vojna (`billboard`) — built
+The map's billboards, bus shelters and advertising columns around the start are the spots: the
+nearest 24 within 700 m that someone on foot reaches (as far as 1.1 km where there are fewer than
+12), each free, red's, blue's or moustached (then it counts for nobody). Two made-up candidates,
+drawn per round: Ing. Jožko Sľubný („Nový most do roka!“) and Mgr. Zuzka Cyklopruhová („Viac
+zelene, menej áut!“). A poster takes 3 s standing still on foot within 4.5 m (the action key;
+moving cancels), a moustache on the rival's 1.5 s, and then it can be pasted over. Promises (⭐,
+three at a time): *Nový most* (the next paste instant), *Električka do každej obce* (the next two in
+0.8 s), *Amnestia na pokuty* (clears the stars, or lets off the next fine). The last 48 s are the
+campaign silence: a paste then is €50 and a police star (moustaches are allowed). Alone, the AI
+campaign moves every 12–16 s (slower when it leads, quicker behind: ×0.8–2), pasting free spots far
+from the player, then moustaching theirs; with others, two campaigns by joining order, and the AI
+runs one whose players have all left. 4 min; the result in percentages of the posters up; pay
+€250 won / €80 lost / €150 drawn (only for whoever pasted or drew anything) + €5 a spot the
+campaign holds. A drawer paints the posters onto the billboards and each spot's colour on the map.
 
 ### Punčová cesta (`punch`)
 Christmas-market stalls on Hlavné námestie and Hviezdoslavovo námestie (marks; the squares from the
@@ -154,11 +162,18 @@ map). A list of stalls to visit in order; each punch (the action key, €4–5) 
 (`x.wobble`), collect the year's mug, don't lose it to the pickpockets in the crowd, and return mugs
 for their deposit at the end. Pay by the stalls done and the time.
 
-### Kolobežky všade (`scooters`)
-Dumped scooters (spawned `scooter` vehicles, lying about: on pavements, in the grass, by the Danube)
-around the player; ride each to a parking spot (marks at the bike-share docks) before the city's fine
-lands on it; riding on a pavement (not the road) is fined. A bonus delivery: a fridge on a scooter
-(the wobble while carrying it). Alone against the clock; with others, who parks the most.
+### Kolobežky všade (`scooters`) — built
+8 dumped scooters (one more for each other player, at most 12) lie 100–450 m from the start on the
+pavements and in the grass (off the carriageway, dry, outside the buildings, by a path), each within
+220 m of one of the 12 nearest bike-share docks, each with the city's countdown to a fine for its
+operator (100–270 s; it stops while someone rides it; run out, the scooter's gone). Stopped within
+3.5 m of a dock after a ride (getting off, or the action key *Zaparkovať*), it's parked. Riding any
+scooter off the carriageway (`World.onCarriageway`, 0.6 m past its edge) for 30 m on end is €10
+(a warning at 8 m); not on a marked crossing, in a car park, by a dock, nor within 15 m of where the
+ride began. The fridge (20 s in): loaded at A onto any scooter, it wobbles (`x.wobble` 0.35), falls
+off when its rider gets off, and at B (stopped within 5 m) the video's views pay €110 and the police
+fine €50. 4 min (sooner when every scooter is parked or lost); pay €20 a scooter, €40 for all of
+them alone, €30 for the most with others, the fridge, less the fines. A drawer shows the fridge.
 
 ### Rozkopávky (`roadworks`)
 Deliveries by car across the Old Town while streets close: a closure is cones (`spawnProp`) across a
