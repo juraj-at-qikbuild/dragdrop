@@ -5,10 +5,11 @@
 // bloom thin out (tier 1), the post-processing go (tier 0), and last the textured facades.
 //
 // It aims at 60 fps: a 90-144 Hz screen at 60+ is fine as it is. It steps down after 1.5 s of frames
-// averaging slower than ~38 fps, and back up after a few seconds at ~60 (backing off each time an
-// upgrade doesn't hold). A step down that doesn't make frames faster (the CPU is the bottleneck, or
-// the browser is holding the page to 30 fps to save power) is undone and not tried again for a
-// minute: it would only have cost the picture. Frames that don't measure the device (the first after
+// averaging slower than ~45 fps (on a 60 Hz screen that's a juddery mix of 60 and 30), and back up after
+// a few seconds at ~60 (backing off each time an upgrade doesn't hold). A step down that doesn't make
+// frames faster (the CPU is the bottleneck, or the browser is holding the page to 30 fps to save
+// power) is undone and not tried again for a minute, then two, four...: it would only have cost the
+// picture. The rung it settles on is remembered for the next game on the same screen (Game). Frames that don't measure the device (the first after
 // a tab switch, a resize, a pause or a change of rung) are skipped, and the rest are capped at 150 ms,
 // so one stall can't count as seconds of slow frames. Client only; the unit tests drive it with
 // synthetic frame times (test/client/qualityGovernor.test.ts).
@@ -35,8 +36,8 @@ export function autoLadder(uiDpr: number): Rung[] {
   ];
 }
 
-/** frame time (ms) averaging above this for SLOW_S steps down (about 38 fps) */
-const SLOW_MS = 26;
+/** frame time (ms) averaging above this for SLOW_S steps down (about 45 fps) */
+const SLOW_MS = 22;
 const SLOW_S = 1.5;
 /** ...at or under this (60 fps with a little slack) counts towards stepping back up */
 const GOOD_MS = 18.7;
@@ -48,8 +49,9 @@ const FAILED_UPGRADE_S = 5;
 /** after a step down, frames are measured this long; less than MIN_GAIN faster, and it's undone */
 const CHECK_S = 2.5;
 const MIN_GAIN = 0.08;
-/** after an undone step, no step down for this long */
+/** after an undone step, no step down for this long, twice as long after each (up to HOLD_MAX_S) */
 const HOLD_S = 60;
+const HOLD_MAX_S = 960;
 /** a single frame counts at most this long */
 const MAX_FRAME_MS = 150;
 
@@ -68,6 +70,9 @@ export class QualityGovernor {
   private upgradedAt = -Infinity;
   private upgradedFrom = -1;
   private holdUntil = -Infinity;
+  private hold = HOLD_S;
+  /** when the rung last changed (the governor's clock) */
+  private changedAt = 0;
   /** measuring a step down: the rung it came from, the average before, and the frames since */
   private check: { from: number; before: number; t: number; sum: number; n: number } | null = null;
 
@@ -113,7 +118,8 @@ export class QualityGovernor {
       this.check = null;
       if (c.sum / c.n > c.before * (1 - MIN_GAIN)) {
         // it didn't help: the picture back, and leave it be for a while
-        this.holdUntil = this.t + HOLD_S;
+        this.holdUntil = this.t + this.hold;
+        this.hold = Math.min(HOLD_MAX_S, this.hold * 2);
         return this.go(c.from);
       }
     }
@@ -138,8 +144,14 @@ export class QualityGovernor {
     return false;
   }
 
+  /** seconds the current rung has held (0 while a step down is still being measured) */
+  get settledFor() {
+    return this.check ? 0 : this.t - this.changedAt;
+  }
+
   private go(rung: number) {
     this.rung = rung;
+    this.changedAt = this.t;
     this.slowT = 0;
     this.goodT = 0;
     this.skipFrames();

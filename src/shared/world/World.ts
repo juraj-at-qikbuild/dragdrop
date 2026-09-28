@@ -1036,15 +1036,18 @@ export class World {
     let best = 1;
     const len = hypot(bx - ax, by - ay);
     const steps = Math.max(1, Math.ceil(len / CELL));
-    const seen = new Set<number>();
+    // (each wall once per ray: the stamp, as in collideCircle; raycast never runs inside forWalls or
+    // collideCircle, nor they inside it)
+    const pass = this.nextWallPass(), seen = this.wallStamp;
     for (let s = 0; s <= steps; s++) {
       const x = ax + ((bx - ax) * s) / steps, y = ay + ((by - ay) * s) / steps;
       const c = this.wallGrid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
       if (c) {
         const w = this.walls;
         for (const i of c) {
-          if (seen.has(i)) continue;
-          seen.add(i);
+          const j = i / WALL;
+          if (seen[j] === pass) continue;
+          seen[j] = pass;
           if (!(w[i + 5] & W_SIGHT)) continue;
           const t = segIntersect(ax, ay, bx, by, w[i], w[i + 1], w[i + 2], w[i + 3]);
           if (t >= 0 && t < best) best = t;

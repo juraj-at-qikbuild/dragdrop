@@ -54,6 +54,8 @@ import { cleanGear } from '../shared/sim/shops/gear';
 import { TRAM_STOPPED, tramUse } from '../shared/sim/rules/Trams';
 import type { Tram } from '../shared/entities/Tram';
 
+/** where the Auto graphics setting settled last time (Game.saveAutoRung) */
+const AUTO_RUNG_KEY = 'blava-city-auto-rung';
 /** the graphics settings the player can pin in the pause menu (Auto: QualityGovernor) */
 const PINNED: Record<'high' | 'medium' | 'low', Rung> = {
   high: { tier: 2, scale: 1, facades: true },
@@ -264,6 +266,9 @@ export class Game {
     this.cam.x = this.player.x;
     this.cam.y = this.player.y;
     this.resize();
+    // the Auto setting starts where it settled last time on this screen
+    const saved = this.loadAutoRung();
+    if (saved !== null) this.governor.rung = Math.min(saved, this.governor.ladder.length - 1);
     addEventListener('resize', () => this.resize());
     // on a phone the safe-area insets come late after a rotation (and the notch changes sides):
     // measure again once the browser has settled
@@ -1551,6 +1556,29 @@ export class Game {
     ctx.restore();
   }
 
+  /** where the Auto setting settled, per screen (its DPR and size): the next game starts there */
+  private autoRungKey() {
+    return `${this.uiDpr}|${screen.width}x${screen.height}`;
+  }
+  private savedRung = -1;
+  private loadAutoRung(): number | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(AUTO_RUNG_KEY) || 'null') as { key: string; rung: number } | null;
+      if (v && v.key === this.autoRungKey() && Number.isInteger(v.rung) && v.rung >= 0) return (this.savedRung = v.rung);
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+  private saveAutoRung(rung: number) {
+    this.savedRung = rung;
+    try {
+      localStorage.setItem(AUTO_RUNG_KEY, JSON.stringify({ key: this.autoRungKey(), rung }));
+    } catch {
+      /* ignore */
+    }
+  }
+
   /** Feeds the frame time to the Auto setting (only frames of play measure the device: not the menu's
    *  attract mode, behind its blurred card, nor a paused or map-covered world) and applies its rung, or
    *  the one the player pinned. */
@@ -1563,6 +1591,7 @@ export class Game {
       const g = this.governor;
       if (!hud || this.paused || this.showMap) g.skipFrames();
       else if (ft) g.sample(ft);
+      if (g.rung !== this.savedRung && g.settledFor > 20) this.saveAutoRung(g.rung);
       rung = g.current;
     } else rung = PINNED[this.qualityPref];
     this.qualityTier = rung.tier;

@@ -47,8 +47,8 @@ describe('QualityGovernor', () => {
 
   it('steps down on sustained slow frames, resolution first, until it keeps up', () => {
     const g = new QualityGovernor(autoLadder(2));
-    // 30 ms at full resolution, 22 ms at 0.8: one step is enough
-    const changes = run(g, 20, (r) => (r === 0 ? 30 : 22));
+    // 30 ms at full resolution, 20 ms at 0.8: one step is enough
+    const changes = run(g, 20, (r) => (r === 0 ? 30 : 20));
     expect(changes).toEqual([1]);
     expect(g.current).toMatchObject({ tier: 2, scale: 0.8 });
   });
@@ -66,6 +66,16 @@ describe('QualityGovernor', () => {
     // stepped down once, measured no gain, came back, and stayed
     expect(changes).toEqual([1, 0]);
     expect(g.rung).toBe(0);
+    // ...and tries again ever more rarely: after 1 min, 2, 4, 8
+    const later = run(g, 15 * 60, 33.3);
+    expect(later.length).toBeLessThanOrEqual(8);
+  });
+
+  it('steps down from a juddery 40 fps (60 Hz frames alternating 16.7 and 33.3 ms)', () => {
+    const g = new QualityGovernor(autoLadder(2));
+    let odd = false;
+    run(g, 10, (r) => (r === 0 ? ((odd = !odd) ? 16.7 : 33.3) : 16.7));
+    expect(g.rung).toBe(1);
   });
 
   it('comes back up when frames are fast again, and backs off when the upgrade fails', () => {
