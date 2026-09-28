@@ -10,6 +10,7 @@ import { FLOOD_DEF } from './flood';
 import { HEAT_DEF } from './heat';
 import { PARKING_DEF } from './parking';
 import { ROADWORKS_DEF } from './roadworks';
+import { FOOTBALL_DEF } from './football';
 
 export const MINI_DEFS: MiniGameDef[] = [
   TOILET_DEF,
@@ -21,5 +22,6 @@ export const MINI_DEFS: MiniGameDef[] = [
   HEAT_DEF,
   PARKING_DEF,
   ROADWORKS_DEF,
+  FOOTBALL_DEF,
   // each game adds its line here …
 ];

@@ -256,7 +256,8 @@ export class Style implements SimRule {
     if (speed > NEAR_SPEED) {
       const r = v.spec.length / 2 + NEAR_GAP + 3;
       this.sim.forVehiclesNear(v.x, v.y, r + 4, (o) => {
-        if (o === v || o.wrecked || o.speed < NEAR_OTHER_SPEED || o.level !== v.level) return;
+        // (a football flying past is no near miss: docs/plans/minigames.md)
+        if (o === v || o.wrecked || o.speed < NEAR_OTHER_SPEED || o.level !== v.level || o.spec.ball) return;
         const gap = dist(v.x, v.y, o.x, o.y) - v.radius - o.radius;
         if (gap < 0 || gap > NEAR_GAP) return;
         if (this.sim.time - (s.lastNear.get(o.id) ?? -Infinity) < NEAR_COOLDOWN) return;

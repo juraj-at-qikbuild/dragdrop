@@ -10,6 +10,7 @@ import { BILLBOARD_DRAW } from './billboard';
 import { SCOOTERS_DRAW } from './scooters';
 import { FLOOD_DRAW } from './flood';
 import { HEAT_DRAW } from './heat';
+import { FOOTBALL_DRAW } from './football';
 
 export interface MiniDrawer {
   /** in the city (the world transform is set), under the marks */
@@ -26,5 +27,6 @@ export const MINI_DRAW: Partial<Record<MiniKind, MiniDrawer>> = {
   scooters: SCOOTERS_DRAW,
   flood: FLOOD_DRAW,
   heat: HEAT_DRAW,
+  football: FOOTBALL_DRAW,
   // each game adds its line here …
 };

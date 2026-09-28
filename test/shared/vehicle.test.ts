@@ -21,8 +21,9 @@ const track = (() => {
 })();
 const dt = 1 / 120;
 /** the cars (scooters and bikes handle as test/shared/bikes.test.ts checks, and boats as
- *  test/shared/danube.test.ts does) */
-const kinds = (Object.keys(SPECS) as VehicleKind[]).filter((k) => !SPECS[k].twoWheeler && !SPECS[k].boat);
+ *  test/shared/danube.test.ts does; the car football's ball, which nobody drives, rolls as
+ *  test/shared/minigames/football.test.ts checks) */
+const kinds = (Object.keys(SPECS) as VehicleKind[]).filter((k) => !SPECS[k].twoWheeler && !SPECS[k].boat && !SPECS[k].ball);
 
 /** run `script` (throttle, steer, handbrake by time) from `kmh`, in traffic or (`player`) a player's
  *  car; the car and its largest body slip (deg, while going forwards) */

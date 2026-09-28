@@ -346,7 +346,8 @@ export class Jobs implements SimRule {
     if (car && car.speed > TIP_MIN_SPEED) {
       const r = car.spec.width / 2 + TIP_GAP + 3; // a little slack around the real query radius
       this.sim.forVehiclesNear(car.x, car.y, r, (v) => {
-        if (v !== car && !v.wrecked) this.tryNearMiss(job, car, v.id, v.x, v.y, v.spec.width / 2, v.vx, v.vy);
+        // (a football rolling by tips nobody: docs/plans/minigames.md)
+        if (v !== car && !v.wrecked && !v.spec.ball) this.tryNearMiss(job, car, v.id, v.x, v.y, v.spec.width / 2, v.vx, v.vy);
       });
       this.sim.forPedsNear(car.x, car.y, r, (q) => {
         if (!q.dazed && !q.vehicle) this.tryNearMiss(job, car, q.id, q.x, q.y, q.r, q.vx, q.vy);
