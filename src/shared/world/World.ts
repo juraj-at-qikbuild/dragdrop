@@ -125,6 +125,8 @@ const SURF = 7;
 const DECK_FIT = 0.5;
 /** tree trunk collision radius */
 const TRUNK = 0.3;
+/** a street tree's trunk stands at least this far outside a car road's edge (m) */
+const TREE_KERB = 1;
 /** sides of the polygon walled round each vertex of a passage (just outside its round end) */
 const ROUND = 16;
 /** cap on trees (real + filled in) */
@@ -429,11 +431,13 @@ export class World {
     this.islands = new Islands(data.islands);
     this.bumps = new Bumps(data.calming);
     this.gates = new Gates(data.gates);
-    this.trees = this.placeTrees();
+    const moved = new Set<number>();
+    this.trees = this.placeTrees(moved);
     for (let i = 0; i < this.trees.length; i += 4) {
       const x = this.trees[i], y = this.trees[i + 1];
-      // trees in a street or on a path are only drawn (the map has them where the traffic goes)
-      if (this.nearRoad(x, y, TRUNK + 0.4)) continue;
+      // trees in a street or on a path are only drawn (the map has them where the traffic goes), and
+      // so are the ones moved out of a carriageway (the lanes and walking lines were fitted without them)
+      if (moved.has(i) || this.nearRoad(x, y, TRUNK + 0.4)) continue;
       wall(x, y, x, y, TRUNK, W_LOW);
     }
     this.walls = Float32Array.from(walls);
@@ -862,8 +866,9 @@ export class World {
   }
 
   /** Trees: the map's real ones (single trees, tree rows), then woods and parks filled in where
-   *  nobody mapped individual trees. Deterministic; x, y, canopy radius, seed per tree. */
-  private placeTrees(): Float32Array {
+   *  nobody mapped individual trees. Deterministic; x, y, canopy radius, seed per tree. The ones
+   *  moved off a car road go in `moved` (by their index in the result). */
+  private placeTrees(moved: Set<number>): Float32Array {
     const out: number[] = [];
     const grid = new Map<number, number[]>();
     const G = 8;
@@ -920,6 +925,53 @@ export class World {
           }
         }
       }
+    return this.treesOffRoads(out, moved);
+  }
+
+  /** Trees (x, y, canopy radius, seed each) with the trunks that stand on a car road moved straight
+   *  out to its kerb (TREE_KERB past its edge), and dropped where there's no room (the centre line,
+   *  another road, a building). OSM draws many streets narrower than they are (and the game widens
+   *  them, see widen.ts), so a street tree can be mapped in a lane. The moved ones go in `moved` (by
+   *  their index in the result). Placing the trees is left as it was: the lanes and walking lines
+   *  were fitted round the solid ones. */
+  private treesOffRoads(trees: number[], moved: Set<number>): Float32Array {
+    // the car roads (not the tunnels)
+    const roads: number[] = [];
+    const grid = new Map<number, number[]>();
+    for (const rd of this.data.roads) {
+      if (rd.c > 7 || (rd.y ?? 0) < 0) continue;
+      for (let i = 0; i < rd.p.length - 2; i += 2) {
+        const j = roads.length;
+        roads.push(rd.p[i], rd.p[i + 1], rd.p[i + 2], rd.p[i + 3], rd.w / 2);
+        this.addBoxToGrid(grid, j, rd.p[i], rd.p[i + 1], rd.p[i + 2], rd.p[i + 3], rd.w / 2 + TRUNK);
+      }
+    }
+    const out: number[] = [];
+    for (let i = 0; i < trees.length; i += 4) {
+      let x = trees[i], y = trees[i + 1], n = 0;
+      for (; n < 4; n++) {
+        // the road the trunk is deepest in
+        let best = -1, deep = 0, qx = 0, qy = 0, qd = 0;
+        for (const j of grid.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL))) ?? []) {
+          const ax = roads[j], ay = roads[j + 1], dx = roads[j + 2] - ax, dy = roads[j + 3] - ay, l2 = dx * dx + dy * dy;
+          let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const px = ax + dx * t, py = ay + dy * t, d = hypot(x - px, y - py);
+          if (roads[j + 4] + TRUNK - d > deep) (best = j), (deep = roads[j + 4] + TRUNK - d), (qx = px), (qy = py), (qd = d);
+        }
+        if (best < 0) break;
+        if (qd < 0.5) {
+          n = 4;
+          break;
+        }
+        const f = (roads[best + 4] + TREE_KERB) / qd;
+        x = qx + (x - qx) * f;
+        y = qy + (y - qy) * f;
+      }
+      if (n === 4 || (n && this.insideBuilding(x, y))) continue;
+      if (n) moved.add(out.length);
+      out.push(x, y, trees[i + 2], trees[i + 3]);
+    }
     return Float32Array.from(out);
   }
 
