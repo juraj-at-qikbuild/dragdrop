@@ -9,7 +9,7 @@
 // on after a while. With others, the players split into couriers and builders: a builder digs up the
 // street they stand or drive on (the action key) and scores whenever a courier drives into one of
 // theirs.
-import { dist } from '../../../../util/math';
+import { dist, hypot } from '../../../../util/math';
 import type { Edge, Link } from '../../../../world/Graph';
 import type { World } from '../../../../world/World';
 import type { Vehicle } from '../../../../entities/Vehicle';
@@ -105,7 +105,7 @@ const isCar = (v: Vehicle | null | undefined): v is Vehicle => !!v && !v.spec.tw
 function onGround(w: World, e: Edge): boolean {
   const p = e.p;
   for (let i = 0; i + 3 < p.length; i += 2) {
-    const n = Math.max(1, Math.ceil(Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) / 8));
+    const n = Math.max(1, Math.ceil(hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) / 8));
     for (let k = 0; k <= n; k++) {
       const x = p[i] + ((p[i + 2] - p[i]) * k) / n, y = p[i + 1] + ((p[i + 3] - p[i + 1]) * k) / n;
       if (w.onBridge(x, y) || w.tunnelDepth(x, y) >= 0) return false;
@@ -118,7 +118,7 @@ function onGround(w: World, e: Edge): boolean {
 function along(p: ArrayLike<number>, s: number): { x: number; y: number; a: number } {
   let acc = 0;
   for (let i = 0; i + 3 < p.length; i += 2) {
-    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], l = Math.hypot(dx, dy);
+    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], l = hypot(dx, dy);
     if (acc + l >= s || i + 4 >= p.length) {
       const t = l ? Math.min(1, Math.max(0, (s - acc) / l)) : 0;
       return { x: p[i] + dx * t, y: p[i + 1] + dy * t, a: Math.atan2(dy, dx) };

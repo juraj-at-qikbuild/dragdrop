@@ -4,7 +4,7 @@
 // (AI's despawning), so it's back the next time someone comes by. Both modes: online everyone sees
 // the same one.
 import { Vehicle } from '../../entities/Vehicle';
-import { dist } from '../../util/math';
+import { dist, hypot } from '../../util/math';
 import type { Sim } from '../Sim';
 import type { SimRule } from './SimRule';
 
@@ -42,7 +42,7 @@ export class Ambulances implements SimRule {
       const ax = p[k], ay = p[k + 1];
       const a = Math.atan2(by - ay, bx - ax);
       // a car's length along the street from the node, and over to its right-hand kerb
-      const along = Math.min(8, Math.hypot(bx - ax, by - ay) / 2), right = Math.max(0, link.edge.width / 2 - 1.3);
+      const along = Math.min(8, hypot(bx - ax, by - ay) / 2), right = Math.max(0, link.edge.width / 2 - 1.3);
       out.push({ x: ax + Math.cos(a) * along - Math.sin(a) * right, y: ay + Math.sin(a) * along + Math.cos(a) * right, a });
     }
     return out;

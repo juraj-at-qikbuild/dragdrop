@@ -12,7 +12,7 @@ import type { Prop } from '../entities/Props';
 import type { Level, World } from '../world/World';
 import { SpatialHash } from '../util/SpatialHash';
 import { Rng } from '../util/Rng';
-import { clamp, dist } from '../util/math';
+import { clamp, dist, hypot } from '../util/math';
 import { AI } from './AI';
 import { Crowd } from './Crowd';
 import { Police } from './Police';
@@ -257,7 +257,7 @@ export class Sim {
   }
 
   private rehash() {
-    this.physics.rehash(this.vehicles);
+    // (the physics broad phase is rebuilt where it's used: VehiclePhysics.findPairs, and before pedContacts)
     this.vehHash.clear();
     for (const v of this.vehicles) this.vehHash.insert(v, v.x, v.y, v.radius);
     this.pedHash.clear();
@@ -440,7 +440,7 @@ export class Sim {
       },
       kinematicPair: (a, b) => {
         // two players' cars touching (server): remember who rammed whom for kill credit
-        const rel = Math.hypot(a.vx - b.vx, a.vy - b.vy);
+        const rel = hypot(a.vx - b.vx, a.vy - b.vy);
         if (rel < 5) return;
         (a.lastDamagedBy = b.owner), (a.lastDamagedAt = this.time);
         (b.lastDamagedBy = a.owner), (b.lastDamagedAt = this.time);
@@ -609,7 +609,7 @@ export class Sim {
       v.av += impulse.dav;
       if (v.parked && !v.isPlayer) v.parked = false;
       // a blast that throws a scooter or a bike throws its rider off too
-      if (v.spec.twoWheeler) v.knock = Math.max(v.knock, Math.hypot(impulse.dvx, impulse.dvy));
+      if (v.spec.twoWheeler) v.knock = Math.max(v.knock, hypot(impulse.dvx, impulse.dvy));
     }
   }
 

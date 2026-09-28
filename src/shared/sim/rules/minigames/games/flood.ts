@@ -11,7 +11,7 @@
 // the round's start. Started away from the river, the players have to get there first; the waves wait
 // for them a while, and not from further than FAR_R. With others it's one wall and one score: everyone
 // is paid the same, and a little more for each panel they set themselves.
-import { clamp, dist, segDist2 } from '../../../../util/math';
+import { clamp, dist, segDist2, hypot } from '../../../../util/math';
 import type { Rng } from '../../../../util/Rng';
 import { Ped } from '../../../../entities/Ped';
 import { SPECS, Vehicle } from '../../../../entities/Vehicle';
@@ -180,7 +180,7 @@ function wallAt(sh: Shore, i: number) {
   let a = Math.max(0, i - 3), b = Math.min(ys.length - 1, i + 3);
   while (a < i && isNaN(ys[a])) a++;
   while (b > i && isNaN(ys[b])) b--;
-  const tx = (b - a) * STEP || 1, ty = ys[b] - ys[a], l = Math.hypot(tx, ty);
+  const tx = (b - a) * STEP || 1, ty = ys[b] - ys[a], l = hypot(tx, ty);
   const ux = tx / l, uy = ty / l;
   // the river is on the bank's right going east (south, on the map): inland is its left
   const nx = uy, ny = -ux;
@@ -746,7 +746,7 @@ class Flood extends MiniGame {
 
 /** Walk `ped` toward (x, y) at `speed` for `dt`: true once it's there (and standing). */
 function walk(ped: Ped, x: number, y: number, speed: number, dt: number): boolean {
-  const dx = x - ped.x, dy = y - ped.y, d = Math.hypot(dx, dy);
+  const dx = x - ped.x, dy = y - ped.y, d = hypot(dx, dy);
   if (d <= speed * dt || d < 0.05) {
     ped.x = x;
     ped.y = y;

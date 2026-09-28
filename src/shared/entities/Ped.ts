@@ -1,6 +1,7 @@
 // Person state (civilians, cops, players) and on-foot movement. Shared by the browser and the game
 // server; drawing lives in src/render/drawPed.ts. Appearance is derived from `seed`, so every client
 // draws the same NPC the same way.
+import { hypot } from '../util/math';
 import type { Level, World } from '../world/World';
 import type { Link } from '../world/Graph';
 import type { Vehicle } from './Vehicle';
@@ -188,7 +189,7 @@ export class Ped {
   move(dt: number, world: World, vx: number, vy: number) {
     this.vx = vx;
     this.vy = vy;
-    const sp = Math.hypot(vx, vy);
+    const sp = hypot(vx, vy);
     // in steps of at most half the radius: on a long frame (up to 50 ms) a sprint goes further than
     // that, and a centre carried past a wall is pushed out on its far side, into the building
     const n = Math.min(8, Math.ceil((sp * dt) / (this.r / 2)) || 1);
@@ -222,7 +223,7 @@ export class Ped {
     if (this.dazed) return;
     this.state = 'dazed';
     this.health = 0;
-    const d = Math.hypot(this.x - fromX, this.y - fromY) || 1;
+    const d = hypot(this.x - fromX, this.y - fromY) || 1;
     this.vx = ((this.x - fromX) / d) * force;
     this.vy = ((this.y - fromY) / d) * force;
     this.dazedTime = 0;

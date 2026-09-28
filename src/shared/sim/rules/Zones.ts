@@ -2,7 +2,7 @@
 // the parking-lot picker the derby event uses to find a candidate arena. Built on pointInRings.
 // Plan: docs/plans/social-events.md
 import type { World } from '../../world/World';
-import { bboxOf, pointInRings, ringArea, type BBox } from '../../util/math';
+import { bboxOf, pointInRings, ringArea, type BBox, hypot } from '../../util/math';
 
 export interface Zone {
   name: string;
@@ -57,7 +57,7 @@ export function bestParkingNear(world: World, landmarkId: string, maxDist: numbe
     if (!ring || ring.length < 6) continue;
     const b = bboxOf(ring);
     const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    if (Math.hypot(cx - l.x, cy - l.y) > maxDist) continue;
+    if (hypot(cx - l.x, cy - l.y) > maxDist) continue;
     const area = ringArea(ring);
     if (!best || area > best.area) best = { ring, cx, cy, area };
   }

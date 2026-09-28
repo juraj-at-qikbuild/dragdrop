@@ -5,7 +5,20 @@ export interface Vec {
 
 export const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-export const dist = (ax: number, ay: number, bx: number, by: number) => Math.hypot(bx - ax, by - ay);
+/** Math.hypot(a, b), bit for bit as V8 computes it (scaled by the larger; V8's Kahan-compensated sum
+ *  of the two squares has no compensation left after the first), without the builtin call: V8 doesn't
+ *  inline Math.hypot, which costs ~40 ns and a heap number per call. */
+export function hypot(a: number, b: number): number {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  if (a !== a || b !== b) return a === Infinity || b === Infinity ? Infinity : NaN;
+  const max = a > b ? a : b;
+  if (max === Infinity) return Infinity;
+  if (max === 0) return 0;
+  const n0 = a / max, n1 = b / max;
+  return Math.sqrt(n0 * n0 + n1 * n1) * max;
+}
+export const dist = (ax: number, ay: number, bx: number, by: number) => hypot(bx - ax, by - ay);
 export const dist2 = (ax: number, ay: number, bx: number, by: number) => (bx - ax) ** 2 + (by - ay) ** 2;
 
 /** Smallest signed difference between two angles, in (-PI, PI]. */

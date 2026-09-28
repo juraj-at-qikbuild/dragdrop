@@ -2,7 +2,7 @@
 // every client. Drawn by the client's Renderer.drawTrafficLights.
 import type { World } from './World';
 import type { Edge, Link } from './Graph';
-import { rng } from '../util/math';
+import { rng, hypot } from '../util/math';
 
 /** Where traffic on one approach waits for a red light. */
 export interface StopLine {
@@ -53,7 +53,7 @@ export class TrafficLights {
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
     for (let i = 0; i < n; i++)
       for (let j = i + 1; j < n; j++)
-        if (Math.hypot(s[i * 5] - s[j * 5], s[i * 5 + 1] - s[j * 5 + 1]) < CLUSTER) parent[find(i)] = find(j);
+        if (hypot(s[i * 5] - s[j * 5], s[i * 5 + 1] - s[j * 5 + 1]) < CLUSTER) parent[find(i)] = find(j);
     const jIndex = new Map<number, number>();
     const axis: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -90,7 +90,7 @@ export class TrafficLights {
       if (!entry) this.byEdge.set(e.id, (entry = { fwd: [], rev: [] }));
       const list = fwd ? entry.fwd : entry.rev;
       // one stop line per approach: a second signal a few metres away is the same line
-      if (list.some((o) => Math.hypot(o.x - x, o.y - y) < 8)) return;
+      if (list.some((o) => hypot(o.x - x, o.y - y) < 8)) return;
       list.push(line);
       this.lines.push(line);
     };
@@ -202,7 +202,7 @@ export class StreetMarks {
       let entry = this.byEdge.get(e.id);
       if (!entry) this.byEdge.set(e.id, (entry = { fwd: [], rev: [] }));
       const list = fwd ? entry.fwd : entry.rev;
-      if (list.some((o) => o.kind === kind && Math.hypot(o.x - x, o.y - y) < 6)) return null;
+      if (list.some((o) => o.kind === kind && hypot(o.x - x, o.y - y) < 6)) return null;
       list.push(m);
       return m;
     };
@@ -273,7 +273,7 @@ export class StreetMarks {
         if (bigger < 2) continue;
         const link = { edge: e, fwd, to: node } as Link;
         const s = fwd ? e.len - 4.5 : 4.5;
-        const near = (m: { x: number; y: number }) => Math.hypot(m.x - g.nx(node), m.y - g.ny(node)) < 18;
+        const near = (m: { x: number; y: number }) => hypot(m.x - g.nx(node), m.y - g.ny(node)) < 18;
         if (lights.forLink(link).some(near) || this.forLink(link).some((m) => m.kind < MARK_BUMP && near(m))) continue;
         add(e, fwd, s, MARK_GIVE_WAY);
       }
@@ -300,7 +300,7 @@ function along(p: ArrayLike<number>, d: number) {
   let acc = 0;
   for (let i = 0; i < p.length - 2; i += 2) {
     const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1];
-    const L = Math.hypot(dx, dy);
+    const L = hypot(dx, dy);
     if (acc + L >= d || i + 4 >= p.length) {
       const t = L > 1e-6 ? Math.max(0, Math.min(1, (d - acc) / L)) : 0;
       return { x: p[i] + dx * t, y: p[i + 1] + dy * t, dx: L > 1e-6 ? dx / L : 1, dy: L > 1e-6 ? dy / L : 0 };
@@ -319,7 +319,7 @@ function project(p: ArrayLike<number>, x: number, y: number) {
     const L2 = dx * dx + dy * dy, L = Math.sqrt(L2);
     if (L < 1e-6) continue;
     const t = Math.max(0, Math.min(1, ((x - p[i]) * dx + (y - p[i + 1]) * dy) / L2));
-    const dist = Math.hypot(p[i] + dx * t - x, p[i + 1] + dy * t - y);
+    const dist = hypot(p[i] + dx * t - x, p[i + 1] + dy * t - y);
     if (!best || dist < best.dist) best = { s: acc + t * L, dist, dx: dx / L, dy: dy / L };
     acc += L;
   }

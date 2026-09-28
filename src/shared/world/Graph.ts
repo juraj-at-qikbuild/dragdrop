@@ -1,5 +1,5 @@
 import type { GraphJSON } from '../types';
-import { polylineLength } from '../util/math';
+import { polylineLength, hypot } from '../util/math';
 
 export interface Edge {
   id: number;
@@ -185,62 +185,90 @@ export class Graph {
         const cell = this.grid.get((gx + 1000) * 4096 + gy + 1000);
         if (!cell) continue;
         for (const i of cell) {
-          const d = Math.hypot(this.nodes[i * 2] - x, this.nodes[i * 2 + 1] - y);
+          const d = hypot(this.nodes[i * 2] - x, this.nodes[i * 2 + 1] - y);
           if (d >= rMin && d <= rMax && this.out[i].length) res.push(i);
         }
       }
     return res;
   }
 
+  /** A* scratch, reused by every search on this graph: g, the link and node each node was reached
+   *  by, valid only where `seen` holds the current search's stamp (so nothing is refilled per search),
+   *  and the open list as a binary heap over parallel arrays (no [f, node] pair per push) */
+  private sg: Float64Array | null = null;
+  private sPrev: (Link | null)[] = [];
+  private sPrevNode: Int32Array | null = null;
+  private sSeen: Uint32Array | null = null;
+  private sStamp = 0;
+  private hf = new Float64Array(256);
+  private hn = new Int32Array(256);
+
   /** A* shortest path, returns the list of links to follow (or null). */
   path(from: number, to: number, maxIter = 6000): Link[] | null {
     if (from < 0 || to < 0) return null;
     if (from === to) return [];
     const n = this.out.length;
-    const g = new Float64Array(n).fill(Infinity);
-    const prev: (Link | null)[] = new Array(n).fill(null);
-    const prevNode = new Int32Array(n).fill(-1);
+    if (!this.sg) (this.sg = new Float64Array(n)), (this.sPrev = new Array(n).fill(null)), (this.sPrevNode = new Int32Array(n)), (this.sSeen = new Uint32Array(n));
+    if (++this.sStamp === 0xffffffff) (this.sSeen!.fill(0), (this.sStamp = 1));
+    const g = this.sg, prev = this.sPrev, prevNode = this.sPrevNode!, seen = this.sSeen!, stamp = this.sStamp;
     const tx = this.nx(to), ty = this.ny(to);
-    const open: [number, number][] = [[0, from]];
+    let hf = this.hf, hn = this.hn, len = 1;
+    hf[0] = 0;
+    hn[0] = from;
+    seen[from] = stamp;
     g[from] = 0;
+    prev[from] = null;
+    prevNode[from] = -1;
     let iter = 0;
-    while (open.length && iter++ < maxIter) {
+    while (len && iter++ < maxIter) {
       // binary heap pop
-      const [, cur] = open[0];
-      const last = open.pop()!;
-      if (open.length) {
-        open[0] = last;
+      const cur = hn[0];
+      len--;
+      if (len) {
+        hf[0] = hf[len];
+        hn[0] = hn[len];
         let i = 0;
         for (;;) {
           const l = i * 2 + 1, r = l + 1;
           let m = i;
-          if (l < open.length && open[l][0] < open[m][0]) m = l;
-          if (r < open.length && open[r][0] < open[m][0]) m = r;
+          if (l < len && hf[l] < hf[m]) m = l;
+          if (r < len && hf[r] < hf[m]) m = r;
           if (m === i) break;
-          [open[i], open[m]] = [open[m], open[i]];
+          const f = hf[i], k = hn[i];
+          (hf[i] = hf[m]), (hn[i] = hn[m]), (hf[m] = f), (hn[m] = k);
           i = m;
         }
       }
       if (cur === to) break;
+      const gc = seen[cur] === stamp ? g[cur] : Infinity;
       for (const link of this.out[cur]) {
-        const ng = g[cur] + this.cost[link.edge.id];
-        if (ng < g[link.to]) {
-          g[link.to] = ng;
-          prev[link.to] = link;
-          prevNode[link.to] = cur;
-          const f = ng + Math.hypot(this.nx(link.to) - tx, this.ny(link.to) - ty);
-          open.push([f, link.to]);
-          let i = open.length - 1;
+        const t = link.to;
+        const ng = gc + this.cost[link.edge.id];
+        if (ng < (seen[t] === stamp ? g[t] : Infinity)) {
+          seen[t] = stamp;
+          g[t] = ng;
+          prev[t] = link;
+          prevNode[t] = cur;
+          const f = ng + hypot(this.nx(t) - tx, this.ny(t) - ty);
+          if (len === hf.length) {
+            const f2 = new Float64Array(len * 2), n2 = new Int32Array(len * 2);
+            f2.set(hf), n2.set(hn);
+            (this.hf = hf = f2), (this.hn = hn = n2);
+          }
+          hf[len] = f;
+          hn[len] = t;
+          let i = len++;
           while (i > 0) {
             const p = (i - 1) >> 1;
-            if (open[p][0] <= open[i][0]) break;
-            [open[p], open[i]] = [open[i], open[p]];
+            if (hf[p] <= hf[i]) break;
+            const pf = hf[p], pk = hn[p];
+            (hf[p] = hf[i]), (hn[p] = hn[i]), (hf[i] = pf), (hn[i] = pk);
             i = p;
           }
         }
       }
     }
-    if (!prev[to]) return null;
+    if (seen[to] !== stamp || !prev[to]) return null;
     const res: Link[] = [];
     for (let c = to; c !== from; c = prevNode[c]) res.push(prev[c]!);
     return res.reverse();
@@ -262,7 +290,7 @@ export function linkPoints(link: Link, offset = 0): number[] {
   for (let k = 0; k < n; k++) {
     const k0 = Math.max(0, k - 1), k1 = Math.min(n - 1, k + 1);
     const dx = pts[k1 * 2] - pts[k0 * 2], dy = pts[k1 * 2 + 1] - pts[k0 * 2 + 1];
-    const l = Math.hypot(dx, dy) || 1;
+    const l = hypot(dx, dy) || 1;
     // right-hand normal in a y-down world is (-dy, dx)
     out.push(pts[k * 2] - (dy / l) * offset, pts[k * 2 + 1] + (dx / l) * offset);
   }

@@ -14,7 +14,7 @@
 // the whistle. A goal stops the clock; the kick-off puts the ball back on the centre spot and the NPC
 // cars back on theirs.
 import { LIVERY_DERBY, LIVERY_NONE, Vehicle, type Pen } from '../../../../entities/Vehicle';
-import { clamp, dist } from '../../../../util/math';
+import { clamp, dist, hypot } from '../../../../util/math';
 import type { Crime, Sim } from '../../../Sim';
 import type { SimPlayer } from '../../../SimPlayer';
 import { placeName } from '../../placeName';
@@ -355,7 +355,7 @@ class Football extends MiniGame {
         if (n.t > 0) return;
         // at a spot inside the mouth (clear of the posts), from wherever the ball is now
         const ty = this.sim.rng.range(-p.gw / 2 + 1.3, p.gw / 2 - 1.3);
-        const ux = -p.hl - 1 - lx, uy = ty - ly, ul = Math.hypot(ux, uy) || 1;
+        const ux = -p.hl - 1 - lx, uy = ty - ly, ul = hypot(ux, uy) || 1;
         const vl = (ux / ul) * NOZ_V, vw = (uy / ul) * NOZ_V;
         b.vx = vl * this.f.ca - vw * this.f.sa;
         b.vy = vl * this.f.sa + vw * this.f.ca;

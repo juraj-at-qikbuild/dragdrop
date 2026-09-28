@@ -9,6 +9,7 @@
 // The map builder does it before it bakes the lanes and walking lines (scripts/build-map.mjs), and
 // scripts/widen-map.mjs did it to the map in the repository: the game loads the result, so it costs
 // nothing at startup. `MapJSON.wide` says it's been done.
+import { hypot } from '../util/math';
 import type { EdgeJSON, MapJSON, RoadJSON } from '../types';
 import type { World } from './World';
 
@@ -51,10 +52,10 @@ export function widenRoads(map: MapJSON, world: World): number {
     if (r.c > CAR_MAX || r.b) continue;
     const hw = r.w / 2, max = hw * ROAD_WIDEN;
     let total = 0;
-    for (let i = 0; i < r.p.length - 2; i += 2) total += Math.hypot(r.p[i + 2] - r.p[i], r.p[i + 3] - r.p[i + 1]);
+    for (let i = 0; i < r.p.length - 2; i += 2) total += hypot(r.p[i + 2] - r.p[i], r.p[i + 3] - r.p[i + 1]);
     let room = max, s0 = 0;
     for (let i = 0; i < r.p.length - 2 && room > hw; i += 2) {
-      const px = r.p[i], py = r.p[i + 1], dx = r.p[i + 2] - px, dy = r.p[i + 3] - py, L = Math.hypot(dx, dy);
+      const px = r.p[i], py = r.p[i + 1], dx = r.p[i + 2] - px, dy = r.p[i + 3] - py, L = hypot(dx, dy);
       if (L < 1e-6) continue;
       const t0 = Math.max(0, (SKIP - s0) / L), t1 = Math.min(1, (total - SKIP - s0) / L);
       s0 += L;
@@ -106,7 +107,7 @@ export function widenRoads(map: MapJSON, world: World): number {
     let t = l2 ? ((x - s.ax) * dx + (y - s.ay) * dy) / l2 : 0;
     t = t < 0 ? 0 : t > 1 ? 1 : t;
     const ex = x - s.ax - dx * t, ey = y - s.ay - dy * t;
-    return { d: Math.hypot(ex, ey), ex, ey, ux: dx / Math.sqrt(l2 || 1), uy: dy / Math.sqrt(l2 || 1) };
+    return { d: hypot(ex, ey), ex, ey, ux: dx / Math.sqrt(l2 || 1), uy: dy / Math.sqrt(l2 || 1) };
   };
   /** the car road segment (x, y) lies on, within `within` of its centre line, running along heading
    *  `a` (when given) and of road class `c` (when given): the nearest */
@@ -178,10 +179,10 @@ export function widenRoads(map: MapJSON, world: World): number {
 /** the point halfway along a polyline, and its heading there */
 function midpoint(p: number[]): { x: number; y: number; a: number } {
   let total = 0;
-  for (let i = 0; i < p.length - 2; i += 2) total += Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
+  for (let i = 0; i < p.length - 2; i += 2) total += hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
   let s = 0;
   for (let i = 0; i < p.length - 2; i += 2) {
-    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], L = Math.hypot(dx, dy);
+    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], L = hypot(dx, dy);
     if (s + L >= total / 2 && L > 0) {
       const t = (total / 2 - s) / L;
       return { x: p[i] + dx * t, y: p[i + 1] + dy * t, a: Math.atan2(dy, dx) };
@@ -206,5 +207,5 @@ function ptSeg(px: number, py: number, ax: number, ay: number, bx: number, by: n
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
   let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
   t = t < 0 ? 0 : t > 1 ? 1 : t;
-  return Math.hypot(px - ax - dx * t, py - ay - dy * t);
+  return hypot(px - ax - dx * t, py - ay - dy * t);
 }

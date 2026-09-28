@@ -16,7 +16,7 @@
 // through the `police` and `bribe` private events.
 import type { VehicleKind } from '../entities/Vehicle';
 import type { Level } from '../world/World';
-import { clamp, dist } from '../util/math';
+import { clamp, dist, hypot } from '../util/math';
 import { DARK_CAR, SIGHT, inSight, sightEnv, type SightEnv } from './sight';
 import type { Sim } from './Sim';
 import type { PlayerState, SimPlayer } from './SimPlayer';
@@ -183,7 +183,7 @@ export class Pursuit {
   update(p: SimPlayer, dt: number) {
     const sim = this.sim;
     const car = p.ped.vehicle;
-    const speed = car ? car.speed : Math.hypot(p.ped.vx, p.ped.vy);
+    const speed = car ? car.speed : hypot(p.ped.vx, p.ped.vy);
     p.still = speed < STILL_SPEED ? p.still + dt : 0;
     if (p.wanted <= 0) {
       p.searchZone = null;

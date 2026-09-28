@@ -10,7 +10,7 @@
 // anywhere, it backs off and turns away, and a car that keeps jamming is put back on its spot.
 import type { Vehicle } from '../../../../entities/Vehicle';
 import type { Sim } from '../../../Sim';
-import { angleDiff, clamp, dist } from '../../../../util/math';
+import { angleDiff, clamp, dist, hypot } from '../../../../util/math';
 import type { PitchFrame } from './footballPitch';
 
 export type Role = 'att' | 'def' | 'gk';
@@ -139,7 +139,7 @@ export function drive(sim: Sim, b: Bot, f: PitchFrame, ball: Vehicle, play: Play
       if (near && goalSide) target = chase(cx, cy, px, py, ...wide(), play, play.steady);
       else {
         const k = Math.min(3.5, dist(px, py, ownX, 0) * 0.5);
-        const ux = px - ownX, uy = py, ul = Math.hypot(ux, uy) || 1;
+        const ux = px - ownX, uy = py, ul = hypot(ux, uy) || 1;
         target = [ownX + (ux / ul) * k, clamp((uy / ul) * k, -p.gw / 2 + 1, p.gw / 2 - 1), V_HOLD];
       }
       break;

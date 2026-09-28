@@ -9,7 +9,7 @@ import type { World } from '../../../../world/World';
 import { linkPoints, type Link } from '../../../../world/Graph';
 import { Tram } from '../../../../entities/Tram';
 import type { Rng } from '../../../../util/Rng';
-import { dist } from '../../../../util/math';
+import { dist, hypot } from '../../../../util/math';
 import type { Sim } from '../../../Sim';
 
 /** a stop lies on a track this close to its line (m): the tram's own reach (Tram.nextStop) */
@@ -49,10 +49,10 @@ function net(w: World): Net {
     for (let i = 0; i < S.length; i += 2) {
       let best = Infinity, at = 0, acc = 0;
       for (let k = 0; k + 3 < e.p.length; k += 2) {
-        const ax = e.p[k], ay = e.p[k + 1], dx = e.p[k + 2] - ax, dy = e.p[k + 3] - ay, L = Math.hypot(dx, dy);
+        const ax = e.p[k], ay = e.p[k + 1], dx = e.p[k + 2] - ax, dy = e.p[k + 3] - ay, L = hypot(dx, dy);
         if (L > 1e-6) {
           const t = Math.max(0, Math.min(1, ((S[i] - ax) * dx + (S[i + 1] - ay) * dy) / (L * L)));
-          const d = Math.hypot(ax + dx * t - S[i], ay + dy * t - S[i + 1]);
+          const d = hypot(ax + dx * t - S[i], ay + dy * t - S[i + 1]);
           if (d < best) (best = d), (at = acc + t * L);
         }
         acc += L;
@@ -127,7 +127,7 @@ export function branch(w: World, from: Link, steer = 0): Link | null {
 export function pointAt(pts: ArrayLike<number>, d: number): { x: number; y: number; a: number } {
   let acc = 0;
   for (let k = 0; k + 3 < pts.length; k += 2) {
-    const dx = pts[k + 2] - pts[k], dy = pts[k + 3] - pts[k + 1], L = Math.hypot(dx, dy);
+    const dx = pts[k + 2] - pts[k], dy = pts[k + 3] - pts[k + 1], L = hypot(dx, dy);
     if (acc + L >= d && L > 1e-6) {
       const t = Math.max(0, (d - acc) / L);
       return { x: pts[k] + dx * t, y: pts[k + 1] + dy * t, a: Math.atan2(dy, dx) };
@@ -165,8 +165,8 @@ export function tramAlong(t: Tram): number {
   const p = t.pts;
   let s = 0;
   const last = Math.min(t.idx - 1, p.length / 2 - 1);
-  for (let k = 1; k <= last; k++) s += Math.hypot(p[k * 2] - p[k * 2 - 2], p[k * 2 + 1] - p[k * 2 - 1]);
-  return s + Math.hypot(t.x - p[last * 2], t.y - p[last * 2 + 1]);
+  for (let k = 1; k <= last; k++) s += hypot(p[k * 2] - p[k * 2 - 2], p[k * 2 + 1] - p[k * 2 - 1]);
+  return s + hypot(t.x - p[last * 2], t.y - p[last * 2 + 1]);
 }
 
 /** Every stop a tram can get to from `fromS` metres along link `from`, within `maxLen` metres
@@ -326,7 +326,7 @@ export function trackFrom(w: World, from: Link, at: number, maxD: number, steer 
     pts = [start.x, start.y];
     let acc = 0;
     for (let k = 2; k < p.length; k += 2) {
-      acc += Math.hypot(p[k] - p[k - 2], p[k + 1] - p[k - 1]);
+      acc += hypot(p[k] - p[k - 2], p[k + 1] - p[k - 1]);
       if (acc > at) pts.push(p[k], p[k + 1]);
     }
   }
@@ -354,10 +354,10 @@ export function trackFrom(w: World, from: Link, at: number, maxD: number, steer 
 export function nearLine(pts: ArrayLike<number>, x: number, y: number): { d: number; s: number; a: number } {
   let best = { d: Infinity, s: 0, a: 0 }, acc = 0;
   for (let k = 0; k + 3 < pts.length; k += 2) {
-    const dx = pts[k + 2] - pts[k], dy = pts[k + 3] - pts[k + 1], L = Math.hypot(dx, dy);
+    const dx = pts[k + 2] - pts[k], dy = pts[k + 3] - pts[k + 1], L = hypot(dx, dy);
     if (L > 1e-6) {
       const t = Math.max(0, Math.min(1, ((x - pts[k]) * dx + (y - pts[k + 1]) * dy) / (L * L)));
-      const d = Math.hypot(pts[k] + dx * t - x, pts[k + 1] + dy * t - y);
+      const d = hypot(pts[k] + dx * t - x, pts[k + 1] + dy * t - y);
       if (d < best.d) best = { d, s: acc + t * L, a: Math.atan2(dy, dx) };
     }
     acc += L;

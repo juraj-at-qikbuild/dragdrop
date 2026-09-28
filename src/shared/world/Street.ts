@@ -1,6 +1,6 @@
 // The street in detail, from the map (see scripts/build-map.mjs): raised traffic islands, lift gates,
 // speed bumps and street furniture. Pure data and geometry (no DOM): the server runs the same code.
-import { pointInRings, segDist2 } from '../util/math';
+import { pointInRings, segDist2, hypot } from '../util/math';
 
 /** Per furniture kind (the map's `furniture[].kind`): what it is, how far a car's side must come to
  *  touch it (m), whether a car knocks it flying (or it just stands there), and whether someone can
@@ -199,7 +199,7 @@ export class Gates {
     let t = ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1);
     t = t < 0 ? 0 : t > 1 ? 1 : t;
     const ex = x - (ax + dx * t), ey = y - (ay + dy * t);
-    const d = Math.hypot(ex, ey), rr = r + 0.06;
+    const d = hypot(ex, ey), rr = r + 0.06;
     if (d >= rr) return null;
     // a circle right on the boom's line is pushed back along the way it came from (the caller's
     // velocity decides the side; the normal of the boom is the fallback)
@@ -223,7 +223,7 @@ export class Gates {
     for (let i = 0; i < this.n; i++) if (this.broken[i] > 0) this.broken[i] = Math.max(0, this.broken[i] - dt);
     for (const v of cars) {
       if (!v.kinematic || v.level !== 0) continue;
-      const sp = Math.hypot(v.vx, v.vy);
+      const sp = hypot(v.vx, v.vy);
       if (sp < 0.8) continue;
       this.forDown(v.x, v.y, (i) => {
         if (this.contact(i, v.x, v.y, v.spec.width / 2 + 0.3)) this.snap(i, v.vx, v.vy, sp);

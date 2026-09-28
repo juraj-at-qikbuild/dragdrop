@@ -11,7 +11,7 @@
 // Alone it's against an AI campaign that flips a spot every few seconds somewhere, far from the
 // player where it can; with others it's two campaigns (the teams by the order they joined, red and
 // blue), and a campaign whose players have all gone is taken over by the AI.
-import { dist } from '../../../../util/math';
+import { dist, hypot } from '../../../../util/math';
 import type { Sim } from '../../../Sim';
 import type { SimPlayer } from '../../../SimPlayer';
 import { MiniGame, type MiniGameDef, type MiniRound, type MiniView } from '../MiniGame';
@@ -213,7 +213,7 @@ class Billboard extends MiniGame {
   /** a paste or a moustache under way: done when the time's up, off when they moved */
   private working(p: SimPlayer, s: Player) {
     const w = s.work!, sp = this.spots[w.spot], ped = p.ped;
-    if (ped.vehicle || ped.aboard || dist(ped.x, ped.y, w.x, w.y) > STILL_R || Math.hypot(ped.vx, ped.vy) > STILL_V) {
+    if (ped.vehicle || ped.aboard || dist(ped.x, ped.y, w.x, w.y) > STILL_R || hypot(ped.vx, ped.vy) > STILL_V) {
       s.work = null;
       return this.msg(p, w.kind === 'paste' ? 'Pohol si sa – plagát spadol.' : 'Pohol si sa – fúzy nedokreslené.', '#ff8a80');
     }

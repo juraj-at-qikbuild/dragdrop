@@ -2,7 +2,7 @@
 // were last seen, its searchlight sweeping round (docs/plans/gameplay.md, Phase 1); fires bursts at 5
 // stars, only at a player it sees. Shared by the browser and the game server; drawing lives in
 // src/render/drawHeli.ts.
-import { dist, lerp } from '../util/math';
+import { dist, lerp, hypot } from '../util/math';
 import { heliSees } from '../sim/sight';
 
 /** what the helicopter follows: a player's focus position and, if driving, their car's velocity */
@@ -70,7 +70,7 @@ export class Helicopter {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     const want = Math.atan2(dy, dx);
-    if (Math.hypot(dx, dy) > 2) {
+    if (hypot(dx, dy) > 2) {
       let d = want - this.angle;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;

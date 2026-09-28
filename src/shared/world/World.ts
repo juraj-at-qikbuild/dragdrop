@@ -4,7 +4,7 @@ import { TrafficLights, StreetMarks } from './TrafficLights';
 import { Bumps, FURNITURE, F_COLUMN, Gates, Islands } from './Street';
 import { Puddles } from './Puddles';
 import { Stalls } from './Stalls';
-import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox } from '../util/math';
+import { bboxOf, pointInRings, ringArea, rng, segDist2, segIntersect, type BBox, hypot } from '../util/math';
 
 /** Where an entity is vertically: -1 in a tunnel, 0 on the ground (or under a bridge deck), 1 on
  *  a bridge deck, 2 on an upper deck that crosses over others (Most SNP's road deck above its
@@ -248,6 +248,9 @@ export class World {
   /** per-building query stamp, so `forBuildingsNear` visits each building once */
   private buildingStamp: Uint32Array;
   private stamp = 0;
+  /** per wall (index / WALL): the forWalls/collideCircle pass that last visited it (dedupe without a Set) */
+  private wallStamp!: Uint32Array;
+  private wallPass = 0;
 
   constructor(data: MapJSON) {
     this.data = data;
@@ -434,6 +437,7 @@ export class World {
       wall(x, y, x, y, TRUNK, W_LOW);
     }
     this.walls = Float32Array.from(walls);
+    this.wallStamp = new Uint32Array(Math.ceil(this.walls.length / WALL) + 1);
     for (let i = 0; i < this.walls.length; i += WALL) this.addToGrid(this.wallGrid, i, this.walls, this.walls[i + 4]);
 
     for (const w of data.areas.water) {
@@ -490,7 +494,7 @@ export class World {
       const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
       let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const pen = r + ht - Math.hypot(x - ax - dx * t, y - ay - dy * t);
+      const pen = r + ht - hypot(x - ax - dx * t, y - ay - dy * t);
       if (pen > worst) worst = pen;
     });
     return worst;
@@ -505,11 +509,11 @@ export class World {
     // its neighbouring segments' normals)
     const p = linkPoints({ edge: { p: p0 } as Edge, fwd: true, to: 0 }, off);
     let total = 0;
-    for (let i = 0; i < p.length - 2; i += 2) total += Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
+    for (let i = 0; i < p.length - 2; i += 2) total += hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
     let worst = 0, s = 0;
     for (let i = 0; i < p.length - 2; i += 2) {
       const ax = p[i], ay = p[i + 1], dx = p[i + 2] - ax, dy = p[i + 3] - ay;
-      const L = Math.hypot(dx, dy);
+      const L = hypot(dx, dy);
       if (L < 1e-6) continue;
       const a = Math.atan2(dy, dx);
       for (let d = s < skip ? skip - s : FIT_STEP / 2; d < L; d += FIT_STEP) {
@@ -803,7 +807,7 @@ export class World {
       const edge: number[] = [];
       for (let k = 0; k < p.length - 2; k += 2) {
         const dx = p[k + 2] - p[k], dy = p[k + 3] - p[k + 1];
-        const l = Math.hypot(dx, dy) || 1;
+        const l = hypot(dx, dy) || 1;
         const ox = (-dy / l) * hw, oy = (dx / l) * hw;
         edge.push(p[k] + ox, p[k + 1] + oy, p[k + 2] + ox, p[k + 3] + oy, p[k] - ox, p[k + 1] - oy, p[k + 2] - ox, p[k + 3] - oy);
       }
@@ -814,7 +818,7 @@ export class World {
         }
       for (let k = 0; k < edge.length; k += 4) {
         const ax = edge[k], ay = edge[k + 1], bx = edge[k + 2], by = edge[k + 3];
-        if (Math.hypot(bx - ax, by - ay) < 1e-3) continue;
+        if (hypot(bx - ax, by - ay) < 1e-3) continue;
         // (most of a round end lies within the corridor's other segments)
         const open = this.passageSpans(ax, ay, bx, by, 0.05);
         if (open.length === 1 && open[0][0] <= 0 && open[0][1] >= 1) continue;
@@ -908,7 +912,7 @@ export class World {
         const side = rng((rd.p[0] * 31) ^ (rd.p[1] * 17))() < 0.5 ? 1 : -1;
         for (let i = 0; i < rd.p.length - 2; i += 2) {
           const ax = rd.p[i], ay = rd.p[i + 1], bx = rd.p[i + 2], by = rd.p[i + 3];
-          const l = Math.hypot(bx - ax, by - ay);
+          const l = hypot(bx - ax, by - ay);
           const off = rd.w / 2 + 1.5;
           for (let d = 7; d < l; d += 15) {
             const x = ax + ((bx - ax) * d) / l + ((ay - by) / l) * off * side, y = ay + ((by - ay) * d) / l + ((bx - ax) / l) * off * side;
@@ -923,20 +927,28 @@ export class World {
   forWalls(x: number, y: number, r: number, fn: (ax: number, ay: number, bx: number, by: number, ht: number, flags: number) => void) {
     const gx0 = Math.floor((x - r) / CELL), gx1 = Math.floor((x + r) / CELL);
     const gy0 = Math.floor((y - r) / CELL), gy1 = Math.floor((y + r) / CELL);
-    const seen = gx0 === gx1 && gy0 === gy1 ? null : new Set<number>();
+    const dedupe = gx0 !== gx1 || gy0 !== gy1;
+    const pass = dedupe ? this.nextWallPass() : 0, seen = this.wallStamp;
     const w = this.walls;
     for (let gx = gx0; gx <= gx1; gx++)
       for (let gy = gy0; gy <= gy1; gy++) {
         const c = this.wallGrid.get(this.key(gx, gy));
         if (!c) continue;
-        for (const i of c) {
-          if (seen) {
-            if (seen.has(i)) continue;
-            seen.add(i);
+        for (let k = 0; k < c.length; k++) {
+          const i = c[k];
+          if (dedupe) {
+            const j = i / WALL;
+            if (seen[j] === pass) continue;
+            seen[j] = pass;
           }
           fn(w[i], w[i + 1], w[i + 2], w[i + 3], w[i + 4], w[i + 5]);
         }
       }
+  }
+
+  private nextWallPass() {
+    if (++this.wallPass === 0xffffffff) (this.wallStamp.fill(0), (this.wallPass = 1));
+    return this.wallPass;
   }
 
   /** Push a circle out of walls, and (with level 1 and `rails`) off a bridge deck's railings, or
@@ -954,27 +966,45 @@ export class World {
       }
     } else {
       const deck = level === 1 || level === 2;
+      const w = this.walls, seen = this.wallStamp;
       for (let iter = 0; iter < 3; iter++) {
         let moved = false;
-        this.forWalls(px, py, r, (ax, ay, bx, by, ht, flags) => {
-          if (flags & W_NOHIT || (deck && flags & W_LOW)) return;
-          const rr = r + ht;
-          if ((ax < bx ? ax : bx) - rr > px || (ax > bx ? ax : bx) + rr < px || (ay < by ? ay : by) - rr > py || (ay > by ? ay : by) + rr < py) return;
-          const dx = bx - ax, dy = by - ay;
-          const l2 = dx * dx + dy * dy;
-          let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-          t = t < 0 ? 0 : t > 1 ? 1 : t;
-          const cx = ax + dx * t, cy = ay + dy * t;
-          const ex = px - cx, ey = py - cy;
-          const d2 = ex * ex + ey * ey;
-          if (d2 < rr * rr) {
-            const d = Math.sqrt(d2) || 1e-4;
-            const push = rr - d;
-            px += (ex / d) * push;
-            py += (ey / d) * push;
-            hit = moved = true;
+        // (forWalls, inlined: the walls near the circle where it is at the start of this pass)
+        const gx0 = Math.floor((px - r) / CELL), gx1 = Math.floor((px + r) / CELL);
+        const gy0 = Math.floor((py - r) / CELL), gy1 = Math.floor((py + r) / CELL);
+        const dedupe = gx0 !== gx1 || gy0 !== gy1;
+        const pass = dedupe ? this.nextWallPass() : 0;
+        for (let gx = gx0; gx <= gx1; gx++)
+          for (let gy = gy0; gy <= gy1; gy++) {
+            const c = this.wallGrid.get(this.key(gx, gy));
+            if (!c) continue;
+            for (let k = 0; k < c.length; k++) {
+              const i = c[k];
+              if (dedupe) {
+                const j = i / WALL;
+                if (seen[j] === pass) continue;
+                seen[j] = pass;
+              }
+              const ax = w[i], ay = w[i + 1], bx = w[i + 2], by = w[i + 3], ht = w[i + 4], flags = w[i + 5];
+              if (flags & W_NOHIT || (deck && flags & W_LOW)) continue;
+              const rr = r + ht;
+              if ((ax < bx ? ax : bx) - rr > px || (ax > bx ? ax : bx) + rr < px || (ay < by ? ay : by) - rr > py || (ay > by ? ay : by) + rr < py) continue;
+              const dx = bx - ax, dy = by - ay;
+              const l2 = dx * dx + dy * dy;
+              let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+              t = t < 0 ? 0 : t > 1 ? 1 : t;
+              const cx = ax + dx * t, cy = ay + dy * t;
+              const ex = px - cx, ey = py - cy;
+              const d2 = ex * ex + ey * ey;
+              if (d2 < rr * rr) {
+                const d = Math.sqrt(d2) || 1e-4;
+                const push = rr - d;
+                px += (ex / d) * push;
+                py += (ey / d) * push;
+                hit = moved = true;
+              }
+            }
           }
-        });
         if (!moved) break;
       }
       if (deck && rails) {
@@ -994,7 +1024,7 @@ export class World {
     if (py > b.y1 - r) (py = b.y1 - r), (hit = true);
     if (!hit) return null;
     const nx = px - x, ny = py - y;
-    const depth = Math.hypot(nx, ny);
+    const depth = hypot(nx, ny);
     if (depth < 1e-6) return null;
     return { nx: nx / depth, ny: ny / depth, depth };
   }
@@ -1004,7 +1034,7 @@ export class World {
   raycast(ax: number, ay: number, bx: number, by: number, level?: Level): number {
     if (level === -1) return 1;
     let best = 1;
-    const len = Math.hypot(bx - ax, by - ay);
+    const len = hypot(bx - ax, by - ay);
     const steps = Math.max(1, Math.ceil(len / CELL));
     const seen = new Set<number>();
     for (let s = 0; s <= steps; s++) {
@@ -1055,7 +1085,7 @@ export class World {
       }
       const t = tr < 0 ? 0 : tr > 1 ? 1 : tr;
       const ex = x - (ax + dx * t), ey = y - (ay + dy * t);
-      const d = Math.hypot(ex, ey) || 1e-4;
+      const d = hypot(ex, ey) || 1e-4;
       if (d <= limit) {
         f.on = true;
         f.depth = 0;
@@ -1107,7 +1137,7 @@ export class World {
       }
       const t = tr < 0 ? 0 : tr > 1 ? 1 : tr;
       const ex = x - (ax + dx * t), ey = y - (ay + dy * t);
-      const d = Math.hypot(ex, ey) || 1e-4;
+      const d = hypot(ex, ey) || 1e-4;
       if (d <= limit) {
         f.on = true;
         f.depth = 0;
@@ -1131,7 +1161,7 @@ export class World {
       if (!f || f.out || f.depth > r + 2) e.level = 0;
       return;
     }
-    const sp = Math.hypot(vx, vy);
+    const sp = hypot(vx, vy);
     if (e.level === 0 && sp >= 0.3 && this.atPortal(e.x, e.y, vx, vy, sp, r)) {
       e.level = -1;
       return;
@@ -1341,7 +1371,7 @@ export class World {
           if (l2 < 1e-6) continue;
           let t = ((e.x - ax) * dx + (e.y - ay) * dy) / l2;
           t = t < 0 ? 0 : t > 1 ? 1 : t;
-          const qx = ax + dx * t, qy = ay + dy * t, d = Math.hypot(qx - e.x, qy - e.y);
+          const qx = ax + dx * t, qy = ay + dy * t, d = hypot(qx - e.x, qy - e.y);
           if (d >= best) continue;
           // on out past it the way it lies from here (right on the wall: along the wall's normal,
           // which points out of the building), a step further if a bollard or a garden wall
@@ -1411,7 +1441,7 @@ export class World {
     for (const w of this.water)
       for (const r of w.rings)
         for (let i = 0; i < r.length - 2; i += 2) {
-          const L = Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
+          const L = hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
           for (let d = 0; d <= L; d += WCELL / 2) mark(r[i] + ((r[i + 2] - r[i]) * d) / L, r[i + 1] + ((r[i + 3] - r[i + 1]) * d) / L);
         }
     for (let gy = 0; gy < rows; gy++)
@@ -1446,7 +1476,7 @@ export class World {
       const r = p.rings[0];
       let best: number[] | null = null, bl = 0;
       for (let i = 0; i < r.length - 2; i += 2) {
-        const L = Math.hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
+        const L = hypot(r[i + 2] - r[i], r[i + 3] - r[i + 1]);
         if (L < len * 0.8 || L <= bl) continue;
         const ux = (r[i + 2] - r[i]) / L, uy = (r[i + 3] - r[i + 1]) / L, a = Math.atan2(uy, ux);
         const mx = (r[i] + r[i + 2]) / 2, my = (r[i + 1] + r[i + 3]) / 2;
@@ -1662,9 +1692,9 @@ function inward(p: ArrayLike<number>, fromEnd: boolean): [number, number] {
   for (let k = 1; k < n / 2; k++) {
     const j = fromEnd ? n - 2 - k * 2 : k * 2;
     (ix = p[j]), (iy = p[j + 1]);
-    if (Math.hypot(ix - x, iy - y) >= 3) break;
+    if (hypot(ix - x, iy - y) >= 3) break;
   }
-  const d = Math.hypot(ix - x, iy - y) || 1;
+  const d = hypot(ix - x, iy - y) || 1;
   return [(ix - x) / d, (iy - y) / d];
 }
 
@@ -1688,7 +1718,7 @@ export function capsuleSpan(ax: number, ay: number, bx: number, by: number, px: 
   disc(px, py);
   disc(qx, qy);
   const ex = qx - px, ey = qy - py;
-  const len = Math.hypot(ex, ey);
+  const len = hypot(ex, ey);
   if (len > 1e-9) {
     const ux = ex / len, uy = ey / len;
     // along the band: 0 <= (X - P)·u <= len; across it: |(X - P)·n| < r (n = (-uy, ux))

@@ -6,7 +6,7 @@
 // coins) or locked, which a player only finds out at the door. A café lets a customer in (a coffee,
 // €3, which also gives change); a bakery changes money (a rožok, €1). One player at a time in each.
 // With others it's a race: the first one relieved wins, and everyone who makes it gets paid.
-import { dist } from '../../../../util/math';
+import { dist, hypot } from '../../../../util/math';
 import type { Sim } from '../../../Sim';
 import type { SimPlayer } from '../../../SimPlayer';
 import { MiniGame, type MiniGameDef, type MiniRound, type MiniView } from '../MiniGame';
@@ -123,7 +123,7 @@ class Toilet extends MiniGame {
         if (now - s.relief.t >= RELIEF_S) this.relieved(p, s, sp);
         continue;
       }
-      const running = !car && Math.hypot(ped.vx, ped.vy) > 2.6;
+      const running = !car && hypot(ped.vx, ped.vy) > 2.6;
       const rate = this.sim.world.inWater(ped.x, ped.y, ped.level) && !car ? SWIM : car ? RIDE : running ? RUN : 1;
       s.bladder += FILL * rate * dt;
       s.final = s.bladder;

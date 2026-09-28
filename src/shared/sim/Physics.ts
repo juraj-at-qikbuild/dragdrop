@@ -9,7 +9,7 @@ import type { Ped } from '../entities/Ped';
 import { TRAM_SEG, type Tram } from '../entities/Tram';
 import type { World } from '../world/World';
 import { SpatialHash } from '../util/SpatialHash';
-import { dist } from '../util/math';
+import { dist, hypot } from '../util/math';
 
 export const PHYS_STEP = 1 / 120;
 /** half the tram body's width, for bridge-deck fit checks */
@@ -59,7 +59,7 @@ export function slipstream(v: Vehicle, vehicles: readonly Vehicle[], trams: read
     if (Math.abs(dx) > reach || Math.abs(dy) > reach) return;
     const gap = dx * fx + dy * fy - halfLen - v.spec.length / 2;
     if (gap < 0.3 || gap > DRAFT_RANGE || Math.abs(-dx * fy + dy * fx) > halfW + 0.4) return;
-    const sp = Math.hypot(vx, vy);
+    const sp = hypot(vx, vy);
     if (sp < DRAFT_SPEED * 0.8 || vx * fx + vy * fy < sp * 0.85) return;
     best = Math.max(best, 1 - gap / DRAFT_RANGE);
   };
@@ -267,7 +267,7 @@ function deepest(a: Vehicle, b: Vehicle): Contact | null {
     const ax = a.circleX(ci), ay = a.circleY(ci);
     for (let cj = 0; cj < b.circles.length; cj++) {
       const bx = b.circleX(cj), by = b.circleY(cj);
-      const d = Math.hypot(bx - ax, by - ay);
+      const d = hypot(bx - ax, by - ay);
       const depth = ra + rb - d;
       if (depth > 0 && (!best || depth > best.depth))
         best = { nx: (bx - ax) / (d || 1), ny: (by - ay) / (d || 1), depth, cx: (ax + bx) / 2, cy: (ay + by) / 2 };

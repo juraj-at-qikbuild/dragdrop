@@ -8,7 +8,7 @@ import { Ped, type Mess } from '../entities/Ped';
 import type { Tram } from '../entities/Tram';
 import type { Vehicle } from '../entities/Vehicle';
 import { F_BENCH, F_SHELTER, F_TABLE } from '../world/Street';
-import { dist } from '../util/math';
+import { dist, hypot } from '../util/math';
 import { SAY_BUMP, SAY_CHAT, SAY_FIGHT, SAY_GUN, SAY_HORN, SAY_PHONE, pickLine, pickUpLine } from './phrases';
 import type { Sim } from './Sim';
 import type { SimPlayer } from './SimPlayer';
@@ -138,7 +138,7 @@ export class Crowd {
   /** player figure `pl` barged into `q`: a look and a word (and the odd one shoves back) */
   private bumped(q: Ped, pl: Ped) {
     const sim = this.sim;
-    const sp = Math.hypot(pl.vx, pl.vy);
+    const sp = hypot(pl.vx, pl.vy);
     if (sp < 1.8 || q.kind !== 'civ' || q.state === 'flee' || q.state === 'fight' || q.state === 'phone') return;
     // sent staggering by someone running
     if (sp > 5 && q.state !== 'sit') this.push(q, (pl.vx / sp) * 0.45, (pl.vy / sp) * 0.45);
@@ -235,7 +235,7 @@ export class Crowd {
         // stepping aside isn't a panic: no screaming crowd
         q.cooldown = Math.max(q.cooldown, 2.5);
         if (!shouted && sim.time - q.saidAt > 4 && sim.rng.chance(0.35)) (shouted = true), this.say(q, SAY_HORN);
-      } else if (!shouted && Math.hypot(dx, dy) < 10 && sim.time - q.saidAt > 6 && sim.rng.chance(0.4)) {
+      } else if (!shouted && hypot(dx, dy) < 10 && sim.time - q.saidAt > 6 && sim.rng.chance(0.4)) {
         shouted = true;
         q.angle = Math.atan2(-dy, -dx);
         this.say(q, SAY_HORN);
@@ -407,7 +407,7 @@ export class Crowd {
             const ax = e.p[j], ay = e.p[j + 1], dx = e.p[j + 2] - ax, dy = e.p[j + 3] - ay, L2 = dx * dx + dy * dy;
             if (L2 < 1e-6) continue;
             const t = Math.max(0, Math.min(1, ((S[k] - ax) * dx + (S[k + 1] - ay) * dy) / L2));
-            const d = Math.hypot(ax + dx * t - S[k], ay + dy * t - S[k + 1]);
+            const d = hypot(ax + dx * t - S[k], ay + dy * t - S[k + 1]);
             if (d < best) (best = d), (a = Math.atan2(dy, dx));
           }
         dir[k / 2] = a;

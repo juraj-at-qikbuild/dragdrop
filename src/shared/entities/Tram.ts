@@ -4,7 +4,7 @@ import type { Graph, Link } from '../world/Graph';
 import { linkPoints } from '../world/Graph';
 import type { Level } from '../world/World';
 import type { Rng } from '../util/Rng';
-import { rng as seeded } from '../util/math';
+import { rng as seeded, hypot } from '../util/math';
 
 const SEG = 9.2; // length of one articulated section
 export const TRAM_SECTIONS = 3;
@@ -28,6 +28,8 @@ export class Tram {
   id = 0;
   /** travelled path history, flat x,y, newest last */
   trail: number[] = [];
+  /** segLen[k]: length of the trail segment ending at point k (k >= 1), cached (Math.hypot is slow) */
+  private segLen: number[] = [0];
   x = 0;
   y = 0;
   angle = 0;
@@ -111,7 +113,7 @@ export class Tram {
   advance(dist: number) {
     while (dist > 0) {
       const tx = this.pts[this.idx * 2], ty = this.pts[this.idx * 2 + 1];
-      const d = Math.hypot(tx - this.x, ty - this.y);
+      const d = hypot(tx - this.x, ty - this.y);
       if (d <= dist) {
         this.x = tx;
         this.y = ty;
@@ -124,6 +126,7 @@ export class Tram {
           if (next.edge === this.link.edge) {
             // reverse at terminal: flip trail so the tram drives back
             this.trail = [];
+            this.segLen = [];
           }
           this.link = next;
           this.pts = linkPoints(next);
@@ -134,50 +137,67 @@ export class Tram {
         this.y += ((ty - this.y) / d) * dist;
         dist = 0;
       }
-      this.trail.push(this.x, this.y);
+      const tr = this.trail, n = tr.length;
+      this.segLen.push(n >= 2 ? hypot(this.x - tr[n - 2], this.y - tr[n - 1]) : 0);
+      tr.push(this.x, this.y);
     }
     // trim trail to body length
     let len = 0;
+    const seg = this.segLen;
     for (let i = this.trail.length - 2; i >= 2; i -= 2) {
-      len += Math.hypot(this.trail[i] - this.trail[i - 2], this.trail[i + 1] - this.trail[i - 1]);
+      len += seg[i >> 1];
       if (len > this.length + 5) {
         this.trail.splice(0, i - 2);
+        seg.splice(0, (i - 2) >> 1);
         break;
       }
     }
   }
 
-  /** position along the trail at distance d behind the front */
-  private back(d: number): [number, number] {
-    let acc = 0;
-    for (let i = this.trail.length - 2; i >= 2; i -= 2) {
-      const ax = this.trail[i], ay = this.trail[i + 1], bx = this.trail[i - 2], by = this.trail[i - 1];
-      const l = Math.hypot(bx - ax, by - ay);
-      if (acc + l >= d) {
-        const t = (d - acc) / (l || 1);
-        return [ax + (bx - ax) * t, ay + (by - ay) * t];
+  /** the six points updateSections needs, at these distances behind the front (ascending) */
+  private static readonly BACK_D = [1 * (SEG + GAP) - GAP, 1 * (SEG + GAP), 2 * (SEG + GAP) - GAP, 2 * (SEG + GAP), 3 * (SEG + GAP) - GAP, 3 * (SEG + GAP)];
+  private static backOut = new Float64Array(12);
+
+  /** Positions along the trail at each of BACK_D behind the front, in one walk down the trail (the
+   *  same arithmetic as walking it once per distance). Returns how many were on the trail; the rest
+   *  are past its end (extrapolated by the caller). */
+  private backAll(): number {
+    const D = Tram.BACK_D, out = Tram.backOut, tr = this.trail, seg = this.segLen;
+    let q = 0, acc = 0;
+    for (let i = tr.length - 2; i >= 2 && q < D.length; i -= 2) {
+      const ax = tr[i], ay = tr[i + 1], bx = tr[i - 2], by = tr[i - 1];
+      const l = seg[i >> 1];
+      while (q < D.length && acc + l >= D[q]) {
+        const t = (D[q] - acc) / (l || 1);
+        out[q * 2] = ax + (bx - ax) * t;
+        out[q * 2 + 1] = ay + (by - ay) * t;
+        q++;
       }
       acc += l;
     }
-    // not enough trail yet: extrapolate backwards along the heading
-    return [this.x - Math.cos(this.angle) * d, this.y - Math.sin(this.angle) * d];
+    return q;
   }
 
   updateSections() {
     this.sections = [];
-    let front: [number, number] = [this.x, this.y];
+    const found = this.backAll(), D = Tram.BACK_D, out = Tram.backOut;
+    // (a distance past the end of the trail: extrapolated backwards along the heading, as it is then)
+    let fx = this.x, fy = this.y;
     for (let i = 0; i < SECTIONS; i++) {
-      const rear = this.back((i + 1) * (SEG + GAP) - GAP);
-      const a = Math.atan2(front[1] - rear[1], front[0] - rear[0]);
+      const r = i * 2, f = r + 1;
+      const rx = r < found ? out[r * 2] : this.x - Math.cos(this.angle) * D[r];
+      const ry = r < found ? out[r * 2 + 1] : this.y - Math.sin(this.angle) * D[r];
+      const a = Math.atan2(fy - ry, fx - rx);
       if (i === 0) this.angle = a;
-      this.sections.push({ x: (front[0] + rear[0]) / 2, y: (front[1] + rear[1]) / 2, a });
-      front = this.back((i + 1) * (SEG + GAP));
+      this.sections.push({ x: (fx + rx) / 2, y: (fy + ry) / 2, a });
+      fx = f < found ? out[f * 2] : this.x - Math.cos(this.angle) * D[f];
+      fy = f < found ? out[f * 2 + 1] : this.y - Math.sin(this.angle) * D[f];
     }
   }
 
   update(dt: number) {
     if (this.bell > 0) this.bell -= dt;
-    if (this.served >= 0 && Math.hypot(this.stops[this.served] - this.x, this.stops[this.served + 1] - this.y) > 30) this.served = -1;
+    if (this.served >= 0 && hypot(this.stops[this.served] - this.x, this.stops[this.served + 1] - this.y) > 30) this.served = -1;
     if (this.dwell > 0) {
       // at a stop: doors open
       this.dwell -= dt;
@@ -251,7 +271,7 @@ export class Tram {
     const scan = (pts: number[], from: number) => {
       for (let k = from; k < pts.length / 2 && acc < maxD; k++) {
         const qx = pts[k * 2], qy = pts[k * 2 + 1];
-        const L = Math.hypot(qx - px, qy - py);
+        const L = hypot(qx - px, qy - py);
         if (L > 1e-6)
           for (let i = 0; i < S.length; i += 2) {
             if (i === this.served) continue;

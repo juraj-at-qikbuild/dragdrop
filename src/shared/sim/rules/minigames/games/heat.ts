@@ -8,7 +8,7 @@
 // tram whose air conditioning works (a coin flip per tram) cool them down. As the heat rises their legs
 // go unsteady (the wobble); at the top they faint: the ice cream in their hands is gone, and they come
 // round dizzy. Alone it's four minutes against the clock; with others, whoever delivers most wins.
-import { clamp, dist, pointInRings } from '../../../../util/math';
+import { clamp, dist, pointInRings, hypot } from '../../../../util/math';
 import { Ped } from '../../../../entities/Ped';
 import type { Tram } from '../../../../entities/Tram';
 import type { World } from '../../../../world/World';
@@ -240,7 +240,7 @@ function simplify(ring: ArrayLike<number>, tol: number): number[] {
   while (stack.length) {
     const [a, b] = stack.pop()!;
     const ax = ring[a * 2], ay = ring[a * 2 + 1], bx = ring[b * 2], by = ring[b * 2 + 1];
-    const l = Math.hypot(bx - ax, by - ay);
+    const l = hypot(bx - ax, by - ay);
     let best = -1, bd = tol;
     for (let i = a + 1; i < b; i++) {
       const px = ring[i * 2], py = ring[i * 2 + 1];
@@ -375,7 +375,7 @@ class Heat extends MiniGame {
       }
       const env = ENV[s.env], ped = p.ped;
       let heat = env.heat;
-      if (heat > 0 && !ped.vehicle && !ped.aboard && Math.hypot(ped.vx, ped.vy) > RUN_SPEED) heat *= RUN_HEAT;
+      if (heat > 0 && !ped.vehicle && !ped.aboard && hypot(ped.vx, ped.vy) > RUN_SPEED) heat *= RUN_HEAT;
       s.heat = clamp(s.heat + heat * dt, 0, 1);
       for (let i = s.cones.length - 1; i >= 0; i--) {
         s.cones[i] -= env.melt * dt;

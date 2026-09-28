@@ -4,6 +4,7 @@
 // the landmarks and the car graph), so every simulation agrees where they are. Each keeps its own
 // knocked-over state, like the gate booms (Street.ts Gates): the server's (offline, the game's) pays
 // the combo, and a client online only draws.
+import { hypot } from '../util/math';
 import type { World } from './World';
 
 export type StallKind = 'lokse' | 'langos' | 'klobasa' | 'punc';
@@ -55,7 +56,7 @@ export class Stalls {
   constructor(world: World) {
     for (const pl of PLACES) {
       const l = world.landmarks.get(pl.at);
-      const s = l && place(world, l.x, l.y, (x, y) => this.x.every((ox, j) => Math.hypot(ox - x, this.y[j] - y) > 25));
+      const s = l && place(world, l.x, l.y, (x, y) => this.x.every((ox, j) => hypot(ox - x, this.y[j] - y) > 25));
       if (!s) continue;
       this.x.push(s.x);
       this.y.push(s.y);
@@ -78,13 +79,13 @@ export class Stalls {
     for (let i = 0; i < n; i++) if (this.broken[i] > 0) this.broken[i] = Math.max(0, this.broken[i] - dt);
     for (const v of cars) {
       if (v.level !== 0 || v.wrecked || v.spec.twoWheeler || v.spec.boat) continue;
-      const sp = Math.hypot(v.vx, v.vy);
+      const sp = hypot(v.vx, v.vy);
       if (sp < MIN_SPEED) continue;
       for (let i = 0; i < n; i++) {
         if (this.broken[i] > 0 || Math.abs(v.x - this.x[i]) > 8 || Math.abs(v.y - this.y[i]) > 8) continue;
         let touch = false;
         for (let c = 0; c < v.circles.length && !touch; c++)
-          touch = Math.hypot(v.circleX(c) - this.x[i], v.circleY(c) - this.y[i]) < v.spec.width / 2 + STALL_R;
+          touch = hypot(v.circleX(c) - this.x[i], v.circleY(c) - this.y[i]) < v.spec.width / 2 + STALL_R;
         if (!touch) continue;
         this.broken[i] = STALL_REBUILD;
         this.fling[i] = Math.atan2(v.vy, v.vx);
@@ -100,12 +101,12 @@ export class Stalls {
  *  stalls). Null if there's nowhere. */
 function place(world: World, lx: number, ly: number, free: (x: number, y: number) => boolean): { x: number; y: number; a: number } | null {
   const g = world.car;
-  const nodes = g.nodesAround(lx, ly, 0, 160).sort((i, j) => Math.hypot(g.nx(i) - lx, g.ny(i) - ly) - Math.hypot(g.nx(j) - lx, g.ny(j) - ly));
+  const nodes = g.nodesAround(lx, ly, 0, 160).sort((i, j) => hypot(g.nx(i) - lx, g.ny(i) - ly) - hypot(g.nx(j) - lx, g.ny(j) - ly));
   for (const n of nodes.slice(0, 40))
     for (const link of g.out[n]) {
       const e = link.edge;
       if (e.cls > 6 || e.width < 5) continue;
-      const dx = g.nx(link.to) - g.nx(n), dy = g.ny(link.to) - g.ny(n), d = Math.hypot(dx, dy);
+      const dx = g.nx(link.to) - g.nx(n), dy = g.ny(link.to) - g.ny(n), d = hypot(dx, dy);
       if (d < 24) continue;
       const ux = dx / d, uy = dy / d;
       // (clear of the junction)

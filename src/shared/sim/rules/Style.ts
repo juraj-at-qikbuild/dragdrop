@@ -8,7 +8,7 @@
 // and a death or an arrest loses it.
 import { BUMP_AIR, bumpLimit, type Vehicle } from '../../entities/Vehicle';
 import { TRAM_SEG } from '../../entities/Tram';
-import { dist } from '../../util/math';
+import { dist, hypot } from '../../util/math';
 import { SECONDS_PER_HOUR } from '../Clock';
 import type { Sim } from '../Sim';
 import type { PlayerState, SimPlayer } from '../SimPlayer';
@@ -328,7 +328,7 @@ export class Style implements SimRule {
           const dx = v.x - sec.x, dy = v.y - sec.y, c = Math.cos(sec.a), n = Math.sin(sec.a);
           const along = Math.abs(dx * c + dy * n) - TRAM_SEG / 2, across = Math.abs(-dx * n + dy * c) - TRAM_HALF_W;
           const gap = Math.max(along, across) - v.spec.width / 2;
-          if (!(gap >= 0 && gap <= TRAM_GAP) || !(Math.hypot(v.vx - c * tr.speed, v.vy - n * tr.speed) >= TRAM_SPEED)) continue;
+          if (!(gap >= 0 && gap <= TRAM_GAP) || !(hypot(v.vx - c * tr.speed, v.vy - n * tr.speed) >= TRAM_SPEED)) continue;
           s.lastTram.set(tr.id, t);
           this.pend(p, 'tram', v.x, v.y);
           break;

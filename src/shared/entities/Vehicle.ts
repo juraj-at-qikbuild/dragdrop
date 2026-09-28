@@ -3,7 +3,7 @@
 // game server; drawing lives in src/render/drawVehicle.ts and cosmetic effects (tyre smoke, sparks,
 // splashes) in src/game/EntityFx.ts.
 import type { Level, Surface, World } from '../world/World';
-import { clamp } from '../util/math';
+import { clamp, hypot } from '../util/math';
 import type { Ped } from './Ped';
 import { ENGINE, NO_MODS, PLATING, TANK, type Mods } from '../sim/shops/catalog';
 
@@ -279,11 +279,11 @@ export class Vehicle {
     const n = this.spec.ball ? 1 : Math.max(2, Math.ceil(this.spec.length / this.spec.width));
     this.circles = [];
     for (let i = 0; i < n; i++) this.circles.push(n < 2 ? 0 : -this.spec.length / 2 + r + ((this.spec.length - 2 * r) * i) / (n - 1));
-    this.radius = this.spec.ball ? r : Math.hypot(this.spec.length / 2, this.spec.width / 2);
+    this.radius = this.spec.ball ? r : hypot(this.spec.length / 2, this.spec.width / 2);
   }
 
   get speed() {
-    return Math.hypot(this.vx, this.vy);
+    return hypot(this.vx, this.vy);
   }
   /** signed forward speed */
   get fwdSpeed() {
@@ -539,7 +539,7 @@ export class Vehicle {
    *  no spin worth simulating (the way it turns is only drawn), and nothing it meets damages it:
    *  returns 0, so a ball against a wall is never a crash. It never goes under either: it floats. */
   private roll(dt: number, world: World): number {
-    const sp = Math.hypot(this.vx, this.vy);
+    const sp = hypot(this.vx, this.vy);
     if (sp > 0) {
       const slow = Math.min(sp, (BALL_ROLL + BALL_AIR * sp * sp) * dt);
       this.vx -= (this.vx / sp) * slow;
@@ -573,7 +573,7 @@ export class Vehicle {
     let moved = false;
     for (let i = 0; i < 4; i++) {
       const px = (i & 1 ? 1 : -1) * p.hl, py = (i & 2 ? 1 : -1) * (p.gw / 2);
-      const ex = lx - px, ey = ly - py, d = Math.hypot(ex, ey), rr = r + POST_R;
+      const ex = lx - px, ey = ly - py, d = hypot(ex, ey), rr = r + POST_R;
       if (d >= rr || d < 1e-6) continue;
       const nx = ex / d, ny = ey / d;
       lx = px + nx * rr;

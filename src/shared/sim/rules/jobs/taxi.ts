@@ -1,5 +1,6 @@
 // Hopík taxi offers: a hailing fare ahead of the car, and a landmark-ish destination for them. Shared
 // by both hosts — sim.rng only, never Math.random. Plan: docs/plans/social-events.md.
+import { hypot } from '../../../util/math';
 import type { Sim } from '../../Sim';
 import type { Vehicle } from '../../../entities/Vehicle';
 import { Ped } from '../../../entities/Ped';
@@ -35,7 +36,7 @@ export function offerFare(sim: Sim, car: Vehicle): { x: number; y: number } | nu
   const hx = Math.cos(car.angle), hy = Math.sin(car.angle);
   const ahead = nodes.filter((i) => {
     const nx = world.ped.nx(i) - car.x, ny = world.ped.ny(i) - car.y;
-    const d = Math.hypot(nx, ny) || 1;
+    const d = hypot(nx, ny) || 1;
     return (nx * hx + ny * hy) / d > AHEAD_COS;
   });
   const pts = (ahead.length ? ahead : nodes).map((i) => ({ x: world.ped.nx(i), y: world.ped.ny(i) }));

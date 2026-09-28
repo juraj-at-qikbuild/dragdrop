@@ -9,7 +9,7 @@
 // after each sweep the city repaints a bay or two as "zákaz státia", so the chairs get fewer while
 // the music plays on. Alone the drivers are the rivals; with others, everyone hunts the same bays and
 // the last one standing wins.
-import { angleDiff, clamp, dist } from '../../../../util/math';
+import { angleDiff, clamp, dist, hypot } from '../../../../util/math';
 import { linkPoints, type Edge, type Link } from '../../../../world/Graph';
 import type { World } from '../../../../world/World';
 import { SPECS, Vehicle, type VehicleKind } from '../../../../entities/Vehicle';
@@ -143,7 +143,7 @@ interface Zone {
 function along(p: number[], s: number): { x: number; y: number; a: number } {
   let acc = 0;
   for (let i = 0; i + 3 < p.length; i += 2) {
-    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], l = Math.hypot(dx, dy);
+    const dx = p[i + 2] - p[i], dy = p[i + 3] - p[i + 1], l = hypot(dx, dy);
     if (acc + l >= s || i + 4 >= p.length) {
       const t = l ? clamp((s - acc) / l, 0, 1) : 0;
       return { x: p[i] + dx * t, y: p[i + 1] + dy * t, a: Math.atan2(dy, dx) };
@@ -177,7 +177,7 @@ function edgeOk(w: World, e: Edge, t: Tier): boolean {
   if ((e.lanesF ?? 1) + (e.lanesR ?? 1) > t.lanes) return false;
   const p = e.p;
   for (let i = 0; i + 3 < p.length; i += 2) {
-    const n = Math.max(1, Math.ceil(Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) / 8));
+    const n = Math.max(1, Math.ceil(hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) / 8));
     for (let k = 0; k <= n; k++) {
       const x = p[i] + ((p[i + 2] - p[i]) * k) / n, y = p[i + 1] + ((p[i + 3] - p[i + 1]) * k) / n;
       if (w.onBridge(x, y) || w.tunnelDepth(x, y) >= 0) return false;
@@ -628,7 +628,7 @@ class Parking extends MiniGame {
   /** the last few metres into the bay, steered by hand, then set straight in it */
   private parkInto(r: Rival) {
     const v = r.v, b = r.bay!;
-    const dx = b.x - v.x, dy = b.y - v.y, d = Math.hypot(dx, dy);
+    const dx = b.x - v.x, dy = b.y - v.y, d = hypot(dx, dy);
     // someone else got in first (a player, most likely): back to circling
     if (b.gone || (b.by && b.by !== v)) {
       b.claim = null;

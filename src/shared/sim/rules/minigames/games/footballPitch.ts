@@ -4,7 +4,7 @@
 // team's goal at -x), which the game and its NPC drivers think in. DOM-free.
 import type { Pen } from '../../../../entities/Vehicle';
 import type { World } from '../../../../world/World';
-import { bboxOf, dist, pointInRings, ringArea } from '../../../../util/math';
+import { bboxOf, dist, pointInRings, ringArea, hypot } from '../../../../util/math';
 
 /** how far from the player a pitch may be (m, to its lot's middle) */
 export const PITCH_REACH = 900;
@@ -68,7 +68,7 @@ export function fitPitch(world: World, ring: number[]): Pen | null {
   for (let i = 0; i < ring.length; i += 2) {
     const j = (i + 2) % ring.length;
     const dx = ring[j] - ring[i], dy = ring[j + 1] - ring[i + 1];
-    sides.push({ a: Math.atan2(dy, dx), l: Math.hypot(dx, dy) });
+    sides.push({ a: Math.atan2(dy, dx), l: hypot(dx, dy) });
   }
   sides.sort((p, q) => q.l - p.l);
   const angles: number[] = [];

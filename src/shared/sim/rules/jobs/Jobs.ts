@@ -14,7 +14,7 @@ import type { Vehicle } from '../../../entities/Vehicle';
 import type { SimRule } from '../SimRule';
 import type { JobKind, JobState } from '../types';
 import type { MiniGames } from '../minigames/MiniGames';
-import { clamp, dist, formatMoney } from '../../../util/math';
+import { clamp, dist, formatMoney, hypot } from '../../../util/math';
 import { POINTS, jobPoints } from '../points';
 import { offerCourier, roadMetres } from './courier';
 import { offerDestination, offerFare, spawnBailingPed, spawnFare } from './taxi';
@@ -199,7 +199,7 @@ export class Jobs implements SimRule {
     const boarding = job.kind === 'taxi' && job.stage === 'pickup';
     const r = boarding ? 6 : 10, vMax = boarding ? 1 : 2;
     const fx = car ? car.x : p.ped.x, fy = car ? car.y : p.ped.y;
-    const speed = car ? car.speed : Math.hypot(p.ped.vx, p.ped.vy);
+    const speed = car ? car.speed : hypot(p.ped.vx, p.ped.vy);
     if (dist(fx, fy, job.x, job.y) <= r && speed < vMax) job.stopTimer += dt;
     else job.stopTimer = 0;
     if (job.stopTimer < STOP_TIME) return false;
@@ -378,7 +378,7 @@ export class Jobs implements SimRule {
   private tryNearMiss(job: Job, car: Vehicle, otherId: number, ox: number, oy: number, otherHalf: number, ovx: number, ovy: number) {
     const gap = dist(car.x, car.y, ox, oy) - car.spec.width / 2 - otherHalf;
     if (gap < 0 || gap > TIP_GAP) return;
-    if (Math.hypot(car.vx - ovx, car.vy - ovy) <= TIP_MIN_SPEED) return;
+    if (hypot(car.vx - ovx, car.vy - ovy) <= TIP_MIN_SPEED) return;
     const last = job.lastTipAt.get(otherId) ?? -Infinity;
     if (this.sim.time - last < TIP_COOLDOWN) return;
     job.lastTipAt.set(otherId, this.sim.time);

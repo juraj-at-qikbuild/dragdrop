@@ -5,7 +5,7 @@ import { Vehicle, SPECS, type VehicleKind } from '../entities/Vehicle';
 import { Ped, dazeTime } from '../entities/Ped';
 import { Tram } from '../entities/Tram';
 import { Graph, linkPoints, type Link } from '../world/Graph';
-import { angleDiff, bboxOf, clamp, dist, pointInRings } from '../util/math';
+import { angleDiff, bboxOf, clamp, dist, pointInRings, hypot } from '../util/math';
 import { MARK_BUS_STOP, MARK_GIVE_WAY, MARK_STOP, type Mark, type StopLine } from '../world/TrafficLights';
 import { OFF_MAP } from '../world/World';
 import { SECONDS_PER_HOUR } from './Clock';
@@ -216,7 +216,7 @@ export class AI {
     if (!obs.length) return;
     const ranges = obs.map((p) => {
       const o = p.observer;
-      const vr = Math.hypot(o.hw, o.hh);
+      const vr = hypot(o.hw, o.hh);
       return { p, x: o.fx, y: o.fy, vr, far: Math.max(260, vr + 90) };
     });
     const near = (x: number, y: number, f: (r: (typeof ranges)[number], d: number) => boolean) => {
@@ -433,7 +433,7 @@ export class AI {
       const r = rings[0];
       let best = 0, ux = 1, uy = 0;
       for (let i = 0; i < r.length - 2; i += 2) {
-        const dx = r[i + 2] - r[i], dy = r[i + 3] - r[i + 1], L = Math.hypot(dx, dy);
+        const dx = r[i + 2] - r[i], dy = r[i + 3] - r[i + 1], L = hypot(dx, dy);
         if (L > best) (best = L), (ux = dx / L), (uy = dy / L);
       }
       let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
@@ -661,7 +661,7 @@ export class AI {
     let rem = s;
     for (; k < n && rem > 0; k++) {
       const qx = pts[k * 2], qy = pts[k * 2 + 1];
-      const seg = Math.hypot(qx - x, qy - y);
+      const seg = hypot(qx - x, qy - y);
       if (seg < 1e-6) continue;
       a = Math.atan2(qy - y, qx - x);
       if (seg >= rem) {
@@ -967,7 +967,7 @@ export class AI {
       if (!clear || o === v || o.parked || o.wrecked) return;
       const sp = o.speed;
       if (sp < 1.5) return;
-      const dx = jx - o.x, dy = jy - o.y, d = Math.hypot(dx, dy);
+      const dx = jx - o.x, dy = jy - o.y, d = hypot(dx, dy);
       if (d > 20) return;
       // moving toward the junction, and not just the car ahead going our way
       if (dx * o.vx + dy * o.vy <= 0) return;
@@ -1155,7 +1155,7 @@ export class AI {
     for (const l of g.out[n]) {
       if (!drivable(l)) continue;
       const pts = linkPoints(l);
-      const dx = pts[2] - pts[0], dy = pts[3] - pts[1], L = Math.hypot(dx, dy) || 1;
+      const dx = pts[2] - pts[0], dy = pts[3] - pts[1], L = hypot(dx, dy) || 1;
       // heading the same way, and the junction not behind the car
       const toNode = (g.nx(n) - v.x) * fx + (g.ny(n) - v.y) * fy;
       const score = (dx * fx + dy * fy) / L + (toNode > -2 ? 0.5 : 0);
@@ -1229,7 +1229,7 @@ export class AI {
     for (const [v, d] of this.drivers) if (d.mode === 'police' && d.target === p.id && v.driver && !v.driver.dazed && !v.wrecked) cops++;
     if (cops >= want) return 0;
     const o = p.observer;
-    const vr = Math.hypot(o.hw, o.hh);
+    const vr = hypot(o.hw, o.hh);
     const f = p.focus();
     const pg = this.policeGraph;
     const road = (n: number) => pg.out[n].some((l) => l.edge.cls <= 6);
@@ -1335,7 +1335,7 @@ export class AI {
       let aimX = target.x, aimY = target.y;
       // 2+ stars, in a car chase, close behind/beside: aim the rear quarter to ram/PIT instead of nose-first
       if (playerVeh && stars >= 2 && dd < (swat ? 30 : 22)) {
-        const hAngle = Math.hypot(playerVeh.vx, playerVeh.vy) > 1 ? Math.atan2(playerVeh.vy, playerVeh.vx) : playerVeh.angle;
+        const hAngle = hypot(playerVeh.vx, playerVeh.vy) > 1 ? Math.atan2(playerVeh.vy, playerVeh.vx) : playerVeh.angle;
         const hx = Math.cos(hAngle), hy = Math.sin(hAngle);
         const px = -hy, py = hx;
         const side = (v.x - target.x) * px + (v.y - target.y) * py >= 0 ? 1 : -1;
@@ -1431,7 +1431,7 @@ export class AI {
     if (p.dazed) {
       p.dazedTime += dt;
       this.followers.delete(p);
-      if (!p.vehicle && Math.hypot(p.vx, p.vy) > 0.05) {
+      if (!p.vehicle && hypot(p.vx, p.vy) > 0.05) {
         const a = p.angle, x0 = p.x, y0 = p.y, vx = p.vx, vy = p.vy;
         p.move(dt, sim.world, vx, vy);
         p.angle = a;
@@ -1494,7 +1494,7 @@ export class AI {
     if (p.state === 'flee') {
       p.timer -= dt;
       const dx = p.x - p.fleeFrom.x, dy = p.y - p.fleeFrom.y;
-      const l = Math.hypot(dx, dy) || 1;
+      const l = hypot(dx, dy) || 1;
       const x0 = p.x, y0 = p.y;
       // (a dive out of a car's way is a burst faster than running: AI.dodge)
       const fs = p.dash > 0 ? 7.5 : 4.6;
@@ -1509,7 +1509,7 @@ export class AI {
         // ran into a wall: turn a right angle (the way they're already sliding, else their side)
         // by moving where they flee from, instead of pressing against it
         const turn = (p.x - x0) * -dy + (p.y - y0) * dx >= 0 ? 1 : -1;
-        const tside = Math.hypot(p.x - x0, p.y - y0) > 1e-3 ? turn : p.side;
+        const tside = hypot(p.x - x0, p.y - y0) > 1e-3 ? turn : p.side;
         p.fleeFrom.x = p.x - (-dy / l) * tside * l;
         p.fleeFrom.y = p.y - (dx / l) * tside * l;
       }

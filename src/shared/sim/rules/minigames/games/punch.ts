@@ -10,7 +10,7 @@
 // controls unsteady: Game.wobble). Pickpockets move through the crowd and go for anyone standing
 // still with a mug; run into one making off with yours and it's yours again. The list done, the mugs
 // go back at the deposit stall (€2 each). With others it's a race down the same list.
-import { dist, pointInRings } from '../../../../util/math';
+import { dist, pointInRings, hypot } from '../../../../util/math';
 import { Rng } from '../../../../util/Rng';
 import { Ped } from '../../../../entities/Ped';
 import type { World } from '../../../../world/World';
@@ -318,7 +318,7 @@ class Punch extends MiniGame {
       }
       for (const p of this.players) {
         if (p.ped.vehicle || p.ped.aboard) continue;
-        const dx = ped.x - p.ped.x, dy = ped.y - p.ped.y, d = Math.hypot(dx, dy);
+        const dx = ped.x - p.ped.x, dy = ped.y - p.ped.y, d = hypot(dx, dy);
         if (d < 0.9 && now >= v.until) {
           v.ax = d > 1e-3 ? (dx / d) * 0.8 : 0.8;
           v.ay = d > 1e-3 ? (dy / d) * 0.8 : 0;
@@ -336,7 +336,7 @@ class Punch extends MiniGame {
 
   /** move a figure of the round's toward (tx, ty), easing in (at most `max` m/s) */
   private walk(ped: Ped, tx: number, ty: number, max: number, dt: number) {
-    const dx = tx - ped.x, dy = ty - ped.y, d = Math.hypot(dx, dy);
+    const dx = tx - ped.x, dy = ty - ped.y, d = hypot(dx, dy);
     const sp = d > 0.03 ? Math.min(max, d * 3) : 0;
     ped.move(dt, this.sim.world, sp ? (dx / d) * sp : 0, sp ? (dy / d) * sp : 0);
     ped.state = sp > 0.2 ? 'walk' : 'idle';
@@ -415,7 +415,7 @@ class Punch extends MiniGame {
           continue;
         }
         const from = p ? p.ped : ped;
-        const dx = ped.x - from.x, dy = ped.y - from.y, d = Math.hypot(dx, dy) || 1;
+        const dx = ped.x - from.x, dy = ped.y - from.y, d = hypot(dx, dy) || 1;
         this.walk(ped, ped.x + (dx / d) * 4, ped.y + (dy / d) * 4, FLEE_SPEED, dt);
         continue;
       }

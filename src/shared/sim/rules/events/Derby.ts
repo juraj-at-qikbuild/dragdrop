@@ -8,7 +8,7 @@
 import type { Sim } from '../../Sim';
 import type { PlayerState, SimPlayer } from '../../SimPlayer';
 import { LIVERY_DERBY, LIVERY_NONE, SPECS, Vehicle } from '../../../entities/Vehicle';
-import { bboxOf, dist, pointInRings, segDist2 } from '../../../util/math';
+import { bboxOf, dist, pointInRings, segDist2, hypot } from '../../../util/math';
 import { TimedEvent, type WorldEventDef, type WorldEvents } from '../WorldEvents';
 import type { EventEntry } from '../types';
 import { placeName } from '../placeName';
@@ -24,7 +24,7 @@ const CAR_KIND = 'classic';
 const CAR_COUNT = 6;
 /** the car's circumscribed radius: a spot at least this far from every wall and every other car's
  *  centre always has room for the whole (rotated) rectangle, whichever way it's facing */
-const CAR_RADIUS = Math.hypot(SPECS[CAR_KIND].length / 2, SPECS[CAR_KIND].width / 2);
+const CAR_RADIUS = hypot(SPECS[CAR_KIND].length / 2, SPECS[CAR_KIND].width / 2);
 /** clearance kept from the arena's own edge, beyond the car's radius */
 const WALL_MARGIN = 1.5;
 /** clearance kept between two cars, beyond their radii (tight: a derby wants them close together) */

@@ -13,7 +13,7 @@
 // few blocks at about €4; the sales are paid out when the round ends, with a bonus per block sold, so
 // the round's money is capped like any other. With others it's one stock for everyone, and the best
 // profit wins.
-import { dist } from '../../../../util/math';
+import { dist, hypot } from '../../../../util/math';
 import { Ped } from '../../../../entities/Ped';
 import type { Sim } from '../../../Sim';
 import type { SimPlayer } from '../../../SimPlayer';
@@ -335,7 +335,7 @@ class Butter extends MiniGame {
         tx = sl.x + Math.sin(now * 1.3 + k) * 0.12 + (now < g.until ? g.ax : 0);
         ty = sl.y + Math.cos(now * 1.1 + k) * 0.12 + (now < g.until ? g.ay : 0);
       }
-      const dx = tx - ped.x, dy = ty - ped.y, d = Math.hypot(dx, dy);
+      const dx = tx - ped.x, dy = ty - ped.y, d = hypot(dx, dy);
       if (g.mode === 'leave' && (d < 0.6 || now - g.t > 25)) {
         this.drop(g);
         continue;
@@ -362,7 +362,7 @@ class Butter extends MiniGame {
   private makeWay(p: SimPlayer) {
     const sh = this.shop, now = this.sim.time;
     const px = p.ped.x, py = p.ped.y;
-    const lx = sh.x - px, ly = sh.y - py, len = Math.hypot(lx, ly) || 1;
+    const lx = sh.x - px, ly = sh.y - py, len = hypot(lx, ly) || 1;
     const nx = -ly / len, ny = lx / len;
     let said = false;
     for (const g of this.grannies) {

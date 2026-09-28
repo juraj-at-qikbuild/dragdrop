@@ -5,7 +5,7 @@ import { Ped } from '../entities/Ped';
 import { Prop, propHit } from '../entities/Props';
 import { Helicopter } from '../entities/Helicopter';
 import { linkPoints, type Link } from '../world/Graph';
-import { dist } from '../util/math';
+import { dist, hypot } from '../util/math';
 import { FRESH_SIGHTING } from './Pursuit';
 import type { Sim } from './Sim';
 import type { Roadblock, SimPlayer } from './SimPlayer';
@@ -141,7 +141,7 @@ export class Police {
     const sim = this.sim;
     const v = p.ped.vehicle;
     if (!v) return null;
-    const heading = Math.hypot(v.vx, v.vy) > 1 ? Math.atan2(v.vy, v.vx) : v.angle;
+    const heading = hypot(v.vx, v.vy) > 1 ? Math.atan2(v.vy, v.vx) : v.angle;
     const f = p.focus();
     const hx = Math.cos(heading), hy = Math.sin(heading);
     const world = sim.world, car = world.car;
@@ -157,7 +157,7 @@ export class Police {
     for (const n of nodes) {
       const nx = car.nx(n), ny = car.ny(n);
       const dx = nx - f.x, dy = ny - f.y;
-      const d = Math.hypot(dx, dy) || 1;
+      const d = hypot(dx, dy) || 1;
       const dot = (dx / d) * hx + (dy / d) * hy;
       if (dot <= bestScore || sim.visibleToAny(nx, ny, 15)) continue;
       if (!car.out[n].some(usable)) continue;
