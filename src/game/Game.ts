@@ -1082,6 +1082,45 @@ export class Game {
 
   draw(hud = true) {
     this.trackFrameTime(hud);
+    if (!this.keepFrozenWorld(hud)) this.drawWorld(hud);
+
+    // HUD + full map draw onto a separate transparent overlay canvas, above PostFX,
+    // so post-processing (bloom/grain/aberration/etc.) never touches them.
+    // (in the menu nothing's drawn on it: cleared once, not every frame)
+    if (this.hudCtx && this.hudCanvas && (hud || this.hudDrawn)) this.hudCtx.clearRect(0, 0, this.hudCanvas.width, this.hudCanvas.height);
+    this.hudDrawn = hud;
+    if (!hud) return;
+    if (this.hudCtx) {
+      this.hudCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
+      this.hud.draw(this.hudCtx);
+      for (const f of this.features) f.drawHud?.(this.hudCtx);
+      this.banners.draw(this.hudCtx, this.layout);
+      if (this.showMap) this.mapView.drawFull(this.hudCtx);
+    }
+  }
+
+  /** Offline, paused or on the full map, the world stands still (its clock, camera and effects stop):
+   *  the canvases keep its last picture (a WebGL canvas that isn't drawn to keeps showing its last
+   *  frame) instead of drawing it again every frame under the menu or the map, but for a refresh
+   *  twice a second (water shimmer and a few other touches run on the wall clock). */
+  private keepFrozenWorld(hud: boolean) {
+    if (!hud || !this.host.allowsPause || !(this.paused || this.showMap)) {
+      this.frozenKey = '';
+      return false;
+    }
+    const now = this.frameNow || performance.now();
+    const key = `${this.cam.x}|${this.cam.y}|${this.cam.scale}|${this.time}|${this.atmos.time}|${this.canvas.width}x${this.canvas.height}|${this.qualityTier}|${this.facades}|${this.postFx?.active}`;
+    if (key === this.frozenKey && now - this.frozenAt < 500) return true;
+    this.frozenKey = key;
+    this.frozenAt = now;
+    return false;
+  }
+  private frozenKey = '';
+  private frozenAt = 0;
+  /** the HUD canvas has something on it */
+  private hudDrawn = false;
+
+  private drawWorld(hud: boolean) {
     const ctx = this.ctx;
     const v = this.view();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1111,7 +1150,7 @@ export class Game {
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);
-    this.drawPickups(ctx);
+    this.drawPickups(ctx, v);
     this.fx.drawParticles(ctx, false);
 
     // entities in the tunnels (only at their portals, fading into the dark, unless the player is
@@ -1218,23 +1257,21 @@ export class Game {
     // when WebGL is unavailable, the context was lost, or quality is pinned to "low".
     const handled = this.postFx?.render(this.canvas, { night: atmos.night, daylight: atmos.daylight, rain: atmos.rain, wet: atmos.wet, time: atmos.time }, this.time, this.qualityTier) ?? false;
     if (!handled) this.drawVignette(ctx, atmos);
-
-    // HUD + full map draw onto a separate transparent overlay canvas, above PostFX,
-    // so post-processing (bloom/grain/aberration/etc.) never touches them.
-    if (this.hudCtx && this.hudCanvas) this.hudCtx.clearRect(0, 0, this.hudCanvas.width, this.hudCanvas.height);
-    if (!hud) return;
-    if (this.hudCtx) {
-      this.hudCtx.setTransform(this.uiDpr, 0, 0, this.uiDpr, 0, 0);
-      this.hud.draw(this.hudCtx);
-      for (const f of this.features) f.drawHud?.(this.hudCtx);
-      this.banners.draw(this.hudCtx, this.layout);
-      if (this.showMap) this.mapView.drawFull(this.hudCtx);
-    }
   }
 
-  private drawPickups(ctx: CanvasRenderingContext2D) {
+  private drawPickups(ctx: CanvasRenderingContext2D, v: View) {
     const bob = Math.sin(this.time * 4) * 0.12;
     for (const p of this.host.pickups) {
+      // a golden Čumil pops out when it first shows up (a fresh sighting online, or right when the
+      // event goes live offline), on screen or not
+      if (p.kind === 'goldenCumil' && !this.goldenPopAt.has(p.id)) {
+        this.goldenPopAt.set(p.id, this.time);
+        // bounded (there's realistically at most one of these live at a time — see CumilHunt.ts)
+        // so ids from long-gone sightings don't accumulate over a long session
+        if (this.goldenPopAt.size > 16) this.goldenPopAt.delete(this.goldenPopAt.keys().next().value!);
+      }
+      // only what's on screen (the glow ring, the bob and the shadow reach under 1.5 m from the centre)
+      if (p.x < v.x0 - 2 || p.x > v.x1 + 2 || p.y < v.y0 - 2 || p.y > v.y1 + 2) continue;
       // soft ground contact shadow, shrinks slightly as the item bobs up
       const shrink = 1 - (bob + 0.12) * 0.18;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -1271,15 +1308,8 @@ export class Game {
         ctx.arc(0, 0, 1.1, 0, Math.PI * 2);
         ctx.stroke();
       } else if (p.kind === 'goldenCumil') {
-        // the Hon na Čumila statue: a gold head peeking out of a dark manhole, popping out the first
-        // time it's drawn (a fresh sighting online, or right when the event goes live offline)
-        let born = this.goldenPopAt.get(p.id);
-        if (born === undefined) {
-          this.goldenPopAt.set(p.id, (born = this.time));
-          // bounded (there's realistically at most one of these live at a time — see CumilHunt.ts)
-          // so ids from long-gone sightings don't accumulate over a long session
-          if (this.goldenPopAt.size > 16) this.goldenPopAt.delete(this.goldenPopAt.keys().next().value!);
-        }
+        // the Hon na Čumila statue: a gold head peeking out of a dark manhole, popping out (above)
+        const born = this.goldenPopAt.get(p.id)!;
         const t = clamp((this.time - born) / 0.6, 0, 1);
         const pop = t >= 1 ? 1 : popScale(t);
         ctx.scale(pop, pop);

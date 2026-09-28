@@ -81,6 +81,15 @@ export class MapView {
     addEventListener('pointercancel', (e) => this.pointers.delete(e.pointerId));
   }
 
+  /** Builds the whole-city image the minimap and the map draw from ahead of play (from the menu, in
+   *  idle time): built on the first frame of play, it was a hitch of a few hundred ms on a phone. The
+   *  bitmap made from it has the browser rasterise it now, not when the minimap first samples it. */
+  prepare() {
+    if (this.img) return;
+    const img = this.image();
+    if (typeof createImageBitmap === 'function') void createImageBitmap(img).then((b) => b.close(), () => {});
+  }
+
   private image() {
     if (this.img) return this.img;
     const b = this.g.world.bounds;

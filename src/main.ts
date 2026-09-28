@@ -423,6 +423,10 @@ async function boot() {
   // touch controls (a phone or tablet, or ?touch=1)
   if (game.touch) game.touchUi = new TouchControls(game);
 
+  // the minimap's whole-city image, built while the menu is up rather than on the first frame of play
+  const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 3000 }) : setTimeout(fn, 1000));
+  idle(() => game.mapView.prepare());
+
   let last = performance.now();
   const frame = (now: number) => {
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
