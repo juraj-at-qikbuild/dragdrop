@@ -300,11 +300,12 @@ export interface PedContactHooks {
   tramHit(p: Ped, t: Tram, sx: number, sy: number): void;
 }
 
-/** Pedestrians against cars and trams: slow cars nudge people aside, fast ones run them over. */
+/** Pedestrians against cars and trams: slow cars nudge people aside, fast ones bounce them off
+ *  (BOING, docs/plans/non-violent.md). Someone already sitting dazed is only ever nudged aside. */
 export function pedContacts(peds: readonly Ped[], hash: SpatialHash<Vehicle>, trams: readonly Tram[], dt: number, hooks: PedContactHooks) {
   for (const p of peds) {
     // (nothing outside touches anyone aboard a tram: rules/Trams.ts)
-    if (p.vehicle || p.aboard || p.dead || p.kinematic) continue;
+    if (p.vehicle || p.aboard || p.kinematic) continue;
     pedContact(p, hash, trams, dt, hooks);
   }
 }
@@ -321,7 +322,7 @@ export function pedContact(p: Ped, hash: SpatialHash<Vehicle>, trams: readonly T
       if (d >= r) continue;
       const sp = v.speed;
       // (a scooter or a bike only ever barges people aside)
-      if (sp > RUN_OVER_SPEED && !v.spec.twoWheeler) hooks.runOver(p, v, sp, cx, cy);
+      if (sp > RUN_OVER_SPEED && !v.spec.twoWheeler && !p.dazed) hooks.runOver(p, v, sp, cx, cy);
       else {
         const nx = (p.x - cx) / (d || 1), ny = (p.y - cy) / (d || 1);
         p.x += nx * (r - d);
@@ -335,7 +336,7 @@ export function pedContact(p: Ped, hash: SpatialHash<Vehicle>, trams: readonly T
     if (t.level !== p.level || Math.abs(t.x - p.x) > 40 || Math.abs(t.y - p.y) > 40) continue;
     const s = t.hits(p.x, p.y, p.r);
     if (!s) continue;
-    if (t.speed > 3) hooks.tramHit(p, t, s.x, s.y);
+    if (t.speed > 3 && !p.dazed) hooks.tramHit(p, t, s.x, s.y);
     const nx = -Math.sin(s.a), ny = Math.cos(s.a);
     const side = (p.x - s.x) * nx + (p.y - s.y) * ny >= 0 ? 1 : -1;
     p.x += nx * side * 3 * dt * 10;

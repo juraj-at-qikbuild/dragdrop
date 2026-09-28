@@ -11,7 +11,7 @@ import { Tram } from '../../src/shared/entities/Tram';
 import { nullEvents, type PrivateEvent } from '../../src/shared/sim/events';
 import type { Caps } from '../../src/shared/sim/density';
 import type { SimPlayer } from '../../src/shared/sim/SimPlayer';
-import { COMBO_BANK_MAX, COMBO_MAX_MULT, COMBO_WINDOW, STYLE, STYLE_PER_POINT, type Style } from '../../src/shared/sim/rules/Style';
+import { COMBO_BANK_MAX, COMBO_MAX_MULT, COMBO_WINDOW, SOAK_LABEL, STYLE, STYLE_PER_POINT, type Style } from '../../src/shared/sim/rules/Style';
 import { loadWorld } from './helpers';
 
 const NO_NPCS: Caps = { traffic: 0, parked: 0, peds: 0, trams: 0, police: 0, helis: 0, roadblocks: 0 };
@@ -127,15 +127,15 @@ describe('drifts', () => {
 });
 
 describe('the combo', () => {
-  it('kills go into it, and it pays bank × multiplier when nothing more comes', () => {
+  it('soakings go into it, and it pays bank × multiplier when nothing more comes', () => {
     const { sim, style, p, sent } = setup();
-    for (let i = 0; i < 3; i++) sim.style(p, 'kill', A.x, A.y);
-    expect(style.combo(p)).toMatchObject({ mult: 4, bank: 3 * STYLE.kill.cash });
+    for (let i = 0; i < 3; i++) sim.style(p, 'soak', A.x, A.y);
+    expect(style.combo(p)).toMatchObject({ mult: 4, bank: 3 * STYLE.soak.cash });
     expect(sent('style').map((e) => e.mult)).toEqual([2, 3, 4]);
     run(sim, COMBO_WINDOW - 0.2);
     expect(p.profile.money).toBe(0);
     run(sim, 0.4);
-    const paid = 3 * STYLE.kill.cash * 4;
+    const paid = 3 * STYLE.soak.cash * 4;
     expect(p.profile.money).toBe(paid);
     expect(sent('payout').at(-1)).toMatchObject({ amount: paid, reason: 'style' });
     expect(style.combo(p)).toBeNull();
@@ -161,21 +161,21 @@ describe('the combo', () => {
   it('online it scores on the Štýl board: 1 point per €25 of the payout', () => {
     const { sim, p, scored } = setup({ online: true });
     sim.style(p, 'takedown', A.x, A.y);
-    sim.style(p, 'kill', A.x, A.y);
+    sim.style(p, 'soak', A.x, A.y);
     run(sim, COMBO_WINDOW + 0.2);
-    const paid = (STYLE.takedown.cash + STYLE.kill.cash) * 3;
+    const paid = (STYLE.takedown.cash + STYLE.soak.cash) * 3;
     expect(scored).toContainEqual([Math.round(paid / STYLE_PER_POINT), 'style']);
   });
 
-  it('a kill by a player goes through the combo (Combat)', () => {
+  it('soaking someone through goes through the combo (Combat), in the words of the toy that did it', () => {
     const { sim, style, p, sent } = setup();
     const ped = sim.addPed(new Ped('civ', A.x + 3, A.y, 9));
     p.ammo.pistol = 10;
-    for (let i = 0; i < 6 && !ped.dead; i++)
+    for (let i = 0; i < 6 && !ped.dazed; i++)
       sim.applyShot(p, { ox: A.x, oy: A.y, a: 0, w: 'pistol', lvl: 0, pellets: [{ a: 0, hx: ped.x, hy: ped.y, kind: 2, hit: ped.id }], rt: 0 } as never);
-    expect(ped.dead).toBe(true);
-    expect(sent('style').at(-1)).toMatchObject({ label: 'KILL', mult: 2 });
-    expect(style.combo(p)?.bank).toBe(STYLE.kill.cash);
+    expect(ped.dazed).toBe(true);
+    expect(sent('style').at(-1)).toMatchObject({ label: SOAK_LABEL.water[0], mult: 2 });
+    expect(style.combo(p)?.bank).toBe(STYLE.soak.cash);
   });
 });
 

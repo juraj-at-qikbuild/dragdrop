@@ -156,6 +156,7 @@ export class Mirrors {
       m.obj.color = r.color ?? m.obj.color;
       m.obj.mission = !!r.mission;
       m.obj.livery = r.livery ?? 0;
+      m.obj.swat = !!r.swat;
       m.obj.owner = r.owner ?? 0;
       // of a car's tuning only the neon shows (the rest is its driver's business)
       m.obj.mods.glow = r.glow ?? 0;
@@ -288,12 +289,12 @@ export class Mirrors {
       p.handsUp = r.handsUp;
       p.downed = r.downed;
       const car = r.vehicle ? (this.veh.get(r.vehicle)?.obj ?? null) : null;
-      if (r.state === 'dead' && !p.dead) {
-        p.state = 'dead';
-        p.deadTime = 0;
+      if (r.state === 'dazed' && !p.dazed) {
+        p.state = 'dazed';
+        p.dazedTime = 0;
         p.vx = p.vy = 0;
-      } else if (r.state !== 'dead') p.state = r.state;
-      if (p.dead) p.deadTime += dt;
+      } else if (r.state !== 'dazed') p.state = r.state;
+      if (p.dazed) p.dazedTime += dt;
       p.vehicle = car;
       if (car) {
         car.driver = p;
@@ -304,9 +305,9 @@ export class Mirrors {
       if (m.buf.sample(rt, o)) {
         p.x = o[0];
         p.y = o[1];
-        if (!p.dead) p.angle = o[2];
+        if (!p.dazed) p.angle = o[2];
       }
-      if (!p.dead && dt > 0) {
+      if (!p.dazed && dt > 0) {
         // walking animation from how far the figure moved this frame (smoothed)
         const vx = (p.x - m.lx) / dt, vy = (p.y - m.ly) / dt;
         const k = Math.min(1, dt * 12);

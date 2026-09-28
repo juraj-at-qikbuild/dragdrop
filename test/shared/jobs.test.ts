@@ -218,7 +218,7 @@ describe('Jobs: taxi', () => {
     jobs.start(p, 'taxi');
     const offer = lastJob(priv, p.id)!;
     const fare = sim.peds.find((q) => q.kind === 'civ' && dist(q.x, q.y, offer.x, offer.y) < 0.01)!;
-    fare.kill(fare.x - 1, fare.y, 4);
+    fare.knockDown(fare.x - 1, fare.y, 4);
     sim.step(0.05);
     const reOffer = lastJob(priv, p.id)!;
     expect(reOffer.kind).toBe('taxi');
@@ -332,7 +332,7 @@ describe('Jobs: downed', () => {
     sim.down(p); // downed mid-delivery: a mere down is not a hard end to the shift
     expect(p.state).toBe('downed');
     expect(lastJob(priv, p.id)).not.toBeNull(); // still there, not chained to null like a real failure
-    expect(messages(priv, p.id)).not.toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+    expect(messages(priv, p.id)).not.toContain('Kuriéra premočili do nitky, objednávka je preč!');
 
     sim.step(1); // time passes while downed; step() just doesn't tick the job meanwhile
     sim.revive(p); // revived well within the 25 s bleed-out window
@@ -347,7 +347,7 @@ describe('Jobs: downed', () => {
     expect(p.profile.stats?.deliveries).toBe(1);
   });
 
-  it('wasted (bleeding out, or any other hard death) does fail the job, with the hospital message', () => {
+  it('soaked through (freezing out, or any other hard way) does fail the job, with the soaked-through message', () => {
     const { sim, priv, jobs } = setup(51);
     const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
     jobs.start(p, 'courier');
@@ -358,10 +358,10 @@ describe('Jobs: downed', () => {
 
     sim.wasted(p); // a hard death (crash, drowning, gunned down — never mind which)
     expect(lastJob(priv, p.id)).toBeNull();
-    expect(messages(priv, p.id)).toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+    expect(messages(priv, p.id)).toContain('Kuriéra premočili do nitky, objednávka je preč!');
   });
 
-  it('busted also fails the job, with the same hospital message', () => {
+  it('busted also fails the job, with the same message', () => {
     const { sim, priv, jobs } = setup(52);
     const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
     jobs.start(p, 'courier');
@@ -372,6 +372,6 @@ describe('Jobs: downed', () => {
 
     sim.bust(p);
     expect(lastJob(priv, p.id)).toBeNull();
-    expect(messages(priv, p.id)).toContain('Kuriér skončil v nemocnici, objednávka je preč!');
+    expect(messages(priv, p.id)).toContain('Kuriéra premočili do nitky, objednávka je preč!');
   });
 });

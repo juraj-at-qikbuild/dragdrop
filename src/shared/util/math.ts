@@ -110,3 +110,31 @@ export function formatMoney(v: number) {
 export function formatPoints(v: number) {
   return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
+
+/** a stable hash of two integers into [0, 1): the same on the server and every client, so things
+ *  placed with it (the renderer's manholes, the potholes: world/Puddles.ts) agree everywhere */
+export function hash01(a: number, b: number) {
+  let h = (a * 374761393 + b * 668265263) ^ ((a << 13) | 0);
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  h ^= h >>> 13;
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+/** Call `fn` every `step` metres along a flat polyline, starting `start` metres in, with the
+ *  point and the unit normal (left of the direction of travel) there. */
+export function walkPolyline(p: ArrayLike<number>, step: number, start: number, fn: (x: number, y: number, nx: number, ny: number) => void) {
+  let carry = start;
+  for (let i = 0; i < p.length - 2; i += 2) {
+    const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3];
+    const segLen = Math.hypot(bx - ax, by - ay);
+    if (segLen < 1e-3) continue;
+    const dx = (bx - ax) / segLen, dy = (by - ay) / segLen;
+    const nx = -dy, ny = dx;
+    let d = carry;
+    while (d < segLen) {
+      fn(ax + dx * d, ay + dy * d, nx, ny);
+      d += step;
+    }
+    carry = d - segLen;
+  }
+}

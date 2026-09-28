@@ -254,14 +254,14 @@ try {
     await sleep(300);
   }
 
-  // shoot the nearest civilian with a pistol
+  // soak the nearest civilian with the water pistol
   const shot = await page.evaluate(async () => {
     const g = window.game, p = g.player;
     g.ammo.pistol = 50;
     p.weapon = 'pistol';
     // any civilian we can stand 4 m from with a clear line of fire
     for (const q of g.peds) {
-      if (q.kind !== 'civ' || q.dead || q.vehicle || q.level !== 0) continue;
+      if (q.kind !== 'civ' || q.dazed || q.vehicle || q.level !== 0) continue;
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
         const x = q.x + Math.cos(a) * 4, y = q.y + Math.sin(a) * 4;
@@ -281,7 +281,7 @@ try {
       const pos = await page.evaluate((id) => {
         const g = window.game;
         const t = g.host.pedById(id);
-        if (!t || t.dead) return null;
+        if (!t || t.dazed) return null;
         return g.worldToScreen(t.x, t.y);
       }, shot.id);
       if (!pos) break;
@@ -291,10 +291,10 @@ try {
       await page.mouse.up();
       await sleep(400);
     }
-    const res = await page.evaluate((id) => ({ dead: window.game.host.pedById(id)?.dead ?? true, wanted: window.game.wanted, money: window.game.save.money }), shot.id);
-    check(res.dead, 'shot a civilian dead');
-    check(res.wanted >= 1, `killing raised the wanted level (${res.wanted})`);
-  } else check(false, 'found a civilian to shoot');
+    const res = await page.evaluate((id) => ({ dazed: window.game.host.pedById(id)?.dazed ?? true, wanted: window.game.wanted, money: window.game.save.money }), shot.id);
+    check(res.dazed, 'soaked a civilian till they sat down');
+    check(res.wanted >= 1, `soaking someone raised the wanted level (${res.wanted})`);
+  } else check(false, 'found a civilian to squirt');
 
   // 3 stars: police show up
   // by the Eurovea riverside roads: some spots (the Old Town square, the castle) have no streets for police cars nearby
@@ -350,7 +350,7 @@ try {
   await page.evaluate(() => window.game.host.jobStop());
   check(!(await page.evaluate(() => window.game.host.live.job)), 'jobStop ends the shift');
 
-  // the shops (docs/plans/gameplay.md, Phase 2): walking into Poľovnícke potreby opens its panel, a
+  // the shops (docs/plans/gameplay.md, Phase 2): walking into the Hračkárstvo (the toy shop) opens its panel, a
   // click buys, Escape closes it (and it stays closed until the next visit)
   await page.evaluate(() => {
     const g = window.game;
@@ -365,12 +365,12 @@ try {
     g.player.levelInit = false;
   });
   const shopOpen = await page.waitForSelector('.kit-shop-card', { timeout: 3000 }).then(() => true, () => false);
-  check(shopOpen && (await page.textContent('.kit-shop-card h2'))?.includes('Poľovnícke potreby'), 'walking into a gun shop opens its panel');
+  check(shopOpen && (await page.textContent('.kit-shop-card h2'))?.includes('Hračkárstvo'), 'walking into the toy shop opens its panel');
   if (shopOpen) {
     await page.click('.kit-shop-row button[data-k="pistol"]');
     await sleep(300);
     const bought = await page.evaluate(() => ({ ammo: window.game.ammo.pistol, money: window.game.save.money, status: document.querySelector('.kit-shop-status')?.textContent }));
-    check(bought.ammo >= 36 && bought.money === 4750 && /Pištoľ \+36/.test(bought.status ?? ''), `bought a pistol with a click (${JSON.stringify(bought)})`);
+    check(bought.ammo >= 36 && bought.money === 4750 && /Vodná pištoľ \+36/.test(bought.status ?? ''), `bought a water pistol with a click (${JSON.stringify(bought)})`);
     await page.keyboard.press('Escape');
     await sleep(400);
     check(!(await page.$('.kit-shop-card')) && !(await page.evaluate(() => window.game.paused)), 'Escape closes the shop, not into the pause menu, and it stays closed');

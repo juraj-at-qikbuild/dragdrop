@@ -7,6 +7,7 @@ import { Vehicle, SPECS, type VehicleKind } from '../../entities/Vehicle';
 import { PLAYER_SHIRTS, setPlayerHat, setPlayerLook, type WeaponId } from '../../entities/Ped';
 import { LIVERY_NONE } from '../../entities/Vehicle';
 import type { Sim } from '../Sim';
+import { WEAPONS } from '../Combat';
 import type { SimPlayer } from '../SimPlayer';
 import type { SimRule } from './SimRule';
 import { POINTS } from './points';
@@ -128,21 +129,21 @@ export class Shops implements SimRule {
     this.sim.events.toPlayer(p.id, { k: 'gear', g: this.gear(p) });
   }
 
-  // ------------------------------------------------------------------ Poľovnícke potreby
+  // ------------------------------------------------------------------ Hračkárstvo (the toys)
   private gun(p: SimPlayer, w: Exclude<WeaponId, 'fist'>): ShopResult {
-    if (p.ammo[w] >= 999) return no('Viac nábojov už neunesieš.');
+    if (p.ammo[w] >= 999) return no('Viac náplní už neunesieš.');
     if (!this.pay(p, w, w)) return this.broke(w);
     p.ammo[w] = Math.min(999, p.ammo[w] + AMMO_BOX[w]);
     p.ped.weapon = w;
     this.sim.events.toPlayer(p.id, { k: 'pickup', kind: w, amount: AMMO_BOX[w] });
-    return yes(`${w === 'pistol' ? 'Pištoľ' : w === 'uzi' ? 'Samopal' : 'Brokovnica'} +${AMMO_BOX[w]}`);
+    return yes(`${WEAPONS[w].name} +${AMMO_BOX[w]}`);
   }
 
   private vest(p: SimPlayer): ShopResult {
-    if (p.ped.armor >= 100) return no('Vestu už máš.');
+    if (p.ped.armor >= 100) return no('Pršiplášť už máš.');
     if (!this.pay(p, 'vest', 'vest')) return this.broke('vest');
     p.ped.armor = 100;
-    return yes('Nepriestrelná vesta');
+    return yes('Pršiplášť');
   }
 
   // -------------------------------------------------------------------------------- Butik

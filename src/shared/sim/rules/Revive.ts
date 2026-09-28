@@ -112,7 +112,7 @@ export class Revive implements SimRule {
   private payBonus(by: SimPlayer, victim: SimPlayer, x: number, y: number) {
     const sim = this.sim;
     if (victim.lastAttacker === by.id && sim.time - victim.lastAttackedAt < HURT_WINDOW) {
-      return this.deny(by, 'Bez odmeny – nedávno si ho zranil.');
+      return this.deny(by, 'Bez odmeny – nedávno si ho sám oblial.');
     }
     const pair = pairKey(by.id, victim.id);
     const lastPair = this.pairPaidAt.get(pair);

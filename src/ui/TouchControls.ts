@@ -86,8 +86,8 @@ export class TouchControls {
     this.add('map', 'press', '', { code: 'KeyM', in: play, label: 'Mapa mesta', cls: 't-hit' });
     this.add('daily', 'press', '', { code: KEYS.daily, in: play, label: 'Kde to je?', cls: 't-hit' });
     this.add('activities', 'press', '', { code: KEYS.activities, in: play, label: 'Aktivity', cls: 't-hit' });
-    this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Streľba', cls: 't-fire' });
-    this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Zbraň', cls: 't-weapon' });
+    this.add('fire', 'fire', '', { in: [...foot, ...car], label: 'Striekať', cls: 't-fire' });
+    this.add('weapon', 'press', '', { code: 'KeyQ', in: [...foot, ...car], label: 'Hračka', cls: 't-weapon' });
     this.add('use', 'press', '', { code: 'KeyF', in: [...foot, ...car], label: '', cls: 't-use' });
     // a mini-game's action (docs/plans/minigames.md): shown with what it does, while there's one
     this.add('mini', 'press', '', { code: KEYS.mini, in: [...foot, ...car], label: '', cls: 't-use t-mini' });
@@ -108,12 +108,12 @@ export class TouchControls {
     // the pedal: one element, BRAKE on the left half, GAS on the right, so a thumb can slide across
     const pedal = this.byId.get('pedal')!.el;
     pedal.append(el('span', 't-pedal-brake', 'BRZDA'), el('span', 't-pedal-gas', 'PLYN'));
-    // the weapon button: its icon and the ammo left
+    // the toy button: its icon and the refills left
     const weapon = this.byId.get('weapon')!.el;
     this.weaponIcon = el('span', 't-weapon-icon');
     this.weaponAmmo = el('span', 't-weapon-ammo');
     weapon.append(this.weaponIcon, this.weaponAmmo);
-    this.byId.get('fire')!.el.append(el('span', 't-fire-icon', '🎯'));
+    this.byId.get('fire')!.el.append(el('span', 't-fire-icon', '💦'));
 
     this.tips = new TouchTips(g, this);
   }
@@ -383,7 +383,7 @@ export class TouchControls {
       this.weaponShown = wKey;
       this.weaponIcon.textContent = '';
       this.weaponIcon.appendChild(this.icon(w));
-      this.weaponAmmo.textContent = w === 'fist' ? WEAPONS.fist.name : String(g.ammo[w]);
+      this.weaponAmmo.textContent = w === 'fist' ? WEAPONS.fist.short : String(g.ammo[w]);
     }
     // the nitro charge ring, in 5% steps
     if (v) {

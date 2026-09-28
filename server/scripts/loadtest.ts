@@ -39,7 +39,7 @@ interface Bot {
   epoch: number;
   bytes: number;
   snaps: number;
-  peds: Map<number, { x: number; y: number; dead: boolean }>;
+  peds: Map<number, { x: number; y: number; dazed: boolean }>;
   nextShot: number;
   online: boolean;
 }
@@ -74,7 +74,7 @@ function connect(i: number) {
       try {
         const snap = decodeSnapshot(new Reader(new Uint8Array(data as ArrayBuffer)));
         bot.epoch = snap.me.epoch;
-        for (const e of snap.ents) if (e.type === Ent.Ped && !e.v.playerId) bot.peds.set(e.id, { x: e.v.x, y: e.v.y, dead: e.v.state === 'dead' });
+        for (const e of snap.ents) if (e.type === Ent.Ped && !e.v.playerId) bot.peds.set(e.id, { x: e.v.x, y: e.v.y, dazed: e.v.state === 'dazed' });
         for (const id of snap.gone) bot.peds.delete(id);
       } catch (e) {
         console.error('bad snapshot', e);
@@ -122,13 +122,13 @@ function step(bot: Bot, dt: number) {
   bot.a = Math.atan2(vy, vx);
   encodeState(w.reset(), { seq: (bot.seq = (bot.seq + 1) & 0xffff), epoch: bot.epoch, lvl: 0, x: bot.x, y: bot.y, a: bot.a, vx, vy, weapon: 'pistol', camDx: 0, camDy: 0, hw: 30, hh: 18, veh: null });
   bot.ws.send(w.finish());
-  // now and then, shoot the nearest pedestrian
+  // now and then, squirt the nearest pedestrian
   const now = Date.now();
   if (now > bot.nextShot) {
     bot.nextShot = now + 4000 + Math.random() * 4000;
     let best: { id: number; x: number; y: number } | null = null, bd = 25;
     for (const [id, p] of bot.peds) {
-      if (p.dead || world.raycast(bot.x, bot.y, p.x, p.y) < 1) continue;
+      if (p.dazed || world.raycast(bot.x, bot.y, p.x, p.y) < 1) continue;
       const dd = Math.hypot(p.x - bot.x, p.y - bot.y);
       if (dd < bd && dd > 1.5) (bd = dd), (best = { id, ...p });
     }

@@ -3,6 +3,7 @@
 // the server batches them into network messages for clients in range (NetEvents).
 import type { Level } from '../world/World';
 import type { WeaponId } from '../entities/Ped';
+import type { Mess } from './Combat';
 import type { ChallengeState, EventKind, JobState, PartyState, RaceState, ReviveState } from './rules/types';
 import type { ScoreSource } from './rules/points';
 import type { Gear, Mods } from './shops/catalog';
@@ -56,7 +57,7 @@ export type PrivateEvent =
   /** wanted level went up a star */
   | { k: 'stars' }
   | { k: 'jingle'; good: boolean }
-  /** style/kill bonus shown as floating text (e.g. KILL, ROADKILL, TAKEDOWN!). From the combo
+  /** a style bonus shown as floating text (e.g. ŠPLECH!, SPRCHA!, ODSTAVENÉ!). From the combo
    *  (rules/Style.ts, docs/plans/gameplay.md Phase 3): `mult` is the combo's multiplier now (the
    *  combo pays itself out, as a `payout` for 'style'), `nitro` a top-up for the driver's tank.
    *  Without `mult` (a server from before, a job's tip) it's the old kind: `cash` for the client's own
@@ -125,7 +126,7 @@ export type PrivateEvent =
    *  docs/plans/minigames.md). Optional both ways, like the above */
   | { k: 'mini'; s: MiniState | null };
 
-export type KillCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
+export type DazeCause = 'shot' | 'melee' | 'road' | 'tram' | 'blast';
 
 export interface ShotFx {
   /** ped id of the shooter (0 = helicopter) */
@@ -147,20 +148,26 @@ export interface SimEvents {
   shot(e: ShotFx): void;
   /** a punch: landed or whiffed */
   melee(x: number, y: number, hit: boolean): void;
-  /** a ped took a hit: blood (size ~0.3..1) and a hit flash */
-  pedHit(pedId: number, x: number, y: number, size: number): void;
+  /** a ped took a hit (size ~0.3..1): what it left them with (`mess`: wet, soapy, confetti, a
+   *  tickle, a bonk; water when a server from before doesn't say) and a hit flash */
+  pedHit(pedId: number, x: number, y: number, size: number, mess?: Mess): void;
   /** kind: 0 bullet spark, 1 metal (car contact), 2 glass */
   spark(x: number, y: number, kind: 0 | 1 | 2): void;
   explode(x: number, y: number, vehicleId: number, color: string | null): void;
   /** a hard vehicle impact: `sev` drives the crunch sound; `kick` > 0 also shakes the camera of whoever
    *  is in (or near) the car, pushed along n (pointing away from what it hit) */
   crash(vehicleId: number, x: number, y: number, sev: number, nx: number, ny: number, kick: number): void;
-  pedKilled(pedId: number, x: number, y: number, byPid: number, cause: KillCause): void;
+  pedDazed(pedId: number, x: number, y: number, byPid: number, cause: DazeCause): void;
   scream(x: number, y: number): void;
   bell(x: number, y: number): void;
   horn(vehicleId: number, x: number, y: number): void;
   /** someone says something (a speech bubble): `line` from phrases.ts `pickLine` */
   say(pedId: number, x: number, y: number, line: number): void;
+  /** a player's car splashed someone from a puddle (rules/Splash.ts): the wave from the wheel at
+   *  (x, y) toward `a`, `s` how hard (~0.4..1.2) */
+  splash(pedId: number, x: number, y: number, a: number, s: number): void;
+  /** a fan high-fived a player's car going past, their hands meeting at (x, y) (rules/Splash.ts) */
+  highFive(pedId: number, x: number, y: number): void;
   toPlayer(pid: number, e: PrivateEvent): void;
   /** news for every player, wherever they are */
   global(e: GlobalEvent): void;
@@ -174,11 +181,13 @@ export const nullEvents: SimEvents = {
   spark() {},
   explode() {},
   crash() {},
-  pedKilled() {},
+  pedDazed() {},
   scream() {},
   bell() {},
   horn() {},
   say() {},
+  splash() {},
+  highFive() {},
   toPlayer() {},
   global() {},
 };

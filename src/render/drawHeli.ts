@@ -54,6 +54,27 @@ export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, 
     ctx.restore();
   }
 
+  // the water bucket it tips on whoever it's after (docs/plans/non-violent.md), hanging on its line
+  // between the body and the ground
+  const bx = h.x + ox * 0.35, by = h.y + oy * 0.35;
+  ctx.strokeStyle = 'rgba(30,30,30,0.7)';
+  ctx.lineWidth = 0.05;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(h.x + ox, h.y + oy);
+  ctx.stroke();
+  ctx.fillStyle = '#ff6f00';
+  ctx.beginPath();
+  ctx.arc(bx, by, 0.45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#bf360c';
+  ctx.lineWidth = 0.08;
+  ctx.stroke();
+  ctx.fillStyle = '#4fc3f7';
+  ctx.beginPath();
+  ctx.arc(bx, by, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
   // body, lifted by altitude offset
   ctx.save();
   ctx.translate(h.x + ox, h.y + oy);

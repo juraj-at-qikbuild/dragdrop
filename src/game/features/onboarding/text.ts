@@ -55,21 +55,21 @@ export function basics(input: InputKind): Row[] {
       return [
         { cap: 'WASD', text: 'chôdza a jazda · Shift: beh, v aute nitro' },
         { cap: 'F', text: 'nastúpiť do auta – aj do cudzieho' },
-        { cap: 'Myš', text: 'mierenie · ľavé tlačidlo: streľba' },
+        { cap: 'Myš', text: 'mierenie · ľavé tlačidlo: striekanie' },
         { cap: 'M', text: 'mapa mesta · klikni na cieľ a navigácia ťa dovedie' },
       ];
     case 'pad':
       return [
         { cap: 'LS', text: 'chôdza a jazda · A: beh, v aute nitro' },
         { cap: 'Y', text: 'nastúpiť do auta – aj do cudzieho' },
-        { cap: 'RT', text: 'streľba (v aute plyn) · pravou páčkou mieriš' },
+        { cap: 'RT', text: 'striekanie (v aute plyn) · pravou páčkou mieriš' },
         { cap: '⧉', text: 'mapa mesta · vyber cieľ a navigácia ťa dovedie' },
       ];
     case 'touch':
       return [
         { cap: '🕹️', text: 'ľavý palec kdekoľvek vľavo: chôdza a jazda' },
         { cap: '🟡', text: 'žlté tlačidlo: nastúpiť do auta – aj do cudzieho' },
-        { cap: '🎯', text: 'podrž: streľba na najbližší cieľ' },
+        { cap: '💦', text: 'podrž: striekaš na najbližšieho' },
         { cap: '🗺️', text: 'ťukni na minimapu: mapa mesta a navigácia' },
       ];
   }
@@ -90,9 +90,9 @@ export function eventsLead(online: boolean) {
 export const EVENT_HOOK: Record<EventKind, string> = {
   kofolka: 'Dodávka plná peňazí: kto ju šoféruje, zarába.',
   cumil: 'Nájdi zlatého Čumila v kruhu na mape.',
-  armored: 'Rozstrieľaj mu zadné dvere a ber peniaze.',
-  derby: 'Rozbi autá ostatných a vydrž do konca.',
-  wanted: 'Hráč s 5★ má na hlave odmenu. Zlož ho.',
+  armored: 'Oblievaj mu zámok, kým nezhrdzavie, a ber peniaze.',
+  derby: 'Narážaj do ostatných, kým to ich autá nevzdajú, a vydrž do konca.',
+  wanted: 'Hráč s 5★ má na hlave odmenu. Premoč ho do nitky.',
 };
 
 export const eventEmoji = (kind: EventKind) => EVENT_ABOUT[kind].emoji;
@@ -144,7 +144,7 @@ export function things(o: { online: boolean; input: InputKind; board: boolean })
   const { input } = o;
   const key = (k: string, pad: string | null = null) => (input === 'key' ? k : input === 'pad' ? pad : null);
   const jobs: Thing = { icon: '💼', key: key('J', '←'), title: 'Práca', about: 'Vlk kuriér alebo Hopík taxi: rozvážaj jedlo a voz ľudí za peniaze.' };
-  const shops: Thing = { icon: '🛒', key: null, title: 'Obchody', about: 'Zbrane, oblečenie, tuning aj garáž – nájdeš ich na mape.' };
+  const shops: Thing = { icon: '🛒', key: null, title: 'Obchody', about: 'Hračky, oblečenie, tuning aj garáž – nájdeš ich na mape.' };
   if (!o.online) {
     return [
       { icon: '☎', key: null, title: 'Misie', about: 'Šesť príbehov po meste. Začínajú pri žltých telefónnych búdkach.' },

@@ -4,6 +4,12 @@ Status: Phases 1 and 2 implemented (27 September 2026); Phases 3–5 planned. Wh
 from this plan, see [Phase 1 as built](#phase-1-as-built) and [Phase 2 as built](#phase-2-as-built) at
 the end.
 
+> **Since [non-violent.md](non-violent.md), nobody gets hurt.** The weapons are toys (tickling, a water
+> pistol, a bubble gun, a confetti shotgun), the gun shop is a toy shop, a kill is someone knocked down
+> who gets up again, and a car that blows up leaves them sooty, not dead. Phases 1–3 below are kept
+> as they were written and built: where they say gun, shoot or kill, read toy, squirt or soak through.
+> Phase 4 is rewritten for the toys.
+
 This plan is about how the game plays, not about new missions. Every phase builds on systems that
 already exist (the police, the money, the driving model, the crowd, the parties, the leaderboard) and
 makes them matter more.
@@ -63,7 +69,7 @@ How it works today:
 | **1** | Outsmarting the police | Police who look for a car, not a GPS dot. Sight cones that shrink at night and in rain. Lying low. A searchlight you can dodge. What the police know, on the minimap and HUD. Police radio. Bribes. | Protocol 7, optional additions only |
 | **2** | Money with a purpose | A garage and a car collection, tuning, a gun shop, a clothes shop, cash that drops where you die, a lawyer | Protocol 7, optional additions only |
 | **3** | Behind the wheel, and new ways around | Combos that count online, new combo moves, slipstream, damage you feel, sirens and an ambulance, e-scooters and bikes, trams you can ride and drive, swimming and boats | Protocol bump (new vehicle kinds, riding a tram) |
-| **4** | Fighting, alone and together | Passenger seats, players on duty as police, revenge bounties, a dive and cover, weapons with a clear job, knock-downs, shooting the helicopter down | Protocol bump (seats, more weapons) |
+| **4** | Water fights, alone and together | Passenger seats, players on duty as police, revenge bounties, a dive and cover, toys with a clear job, grounding the helicopter (knock-downs came with non-violent.md) | Protocol bump (seats, more toys) |
 | **5** | A city that remembers | District heat, turf for parties, a time of day that matters, things that just happen, a rank | Optional additions |
 
 The order is by value and by what each phase needs from the ones before it:
@@ -498,76 +504,82 @@ becomes something players use.
 
 ---
 
-## Phase 4: Fighting, alone and together
+## Phase 4: Water fights, alone and together
 
-Co-op in one car, a lawful side to play, and fights with more than one tactic.
+Co-op in one car, a lawful side to play, and water fights with more than one tactic. Rewritten for the
+toys ([non-violent.md](non-violent.md)): nobody gets hurt, so everything here soaks, foams, slips or
+tickles.
 
 ### Decisions
 
-1. **Passenger seats.** Up to three passengers, each able to shoot all round.
+1. **Passenger seats.** Up to three passengers, each able to squirt all round.
    - Party members can get in without asking; anyone else is let in by the driver (the horn key
      while they're at the door).
    - The driver's client still simulates the car. A passenger's figure rides with it, and their
-     shots are checked from the car's position.
+     squirts are checked from the car's position.
    - If the driver leaves, a passenger can take the wheel.
 2. **Players on duty as police** ("Na službe").
    - A player with no stars gets into a police car and goes on duty.
    - They get the police radio: wanted players appear as their search circles, not exact positions,
      under Phase 1's rules.
-   - Arresting (the same touch as a cop) or taking down a wanted player pays a reward, capped per
+   - Arresting (the same touch as a cop) or soaking a wanted player through pays a reward, capped per
      hour, and part of the arrested player's fee.
-   - A crime ends the shift. Hurting a wanted player on duty isn't a crime. Party members can't
+   - A crime ends the shift. Soaking a wanted player on duty isn't a crime. Party members can't
      arrest each other.
-3. **Revenge bounties** ("Odmena"). Within 5 min of being killed by a player, the victim can put
-   €200–2,000 on the killer for 15 min. It's shown to everyone as a moving circle, like the Most
-   Wanted's, and whoever takes the killer down collects it. There are no bounties within a party, and
-   a victim can't collect their own.
+3. **Revenge bounties** ("Odveta"). Within 5 min of being soaked through by a player, the victim can
+   put €200–2,000 on them for 15 min. It's shown to everyone as a moving circle, like the Most
+   Wanted's, and whoever soaks them through collects it. There are no bounties within a party, and a
+   victim can't collect their own.
 4. **A dive and cover.**
-   - A dive on foot (Ctrl, the pad's B): a short roll with 0.3 s during which shots miss.
-   - Crouching behind something low (a bench, a bin, a car) blocks shots from the far side. Walls
-     already stop them.
-5. **Weapons with a clear job** (sold in Phase 2's gun shop):
-   - a bat (melee that knocks down);
-   - a Molotov (a patch of fire);
-   - a brick (knocks down, breaks a car's windows);
-   - a "Pancierovka" rocket launcher for cars and the helicopter.
-6. **Knocked down, not always killed** (from the roadmap). A car at 16–35 km/h knocks people over;
-   they get up and shout. Players are knocked down for a second.
-7. **The helicopter can be shot down.** It has 300 HP: an uzi hit does 4, a rocket 150. It comes
-   down in flames, and a new one comes after 60 s at 4★ or more. It's a "TAKEDOWN" and scores
-   points.
+   - A dive on foot (Ctrl, the pad's B): a short roll with 0.3 s during which squirts miss.
+   - Crouching behind something low (a bench, a bin, a car) keeps you dry from the far side. Walls
+     already do.
+   - A **dáždnik** (umbrella) from the toy shop, held up, keeps the front dry until it's turned
+     inside out (so many hits).
+5. **Toys with a clear job** (sold in the Hračkárstvo):
+   - **pískacie kladivko**, the squeaky fair hammer: a tickle that knocks down;
+   - **mydlová bomba**, a soap bomb: a slippery patch where cars spin and people slip;
+   - **vajíčko**, an egg: knocks down, and blinds a car's windscreen for 3 s (the AI driver stops to
+     wipe it);
+   - **penovka**, a foam cannon for cars and the helicopter.
+6. **Knocked down, not killed.** Done by [non-violent.md](non-violent.md): nobody is killed at all. A
+   car or a tram bounces people off (BOING), and they sit dazed and get up. Players are knocked down
+   for a second.
+7. **The helicopter can be grounded.** It has 300 of patience: a bubble does 4, the foam cannon 150.
+   With its windscreen foamed over it lands to wipe it, and a new one comes after 60 s at 4★ or more.
+   It's **ODSTAVENÉ!** and scores points.
 
 ### Wire
 
 - Seats: `enter` gains a seat, the ped record gains a seat index.
-- Weapons: the ped record's weapon bits must grow. Today it's 2 bits, which fit the four weapons
-  there are.
+- Toys: the ped record's weapon bits must grow. Today it's 2 bits, which fit the four toys there
+  are.
 - The duty flag goes on the roster, and bounties go in `wev`.
 - One protocol bump.
 
 ### Steps
 
 1. Passenger seats: sim, server validation and client, party first, then the driver's permission.
-2. The dive, cover and knock-downs.
-3. The new weapons, then the helicopter's health.
+2. The dive, cover and the umbrella.
+3. The new toys, then the helicopter's patience.
 4. Players on duty.
 5. Revenge bounties.
 
 ### Verification
 
-- Seats: enter and leave, shooting from the back seat validated, the driver leaving, a disconnect
+- Seats: enter and leave, squirting from the back seat validated, the driver leaving, a disconnect
   while riding.
 - Duty: the start conditions, the radio showing circles not positions, the rewards and caps, and
   crimes ending it.
 - Bounties: the anti-abuse rules.
-- The dive's miss window, cover blocking shots from behind it, knock-down speeds.
-- The helicopter's health, its crash and its replacement.
+- The dive's miss window, cover keeping you dry from behind it, the umbrella wearing out.
+- The helicopter's patience, its landing to wipe the windscreen, and its replacement.
 
 ### Risks
 
 - **Seats are the hardest netcode yet.** A figure is driven by another player's client. The
   existing `kinematic` split (the driver's client owns the car) holds, and a passenger only sends
-  aim and shots.
+  aim and squirts.
 - **Players on duty griefing.** The caps, party rules, and the fact that a crime ends the shift
   limit it, and reports reach the existing moderation tools.
 

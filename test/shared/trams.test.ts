@@ -247,7 +247,7 @@ describe('driving a tram', () => {
     const before = p.wanted;
     // someone standing on the track some way ahead
     let civ: Ped | null = null;
-    for (let k = 0; k < 30 * 15 && !(civ && civ.dead); k++) {
+    for (let k = 0; k < 30 * 15 && !(civ && civ.dazed); k++) {
       trams.drive(p, 1, 0, false);
       if (!civ && t.speed > 6) {
         const x = t.x + Math.cos(t.angle) * 8, y = t.y + Math.sin(t.angle) * 8;
@@ -259,7 +259,7 @@ describe('driving a tram', () => {
       follow(p, t);
       sim.step(1 / 15);
     }
-    expect(civ?.dead).toBe(true);
+    expect(civ?.dazed).toBe(true);
     expect(p.wanted).toBeGreaterThan(before);
   });
 });

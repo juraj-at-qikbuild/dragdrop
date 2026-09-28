@@ -263,13 +263,13 @@ function endText(e: Extract<GlobalEvent, { k: 'eventEnd' }>, label: string, plac
 function mostWantedEndText(e: Extract<GlobalEvent, { k: 'mostWantedEnd' }>): string {
   switch (e.how) {
     case 'taken':
-      return e.by ? `${e.by} zložil ${e.nick} a zhrabol ${formatMoney(e.amount)}!` : `${e.nick} bol zložený.`;
+      return e.by ? `${e.by} premočil ${e.nick} do nitky a zhrabol ${formatMoney(e.amount)}!` : `${e.nick} je premočený do nitky.`;
     case 'busted':
       return `${e.nick} skončil v base.`;
     case 'escaped':
       return `${e.nick} ušiel s ${formatMoney(e.amount)}.`;
     case 'died':
-      return `${e.nick} to neprežil.`;
+      return `${e.nick} to nevydržal a premokol do nitky.`;
     case 'left':
       return `${e.nick} zmizol zo servera, odmena prepadla.`;
   }

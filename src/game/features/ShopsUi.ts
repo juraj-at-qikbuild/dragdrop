@@ -22,7 +22,7 @@ import { mapMarker, type MapIcon } from '../../ui/MapView';
 import { outlined } from '../../ui/Hud';
 import { isModalOpen, openModal } from '../../ui/kit/dom';
 import {
-  GUN_NAME, HAT_NAMES, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, gunLine, modName, modsLine,
+  GUN_NAME, HAT_NAMES, ammoLine, JACKET_NAMES, MOD_INFO, MOD_KEYS, NEON_NAMES, SHOP_KIND, collectionLine, condition, gunLine, modName, modsLine,
   paintName, placesWord, storedCarLine,
 } from './shops/text';
 
@@ -288,17 +288,17 @@ export class ShopsUi implements ClientFeature {
     return p;
   }
 
-  // ------------------------------------------------------------------------------ Poľovnícke potreby
+  // ------------------------------------------------------------------------------ Hračkárstvo
   private guns(prices: Prices): HTMLElement {
     const g = this.g;
     const list = el('div', 'kit-shop-list');
     for (const w of ['pistol', 'uzi', 'shotgun'] as const) {
       const have = g.ammo[w];
-      const about = have > 0 ? `Máš ${have} ${have === 1 ? 'náboj' : have <= 4 ? 'náboje' : 'nábojov'}.` : `${GUN_NAME[w]} zatiaľ nemáš.`;
+      const about = have > 0 ? `Máš ${ammoLine(w, have)}.` : `${GUN_NAME[w]} zatiaľ nemáš.`;
       list.appendChild(have >= 999 ? this.row({ k: w, name: gunLine(w), about, note: 'Viac neunesieš' }) : this.row({ k: w, name: gunLine(w), about, price: prices[w], req: { op: 'buy', item: w } }));
     }
-    const vest = { k: 'vest', name: 'Nepriestrelná vesta', about: 'Zachytí 100 bodov zásahov.' };
-    list.appendChild(g.player.armor >= 100 ? this.row({ ...vest, note: 'Máš ju na sebe' }) : this.row({ ...vest, price: prices.vest, req: { op: 'buy', item: 'vest' } }));
+    const vest = { k: 'vest', name: 'Pršiplášť', about: 'Nepremokavý: zachytí 100 bodov striekania.' };
+    list.appendChild(g.player.armor >= 100 ? this.row({ ...vest, note: 'Máš ho na sebe' }) : this.row({ ...vest, price: prices.vest, req: { op: 'buy', item: 'vest' } }));
     return list;
   }
 
@@ -331,7 +331,7 @@ export class ShopsUi implements ClientFeature {
     return this.list(
       this.g.save.gear?.lawyer
         ? this.row({ k: 'lawyer', name: 'JUDr. Paragraf ťa zastupuje', about: 'Platí na najbližšie zatknutie.', note: 'Najatý' })
-        : this.row({ k: 'lawyer', name: 'Najať advokáta', about: 'Na najbližšie zatknutie: zbrane ti ostanú a pokutu zaplatíš polovičnú.', price: prices.lawyer, req: { op: 'buy', item: 'lawyer' } }),
+        : this.row({ k: 'lawyer', name: 'Najať advokáta', about: 'Na najbližšie zatknutie: hračky ti ostanú a pokutu zaplatíš polovičnú.', price: prices.lawyer, req: { op: 'buy', item: 'lawyer' } }),
     );
   }
 

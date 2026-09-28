@@ -134,7 +134,8 @@ export class PoliceUi implements ClientFeature {
       if (v.siren && !v.wrecked && !v.isPlayer && (v.kind === 'police' || v.kind === 'van') && near(v.x, v.y))
         out.push({ x: v.x, y: v.y, a: v.angle, sight: SIGHT.car, level: v.level });
     for (const p of g.host.peds as readonly Ped[])
-      if (p.kind === 'cop' && !p.dead && !p.vehicle && near(p.x, p.y)) out.push({ x: p.x, y: p.y, a: p.angle, sight: SIGHT.foot, level: p.level });
+      // (a cop knocked down isn't looking, nor one hurrying off afterwards, off duty: they never flee otherwise)
+      if (p.kind === 'cop' && !p.dazed && p.state !== 'flee' && !p.vehicle && near(p.x, p.y)) out.push({ x: p.x, y: p.y, a: p.angle, sight: SIGHT.foot, level: p.level });
     return out;
   }
 
@@ -322,7 +323,7 @@ export class PoliceUi implements ClientFeature {
     ctx.fill();
     ctx.font = `600 ${small ? 11 : 13}px ${BODY}`;
     ctx.textAlign = 'center';
-    outlined(ctx, 'Úplatok: policajt ťa pustí, zbrane ti ostanú.', cx, y + h + (small ? 22 : 26), '#cfd8dc', 3);
+    outlined(ctx, 'Úplatok: policajt ťa pustí, hračky ti ostanú.', cx, y + h + (small ? 22 : 26), '#cfd8dc', 3);
     ctx.restore();
   }
 }

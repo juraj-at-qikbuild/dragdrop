@@ -209,15 +209,6 @@ export class Juice {
     g.postFx?.shockwave(scr.x * g.dpr, scr.y * g.dpr, Math.min(1, impact / 25));
   }
 
-  takedown(x: number, y: number) {
-    this.addTrauma(0.5);
-    this.event('TAKEDOWN!', 60, x, y - 2);
-  }
-
-  kill(x: number, y: number, label: string, cash: number) {
-    this.event(label, cash, x, y - 2);
-  }
-
   cashText(x: number, y: number, amount: number) {
     this.spawnText(x, y - 1, `+€${amount}`, '#69f0ae');
   }

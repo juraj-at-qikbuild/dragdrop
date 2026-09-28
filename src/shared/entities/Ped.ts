@@ -11,8 +11,9 @@ import { HATS } from '../sim/shops/catalog';
 
 export type PedKind = 'player' | 'civ' | 'cop';
 /** 'sit' on a bench or a café chair, 'phone' calling the police about a player, 'fight' squaring up
- *  to a player who went for them */
-export type PedState = 'walk' | 'flee' | 'dead' | 'chase' | 'idle' | 'sit' | 'phone' | 'fight';
+ *  to a player who went for them, 'dazed' knocked down (soaked through, tickled till they sat down,
+ *  bounced off a car: docs/plans/non-violent.md), sitting on the pavement until they get up again */
+export type PedState = 'walk' | 'flee' | 'dazed' | 'chase' | 'idle' | 'sit' | 'phone' | 'fight';
 export type Archetype = 'player' | 'cop' | 'suit' | 'tourist' | 'jogger' | 'elderly' | 'student' | 'worker' | 'casual' | 'dress';
 export type HairStyle = 'short' | 'long' | 'bun' | 'bald' | 'cap' | 'hat' | 'scarf' | 'helmet';
 
@@ -29,6 +30,9 @@ const ARCHETYPES: Archetype[] = ['casual', 'casual', 'casual', 'dress', 'dress',
 const HAIRSTYLES: HairStyle[] = ['short', 'short', 'long', 'bun', 'bald', 'cap'];
 
 export type WeaponId = 'fist' | 'pistol' | 'uzi' | 'shotgun';
+/** what a hit leaves someone with (docs/plans/non-violent.md): wet from the water pistol, soapy
+ *  from the bubbles, confetti, a tickle, a bump (a car), soot (a car blowing up next to them) */
+export type Mess = 'water' | 'bubbles' | 'confetti' | 'tickle' | 'bonk' | 'soot';
 
 /** where someone is heading that isn't along the footpaths: a seat (facing `a`), a tram's door, a
  *  spot at a tram stop. `ref`: the furniture index of the seat / the tram stop index */
@@ -41,8 +45,10 @@ export interface PedGoal {
 }
 
 const FIGHTERS = new Set<Archetype>(['casual', 'worker', 'student', 'jogger']);
+/** the share of each kind of passer-by who holds a hand out for a high five (Ped.fan) */
+const FANS: Partial<Record<Archetype, number>> = { student: 0.5, tourist: 0.4, jogger: 0.35, casual: 0.1 };
 
-/** stable per-seed pseudo-random in [0, 1) (dead pose, build) */
+/** stable per-seed pseudo-random in [0, 1) (the dazed pose, build) */
 export function hashRand(seed: number, salt: number) {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453;
   return x - Math.floor(x);
@@ -54,7 +60,7 @@ export const PLAYER_SHIRTS = ['#4a3220', '#1565c0', '#2e7d32', '#6a1b9a', '#c628
 export class Ped {
   /** network id, assigned by Sim.addPed (or the server, for mirrors) */
   id = 0;
-  /** drives appearance, gait and the dead pose; sent to clients so they draw the same person */
+  /** drives appearance, gait and the dazed pose; sent to clients so they draw the same person */
   seed: number;
   x: number;
   y: number;
@@ -88,13 +94,34 @@ export class Ped {
   cooldown = 0;
   timer = 0;
   fleeFrom = { x: 0, y: 0 };
-  deadTime = 0;
+  /** knocked down: for how long so far (s), and what did it (their line when they get up) */
+  dazedTime = 0;
+  downMess: Mess = 'water';
+  /** sim only: got up after being knocked down and is on their way home to change (a cop: off duty).
+   *  Nobody who's leaving counts again: no reward for knocking them down twice, no witness, no fight,
+   *  no chase; they're gone once no player sees them (AI.populate). */
+  leaving = false;
+  /** sim only (rules/Splash.ts): until when they're too wet to be splashed again, and when they last
+   *  high-fived a player's car */
+  wetUntil = -1e9;
+  fiveAt = -1e9;
+  /** diving out of a car's way: seconds left of the dive's burst of speed (AI.dodge) */
+  dash = 0;
   /** true while surrendering / being arrested-at-gunpoint */
   handsUp = false;
   /** a player lying wounded, waiting to be revived (online) */
   downed = false;
   /** seconds remaining of a white hit-flash; decayed by the renderer */
   hitFlash = 0;
+  /** client only: what the last hit left them with (docs/plans/non-violent.md), and for how many
+   *  more seconds they show it (dripping, soapy, confetti in their hair, sooty); decayed by the renderer */
+  mess: 'water' | 'bubbles' | 'confetti' | 'soot' | null = null;
+  messT = 0;
+  /** client only: seconds left of cheering after a high five (both arms up), decayed by the renderer */
+  cheerT = 0;
+  /** client only: a fan's hand held out for a player's car coming past (the world angle it points
+   *  at; NaN: none), set each frame by Game */
+  hand = NaN;
   // navigation on the pedestrian graph
   link: Link | null = null;
   pts: number[] = [];
@@ -140,8 +167,14 @@ export class Ped {
     applyAppearance(this);
   }
 
-  get dead() {
-    return this.state === 'dead';
+  get dazed() {
+    return this.state === 'dazed';
+  }
+
+  /** holds a hand out for a player's car going past: a high five (rules/Splash.ts). By seed and
+   *  archetype, so every client knows who without being told. */
+  get fan() {
+    return this.kind === 'civ' && hashRand(this.seed, 29) < (FANS[this.archetype] ?? 0);
   }
 
   /** one in seven of the able-bodied: goes for a player who picks a fight, instead of running */
@@ -183,20 +216,39 @@ export class Ped {
     return hit;
   }
 
-  kill(fromX: number, fromY: number, force = 4) {
-    if (this.dead) return;
-    this.state = 'dead';
+  /** Knocked down (docs/plans/non-violent.md: nobody dies): thrown a little way from (fromX, fromY),
+   *  then sitting dazed on the pavement for `dazeTime` before getting up (AI). `mess`: what did it. */
+  knockDown(fromX: number, fromY: number, force = 4, mess: Mess = 'water') {
+    if (this.dazed) return;
+    this.state = 'dazed';
     this.health = 0;
     const d = Math.hypot(this.x - fromX, this.y - fromY) || 1;
     this.vx = ((this.x - fromX) / d) * force;
     this.vy = ((this.y - fromY) / d) * force;
-    this.deadTime = 0;
+    this.dazedTime = 0;
+    this.downMess = mess;
+    this.fleeFrom.x = fromX;
+    this.fleeFrom.y = fromY;
+    // whatever they were doing is over
+    this.handsUp = false;
+    this.surrender = 0;
+    this.goal = null;
+    this.waitStop = -1;
+    this.link = null;
+    this.pts = [];
+    this.targetPid = 0;
+    this.callPid = 0;
   }
 
   /** Flash white briefly (call from combat code on a successful hit). */
   hit() {
     this.hitFlash = 0.14;
   }
+}
+
+/** how long someone knocked down sits there before getting up (s): 4–7, their own */
+export function dazeTime(p: Ped): number {
+  return 4 + hashRand(p.seed, 31) * 3;
 }
 
 /** Derive everything cosmetic (and a few gait/wallet traits) from `p.kind` and `p.seed`. */

@@ -16,70 +16,31 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   const dtMs = last ? now - last : 0;
   lastDraw.set(p, now);
   if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dtMs / 1000);
+  if (p.cheerT > 0) p.cheerT = Math.max(0, p.cheerT - dtMs / 1000);
+  if (p.messT > 0 && (p.messT -= dtMs / 1000) <= 0) p.mess = null;
 
   ctx.save();
   ctx.translate(p.x, p.y);
   const b = p.build;
   if (p.downed) {
-    // lying wounded (Revive), not dead: the same sprawled pose as `dead` below, a smaller/darker
-    // blood pool (still bleeding, not a pool that's been growing for a while), no death rotation lock.
-    const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
-    ctx.rotate(p.angle + rot);
-    ctx.scale(1.45 * b, 1.45 * b);
-    ctx.fillStyle = 'rgba(90,0,0,0.55)';
+    // a player soaked through, waiting for a friend to blow-dry them (Revive): sitting on the
+    // pavement hugging themselves, shivering, a little blue (docs/plans/non-violent.md)
+    const shiver = Math.sin(now / 22) * 0.025;
+    ctx.rotate(p.angle + (hashRand(p.seed, 1) - 0.5) * 0.6);
+    ctx.translate(shiver, 0);
+    ctx.scale(1.45, 1.45);
+    drawBody(ctx, p, 'sit', 0, b, atmos, 'hug');
+    ctx.fillStyle = 'rgba(120,190,255,0.3)';
     ctx.beginPath();
-    ctx.ellipse(0.1, 0.05, 0.22, 0.16, 0.4, 0, Math.PI * 2);
+    ctx.ellipse(-0.06, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = shade(p.shirt, -0.15);
-    ctx.beginPath();
-    ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineCap = 'round';
-    const legCol = shade(p.pants, -0.1);
-    drawLimb(ctx, -0.14, -0.1, (hashRand(p.seed, 4) - 0.5) * 1.3 + 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, -0.14, 0.1, (hashRand(p.seed, 5) - 0.5) * 1.3 - 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, 0.12, -0.12, (hashRand(p.seed, 2) - 0.5) * 1.8, 0.28, 0.09, p.skin);
-    drawLimb(ctx, 0.12, 0.12, (hashRand(p.seed, 3) - 0.5) * 1.8 + Math.PI * 0.15, 0.28, 0.09, p.skin);
-    ctx.fillStyle = p.skin;
-    ctx.beginPath();
-    ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 0.02;
-    ctx.stroke();
+    drawMess(ctx, p, 'water', 1);
     ctx.restore();
     drawDownedMarker(ctx, p, scale);
     return;
   }
-  if (p.dead) {
-    const rot = (hashRand(p.seed, 1) - 0.5) * 2.4;
-    ctx.rotate(p.angle + rot);
-    ctx.scale(1.45 * b, 1.45 * b);
-    // blood pool grows over the first ~2s, then stays
-    const grow = Math.min(1, p.deadTime / 2);
-    ctx.fillStyle = 'rgba(120,0,0,0.7)';
-    ctx.beginPath();
-    ctx.ellipse(0.1, 0.05, 0.25 + 0.55 * grow, 0.18 + 0.42 * grow, 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    // sprawled torso
-    ctx.fillStyle = shade(p.shirt, -0.15);
-    ctx.beginPath();
-    ctx.ellipse(-0.05, 0, 0.34, 0.19, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // splayed limbs, stable per-ped random angles
-    ctx.lineCap = 'round';
-    const legCol = shade(p.pants, -0.1);
-    drawLimb(ctx, -0.14, -0.1, (hashRand(p.seed, 4) - 0.5) * 1.3 + 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, -0.14, 0.1, (hashRand(p.seed, 5) - 0.5) * 1.3 - 0.35, 0.32, 0.1, legCol);
-    drawLimb(ctx, 0.12, -0.12, (hashRand(p.seed, 2) - 0.5) * 1.8, 0.28, 0.09, p.skin);
-    drawLimb(ctx, 0.12, 0.12, (hashRand(p.seed, 3) - 0.5) * 1.8 + Math.PI * 0.15, 0.28, 0.09, p.skin);
-    ctx.fillStyle = p.skin;
-    ctx.beginPath();
-    ctx.arc(0.44, 0, 0.16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 0.02;
-    ctx.stroke();
+  if (p.dazed) {
+    drawDazed(ctx, p, b, now, atmos);
     ctx.restore();
     return;
   }
@@ -94,7 +55,11 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   const moving = Math.min(1, speed);
   const running = speed > 2.2;
   const strideMul = running ? 1.35 : 1;
-  const pose = poseOf(p, speed);
+  // (a fan who just high-fived a car cheers, both arms up: docs/plans/non-violent.md)
+  const pose = p.cheerT > 0 ? 'hands' : poseOf(p, speed);
+  // a fan holding a hand out for a player's car coming past; someone diving out of a car's way
+  const five = !Number.isNaN(p.hand);
+  const diving = p.kind === 'civ' && p.state === 'flee' && speed > 5.2;
   // shadow, offset along the sun
   let shx = 0.08, shy = 0.1;
   if (atmos) {
@@ -124,7 +89,7 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   // a punch thrown (players and cops: their cooldown; civilians only while fighting)
   const punchT = p.weapon === 'fist' && p.cooldown > 0 && (p.kind !== 'civ' || pose === 'fight') ? Math.min(1, p.cooldown / 0.45) : 0;
   // the crowd (unarmed, in a still pose) is drawn from the sprite cache
-  const cacheable = !armed && punchT <= 0 && p.hitFlash <= 0 && pose !== 'fight';
+  const cacheable = !armed && punchT <= 0 && p.hitFlash <= 0 && pose !== 'fight' && !five && !diving;
   if (cacheable) {
     const swingQ = pose === 'walk' || pose === 'run' ? Math.round((p.walkPhase % (Math.PI * 2)) * 6 / Math.PI) : 0;
     const buildQ = Math.round(b * 20);
@@ -135,14 +100,13 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     });
   } else {
     const swing = Math.sin(p.walkPhase) * 0.22 * moving * strideMul;
-    const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : 'rest';
+    const arms: Arms = armed ? (p.weapon === 'pistol' ? 'pistol' : 'rifle') : punchT > 0 ? 'punch' : pose === 'fight' ? 'guard' : five ? 'five' : diving ? 'dive' : 'rest';
+    // a dive: stretched out flat, arms first
+    if (diving) ctx.scale(1.25, 0.85);
     drawBody(ctx, p, pose, swing, b, atmos, arms, punchT);
-    if (armed) {
-      ctx.fillStyle = '#111';
-      if (p.weapon === 'pistol') ctx.fillRect(0.34, -0.045, 0.2, 0.08);
-      else ctx.fillRect(0.3, -0.05, p.weapon === 'shotgun' ? 0.52 : 0.3, 0.09);
-    }
+    if (armed) drawToy(ctx, p.weapon, p.kind === 'cop');
   }
+  if (p.mess) drawMess(ctx, p, p.mess, Math.min(1, p.messT / 4));
   if (p.hitFlash > 0) {
     ctx.globalAlpha = Math.min(0.85, p.hitFlash / 0.14);
     ctx.fillStyle = '#fff';
@@ -152,6 +116,80 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+}
+
+/** what a hit left on someone, over the figure (facing +x, scaled), fading out over the last few
+ *  seconds (`k`): wet through (darker, dripping), soapy (suds on the head and shoulders), confetti
+ *  in the hair, sooty from a car blowing up (blackened, the hair frizzled and smoking), as in a
+ *  cartoon (docs/plans/non-violent.md) */
+function drawMess(ctx: CanvasRenderingContext2D, p: Ped, mess: NonNullable<Ped['mess']>, k: number) {
+  const t = performance.now() / 1000 + (p.seed % 17);
+  ctx.globalAlpha = k;
+  if (mess === 'water') {
+    // soaked: the clothes a shade darker, a drip falling now and then
+    ctx.fillStyle = 'rgba(20,50,90,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const drip = (t * 1.3) % 1;
+    ctx.fillStyle = 'rgba(170,220,255,0.9)';
+    for (const [dx, dy] of [[-0.12, -0.28], [0.05, 0.3]] as const) {
+      ctx.beginPath();
+      ctx.arc(dx - drip * 0.12, dy + Math.sign(dy) * drip * 0.18, 0.035 * (1 - drip * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (mess === 'bubbles') {
+    // suds on the head and shoulders, and a bubble drifting off
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const [dx, dy, r] of [[0.06, -0.08, 0.09], [0.1, 0.06, 0.07], [-0.02, -0.24, 0.08], [-0.04, 0.24, 0.07], [0.12, -0.02, 0.06]] as const) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, r * (1 + 0.08 * Math.sin(t * 3 + dx * 20)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const b = (t * 0.7) % 1;
+    ctx.strokeStyle = 'rgba(225,190,255,0.9)';
+    ctx.lineWidth = 0.015;
+    ctx.beginPath();
+    ctx.arc(0.1 - b * 0.4, -0.2 - b * 0.3, 0.05 + b * 0.03, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (mess === 'soot') {
+    // blackened all over, the head darkest
+    ctx.fillStyle = 'rgba(25,20,18,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 0.21, 0.33, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(20,16,14,0.6)';
+    ctx.beginPath();
+    ctx.arc(0.06, 0, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    // the hair frizzled, standing on end
+    ctx.strokeStyle = 'rgba(30,26,24,0.9)';
+    ctx.lineWidth = 0.025;
+    ctx.beginPath();
+    for (let i = 0; i < 11; i++) {
+      const a = (i / 11) * Math.PI * 2, r = 0.2 + hashRand(p.seed, 60 + i) * 0.06;
+      ctx.moveTo(0.06 + Math.cos(a) * 0.13, Math.sin(a) * 0.13);
+      ctx.lineTo(0.06 + Math.cos(a + 0.25) * r, Math.sin(a + 0.25) * r);
+    }
+    ctx.stroke();
+    // and a wisp of smoke rising off it
+    for (let i = 0; i < 2; i++) {
+      const w = (t * 0.6 + i * 0.5) % 1;
+      ctx.fillStyle = `rgba(110,110,110,${0.45 * (1 - w)})`;
+      ctx.beginPath();
+      ctx.arc(0.06 - w * 0.3 + Math.sin(t * 2 + i) * 0.04, -w * 0.35, 0.04 + w * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // confetti: bits of paper stuck all over
+    const colors = ['#ff5252', '#ffeb3b', '#69f0ae', '#40c4ff', '#ff4081', '#b388ff'];
+    for (let i = 0; i < 9; i++) {
+      ctx.fillStyle = colors[(i + p.seed) % colors.length];
+      const a = hashRand(p.seed, 20 + i) * Math.PI * 2, r = 0.05 + hashRand(p.seed, 40 + i) * 0.22;
+      ctx.fillRect(Math.cos(a) * r - 0.02, Math.sin(a) * r * 1.3 - 0.015, 0.045, 0.03);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** Someone swimming (docs/plans/gameplay.md, Phase 3), from above: the head and shoulders out of the
@@ -233,7 +271,7 @@ export function drawRider(ctx: CanvasRenderingContext2D, p: Ped, bar: number, se
 type Pose = 'stand' | 'walk' | 'run' | 'sit' | 'phone' | 'fight' | 'hands';
 /** what the arms do when not in the pose's own way: hang and swing, hold a gun, throw a punch,
  *  keep a fighting guard */
-type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard';
+type Arms = 'rest' | 'pistol' | 'rifle' | 'punch' | 'guard' | 'hug' | 'five' | 'dive';
 
 function poseOf(p: Ped, speed: number): Pose {
   if (p.state === 'sit') return 'sit';
@@ -260,7 +298,8 @@ function dot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, col
   ctx.fill();
 }
 
-/** a pulsing red ✚ over a downed figure's head, a constant size on screen at any zoom (Revive) */
+/** a pulsing ❄ over a downed figure's head (soaked through and freezing, waiting to be blow-dried:
+ *  Revive), a constant size on screen at any zoom */
 function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) {
   ctx.save();
   ctx.translate(p.x, p.y - 1.7);
@@ -268,17 +307,140 @@ function drawDownedMarker(ctx: CanvasRenderingContext2D, p: Ped, scale: number) 
   ctx.scale(k, k);
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
   ctx.globalAlpha = 0.6 + pulse * 0.4;
-  ctx.fillStyle = '#e53935';
+  ctx.fillStyle = '#29b6f6';
   ctx.beginPath();
   ctx.arc(0, 0, 9 + pulse * 1.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(-1.6, -5, 3.2, 10);
-  ctx.fillRect(-5, -1.6, 10, 3.2);
+  // a snowflake: three strokes through the middle, each with a little fork at its ends
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const a = (i * Math.PI) / 3 + Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(-c * 6, -s * 6);
+    ctx.lineTo(c * 6, s * 6);
+    for (const e of [-1, 1]) {
+      ctx.moveTo(e * c * 6, e * s * 6);
+      ctx.lineTo(e * c * 3.6 + Math.cos(a + e * 0.8 + Math.PI) * -2, e * s * 3.6 + Math.sin(a + e * 0.8 + Math.PI) * -2);
+    }
+    ctx.stroke();
+  }
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** Someone knocked down (docs/plans/non-violent.md): sitting on the pavement, swaying, little stars
+ *  circling their head, wearing what did it (wet, soapy, confetti, soot). A bubble gun's final hit
+ *  floats them up in a giant bubble first, until it pops; a car's bump starts with a hop. */
+function drawDazed(ctx: CanvasRenderingContext2D, p: Ped, b: number, now: number, atmos?: Atmosphere) {
+  const t = now / 1000 + (p.seed % 13);
+  const float = p.downMess === 'bubbles' && p.dazedTime < BUBBLE_FLOAT ? Math.sin((Math.PI * p.dazedTime) / BUBBLE_FLOAT) : 0;
+  const hop = p.downMess === 'bonk' && p.dazedTime < 0.45 ? Math.sin((Math.PI * p.dazedTime) / 0.45) : 0;
+  const lift = Math.max(float, hop * 0.6);
+  // the shadow stays on the ground, smaller the higher they are
+  ctx.fillStyle = `rgba(0,0,0,${0.24 * (1 - lift * 0.5)})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 0.42 * (1 - lift * 0.3), 0.36 * (1 - lift * 0.3), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.rotate(p.angle + (hashRand(p.seed, 1) - 0.5) * 0.8);
+  // (tickled: rocking with laughter; otherwise a slow dizzy sway)
+  ctx.rotate(Math.sin(t * (p.downMess === 'tickle' ? 11 : 2.6)) * (p.downMess === 'tickle' ? 0.08 : 0.12));
+  const k = 1.45 * (1 + lift * 0.35);
+  ctx.scale(k, k);
+  drawBody(ctx, p, 'sit', 0, b, atmos);
+  if (p.mess) drawMess(ctx, p, p.mess, Math.min(1, p.messT / 4));
+  if (float > 0) {
+    // the bubble around them, thinning out and popping at the end
+    const end = p.dazedTime > BUBBLE_FLOAT - 0.12;
+    ctx.strokeStyle = end ? 'rgba(255,255,255,0.9)' : 'rgba(225,190,255,0.85)';
+    ctx.lineWidth = end ? 0.02 : 0.035;
+    ctx.beginPath();
+    ctx.arc(0, 0, end ? 0.62 : 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(179,229,252,0.16)';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(-0.2, -0.24, 0.1, 0.05, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // little stars going round their head
+    for (let i = 0; i < 3; i++) {
+      const a = t * 4 + (i * Math.PI * 2) / 3;
+      drawStar(ctx, Math.cos(a) * 0.26, Math.sin(a) * 0.26, 0.055, '#ffe082');
+    }
+  }
+}
+
+/** how long a bubble gun's final hit floats someone in a bubble before it pops (s) */
+const BUBBLE_FLOAT = 1.6;
+
+function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** the toy in hand (docs/plans/non-violent.md), out along +x from the hands of the arm pose: an
+ *  orange water pistol with its blue tank (a cop's is service blue), a pink bubble gun with the
+ *  wand's ring, a striped confetti tube */
+function drawToy(ctx: CanvasRenderingContext2D, w: Ped['weapon'], cop = false) {
+  if (w === 'pistol') {
+    // (the police's own, service blue)
+    ctx.fillStyle = cop ? '#1e88e5' : '#ff9800';
+    ctx.fillRect(0.33, -0.05, 0.2, 0.1);
+    ctx.fillStyle = cop ? '#0d47a1' : '#e65100';
+    ctx.fillRect(0.53, -0.022, 0.05, 0.044);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.beginPath();
+    ctx.ellipse(0.41, 0, 0.065, 0.045, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (w === 'uzi') {
+    ctx.fillStyle = '#ec407a';
+    ctx.fillRect(0.3, -0.055, 0.26, 0.11);
+    ctx.strokeStyle = '#ab47bc';
+    ctx.lineWidth = 0.035;
+    ctx.beginPath();
+    ctx.arc(0.62, 0, 0.065, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (w === 'shotgun') {
+    ctx.fillStyle = '#7e57c2';
+    ctx.beginPath();
+    ctx.moveTo(0.3, -0.045);
+    ctx.lineTo(0.84, -0.075);
+    ctx.lineTo(0.84, 0.075);
+    ctx.lineTo(0.3, 0.045);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffd54f';
+    for (const x of [0.42, 0.56, 0.7]) ctx.fillRect(x, -0.062, 0.04, 0.124);
+  }
+}
+
+/** a tickling feather held out at (x, y), wiggling as the tickle lands (`t` 1 → 0) */
+function drawFeather(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.sin(t * 18) * 0.5);
+  ctx.fillStyle = '#f8bbd0';
+  ctx.beginPath();
+  ctx.ellipse(0.16, 0, 0.16, 0.05, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 0.015;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0.32, 0);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -287,10 +449,6 @@ function shoe(ctx: CanvasRenderingContext2D, x: number, y: number, color: string
   ctx.beginPath();
   ctx.ellipse(x, y, 0.1, 0.058, 0, 0, Math.PI * 2);
   ctx.fill();
-}
-
-function drawLimb(ctx: CanvasRenderingContext2D, px: number, py: number, ang: number, len: number, wid: number, color: string) {
-  capsule(ctx, px, py, px + Math.cos(ang) * len, py + Math.sin(ang) * len, wid, color);
 }
 
 /** Bare arms (short sleeves, a dress, a vest over a T-shirt) */
@@ -411,13 +569,35 @@ function drawBody(ctx: CanvasRenderingContext2D, p: Ped, pose: Pose, swing: numb
     capsule(ctx, 0, -shoulder * 0.8, 0.46, -0.01, 0.1, sleeve);
     dot(ctx, 0.3, 0, 0.055, p.skin);
     dot(ctx, 0.46, -0.01, 0.055, p.skin);
+  } else if (arms === 'five') {
+    // a hand held out toward a car coming past (p.hand, a world angle), palm open; the other hangs
+    const la = p.hand - p.angle, side = Math.sin(la) >= 0 ? 1 : -1;
+    capsule(ctx, tx, -side * shoulder, 0.02, -side * 0.31, 0.105, sleeve);
+    dot(ctx, 0.02, -side * 0.31, 0.052, p.skin);
+    const hx = tx + Math.cos(la) * 0.46, hy = side * shoulder * 0.6 + Math.sin(la) * 0.3;
+    capsule(ctx, tx, side * shoulder, hx, hy, 0.105, sleeve);
+    dot(ctx, hx, hy, 0.075, p.skin);
+  } else if (arms === 'dive') {
+    // both arms reaching forward, as into a bush
+    capsule(ctx, tx, -shoulder, 0.48, -0.14, 0.105, sleeve);
+    capsule(ctx, tx, shoulder, 0.48, 0.14, 0.105, sleeve);
+    dot(ctx, 0.48, -0.14, 0.055, p.skin);
+    dot(ctx, 0.48, 0.14, 0.055, p.skin);
+  } else if (arms === 'hug') {
+    // arms wrapped round themselves, freezing
+    capsule(ctx, tx, -shoulder, tx + 0.16, 0.12, 0.1, sleeve);
+    capsule(ctx, tx, shoulder, tx + 0.18, -0.1, 0.1, sleeve);
+    dot(ctx, tx + 0.16, 0.12, 0.05, p.skin);
+    dot(ctx, tx + 0.18, -0.1, 0.05, p.skin);
   } else if (arms === 'punch') {
+    // a tickle (docs/plans/non-violent.md): the arm reaches out, a player's or a cop's with a feather
     const ext = 0.34 + 0.16 * (1 - punchT);
     capsule(ctx, 0, shoulder * 0.8, 0.05 + ext, -0.01, 0.1, sleeve);
     dot(ctx, 0.05 + ext, -0.01, 0.068, p.skin);
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.lineWidth = 0.02;
     ctx.stroke();
+    if (p.kind !== 'civ') drawFeather(ctx, 0.05 + ext, -0.01, punchT);
   }
 
   // head + hair, thin outline for readability at small zoom
@@ -468,19 +648,17 @@ function drawOutfit(ctx: CanvasRenderingContext2D, p: Ped) {
   if (p.kind === 'cop') {
     const swat = p.outfit === 'swat';
     if (swat) {
-      // black tactical vest covering most of the torso
-      ctx.fillStyle = '#1a1a1a';
+      // a firefighter's jacket (the police's 5★ unit, hasiči: docs/plans/non-violent.md), with
+      // reflective bands
+      ctx.fillStyle = '#263238';
       ctx.beginPath();
-      ctx.ellipse(0, 0, 0.17, 0.28, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 0.18, 0.29, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 0.015;
-      ctx.beginPath();
-      ctx.moveTo(0, -0.26);
-      ctx.lineTo(0, 0.26);
-      ctx.stroke();
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(-0.18, -0.13, 0.36, 0.045);
+      ctx.fillRect(-0.18, 0.09, 0.36, 0.045);
     }
-    ctx.fillStyle = swat ? '#0d0d0d' : '#0c1a45';
+    ctx.fillStyle = swat ? '#c0ca33' : '#0c1a45';
     ctx.fillRect(-0.19, -0.06, 0.38, 0.12);
     ctx.fillStyle = '#c9a227';
     ctx.fillRect(0.06, -0.04, 0.05, 0.05); // badge
@@ -546,13 +724,15 @@ function drawOutfit(ctx: CanvasRenderingContext2D, p: Ped) {
 function drawHair(ctx: CanvasRenderingContext2D, p: Ped) {
   const style = p.hairStyle;
   if (p.kind === 'cop' && p.outfit === 'swat') {
-    // swat helmet: dark dome + visor band
-    ctx.fillStyle = '#0d0d0d';
+    // a firefighter's helmet: a red dome, a ridge, a yellow visor
+    ctx.fillStyle = '#d32f2f';
     ctx.beginPath();
-    ctx.arc(0.02, 0, 0.165, 0, Math.PI * 2);
+    ctx.arc(0.02, 0, 0.17, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2a2a2a';
-    ctx.fillRect(0.1, -0.15, 0.09, 0.3);
+    ctx.fillStyle = '#b71c1c';
+    ctx.fillRect(-0.14, -0.025, 0.3, 0.05);
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillRect(0.11, -0.13, 0.07, 0.26);
     return;
   }
   if (style === 'bald') return;

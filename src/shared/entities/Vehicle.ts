@@ -174,6 +174,9 @@ export class Vehicle {
   mission = false;
   /** paint job for world events (LIVERY_*), sent with the static block */
   livery: Livery = LIVERY_NONE;
+  /** the police's 5★ unit, the firefighters (hasiči, docs/plans/non-violent.md): its van's livery
+   *  (the sim's own mark is Police.swat; a snapshot carries it as the vehicle's swat bit) */
+  swat = false;
   /** can't be entered at all (the armoured van: rob it by shooting the rear doors instead) */
   locked = false;
   /** a returning player's car (server/src/Room.ts): only player `reservedFor` may take it until sim

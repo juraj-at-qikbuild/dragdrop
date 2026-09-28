@@ -124,11 +124,11 @@ const online = (page, n) =>
     20000,
     `online with ${n} other player(s)`,
   );
-/** the mirror of another player's figure, as {x, y, dead} */
+/** the mirror of another player's figure, as {x, y, dazed} */
 const mirrorOf = (page, pid) =>
   page.evaluate((pid) => {
     const p = window.game.host.peds.find((q) => q.playerId === pid);
-    return p ? { x: p.vehicle ? p.vehicle.x : p.x, y: p.vehicle ? p.vehicle.y : p.y, dead: p.dead } : null;
+    return p ? { x: p.vehicle ? p.vehicle.x : p.x, y: p.vehicle ? p.vehicle.y : p.y, dazed: p.dazed } : null;
   }, pid);
 
 async function main() {

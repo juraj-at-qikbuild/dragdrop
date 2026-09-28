@@ -261,7 +261,7 @@ export class NetSimHost implements SimHost, NetView {
     me.searching = ps.searching;
     me.searchZone = ps.zone;
     me.profile.money = ps.money;
-    if (ps.state !== 'play' && !p.dead) p.health = 0;
+    if (ps.state !== 'play' && !p.dazed) p.health = 0;
     // the lying-down pose and crawling both key off this (Revive); `dead` stays false for the local
     // player, so this never gets mistaken for the (NPC-only) death pose
     p.downed = ps.state === 'downed';
@@ -384,6 +384,8 @@ export class NetSimHost implements SimHost, NetView {
     for (const t of this.trams) t.dwell = atTramStop(game.world.tramStops, t) ? 1 : 0;
     Vehicle.env.wet = game.atmos.wet;
     world.gates.sweep(this.vehicles, dt);
+    // (a stall knocked over, seen here: the server pays for it)
+    world.stalls.sweep(this.vehicles, dt);
     const me = this.me;
     const p = me.ped;
     const car = this.ownCar;
@@ -491,7 +493,7 @@ export class NetSimHost implements SimHost, NetView {
         ev.melee(e.x, e.y, !!e.hit);
         break;
       case 'pedHit':
-        ev.pedHit(e.id, e.x, e.y, e.s);
+        ev.pedHit(e.id, e.x, e.y, e.s, e.m);
         break;
       case 'spark':
         ev.spark(e.x, e.y, e.kind);
@@ -508,7 +510,7 @@ export class NetSimHost implements SimHost, NetView {
         ev.crash(e.vid, e.x, e.y, e.sev, e.nx, e.ny, e.kick);
         break;
       case 'killed':
-        ev.pedKilled(e.id, e.x, e.y, e.by, e.cause);
+        ev.pedDazed(e.id, e.x, e.y, e.by, e.cause);
         break;
       case 'scream':
         ev.scream(e.x, e.y);
@@ -524,6 +526,12 @@ export class NetSimHost implements SimHost, NetView {
         if (p) ev.say(e.id, p.x, p.y, e.l);
         break;
       }
+      case 'splash':
+        ev.splash(e.id, e.x, e.y, e.a, e.s);
+        break;
+      case 'five':
+        ev.highFive(e.id, e.x, e.y);
+        break;
     }
   }
 

@@ -11,7 +11,8 @@ import type { Sim } from './Sim';
 import type { Roadblock, SimPlayer } from './SimPlayer';
 
 export class Police {
-  /** vehicles marked as SWAT (dark livery, heavier ramming, swat-outfit driver) */
+  /** vehicles marked as SWAT, the firefighters (hasiči: a red van, heavier ramming, a firefighter
+   *  at the wheel; docs/plans/non-violent.md) */
   swat = new WeakSet<Vehicle>();
   /** roadblock barriers and spike strips of every player's pursuit */
   props: Prop[] = [];
@@ -181,10 +182,10 @@ export class Police {
     for (const side of [-1, 1]) {
       const cx = mx + cax * w * 0.27 * side, cy = my + cay * w * 0.27 * side;
       const swat = swatTier && sim.rng.chance(0.5);
-      const car = new Vehicle(swat ? 'van' : 'police', cx, cy, across + side * 0.2, swat ? '#1b1f2a' : '#f5f5f5');
+      const car = new Vehicle(swat ? 'van' : 'police', cx, cy, across + side * 0.2, swat ? '#c62828' : '#f5f5f5');
       car.parked = true;
       car.siren = true;
-      if (swat) this.swat.add(car);
+      if (swat) this.swat.add(car), (car.swat = true);
       sim.addVehicle(car);
       rb.cars.push(car);
       const cop = new Ped('cop', cx + fx * 2.3, cy + fy * 2.3, sim.rng.seed());

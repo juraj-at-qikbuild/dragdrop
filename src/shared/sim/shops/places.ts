@@ -3,7 +3,7 @@
 // can check a purchase against it.
 // - Dielňa: the fuel stations (the old spray shops), in a car.
 // - Garáž: a door on a quiet street by six of the spawn places, in a car or on foot.
-// - Poľovnícke potreby, Butik, the lawyer: shopfronts by landmarks, on foot.
+// - Hračkárstvo (the toy shop), Butik, the lawyer: shopfronts by landmarks, on foot.
 import type { World } from '../../world/World';
 import { linkPoints } from '../../world/Graph';
 import { dist } from '../../util/math';
@@ -38,9 +38,9 @@ const GARAGE_R = 9;
  *  its own walkable spot (a landmark inside a building snaps out of it: two offsets can land on the
  *  same spot, which test/shared/shops.test.ts would catch) */
 const FRONTS: { kind: ShopKind; id: string; name: string; at: string; dx: number; dy: number }[] = [
-  { kind: 'guns', id: 'guns-michael', name: 'Poľovnícke potreby u Michala', at: 'michael', dx: 0, dy: 0 },
-  { kind: 'guns', id: 'guns-eurovea', name: 'Poľovnícke potreby Eurovea', at: 'eurovea', dx: 0, dy: 0 },
-  { kind: 'guns', id: 'guns-aupark', name: 'Poľovnícke potreby Aupark', at: 'aupark', dx: 0, dy: 0 },
+  { kind: 'guns', id: 'guns-michael', name: 'Hračkárstvo u Michala', at: 'michael', dx: 0, dy: 0 },
+  { kind: 'guns', id: 'guns-eurovea', name: 'Hračkárstvo Eurovea', at: 'eurovea', dx: 0, dy: 0 },
+  { kind: 'guns', id: 'guns-aupark', name: 'Hračkárstvo Aupark', at: 'aupark', dx: 0, dy: 0 },
   { kind: 'clothes', id: 'clothes-kamenne', name: 'Butik na Kamennom', at: 'kamenne', dx: 0, dy: 0 },
   { kind: 'clothes', id: 'clothes-eurovea', name: 'Butik Eurovea', at: 'eurovea', dx: -40, dy: 0 },
   { kind: 'clothes', id: 'clothes-aupark', name: 'Butik Aupark', at: 'aupark', dx: 0, dy: -40 },

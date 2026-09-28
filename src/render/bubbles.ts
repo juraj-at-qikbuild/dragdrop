@@ -21,7 +21,11 @@ export class Bubbles {
   private list: Bubble[] = [];
 
   add(id: number, x: number, y: number, line: number) {
-    const text = lineText(line);
+    this.addText(id, x, y, lineText(line));
+  }
+
+  /** a bubble with words the client picks itself (a cheer, a stallholder's yell: nothing on the wire) */
+  addText(id: number, x: number, y: number, text: string) {
     if (!text) return;
     // one bubble per person: a new line replaces the last
     this.list = this.list.filter((b) => b.id !== id);

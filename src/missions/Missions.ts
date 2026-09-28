@@ -149,13 +149,13 @@ export const MISSIONS: MissionDef[] = [
     id: 'finale',
     title: 'Pán Bratislavy',
     giver: 'castle',
-    intro: 'Neznámy: "Celá Blava o tebe hovorí. Prežij hon celej polície a stretneme sa v Sade Janka Kráľa."',
+    intro: 'Neznámy: "Celá Blava o tebe hovorí. Vydrž naháňačku celej polície a stretneme sa v Sade Janka Kráľa."',
     reward: 5000,
     requires: ['taxi', 'kofola', 'michael', 'race', 'steal'],
     build: (g) => {
       const park = nodeNear(g, 'sad', 'ped');
       return [
-        { t: 'survive', secs: 60, level: 4, text: 'Prežij 60 sekúnd s políciou v pätách!' },
+        { t: 'survive', secs: 60, level: 4, text: 'Vydrž 60 sekúnd s políciou v pätách!' },
         { t: 'goto', ...park, r: 6, text: 'Choď do Sadu Janka Kráľa v Petržalke.' },
         { t: 'lose', text: 'Strať políciu.' },
       ];
@@ -333,7 +333,7 @@ export class MissionManager {
 
   /** reset when player dies / is busted */
   onPlayerDown(state: 'wasted' | 'busted' = this.g.state === 'busted' ? 'busted' : 'wasted') {
-    if (this.active) this.fail(state === 'busted' ? 'Zatkli ťa.' : 'Zomrel si.');
+    if (this.active) this.fail(state === 'busted' ? 'Zatkli ťa.' : 'Premokol si do nitky.');
   }
 
   drawWorld(ctx: CanvasRenderingContext2D, time: number) {

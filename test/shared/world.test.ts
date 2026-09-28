@@ -192,8 +192,8 @@ describe('World', () => {
     const above = sim.addPed(new Ped('civ', x + 2, y + 1, 2));
     car.level = inside.level = -1;
     sim.wreck(car);
-    expect(inside.dead).toBe(true);
-    expect(above.dead).toBe(false);
+    expect(inside.dazed).toBe(true);
+    expect(above.dazed).toBe(false);
   });
 
   it('walls, fences and hedges stop people and cars', () => {

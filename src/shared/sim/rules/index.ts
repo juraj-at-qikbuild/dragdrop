@@ -9,6 +9,7 @@ import { Presence } from './Presence';
 import { Jobs } from './jobs/Jobs';
 import { Shops } from './Shops';
 import { Style } from './Style';
+import { Splash } from './Splash';
 import { Ambulances } from './Ambulances';
 import { Bikes } from './Bikes';
 import { Trams } from './Trams';
@@ -38,6 +39,8 @@ export function createRules(sim: Sim, mode: RulesMode): SimRule[] {
   // style: the combo, online too; ambulances at the hospitals; scooters and bikes at the docks and
   // stands; riding and driving trams; boats on the Danube, and the police boat (Phase 3)
   rules.push(new Style(sim));
+  // what replaced running people over: the splash, the high five, the dive (docs/plans/non-violent.md)
+  rules.push(new Splash(sim));
   rules.push(new Ambulances(sim));
   rules.push(new Bikes(sim));
   rules.push(new Trams(sim));

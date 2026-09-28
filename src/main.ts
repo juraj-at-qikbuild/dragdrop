@@ -310,13 +310,13 @@ async function boot() {
     const host = game.host;
     // a server that holds party seats, brings cars back and makes a wanted player wait
     const kept = host instanceof NetSimHost && host.serverPresence;
-    const lines = ['Peniaze, zbrane a miesto sa uložia. Keď sa vrátiš, pokračuješ tu.'];
+    const lines = ['Peniaze, hračky a miesto sa uložia. Keď sa vrátiš, pokračuješ tu.'];
     const car = game.player.vehicle;
     if (kept && car && car.kind !== 'police' && car.livery === LIVERY_NONE && !car.mission) lines.push('Auto odíde s tebou a počká na teba.');
     if (host.live.party) lines.push(kept ? 'Partia ti podrží miesto 15 minút.' : 'Z partie odídeš.');
     if (host.live.race) lines.push('Rozbehnutý závod prehráš.');
     if (host.live.job) lines.push('Práca sa skončí.');
-    if (kept && game.state === 'downed') lines.push('Ležíš zranený: odchodom skončíš v nemocnici.');
+    if (kept && game.state === 'downed') lines.push('Premočený mrzneš: odchodom skončíš v nemocnici, kde ťa vysušia.');
     else if (kept && game.wanted > 0) lines.push('Si hľadaný: tvoja postava zostane v meste ešte 10 sekúnd.');
     return lines;
   };

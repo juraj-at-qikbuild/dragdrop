@@ -73,13 +73,13 @@ export class ReviveUi implements ClientFeature {
     for (const p of g.host.peds) {
       if (!p.downed || !p.playerId) continue;
       const frac = this.progressFor(p);
-      if (frac > 0) worldRing(ctx, p.x, p.y - 1.1, 0.85, frac, '#ff5252', v.scale);
+      if (frac > 0) worldRing(ctx, p.x, p.y - 1.1, 0.85, frac, '#4fc3f7', v.scale);
       if (me.state !== 'play' || dist(p.x, p.y, f.x, f.y) > PROMPT_RANGE) continue;
       const fs = 12 / v.scale;
       ctx.font = `700 ${fs}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      outlined(ctx, 'Pomôž mu vstať – postoj pri ňom', p.x, p.y - 1.7 - fs * 1.4, '#ff8a80', 3 / v.scale);
+      outlined(ctx, 'Vyfénuj kamoša – postoj pri ňom', p.x, p.y - 1.7 - fs * 1.4, '#80d8ff', 3 / v.scale);
     }
   }
 
@@ -89,8 +89,9 @@ export class ReviveUi implements ClientFeature {
     const W = g.viewW, H = g.viewH;
     const pulse = 0.5 + 0.5 * Math.sin(g.time * 2.2);
     const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.hypot(W, H) * 0.6);
-    grad.addColorStop(0, 'rgba(140,0,0,0)');
-    grad.addColorStop(1, `rgba(140,0,0,${0.5 + pulse * 0.18})`);
+    // soaked through and freezing (docs/plans/non-violent.md): frost creeping in from the edges
+    grad.addColorStop(0, 'rgba(150,210,255,0)');
+    grad.addColorStop(1, `rgba(150,210,255,${0.45 + pulse * 0.18})`);
     ctx.save();
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
@@ -100,7 +101,7 @@ export class ReviveUi implements ClientFeature {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `700 ${small ? 22 : 30}px 'Rajdhani', 'Arial Black', Impact, sans-serif`;
-    outlined(ctx, `Krvácaš – ${secs} s`, W / 2, H * 0.22, '#ff5252', 4);
+    outlined(ctx, `Mrzneš – ${secs} s`, W / 2, H * 0.22, '#80d8ff', 4);
     // a touch screen has its own "Vzdať sa" button (TouchControls)
     if (!g.touch || g.input.pad.active) this.drawGiveUpPrompt(ctx, W, H, small);
   }

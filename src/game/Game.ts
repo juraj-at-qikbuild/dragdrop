@@ -6,10 +6,14 @@ import { Input, PAD_PRESS } from './Input';
 import { isModalOpen, padNavigate, type PadNav } from '../ui/kit/dom';
 import { Juice } from './Juice';
 import { Audio } from '../audio/Audio';
-import type { WeaponId } from '../shared/entities/Ped';
+import type { Ped, WeaponId } from '../shared/entities/Ped';
+import { FIVE_GAP, FIVE_MAX, FIVE_MIN, besideCar } from '../shared/sim/rules/Splash';
 import type { Vehicle } from '../shared/entities/Vehicle';
 import { MissionManager } from '../missions/Missions';
-import { Hud } from '../ui/Hud';
+import { Hud, drawWeaponIcon } from '../ui/Hud';
+import { Pigeons } from '../world/Pigeons';
+import { drawStalls } from '../render/drawStall';
+import type { StallKind } from '../shared/world/Stalls';
 import { MapView } from '../ui/MapView';
 import { Gps } from './Gps';
 import { RADIO, BRAND_COLORS } from '../data/brands';
@@ -91,6 +95,8 @@ export class Game {
   juice: Juice;
   /** what people nearby just said */
   bubbles = new Bubbles();
+  /** the flocks on the squares (docs/plans/non-violent.md), only for the looks */
+  pigeons!: Pigeons;
   /** read by the HUD combo widget */
   get combo() {
     return this.juice.combo;
@@ -213,6 +219,26 @@ export class Game {
     const clock = new Clock(new Rng(), profile.clock);
     this.atmos = new Atmosphere(undefined, clock);
     this.renderer.atmos = this.atmos;
+    // the pigeons and the market stalls (docs/plans/non-violent.md): what a car ploughing through them
+    // looks and sounds like here (the simulation pays for a stall: MOJE LOKŠE!)
+    this.pigeons = new Pigeons(this.world);
+    this.pigeons.onScare = (x, y, n) => {
+      const f = this.focus(), d = dist(x, y, f.x, f.y);
+      if (d > 60) return;
+      this.fx.feathers(x, y, Math.min(14, n));
+      this.audio.flutter(d);
+    };
+    this.world.stalls.onKnock = (i, x, y, speed) => {
+      const f = this.focus(), d = dist(x, y, f.x, f.y);
+      if (d > 80) return;
+      const st = this.world.stalls;
+      this.fx.food(x, y, st.kind[i], st.fling[i]);
+      for (let k = 0; k < 5; k++) this.fx.debris(x, y);
+      this.audio.knock(d, false);
+      if (d < 40) this.audio.crash(Math.min(18, speed));
+      this.bubbles.addText(-1000 - i, x, y, STALL_YELL[st.kind[i]]);
+      this.pigeons.scare(x, y, 16);
+    };
     if (matchMedia('(pointer: coarse)').matches) this.light.res = 0.35;
     // online, this offline world only backs the menu's attract mode until the connection is up
     this.host = new LocalSimHost(this.world, this.events, profile, clock, () => this.persist());
@@ -573,7 +599,7 @@ export class Game {
     host.setObserver(this.observer());
     host.update(dt);
     for (const f of this.features) f.update?.(dt);
-    this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus());
+    this.entityFx.update(dt, host.vehicles, this.fx, this.world, this.focus(), this.atmos.wet);
     this.updateStreet(dt);
     this.fx.update(dt);
     this.missions.enabled = host.missionsEnabled;
@@ -802,7 +828,7 @@ export class Game {
     const local = this.host instanceof LocalSimHost;
     const R = 50;
     for (const q of this.host.peds) {
-      if (q === me || q.dead || q.downed || q.vehicle || q.level !== level) continue;
+      if (q === me || q.dazed || q.downed || q.vehicle || q.level !== level) continue;
       const dx = q.x - me.x, dy = q.y - me.y;
       if (Math.abs(dx) > R || Math.abs(dy) > R) continue;
       const busy = q.state === 'fight' || q.state === 'phone';
@@ -900,6 +926,7 @@ export class Game {
   private updateStreet(dt: number) {
     const f = this.focus();
     const street = this.renderer.street;
+    this.pigeons.update(dt, this.focus(), this.host.vehicles, this.host.peds);
     street.update(dt, this.host.vehicles, (x, y, kind, speed) => {
       const d = dist(x, y, f.x, f.y);
       if (d > 70) return;
@@ -944,7 +971,7 @@ export class Game {
     else if (this.wanted > 0) {
       let nearest = Infinity;
       for (const v of host.vehicles) if (v.kind === 'police' && v.siren && !v.wrecked && !v.isPlayer) nearest = Math.min(nearest, dist(v.x, v.y, f.x, f.y));
-      for (const p of host.peds) if (p.kind === 'cop' && !p.dead && !p.vehicle) nearest = Math.min(nearest, dist(p.x, p.y, f.x, f.y));
+      for (const p of host.peds) if (p.kind === 'cop' && !p.dazed && !p.vehicle) nearest = Math.min(nearest, dist(p.x, p.y, f.x, f.y));
       this.audio.siren(clamp(1 - nearest / 120, 0, 1));
     } else this.audio.siren(0);
     let heli = Infinity;
@@ -1044,6 +1071,8 @@ export class Game {
     this.renderer.drawBarriers(ctx, v);
     this.renderer.drawPosts(ctx, v);
     this.renderer.street.drawLow(ctx, v, this.time);
+    drawStalls(ctx, this.world.stalls, v, this.time);
+    this.pigeons.draw(ctx, v, this.time, atmos.night, false);
     this.weather.drawWorld(ctx, atmos);
     this.fx.drawDecals(ctx, v);
     this.missions.drawWorld(ctx, this.time);
@@ -1057,9 +1086,12 @@ export class Game {
     const me = this.player;
     const underground = this.focusLevel() === -1;
     const drawEntities = (level: Level) => {
-      for (const p of host.peds) if (p.dead && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      for (const p of host.peds) if (p.dazed && p.level === level && inView(p.x, p.y, 2)) drawPed(p, ctx, atmos, v.scale);
+      // players' cars in view: a fan beside one coming past holds a hand out (rules/Splash.ts)
+      const playerCars = host.vehicles.filter((c) => c.isPlayer && c.level === level && !c.wrecked && inView(c.x, c.y, 20));
       for (const p of host.peds) {
-        if (p.dead || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
+        if (p.dazed || p.vehicle || p === me || p.level !== level || !inView(p.x, p.y, 2)) continue;
+        p.hand = playerCars.length && p.fan && (p.state === 'walk' || p.state === 'idle') ? fanHand(p, playerCars) : NaN;
         // another player who's away (in their pause menu, or disconnected) is drawn dimmed
         const a = p.playerId ? this.presenceAlpha(p.playerId) : 1;
         ctx.globalAlpha = a;
@@ -1098,6 +1130,7 @@ export class Game {
     drawEntities(2);
 
     this.fx.drawParticles(ctx, true);
+    this.pigeons.draw(ctx, v, this.time, atmos.night, true);
     this.renderer.drawBuildings(ctx, v);
     this.drawLandmarks(ctx, v);
     for (const h of host.helis) drawHeli(h, ctx, v, atmos, this.focus());
@@ -1240,19 +1273,18 @@ export class Game {
         ctx.arc(0, 0, 1.15, 0, Math.PI * 2);
         ctx.stroke();
       } else {
+        // a box with what's in it (docs/plans/non-violent.md): a towel, a raincoat, or a toy
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.fillRect(-0.5, -0.4, 1.1, 1);
-        const accent = p.kind === 'health' ? '#e53935' : p.kind === 'armor' ? '#42a5f5' : '#ffd600';
-        ctx.fillStyle = p.kind === 'health' ? '#fafafa' : p.kind === 'armor' ? '#0d2440' : '#37474f';
+        const accent = p.kind === 'health' ? '#29b6f6' : p.kind === 'armor' ? '#fbc02d' : '#ffd600';
+        ctx.fillStyle = p.kind === 'health' ? '#e1f5fe' : p.kind === 'armor' ? '#3e2723' : '#37474f';
         ctx.fillRect(-0.55, -0.55, 1.1, 1.1);
         ctx.strokeStyle = accent;
         ctx.lineWidth = 0.1;
         ctx.strokeRect(-0.55, -0.55, 1.1, 1.1);
-        ctx.fillStyle = accent;
-        ctx.font = '900 0.6px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(p.kind === 'health' ? '+' : p.kind === 'armor' ? 'V' : p.kind === 'pistol' ? 'P' : p.kind === 'uzi' ? 'U' : 'B', 0, 0.04);
+        if (p.kind === 'health') drawTowel(ctx);
+        else if (p.kind === 'armor') drawRaincoat(ctx);
+        else if (p.kind === 'pistol' || p.kind === 'uzi' || p.kind === 'shotgun') drawWeaponIcon(ctx, p.kind, 0, 0, 0.36);
       }
       ctx.restore();
     }
@@ -1499,9 +1531,57 @@ function popScale(t: number): number {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
+/** Where a fan holds their hand out (a world angle) for the nearest player's car coming past close
+ *  enough for a high five (rules/Splash.ts: the same speeds and gap, a little ahead of it), or NaN. */
+function fanHand(p: Ped, cars: readonly Vehicle[]): number {
+  for (const c of cars) {
+    const sp = c.speed;
+    if (sp < FIVE_MIN || sp > FIVE_MAX) continue;
+    const { along, lat, gap } = besideCar(c, p.x, p.y, p.r);
+    if (gap <= 0 || gap > FIVE_GAP + 1 || along < -c.spec.length / 2 || along > c.spec.length / 2 + sp * 1.2) continue;
+    // toward the car's near side, where the hands will meet
+    return Math.atan2(c.y - p.y, c.x - p.x) + (lat >= 0 ? 0.25 : -0.25);
+  }
+  return NaN;
+}
+
+/** a folded towel, striped (a health pickup: it dries you) */
+function drawTowel(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fillRect(-0.36, -0.26, 0.72, 0.52);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-0.36, -0.12, 0.72, 0.08);
+  ctx.fillRect(-0.36, 0.08, 0.72, 0.08);
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+  ctx.lineWidth = 0.04;
+  ctx.strokeRect(-0.36, -0.26, 0.72, 0.52);
+}
+
+/** a yellow raincoat with its hood (the armour pickup) */
+function drawRaincoat(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = '#ffd600';
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 0.04;
+  ctx.beginPath();
+  ctx.moveTo(-0.14, -0.2);
+  ctx.lineTo(0.14, -0.2);
+  ctx.lineTo(0.3, 0.36);
+  ctx.lineTo(-0.3, 0.36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, -0.24, 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** what the stallholder yells when a car ploughs through their stall */
+const STALL_YELL: Record<StallKind, string> = { lokse: 'Moje lokše!', langos: 'Moje langoše!', klobasa: 'Moje klobásy!', punc: 'Môj punč!' };
+
 const PICKUP_GLOW: Record<PickupKind, string> = {
   cash: '#69f0ae',
-  health: '#ff5252',
+  health: '#4fc3f7',
   armor: '#42a5f5',
   pistol: '#ffd600',
   uzi: '#ffd600',

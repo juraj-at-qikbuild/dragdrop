@@ -176,13 +176,13 @@ function mostWantedEndLines(nick: string, how: MostWantedHow, by: string | undef
     case 'taken':
       return [
         `${winnerOr(by, 'Niekto')} dostal Najhľadanejšieho ${nick} ${at} a inkasuje ${cash}!`,
-        `Koniec naháňačky: ${winnerOr(by, 'neznámy hrdina')} zložil ${nick} ${at}, odmena ${cash} je jeho!`,
+        `Koniec naháňačky: ${winnerOr(by, 'neznámy hrdina')} premočil ${nick} ${at} do nitky, odmena ${cash} je jeho!`,
         `${nick} je dolapený! Zaslúžil sa o to ${winnerOr(by, 'iný hráč')} ${at}, odmena ${cash}.`,
       ];
     case 'busted':
       return [`Polícia zatkla Najhľadanejšieho ${nick} ${at}. Odmena prepadla mestu.`, `${nick} skončil v putách ${at} – polícia bola tentokrát rýchlejšia.`, `Koniec jazdy pre ${nick} ${at}: zatkli ho.`];
     case 'died':
-      return [`Najhľadanejší ${nick} to nezvládol ${at}, naháňačka sa tak skončila.`, `${nick} skončil na dlažbe ${at}. Najhľadanejší je minulosťou.`];
+      return [`Najhľadanejší ${nick} to nezvládol ${at}, naháňačka sa tak skončila.`, `${nick} skončil v kaluži ${at}. Najhľadanejší je minulosťou, ide sa sušiť.`];
     case 'escaped':
       return [`${nick} unikol polícii aj naháňačom ${at} a berie polovicu odmeny (${cash})!`, `Nedostali ho! ${nick} sa vytratil ${at} a berie ${cash} za trápenie.`];
     default: // 'left'
@@ -298,7 +298,7 @@ export function formatNews(e: GlobalEvent, place: PlaceFn): NewsLine | null {
     case 'revived': {
       const at = place(e.x, e.y);
       const variants = [
-        `${e.by} postavil na nohy hráča ${e.who} ${at}. Dobrý samaritán!`,
+        `${e.by} vyfénoval hráča ${e.who} ${at}. Dobrý samaritán!`,
         `Kúsok ľudskosti ${at}: ${e.by} pozviechal hráča ${e.who}.`,
         `${e.who} je späť na nohách vďaka hráčovi ${e.by} ${at}.`,
       ];

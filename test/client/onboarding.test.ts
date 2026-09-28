@@ -97,7 +97,7 @@ describe('the world events card', () => {
     expect(onNowLine(e('kofolka', 'live', 'pri Eurovei'), 90)).toBe('🥤 Horúca Kofolka práve beží pri Eurovei');
     // (roughly: the card doesn't count down)
     expect(onNowLine(e('cumil', 'announce'), 42)).toBe('🔍 Hon na Čumila začne o chvíľu');
-    expect(onNowLine(e('derby', 'announce', 'pri Auparku'), 150)).toBe('💥 Derby na parkovisku začne asi o 3 min pri Auparku');
+    expect(onNowLine(e('derby', 'announce', 'pri Auparku'), 150)).toBe('🎡 Derby na parkovisku začne asi o 3 min pri Auparku');
   });
 
   it('with nothing on: when the next may come, and what it could be', () => {

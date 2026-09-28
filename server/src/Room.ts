@@ -1041,7 +1041,7 @@ export class Room {
   private recordHistory(t: number) {
     const h = this.history;
     for (const v of this.sim.vehicles) h.record(t, v.id, v.x, v.y, v.level, !v.wrecked);
-    for (const p of this.sim.peds) if (!p.vehicle || p.playerId) h.record(t, p.id, p.x, p.y, p.level, !p.dead);
+    for (const p of this.sim.peds) if (!p.vehicle || p.playerId) h.record(t, p.id, p.x, p.y, p.level, !p.dazed);
     for (const tr of this.sim.trams) h.record(t, tr.id, tr.x, tr.y, tr.level, true);
     h.endTick();
   }

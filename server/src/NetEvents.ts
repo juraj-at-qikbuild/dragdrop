@@ -1,7 +1,8 @@
 // SimEvents sink on the server: collects world events (with their position, for interest filtering)
 // and per-player private events during a tick; Room sends them out after building snapshots.
-import type { GlobalEvent, KillCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
+import type { GlobalEvent, DazeCause, PrivateEvent, ShotFx, SimEvents } from '../../src/shared/sim/events';
 import type { WorldEvent } from '../../src/shared/net/protocol';
+import type { Mess } from '../../src/shared/sim/Combat';
 
 export interface PlacedEvent {
   x: number;
@@ -29,8 +30,8 @@ export class NetEvents implements SimEvents {
   melee(x: number, y: number, hit: boolean) {
     this.add(x, y, { k: 'melee', x: r2(x), y: r2(y), hit: hit ? 1 : 0 });
   }
-  pedHit(id: number, x: number, y: number, size: number) {
-    this.add(x, y, { k: 'pedHit', id, x: r2(x), y: r2(y), s: size });
+  pedHit(id: number, x: number, y: number, size: number, mess?: Mess) {
+    this.add(x, y, mess ? { k: 'pedHit', id, x: r2(x), y: r2(y), s: size, m: mess } : { k: 'pedHit', id, x: r2(x), y: r2(y), s: size });
   }
   spark(x: number, y: number, kind: 0 | 1 | 2) {
     this.add(x, y, { k: 'spark', x: r2(x), y: r2(y), kind });
@@ -41,7 +42,7 @@ export class NetEvents implements SimEvents {
   crash(vid: number, x: number, y: number, sev: number, nx: number, ny: number, kick: number) {
     this.add(x, y, { k: 'crash', vid, x: r2(x), y: r2(y), sev: r2(sev), nx: r2(nx), ny: r2(ny), kick: r2(kick) });
   }
-  pedKilled(id: number, x: number, y: number, by: number, cause: KillCause) {
+  pedDazed(id: number, x: number, y: number, by: number, cause: DazeCause) {
     this.add(x, y, { k: 'killed', id, x: r2(x), y: r2(y), by, cause });
   }
   scream(x: number, y: number) {
@@ -55,6 +56,12 @@ export class NetEvents implements SimEvents {
   }
   say(id: number, x: number, y: number, line: number) {
     this.add(x, y, { k: 'say', id, l: line });
+  }
+  splash(id: number, x: number, y: number, a: number, s: number) {
+    this.add(x, y, { k: 'splash', id, x: r2(x), y: r2(y), a: r2(a), s: r2(s) });
+  }
+  highFive(id: number, x: number, y: number) {
+    this.add(x, y, { k: 'five', id, x: r2(x), y: r2(y) });
   }
   global(e: GlobalEvent) {
     this.globals.push(e);

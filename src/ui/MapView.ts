@@ -1151,13 +1151,15 @@ function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, k
       ctx.stroke();
       return;
     // ---- the shops (docs/plans/gameplay.md, Phase 2)
-    case 'guns': // a pistol, pointing left
-      ctx.fillRect(x - s * 0.9, y - s * 0.55, s * 1.75, s * 0.42);
-      ctx.moveTo(x + s * 0.2, y - s * 0.2);
-      ctx.lineTo(x + s * 0.8, y - s * 0.2);
-      ctx.lineTo(x + s * 0.6, y + s * 0.8);
-      ctx.lineTo(x + s * 0.05, y + s * 0.8);
-      ctx.closePath();
+    case 'guns': // the toy shop (docs/plans/non-violent.md): a teddy bear
+      ctx.arc(x - s * 0.42, y - s * 0.62, s * 0.22, 0, Math.PI * 2);
+      ctx.arc(x + s * 0.42, y - s * 0.62, s * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.3, s * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y + s * 0.5, s * 0.5, s * 0.42, 0, 0, Math.PI * 2);
       ctx.fill();
       return;
     case 'clothes': // a T-shirt

@@ -19,13 +19,13 @@ import { Police } from './Police';
 import { BRIBE_WAIT, HEAR_SHOT, Pursuit, type Desc } from './Pursuit';
 import { DROP_KEEP, DROP_LIFE, tuned } from './shops/catalog';
 import { STYLE, type Style, type StyleMove } from './rules/Style';
-import { CombatRules, WEAPONS, type Shooter, type ShotReport } from './Combat';
+import { CombatRules, WEAPONS, type Mess, type Shooter, type ShotReport } from './Combat';
 import { VehiclePhysics, pedContacts, updateLevels } from './Physics';
 import { placePickups, type Pickup, type PickupKind } from './Pickups';
 import { SPAWNS, SPAWN_SPREAD } from '../world/spawns';
 import { Clock } from './Clock';
 import { IdPool } from './IdPool';
-import { nullEvents, type SimEvents } from './events';
+import { nullEvents, type DazeCause, type SimEvents } from './events';
 import { BASE_DENSITY, NO_CAPS, type Caps, type Density } from './density';
 import { DOWNED_BLEED, SimPlayer, type PlayerState, type Profile } from './SimPlayer';
 import { createRules, type RulesMode } from './rules';
@@ -39,7 +39,9 @@ export type Crime =
   /** hurting / killing another player (online) */
   | 'hitPlayer' | 'killPlayer'
   /** the armoured van (ArmoredVan.ts): bursting its rear doors, then taking its spilled cash */
-  | 'robbery' | 'loot';
+  | 'robbery' | 'loot'
+  /** soaking a cop from a puddle (rules/Splash.ts): "pokropenie verejného činiteľa" */
+  | 'splashCop';
 
 export interface SimOptions {
   rng?: Rng;
@@ -370,6 +372,7 @@ export class Sim {
     this.police.update(dt);
     this.updateVehicles(dt);
     this.world.gates.sweep(this.vehicles, dt);
+    this.world.stalls.sweep(this.vehicles, dt, (i, v) => this.stallHit(i, v));
     updateLevels(this.world, this.trams, this.peds);
     this.updatePickups(dt);
     for (const p of this.players.values()) {
@@ -440,7 +443,7 @@ export class Sim {
     // per-frame consequences (once, not per physics substep)
     const gone = new Set<Ped>();
     for (const v of this.vehicles) {
-      if (v.fire > 0 && !v.wrecked && !v.kinematic && v.driver && !v.driver.playerId && !v.driver.dead) {
+      if (v.fire > 0 && !v.wrecked && !v.kinematic && v.driver && !v.driver.playerId && !v.driver.dazed) {
         // AI bails out of burning cars
         const d = v.driver;
         d.vehicle = null;
@@ -485,14 +488,7 @@ export class Sim {
           if (pl && this.time >= pl.thrownUntil) this.hurtPlayer(pl, t.speed * 5, sx, sy, driver?.id ?? 0);
           return;
         }
-        p.kill(sx, sy, t.speed);
-        this.events.pedHit(p.id, p.x, p.y, 0.8);
-        this.events.pedKilled(p.id, p.x, p.y, driver?.id ?? 0, 'tram');
-        if (driver) {
-          this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
-          this.dropCash(p.x, p.y, p.money);
-          this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
-        }
+        this.bonk(p, sx, sy, t.speed, 'tram', driver);
       },
     });
   }
@@ -542,22 +538,51 @@ export class Sim {
     if (p.playerId) {
       const pl = this.players.get(p.playerId);
       if (pl) {
-        if (this.time >= pl.thrownUntil) this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner);
+        if (this.time >= pl.thrownUntil) this.hurtPlayer(pl, sp * 3, v.x, v.y, v.owner, 'bonk');
         p.x += (v.vx / sp) * 1.5;
         p.y += (v.vy / sp) * 1.5;
       }
       return;
     }
-    p.kill(cx - v.vx, cy - v.vy, sp * 0.8);
-    this.events.pedHit(p.id, p.x, p.y, 0.8);
-    this.events.pedKilled(p.id, p.x, p.y, v.owner, 'road');
-    const driver = this.players.get(v.owner);
+    this.bonk(p, cx - v.vx, cy - v.vy, sp * 0.6, 'road', this.players.get(v.owner));
+  }
+
+  /** BOING (docs/plans/non-violent.md): a car or a tram that hits someone bounces them off like a
+   *  rubber ball; they sit dazed, then get up. Never a reward: the reward is for a close pass (the
+   *  splash, rules/Splash.ts), not for contact. The one who drove it gets the stars for reckless
+   *  driving (the crimes keep their ids: +1★, +2★ for a cop) and a "BOING!" that banks nothing. */
+  private bonk(p: Ped, fromX: number, fromY: number, force: number, cause: 'road' | 'tram', driver: SimPlayer | undefined) {
+    this.knockDown(p, fromX, fromY, force, cause, driver?.id ?? 0, 'bonk');
     if (driver) {
       this.crime(driver, p.kind === 'cop' ? 'killCop' : 'killPed');
-      this.dropCash(p.x, p.y, p.money);
-      this.style(driver, p.kind === 'cop' ? 'roadcop' : 'roadkill', p.x, p.y);
+      this.rule<Style>('style')?.voidPending(driver);
+      this.events.toPlayer(driver.id, { k: 'style', label: 'BOING!', cash: 0, x: p.x, y: p.y - 1.5 });
     }
-    for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dead && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
+    for (const q of this.pedsNear(p.x, p.y, 20)) if (q.kind === 'civ' && !q.dazed && dist(q.x, q.y, p.x, p.y) < 20) this.combat.scare(q, p.x, p.y);
+  }
+
+  /** A car ploughed through a market stall (world/Stalls.ts: MOJE LOKŠE!): the player at its wheel
+   *  gets the combo, and the police's attention if they see it; the passers-by around scatter. */
+  private stallHit(i: number, v: Vehicle) {
+    const st = this.world.stalls, x = st.x[i], y = st.y[i];
+    const pl = v.owner ? this.players.get(v.owner) : undefined;
+    if (pl && pl.ped.vehicle === v) {
+      this.style(pl, 'stall', x, y);
+      this.crime(pl, 'destroy');
+    }
+    for (const q of this.pedsNear(x, y, 10)) if (q.kind === 'civ' && !q.dazed && dist(q.x, q.y, x, y) < 10) this.combat.scare(q, x, y);
+  }
+
+  /** Knock an NPC down (docs/plans/non-violent.md: nobody dies): thrown a little way from (fromX,
+   *  fromY), sitting dazed a few seconds, then up again and off home (AI.getUp). The one way it
+   *  happens: a toy (`cause` shot or melee), a car's or a tram's bump, a car blowing up next to them. */
+  knockDown(p: Ped, fromX: number, fromY: number, force: number, cause: DazeCause, byPid: number, mess: Mess) {
+    if (p.dazed || p.playerId) return;
+    // (a taxi fare waiting at the kerb is posed by the job: knocked down, they're the crowd's again)
+    p.kinematic = false;
+    p.knockDown(fromX, fromY, Math.min(9, force), mess);
+    this.events.pedHit(p.id, p.x, p.y, 1, mess);
+    this.events.pedDazed(p.id, p.x, p.y, byPid, cause);
   }
 
   /** Damage a vehicle. A player's car is simulated by their client, so they are told to apply it. */
@@ -615,8 +640,11 @@ export class Sim {
       const s = this.world.exitSpot(v, -1);
       d.x = s.x;
       d.y = s.y;
-      // the odd one goes for the carjacker; the rest run (and may phone the police)
-      if (d.kind === 'civ') {
+      // the odd one goes for the carjacker; the rest run (and may phone the police); someone
+      // knocked down at the wheel just ends up sitting on the pavement
+      if (d.dazed) {
+        /* they come round there (AI) */
+      } else if (d.kind === 'civ') {
         if (!this.crowd.provoke(d, p)) this.combat.scare(d, ped.x, ped.y);
       } else d.state = 'chase';
       this.crime(p, 'carjack', d);
@@ -755,6 +783,9 @@ export class Sim {
       case 'loot':
         if (now > cd) this.raise(p, 1, kind, 10);
         break;
+      case 'splashCop':
+        if (now > cd) this.raise(p, 1, kind, 5);
+        break;
     }
   }
 
@@ -798,9 +829,10 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ health / death
-  /** Damage a player from (fx, fy). `byPid` is the player responsible (PvP), 0 for the world/NPCs.
-   *  Also how a downed player is finished off (a second hit, once `state` is already 'downed'). */
-  hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0) {
+  /** Soak a player from (fx, fy) (docs/plans/non-violent.md: health is how dry they are). `byPid`
+   *  is the player responsible (PvP), 0 for the world/NPCs; `mess` what it leaves them with. Also
+   *  how a downed player is finished off (a second hit, once `state` is already 'downed'). */
+  hurtPlayer(p: SimPlayer, dmg: number, fx: number, fy: number, byPid = 0, mess: Mess = 'water') {
     if (p.state !== 'play' && p.state !== 'downed') return;
     // away and safe (rules/Presence.ts): nothing lands, and it's no crime either
     if (p.shielded) return;
@@ -826,7 +858,7 @@ export class Sim {
     const soak = Math.min(ped.armor, dmg * 0.7);
     ped.armor -= soak;
     ped.health -= dmg - soak;
-    this.events.pedHit(ped.id, ped.x, ped.y, 0.3);
+    this.events.pedHit(ped.id, ped.x, ped.y, 0.3, mess);
     this.events.toPlayer(p.id, { k: 'hurt', dmg, fx, fy });
     if (ped.health <= 0) {
       const killer = attacker ?? (p.lastAttacker && this.time - p.lastAttackedAt < CREDIT_WINDOW ? this.players.get(p.lastAttacker) : undefined);
@@ -843,8 +875,8 @@ export class Sim {
     if (killer === victim) return;
     this.crime(killer, 'killPlayer', null, victim);
     const f = victim.focus();
-    this.style(killer, 'ko', f.x, f.y, { label: `K.O. ${victim.nick}` });
-    this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Dostal ťa ${killer.nick}.`, time: 3, color: '#ff8a80' });
+    this.style(killer, 'ko', f.x, f.y, { label: `${victim.nick}: SPRCHA!` });
+    this.events.toPlayer(victim.id, { k: 'msg', title: '', text: `Premočil ťa ${killer.nick}.`, time: 3, color: '#80d8ff' });
     for (const r of this.rules) r.onKill?.(victim, killer);
   }
 
@@ -961,7 +993,7 @@ export class Sim {
     if (died && fee > DROP_KEEP) {
       const at = this.world.walkableNear(died.x, died.y);
       this.dropCash(at.x, at.y, fee - DROP_KEEP, 'death', DROP_LIFE);
-      this.events.toPlayer(p.id, { k: 'msg', title: '', text: `Kde si padol, zostalo ležať €${fee - DROP_KEEP}. Máš ${DROP_LIFE / 60} minúty.`, time: 4, color: '#ffd740' });
+      this.events.toPlayer(p.id, { k: 'msg', title: '', text: `Kde si premokol, vypadlo ti z vreciek €${fee - DROP_KEEP}. Máš ${DROP_LIFE / 60} minúty.`, time: 4, color: '#ffd740' });
     }
     p.diedAt = null;
     p.wanted = 0;
@@ -979,7 +1011,7 @@ export class Sim {
     if (lawyer) {
       gear!.lawyer = false;
       this.events.toPlayer(p.id, { k: 'gear', g: gear! });
-      this.events.toPlayer(p.id, { k: 'msg', title: 'Advokát', text: 'JUDr. Paragraf ťa vytiahol: zbrane ti nechali, pokuta je polovičná.', time: 4, color: '#b2ff59' });
+      this.events.toPlayer(p.id, { k: 'msg', title: 'Advokát', text: 'JUDr. Paragraf ťa vytiahol: hračky ti nechali, pokuta je polovičná.', time: 4, color: '#b2ff59' });
     }
     // call off the police that were after this player
     this.police.clear(p);

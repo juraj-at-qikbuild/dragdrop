@@ -252,9 +252,24 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
   } else if (s.kind === 'van') {
     ctx.fillStyle = glass;
     ctx.fillRect(L / 2 - 1.35, -W / 2 + 0.2, 0.55, W - 0.4);
-    ctx.fillStyle = v.wrecked ? '#333' : '#f5f5f5';
+    ctx.fillStyle = v.wrecked ? '#333' : v.swat ? shade(body, -0.12) : '#f5f5f5';
     ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, W - 0.4);
-    if (!v.wrecked) {
+    if (v.swat && !v.wrecked) {
+      // the firefighters (the police's 5★ unit: docs/plans/non-violent.md): a ladder on the roof,
+      // reflective stripes and HASIČI
+      ctx.fillStyle = '#cfd8dc';
+      ctx.fillRect(-L / 2 + 0.45, -0.42, L - 2.1, 0.1);
+      ctx.fillRect(-L / 2 + 0.45, 0.32, L - 2.1, 0.1);
+      for (let x = -L / 2 + 0.6; x < L / 2 - 1.7; x += 0.45) ctx.fillRect(x, -0.42, 0.07, 0.84);
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(-L / 2 + 0.25, -W / 2 + 0.2, L - 1.8, 0.14);
+      ctx.fillRect(-L / 2 + 0.25, W / 2 - 0.34, L - 1.8, 0.14);
+      ctx.fillStyle = '#fff';
+      ctx.font = '900 0.5px Arial Black, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('HASIČI', -0.65, -0.62);
+    } else if (!v.wrecked) {
       // roof rack
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 0.05;
