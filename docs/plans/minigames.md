@@ -133,12 +133,21 @@ football) so everyone sees it move and the physics pushes it. The players get ca
 (a bicycle kick: the ball launched over the cars at the goal) — a second scenario, "Nemecko 2:0",
 scores twice. With others: two teams, first to two goals or the most at the whistle.
 
-### AKCIA! Maslo (`butter`)
-A flash sale at a Billka/Lidel/Tescó (`pois('shop')` by name) near the player: get there first,
-through the grannies crowding the door (kinematic people who push in and block; a shove moves them),
-buy with the action key (limited stock, a few blocks each), and sell to buyers around the city before
-the butter melts (it melts in the sun and faster in a car; `x` can carry it). Alone against the
-grannies and the clock; with others, one pallet for everyone. Pay: the profit.
+### AKCIA! Maslo (`butter`) — built
+The sale (€1.49 a block) is at a real grocery (`pois('shop')`: Billka, Lidel, Tescó, Terno Plus, Jeme,
+Krajec) 300–900 m from the start, its door the nearest pavement (`walkableNear`, within 35 m). Six
+grannies (kinematic, elderly, a headscarf where the seed gives one) crowd the door: at the door the
+action key is "Prepáčte, prosím!", 1.5 s of squeezing (they step aside and grumble) and at the counter
+— unless an elbow sends you back (30 %, then 15 %; 50/25 % for someone they've seen before). Each press
+at the counter is a block, charged at once (the till rounds the running total to whole euros), ten a
+visit ("limit na osobu": walk out and squeeze in again for more). The stock is 28 + 12 per player, one
+for everyone, and the grannies take 1–2 every 11–16 s as one leaves and another arrives. Buyers (💰,
+hands up) stand 200–750 m from the shop (later round the players), 3–5 blocks each at €3.80–4.60 (the
+further out, the more), and wait 140–220 s. The bag warms up (the meter) in 90 s on foot, three
+times as fast in a car (twice on a tram, 1.3× on a scooter), not at the counter; full, a block melts
+(gone) and it's at half again. 4 minutes, or until the shelf is empty and nobody has butter left. Pay
+(at the end): the sales + €8 a block sold (+€40/20/10 for 1st–3rd by profit with others, in profit);
+the purchases already cost, so a round nets the profit and the bonus.
 
 ### Bilbordová vojna (`billboard`)
 The map's billboards (69) and bus shelters (92) near the player are the campaign's spots. Paste a
@@ -148,11 +157,21 @@ speed boost…). The last minute is the campaign silence: anyone who pastes then
 against an AI campaign that pastes on its own; with others, two campaigns (teams by joining order).
 The spots held at the end decide it; Rádio Kecy calls the districts.
 
-### Punčová cesta (`punch`)
-Christmas-market stalls on Hlavné námestie and Hviezdoslavovo námestie (marks; the squares from the
-map). A list of stalls to visit in order; each punch (the action key, €4–5) raises the wobble
-(`x.wobble`), collect the year's mug, don't lose it to the pickpockets in the crowd, and return mugs
-for their deposit at the end. Pay by the stalls done and the time.
+### Punčová cesta (`punch`) — built
+Fifteen stalls stand on the two squares (`marketStalls`: from the map alone, the same on the server
+and in the client's drawer, `draw/punch.ts`, which draws the wooden huts with awnings and fairy
+lights): on the square's outline, clear of walls, fountains, trunks, water, roofs, roads and tree
+crowns, counters facing the middle — punch at €4–5, a turbo at €6, two sausage stalls (€9, steadies
+you), decorations, gloves and the "Záloha za hrnčeky" stall. A round's list is six drink stalls, three
+on each square, in a shuffled order (the arrow on the next; the others refuse until their turn); each
+drink is paid at once, comes in a mug and adds 0.12 to the wobble (the turbo 0.2), which wears off at
+0.003/s (`x.wobble`). Up to 22 visitors stand at the counters (they step aside for a player) and 3
+pickpockets (+1 per extra player) haunt the players' next stalls: one goes for anyone who's stood
+about with a mug for a second, takes one ("Vreckár ti vzal hrnček!") and runs off for 7 s — run into
+him and it's back. Mugs go back at the deposit stall for €2 each. It can be started within 1.5 km of
+Hlavné námestie (the round sits at the market). 4 minutes; done when the list is and the mugs are
+back. Pay: €100 + up to €80 for speed (full at 1:30) + €15 a mug returned (+€50/25/10 for the first
+three with others); out of time, €12 a stall and €8 a mug returned.
 
 ### Kolobežky všade (`scooters`)
 Dumped scooters (spawned `scooter` vehicles, lying about: on pavements, in the grass, by the Danube)
