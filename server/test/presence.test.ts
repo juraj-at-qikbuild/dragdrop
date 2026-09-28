@@ -307,6 +307,7 @@ describe('the car leaves with its driver', () => {
     withDb((store) => {
       const { room, clock, join, send, tick } = setup(store);
       const a = join(TOKEN_A, 'Anna');
+      join(TOKEN_B, 'Boris'); // someone stays around, or the emptied city would clear the street anyway
       const cop = carBeside(room, a.p, 'police');
       send(a.conn, { t: 'enter', vid: cop.id });
       expect(a.p.ped.vehicle).toBe(cop);

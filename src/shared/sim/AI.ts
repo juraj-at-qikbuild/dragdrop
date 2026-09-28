@@ -213,7 +213,6 @@ export class AI {
   private populate() {
     const sim = this.sim;
     const obs = sim.observers();
-    if (!obs.length) return;
     const ranges = obs.map((p) => {
       const o = p.observer;
       const vr = hypot(o.hw, o.hh);
@@ -249,6 +248,9 @@ export class AI {
     // them: docs/plans/non-violent.md)
     sim.peds = sim.peds.filter((p) => !gone.has(p) && (p.playerId !== 0 || p.kinematic || !!p.vehicle || (near(p.x, p.y, (_r, d) => d < 200) && !(p.leaving && !p.dazed && !sim.visibleToAny(p.x, p.y, 6)))));
     sim.trams = sim.trams.filter((t) => near(t.x, t.y, (r, d) => d < r.far + 150));
+    // with nobody watching, everything above is gone and there is nobody to spawn for (an empty server
+    // would otherwise go on simulating the last player's neighbourhood)
+    if (!obs.length) return;
 
     // how many of each kind are around each player
     let traffic = 0, parked = 0, peds = 0, police = 0;

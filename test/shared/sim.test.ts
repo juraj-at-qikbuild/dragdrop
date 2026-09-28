@@ -66,6 +66,20 @@ describe('Sim', () => {
     expect(playerScale(20)).toBeLessThan(1);
   });
 
+  it('empties the city once the last player has left', () => {
+    const sim = new Sim(loadWorld(), { rng: new Rng(4) });
+    const p = sim.addPlayer({ nick: 'A', profile: profile(), kinematic: false });
+    look(p);
+    sim.prewarm(p);
+    run(sim, 5);
+    expect(sim.peds.length).toBeGreaterThan(10);
+    sim.removePlayer(p);
+    run(sim, 1);
+    expect(sim.peds.filter((q) => !q.kinematic).length).toBe(0);
+    expect(sim.vehicles.filter((v) => !v.kinematic && !v.mission && !v.reservedFor).length).toBe(0);
+    expect(sim.trams.length).toBe(0);
+  });
+
   it('players standing together share their NPCs instead of doubling them', () => {
     const sim = new Sim(loadWorld(), { rng: new Rng(3) });
     const ps = [];
