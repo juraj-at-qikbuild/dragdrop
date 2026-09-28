@@ -41,8 +41,8 @@ for a few, together against the city).
   result on screen.
 - **Live.** The game runs; each player sees their own state (the objective, a countdown, a meter, a
   few numbers, the standings, their marks in the city and on the map, what the action key does). The
-  action key is **B** (the pad's R3, a violet touch button that says what it does). Wasted or busted
-  is out of the round, unless the game keeps them.
+  action key is **B** (the pad's R3, a violet touch button that says what it does). Soaked through
+  (`wasted`) or busted is out of the round, unless the game keeps them.
 - **The end.** Each player gets their outcome: money (at most €600 a round), points on the new
   *Minihry* board (1 per €5, 20 awards an hour), a line and, with others, a place. A round two or more
   played makes Rádio Kecy's news. The result stays on screen 6 s.
@@ -64,7 +64,8 @@ Shared (DOM-free, `src/shared/sim/rules/minigames/`):
     standings (`board()`, `ranked()`, the place);
   - `spawnVehicle/spawnPed/spawnProp` put things in the city that go when the round ends
     (`dispose()`); a vehicle is a mission vehicle (never despawned), a person is kinematic (the game
-    moves them).
+    moves them, so the AI never gets them up when they're knocked down: `release(ped)` hands one back
+    to the city, which does, and sends them home to change).
 - `MiniGames.ts` — the rule: rounds, lobby, joining, sending each player's state (every 0.25 s when it
   changed, and every 2 s), the end (pay, points, news, stats `mini_<kind>`), cleaning up.
 - `games/index.ts` — `MINI_DEFS`, one line per game; `games/<kind>.ts` — the game.
@@ -77,8 +78,8 @@ Client:
 
 - `LiveState.mini` / `miniAt` / `miniOpen`, `SimHost.mini(req)` / `takesMini` (both hosts).
 - `src/game/features/MiniGamesUi.ts` — the HUD (top slot, where a mission's objective would be), the
-  marks in the city and on the map, the arrow to the target, the result card, the invitation line, the
-  action key.
+  marks in the city and on the map, the arrow to the target (just under the HUD when it points up),
+  the result card, the invitation line, the action key.
 - `src/game/features/minigames/draw/` — a game's own drawing beyond its marks (`MINI_DRAW[kind]`:
   `world`, `hud`, `map`), fed by the state's small `x` record.
 - `Game.wobble()` — `x.wobble` (0..1) makes the controls unsteady: the steering pulls, the legs
