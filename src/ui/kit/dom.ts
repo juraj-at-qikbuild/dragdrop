@@ -267,9 +267,10 @@ export function setPauseOnline(on: boolean) {
 
 /** Appends a control to the pause menu's extension point (`#pause-extra` in index.html), so features
  *  can add their own buttons/toggles without editing index.html. `onlineOnly` hides it until
- *  `setPauseOnline(true)` — for a control that makes sense only in the shared online world. */
-export function addPauseControl(el: HTMLElement, opts: { onlineOnly?: boolean } = {}) {
-  const host = document.getElementById('pause-extra');
+ *  `setPauseOnline(true)` — for a control that makes sense only in the shared online world.
+ *  `settings` puts it in the menu's "Nastavenia" view (`#pause-settings-extra`) instead. */
+export function addPauseControl(el: HTMLElement, opts: { onlineOnly?: boolean; settings?: boolean } = {}) {
+  const host = document.getElementById(opts.settings ? 'pause-settings-extra' : 'pause-extra');
   if (!host) return; // defensive: index.html always has it, but never throw over a missing host
   if (opts.onlineOnly) {
     el.classList.toggle('hidden', !pauseOnline);

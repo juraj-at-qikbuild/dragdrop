@@ -491,7 +491,8 @@ button small {
 }
 /* the pause menu's extension point (src/ui/kit/dom.ts addPauseControl): collapsed while empty, so it
    reserves no flex gap in #pause until a feature actually adds a control to it. */
-#pause-extra:empty {
+#pause-extra:empty,
+#pause-settings-extra:empty {
   display: none;
 }
 /* online: the city keeps going while the pause menu is open (src/game/features/PresenceUi.ts) */
@@ -587,7 +588,8 @@ html:not(.touch) details.keyboard > summary {
     width: min(540px, 100%);
   }
   /* (it's a .buttons box itself: its buttons join the grid) */
-  #pause #pause-extra:not(:empty) {
+  #pause #pause-extra:not(:empty),
+  #pause #pause-settings-extra:not(:empty) {
     display: contents;
   }
   .osm {

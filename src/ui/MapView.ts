@@ -38,6 +38,30 @@ const ICON_BG: Record<string, string> = {
   guns: '#bf360c', clothes: '#ad1457', lawyer: '#4e342e', tuning: '#0277bd', garage: '#33691e', teleport: '#6a1b9a',
 };
 
+/** what each place kind is called on its card */
+const KIND_NAME: Record<string, string> = {
+  food: 'Reštaurácia', cafe: 'Kaviareň', bar: 'Bar', museum: 'Múzeum', theatre: 'Divadlo', church: 'Kostol', library: 'Knižnica',
+  view: 'Vyhliadka', grocery: 'Potraviny', bakery: 'Pekáreň', pharmacy: 'Lekáreň', bank: 'Banka', post: 'Pošta', hotel: 'Hotel',
+  wc: 'WC', taxi: 'Taxi', tram: 'Zastávka električky', police: 'Polícia', hospital: 'Nemocnica', fuel: 'Pumpa a dielňa',
+  star: 'Pamiatka', starFound: 'Pamiatka · objavená', phone: 'Misia',
+};
+
+/** a marker on the full map that opens a card (its name and "Navigovať"): world position, radius on screen */
+interface Pick {
+  x: number;
+  y: number;
+  r: number;
+  title: string;
+  sub?: string;
+  icon: string;
+}
+/** the markers drawn this frame, collected while the full map draws (null otherwise: the minimap,
+ *  the HUD's banners) so the features' `mapMarker`s add theirs too */
+let picks: { sx: number; sy: number; r: number; title: string; sub?: string; icon: string }[] | null = null;
+function addPick(sx: number, sy: number, r: number, icon: string, title: string | undefined, sub?: string) {
+  if (picks && title) picks.push({ sx, sy, r, title, sub, icon });
+}
+
 interface Label {
   x: number;
   y: number;
@@ -72,6 +96,15 @@ export class MapView {
   /** touch: the legend opened from its chip */
   private legendOpen = false;
   private hover: { x: number; y: number } | null = null;
+  /** the last pointer on the map: a mouse (hovering opens a marker's card), a finger or pen (a tap
+   *  does), or none yet (the keyboard aims with the centre cross, a touch screen waits for a tap) */
+  private pointerKind: '' | 'mouse' | 'touch' = '';
+  /** the markers on the map, from the last draw */
+  private picks: Pick[] = [];
+  /** the marker whose card is open, and the card's boxes from the last draw */
+  private sel: Pick | null = null;
+  private card: { x: number; y: number; w: number; h: number; keepY: number; cta: { x: number; y: number; w: number; h: number } } | null = null;
+  private pointerCursor = false;
 
   constructor(private g: Game) {
     const c = g.canvas;
@@ -136,6 +169,8 @@ export class MapView {
     this.cy = f.y;
     this.zoom = Math.max(this.fitZoom(), Math.min(1.2, MAX_ZOOM));
     this.pointers.clear();
+    this.sel = null;
+    this.card = null;
     this.clampView();
   }
 
@@ -188,6 +223,7 @@ export class MapView {
       this.g.gps.clearWaypoint();
       return;
     }
+    this.pointerKind = e.pointerType === 'mouse' ? 'mouse' : 'touch';
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY });
     this.dragged = false;
     if (this.pointers.size === 2) {
@@ -197,9 +233,12 @@ export class MapView {
   }
 
   private onMove(e: PointerEvent) {
-    if (!this.g.showMap) return;
+    if (!this.g.showMap) return this.setCursor(false);
     // what's under the cursor (a finger has no hover; the cross in the middle stays for it)
-    if (e.pointerType === 'mouse') this.hover = { x: e.clientX, y: e.clientY };
+    if (e.pointerType === 'mouse') {
+      this.hover = { x: e.clientX, y: e.clientY };
+      this.pointerKind = 'mouse';
+    }
     const p = this.pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -225,19 +264,40 @@ export class MapView {
     const p = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
     if (!p || !this.g.showMap || this.dragged || this.pointers.size) return;
-    this.click(e.clientX, e.clientY);
+    this.click(e.clientX, e.clientY, e.pointerType !== 'mouse');
   }
 
-  /** a click (or tap) on the map: a legend row toggles its places, anywhere else sets the waypoint */
-  private click(sx: number, sy: number) {
+  /** a click (or tap) on the map: a legend row toggles its places, a marker navigates there (a click)
+   *  or opens its card (a tap), the card's button navigates, anywhere else sets the waypoint */
+  private click(sx: number, sy: number, touch: boolean) {
+    const inside = (b: { x: number; y: number; w: number; h: number }) => sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h;
     for (const h of this.legendHits)
-      if (sx >= h.x && sx <= h.x + h.w && sy >= h.y && sy <= h.y + h.h) {
+      if (inside(h)) {
         if (h.id === 'toggle') this.legendOpen = !this.legendOpen;
         else this.groups[h.id] = !this.groups[h.id];
         return;
       }
     const f = this.frame();
     if (sx < f.x || sx > f.x + f.w || sy < f.y || sy > f.y + f.h) return;
+    const c = this.card, sel = this.sel;
+    if (c && sel) {
+      if (inside(c.cta)) return this.navigate(sel, touch);
+      if (inside(c)) return;
+    }
+    const pick = this.pickAt(sx, sy, touch ? 12 : 3);
+    if (touch) {
+      // a finger: the first tap shows what it is, the button (or a second tap) navigates
+      if (pick) {
+        if (sel && samePick(sel, pick)) this.navigate(pick, true);
+        else this.sel = pick;
+        return;
+      }
+      // a tap off the open card only closes it
+      if (sel) {
+        this.sel = null;
+        return;
+      }
+    } else if (pick) return this.navigate(pick, false);
     const w = this.toWorld(sx, sy);
     const gps = this.g.gps;
     // clicking the waypoint again removes it
@@ -251,6 +311,39 @@ export class MapView {
     }
     gps.setWaypoint(w.x, w.y);
     this.g.audio.pickup();
+  }
+
+  /** the waypoint to a marker (or off it, when it's already there) */
+  private navigate(p: Pick, close: boolean) {
+    const gps = this.g.gps;
+    if (this.waypointAt(p)) gps.clearWaypoint();
+    else {
+      gps.setWaypoint(p.x, p.y);
+      this.g.audio.pickup();
+    }
+    if (close) this.sel = null;
+  }
+
+  private waypointAt(p: Pick) {
+    const wp = this.g.gps.waypoint;
+    return !!wp && Math.hypot(wp.x - p.x, wp.y - p.y) < 1;
+  }
+
+  /** the marker nearest (sx, sy) within its radius plus `slop` px */
+  private pickAt(sx: number, sy: number, slop: number) {
+    let best: Pick | null = null, bd = Infinity;
+    for (const p of this.picks) {
+      const [x, y] = this.toScreen(p.x, p.y);
+      const d = Math.hypot(x - sx, y - sy);
+      if (d < p.r + slop && d < bd) (best = p), (bd = d);
+    }
+    return best;
+  }
+
+  private setCursor(on: boolean) {
+    if (on === this.pointerCursor) return;
+    this.pointerCursor = on;
+    this.g.canvas.style.cursor = on ? 'pointer' : '';
   }
 
   /** Keys, pad and wheel while the map is open (called every frame by Game). */
@@ -272,10 +365,13 @@ export class MapView {
     if (inp.down('Minus', 'NumpadSubtract', 'PageDown')) z -= 1;
     if (inp.pad.active) z += inp.pad.rt - inp.pad.lt;
     if (z) this.zoomAt(Math.exp(z * 2 * dt), f.x + f.w / 2, f.y + f.h / 2);
-    // a waypoint at the centre cross (keyboard and pad); clear it
+    // a waypoint at the centre cross (keyboard and pad), or to the marker under it; clear it
     if (inp.hit('Enter', 'Space', 'KeyF')) {
-      this.g.gps.setWaypoint(this.cx, this.cy);
-      this.g.audio.pickup();
+      if (this.sel && this.crossMode()) this.navigate(this.sel, false);
+      else {
+        this.g.gps.setWaypoint(this.cx, this.cy);
+        this.g.audio.pickup();
+      }
     }
     if (inp.hit('Backspace', 'Delete', 'KeyH')) this.g.gps.clearWaypoint();
     // layers on the number keys
@@ -349,6 +445,7 @@ export class MapView {
       for (const b of g.missions.available()) {
         const [x, y] = toScreen(b.x, b.y);
         badge(ctx, x, y, size * 1.1, 'phone');
+        addPick(x, y, size * 1.1, 'phone', b.def.title, KIND_NAME.phone);
       }
     const t = g.missions.target();
     if (t) {
@@ -369,15 +466,21 @@ export class MapView {
     if (!full || this.groups.services) {
       for (const f of g.world.pois('fuel')) {
         const [x, y] = toScreen(f.x, f.y);
-        if (full) badge(ctx, x, y, size * 0.95, 'fuel');
-        else {
+        if (full) {
+          badge(ctx, x, y, size * 0.95, 'fuel');
+          addPick(x, y, size * 0.95, 'fuel', f.n || KIND_NAME.fuel, f.n ? KIND_NAME.fuel : undefined);
+        } else {
           ctx.fillStyle = '#29b6f6';
           ctx.fillRect(x - size * 0.6, y - size * 0.6, size * 1.2, size * 1.2);
         }
       }
       if (full) {
-        for (const p of g.world.pois('police')) badge(ctx, ...toScreen(p.x, p.y), size * 0.95, 'police');
-        for (const p of g.world.pois('hospital')) badge(ctx, ...toScreen(p.x, p.y), size * 0.95, 'hospital');
+        for (const k of ['police', 'hospital'] as const)
+          for (const p of g.world.pois(k)) {
+            const [x, y] = toScreen(p.x, p.y);
+            badge(ctx, x, y, size * 0.95, k);
+            addPick(x, y, size * 0.95, k, p.n || KIND_NAME[k], p.n ? KIND_NAME[k] : undefined);
+          }
       }
     }
     for (const v of g.vehicles) {
@@ -513,8 +616,7 @@ export class MapView {
     // distance left along the GPS route
     const gps = g.gps;
     if (gps.target && gps.length > 0) {
-      const d = gps.length;
-      const text = d >= 1000 ? `${(d / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(d / 10) * 10} m`;
+      const text = formatDist(gps.length);
       ctx.font = `700 12px ${BODY}`;
       outlined(ctx, text, cx, cy + r + 12, gps.target.kind === 'mission' ? '#ffd600' : '#d1c4e9', 3);
     }
@@ -572,8 +674,12 @@ export class MapView {
       this.searchZone(ctx, zx, zy, z.r * this.zoom);
     }
     this.drawRoute(ctx, this.toScreen, Math.max(3, Math.min(7, this.zoom * 3)));
+    picks = [];
     this.drawLabels(ctx, f);
     this.blips(ctx, this.toScreen, 5 + Math.min(3, this.zoom), true);
+    this.picks = picks.map((p) => ({ ...this.toWorld(p.sx, p.sy), r: p.r, title: p.title, sub: p.sub, icon: p.icon }));
+    picks = null;
+    this.select(f);
     ctx.restore();
     // frame
     ctx.save();
@@ -597,6 +703,7 @@ export class MapView {
     }
     this.drawLegend(ctx, f);
     this.drawHoverInfo(ctx, f);
+    this.drawCard(ctx, f);
     // title and help
     const L = g.layout;
     ctx.textAlign = 'center';
@@ -609,8 +716,8 @@ export class MapView {
     const help = pad
       ? 'Páčka: posun · RT/LT: priblíženie · Y: cieľ · X: zrušiť cieľ · Back: zavrieť'
       : L.touch
-        ? 'Ťahaj: posun · Štipni: priblíženie · Ťukni: cieľ GPS (znova: zrušiť)'
-        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Pravý klik: zrušiť · 1–7: vrstvy · M: zavrieť';
+        ? 'Ťahaj: posun · Štipni: priblíženie · Ťukni na ikonu: čo to je · Ťukni inde: cieľ GPS'
+        : 'Koliesko: priblíženie · Ťahanie: posun · Klik: cieľ GPS · Klik na ikonu: navigovať · Pravý klik: zrušiť · 1–7: vrstvy · M: zavrieť';
     const stats = `Čumil ${g.save.cumils.length}/10 · pamiatky ${g.save.found.length}/${g.world.landmarks.size}   ·   © OpenStreetMap`;
     const line = `${help}   ·   ${stats}`;
     if (L.touch && ctx.measureText(line).width > W - L.padL - L.padR - 8) {
@@ -627,7 +734,7 @@ export class MapView {
     const g = this.g, w = g.world, z = this.zoom;
     const onScreen = (x: number, y: number, m: number) => x > f.x - m && x < f.x + f.w + m && y > f.y - m && y < f.y + f.h + m;
     const labels: Label[] = [];
-    const icons: { x: number; y: number; kind: string; name?: string; prio: number }[] = [];
+    const icons: { x: number; y: number; kind: string; title?: string; sub?: string; prio: number }[] = [];
     // boroughs when zoomed right out, quarters in between
     if (z < 0.45)
       for (const d of w.data.districts ?? []) {
@@ -668,7 +775,7 @@ export class MapView {
         const [sx, sy] = this.toScreen(l.x, l.y);
         if (!onScreen(sx, sy, 20)) continue;
         const found = g.save.found.includes(l.id);
-        icons.push({ x: sx, y: sy, kind: found ? 'starFound' : 'star', prio: 0.5 });
+        icons.push({ x: sx, y: sy, kind: found ? 'starFound' : 'star', title: l.name, sub: KIND_NAME[found ? 'starFound' : 'star'], prio: 0.5 });
         labels.push({ x: sx, y: sy - 17, text: l.name, a: 0, font: `700 ${z > 1.5 ? 12 : 11}px ${BODY}`, color: found ? '#e1f5fe' : '#cfd8dc', prio: 0.8 });
       }
     // mission booths' titles
@@ -684,7 +791,8 @@ export class MapView {
       if (!gr || !this.groups[grp] || z < gr.minZoom) continue;
       const [sx, sy] = this.toScreen(p.x, p.y);
       if (!onScreen(sx, sy, 10)) continue;
-      icons.push({ x: sx, y: sy, kind: p.k, name: p.n !== undefined ? w.names[p.n] : undefined, prio: 4 });
+      const name = p.n !== undefined ? w.names[p.n] : undefined;
+      icons.push({ x: sx, y: sy, kind: p.k, title: name ?? KIND_NAME[p.k], sub: name ? KIND_NAME[p.k] : undefined, prio: 4 });
       if (p.n !== undefined && z >= 2.4) labels.push({ x: sx, y: sy + 13, text: w.names[p.n], a: 0, font: `600 10px ${BODY}`, color: '#eceff1', prio: 5 });
     }
     if (this.groups.transit && z >= 0.9) {
@@ -692,8 +800,8 @@ export class MapView {
       for (let i = 0; i < ts.length; i += 2) {
         const [sx, sy] = this.toScreen(ts[i], ts[i + 1]);
         if (!onScreen(sx, sy, 10)) continue;
-        icons.push({ x: sx, y: sy, kind: 'tram', prio: 3.5 });
         const name = w.tramStopNames[i / 2];
+        icons.push({ x: sx, y: sy, kind: 'tram', title: name || KIND_NAME.tram, sub: name ? KIND_NAME.tram : undefined, prio: 3.5 });
         if (name && z >= 1.6) labels.push({ x: sx, y: sy + 13, text: name, a: 0, font: `600 10px ${BODY}`, color: '#ffcdd2', prio: 4.5 });
       }
     }
@@ -714,6 +822,7 @@ export class MapView {
         if (!free(ic.x - r, ic.y - r, ic.x + r, ic.y + r)) continue;
         taken.push([ic.x - r, ic.y - r, ic.x + r, ic.y + r]);
         badge(ctx, ic.x, ic.y, r, ic.kind);
+        addPick(ic.x, ic.y, r, ic.kind, ic.title, ic.sub);
         continue;
       }
       const l = it.label!;
@@ -845,6 +954,108 @@ export class MapView {
     ctx.restore();
   }
 
+  /** the pad (or the keyboard, before the mouse moves) aims with the centre cross */
+  private crossMode() {
+    return this.g.input.pad.active || (!this.pointerKind && !this.g.layout.touch);
+  }
+
+  /** Which marker's card is open: the one under the mouse (kept while the mouse is on its card), under
+   *  the centre cross for the pad, or the one tapped on a touch screen (followed as it moves). */
+  private select(f: { x: number; y: number; w: number; h: number }) {
+    const h = this.hover;
+    if (this.crossMode()) this.sel = this.pickAt(f.x + f.w / 2, f.y + f.h / 2, 6);
+    else if (this.pointerKind === 'mouse' && h) {
+      const c = this.card;
+      const onCard = !!c && !!this.sel && h.x >= c.x && h.x <= c.x + c.w && h.y >= Math.min(c.y, c.keepY) && h.y <= Math.max(c.y + c.h, c.keepY);
+      const p = this.pointers.size ? null : this.pickAt(h.x, h.y, 3);
+      if (!onCard) this.sel = p;
+      const onCta = onCard && h.x >= c!.cta.x && h.x <= c!.cta.x + c!.cta.w && h.y >= c!.cta.y && h.y <= c!.cta.y + c!.cta.h;
+      this.setCursor(!!p || onCta);
+    } else if (this.sel) {
+      // the same marker in this frame's draw (a player or an event van moves)
+      const s = this.sel;
+      let best: Pick | null = null, bd = Infinity;
+      for (const p of this.picks)
+        if (p.title === s.title && p.icon === s.icon) {
+          const d = Math.hypot(p.x - s.x, p.y - s.y);
+          if (d < bd) (best = p), (bd = d);
+        }
+      if (best) this.sel = best;
+    }
+  }
+
+  /** the open marker's card: its icon, name, what it is and how far, and "Navigovať" */
+  private drawCard(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
+    const p = this.sel;
+    this.card = null;
+    if (!p) return;
+    const g = this.g, touch = this.pointerKind === 'touch' || (!this.pointerKind && g.layout.touch);
+    const [px, py] = this.toScreen(p.x, p.y);
+    if (px < f.x || px > f.x + f.w || py < f.y || py > f.y + f.h) return;
+    const me = g.focus();
+    const info = [p.sub, formatDist(Math.hypot(p.x - me.x, p.y - me.y))].filter(Boolean).join(' · ');
+    const pad = 10, ir = 11, btnH = touch ? 36 : 28, maxText = Math.min(260, f.w - 60);
+    ctx.save();
+    ctx.font = `700 13px ${BODY}`;
+    const title = fit(ctx, p.title, maxText);
+    const tw = ctx.measureText(title).width;
+    ctx.font = `500 11px ${BODY}`;
+    const iw = ctx.measureText(info).width;
+    const w = Math.max(touch ? 200 : 180, pad * 3 + ir * 2 + Math.max(tw, Math.min(iw, maxText)));
+    const h = pad + 36 + 8 + btnH + pad;
+    // above the marker, or under it near the top of the map
+    const gap = p.r + 10;
+    const above = py - gap - h >= f.y + 4;
+    const y = above ? py - gap - h : py + gap;
+    const x = Math.max(f.x + 4, Math.min(f.x + f.w - w - 4, px - w / 2));
+    // the marker itself, ringed
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px, py, p.r + 4, 0, Math.PI * 2);
+    ctx.stroke();
+    // the panel, with a little pointer to the marker
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = 'rgba(14,16,20,0.95)';
+    roundRect(ctx, x, y, w, h, 10);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    const tx = Math.max(x + 14, Math.min(x + w - 14, px)), ty = above ? y + h : y;
+    ctx.beginPath();
+    ctx.moveTo(tx - 7, ty);
+    ctx.lineTo(tx, ty + (above ? 7 : -7));
+    ctx.lineTo(tx + 7, ty);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,214,0,0.55)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 10);
+    ctx.stroke();
+    badge(ctx, x + pad + ir, y + pad + 18, ir * 0.8, p.icon);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 13px ${BODY}`;
+    ctx.fillText(title, x + pad * 2 + ir * 2, y + pad + 15);
+    ctx.fillStyle = '#b0bec5';
+    ctx.font = `500 11px ${BODY}`;
+    ctx.fillText(fit(ctx, info, w - pad * 3 - ir * 2), x + pad * 2 + ir * 2, y + pad + 31);
+    // the button: navigate there, or cancel it when the waypoint's already there
+    const set = this.waypointAt(p);
+    const cta = { x: x + pad, y: y + pad + 44, w: w - pad * 2, h: btnH };
+    ctx.fillStyle = set ? 'rgba(255,255,255,0.12)' : '#ffd600';
+    roundRect(ctx, cta.x, cta.y, cta.w, cta.h, 7);
+    ctx.fill();
+    ctx.fillStyle = set ? '#eceff1' : '#1a1a1a';
+    ctx.font = `800 ${touch ? 14 : 13}px ${BODY}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const key = this.crossMode() ? (g.input.pad.active ? 'Y: ' : 'Enter: ') : '';
+    ctx.fillText(key + (set ? '✕ Zrušiť navigáciu' : '📍 Navigovať'), cta.x + cta.w / 2, cta.y + cta.h / 2 + 1);
+    ctx.restore();
+    this.card = { x, y, w, h, keepY: py, cta };
+  }
+
   /** what's under the cursor: the street (or square) there */
   private drawHoverInfo(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
     const h = this.hover;
@@ -893,7 +1104,7 @@ export function pulsingCircle(ctx: CanvasRenderingContext2D, x: number, y: numbe
  *  under it — shown only on the full map (`opts.full`), like the roster's nick labels in `blips()`. */
 export function mapMarker(
   ctx: CanvasRenderingContext2D, x: number, y: number, size: number, icon: MapIcon,
-  opts: { ring?: string; pulse?: number; label?: string; full?: boolean; color?: string } = {},
+  opts: { ring?: string; pulse?: number; label?: string; full?: boolean; color?: string; title?: string; info?: string } = {},
 ) {
   if (opts.ring) {
     if (opts.pulse !== undefined) pulsingCircle(ctx, x, y, size * 1.7, opts.ring, opts.pulse, false);
@@ -908,12 +1119,31 @@ export function mapMarker(
     }
   }
   badge(ctx, x, y, size, icon, opts.color);
+  // on the full map it opens a card: `title` (else the label), `info` under it
+  addPick(x, y, size, icon, opts.title ?? opts.label, opts.info);
   if (opts.label && opts.full) {
     ctx.font = `700 11px ${BODY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     outlined(ctx, opts.label, x, y - size - 2, '#fff59d', 3);
   }
+}
+
+/** a distance for the map: "350 m", "1,2 km" */
+function formatDist(d: number) {
+  return d >= 1000 ? `${(d / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(d / 10) * 10} m`;
+}
+
+/** `text` cut to `max` px with an ellipsis (in ctx's current font) */
+function fit(ctx: CanvasRenderingContext2D, text: string, max: number) {
+  if (ctx.measureText(text).width <= max) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > max) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
+}
+
+function samePick(a: Pick, b: Pick) {
+  return a.title === b.title && a.icon === b.icon && Math.hypot(a.x - b.x, a.y - b.y) < 2;
 }
 
 /** A round map badge with a little glyph for a kind of place. `color` overrides the fill (a party's

@@ -518,6 +518,7 @@ async function scenarioRace({ A, B }) {
 async function enableVoice(page) {
   await page.keyboard.press('Escape');
   await page.waitForSelector('#voice-mode-btn:not(.hidden)', { timeout: 10000 });
+  await page.click('#btn-settings'); // the voice controls live in the pause menu's "Nastavenia" view
   await page.evaluate(() => {
     window.__voiceE2E = true;
   });

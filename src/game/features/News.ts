@@ -46,7 +46,7 @@ export class News implements ClientFeature {
       btn.textContent = label();
       if (!this.voiceOn.get()) this.cancelSpeech();
     };
-    addPauseControl(btn);
+    addPauseControl(btn, { settings: true });
   }
 
   onGlobal(e: GlobalEvent) {

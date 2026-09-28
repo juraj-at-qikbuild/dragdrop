@@ -142,7 +142,7 @@ async function boot() {
     for (const cls of ['opt-drive', 'opt-camera']) {
       const b = document.createElement('button');
       b.className = cls;
-      addPauseControl(b);
+      addPauseControl(b, { settings: true });
     }
     const pauseKey = (label: string, code: string, onlineOnly: boolean) => {
       const b = document.createElement('button');
@@ -272,6 +272,15 @@ async function boot() {
   };
   wireContactButton($('btn-contact'));
   $('btn-resume').onclick = () => game.setPaused(false);
+  // the pause menu's settings: a view of their own, so the menu itself stays short
+  const pauseTitle = document.querySelector('#pause h2');
+  const showSettings = (on: boolean) => {
+    $('pause-main').classList.toggle('hidden', on);
+    $('pause-settings').classList.toggle('hidden', !on);
+    if (pauseTitle) pauseTitle.textContent = on ? 'NASTAVENIA' : 'PAUZA';
+  };
+  $('btn-settings').onclick = () => showSettings(true);
+  $('btn-settings-back').onclick = () => showSettings(false);
   $('btn-mute').onclick = () => {
     game.audio.setMuted(!game.audio.muted);
     $('btn-mute').textContent = game.audio.muted ? 'Zvuk: vypnutý' : 'Zvuk: zapnutý';
@@ -420,7 +429,10 @@ async function boot() {
     $('loading').classList.add('hidden');
     startGame(false, onlineWelcome(session.resumed, !!last?.online));
   };
-  game.onPause = (p) => $('pause').classList.toggle('hidden', !p);
+  game.onPause = (p) => {
+    $('pause').classList.toggle('hidden', !p);
+    if (p) showSettings(false);
+  };
 
   // touch controls (a phone or tablet, or ?touch=1)
   if (game.touch) game.touchUi = new TouchControls(game);

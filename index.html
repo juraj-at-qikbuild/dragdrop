@@ -94,15 +94,22 @@
         <h2>PAUZA</h2>
         <!-- online: what the city does meanwhile, and whether you're safe (src/game/features/PresenceUi.ts) -->
         <p id="pause-note" class="pause-note hidden"></p>
-        <div class="buttons">
+        <div id="pause-main" class="buttons">
           <button id="btn-resume" class="primary">Pokračovať</button>
-          <button id="btn-mute">Zvuk: zapnutý</button>
-          <button id="btn-quality">Grafika: Auto</button>
+          <button id="btn-settings">⚙️ Nastavenia</button>
           <button id="btn-nick" class="hidden">Prezývka</button>
-          <button class="opt-foot">Chôdza: podľa obrazovky</button>
           <!-- feature controls append here (src/ui/kit/dom.ts addPauseControl); empty = collapsed, see style.css -->
           <div id="pause-extra" class="buttons"></div>
           <button id="btn-quit">Hlavné menu</button>
+        </div>
+        <!-- sound, graphics, controls and voice, one tap away so the pause menu stays short -->
+        <div id="pause-settings" class="buttons hidden">
+          <button id="btn-mute">Zvuk: zapnutý</button>
+          <button id="btn-quality">Grafika: Auto</button>
+          <button class="opt-foot">Chôdza: podľa obrazovky</button>
+          <!-- feature settings append here (addPauseControl with { settings: true }) -->
+          <div id="pause-settings-extra" class="buttons"></div>
+          <button id="btn-settings-back" class="primary">← Späť</button>
         </div>
       </div>
     </div>

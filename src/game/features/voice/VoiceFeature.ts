@@ -253,7 +253,7 @@ export class VoiceFeature implements ClientFeature {
     this.modeBtn.id = 'voice-mode-btn'; // stable hooks for scripts/e2e-voice.mjs
     this.refreshModeLabel();
     this.modeBtn.onclick = () => void this.onModeClick();
-    addPauseControl(this.modeBtn, { onlineOnly: true });
+    addPauseControl(this.modeBtn, { onlineOnly: true, settings: true });
 
     this.micSelect.id = 'voice-mic-select';
     this.micSelect.appendChild(new Option('Mikrofón: predvolený', ''));
@@ -265,7 +265,7 @@ export class VoiceFeature implements ClientFeature {
           this.client.setTrackEnabled(this.mode.get() === 'open' || this.game.input.down(KEYS.talk));
         });
     };
-    addPauseControl(this.micSelect, { onlineOnly: true });
+    addPauseControl(this.micSelect, { onlineOnly: true, settings: true });
 
     this.volBtn.type = 'button';
     this.volBtn.id = 'voice-volume-btn';
@@ -276,13 +276,13 @@ export class VoiceFeature implements ClientFeature {
       this.game.audio.setVoiceVolume(next / 100);
       this.refreshVolumeLabel();
     };
-    addPauseControl(this.volBtn, { onlineOnly: true });
+    addPauseControl(this.volBtn, { onlineOnly: true, settings: true });
 
     this.peersBtn.type = 'button';
     this.peersBtn.id = 'voice-peers-btn';
     this.peersBtn.textContent = 'Hráči v okolí…';
     this.peersBtn.onclick = () => this.openPeersModal();
-    addPauseControl(this.peersBtn, { onlineOnly: true });
+    addPauseControl(this.peersBtn, { onlineOnly: true, settings: true });
   }
 
   private refreshModeLabel() {

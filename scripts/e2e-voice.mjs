@@ -132,6 +132,7 @@ const online = (page, n) =>
 async function enableVoice(page) {
   await page.keyboard.press('Escape'); // opens #pause (src/game/Game.ts: Escape/P toggles `paused`)
   await page.waitForSelector('#voice-mode-btn:not(.hidden)', { timeout: 10000 });
+  await page.click('#btn-settings'); // the voice controls live in the pause menu's "Nastavenia" view
   await page.evaluate(() => {
     window.__voiceE2E = true;
   });

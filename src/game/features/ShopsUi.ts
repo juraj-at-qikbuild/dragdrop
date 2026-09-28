@@ -505,7 +505,11 @@ export class ShopsUi implements ClientFeature {
       if (s.kind === 'tuning') continue;
       const [sx, sy] = toScreen(s.x, s.y);
       if (!full && (!(k > 0) || Math.abs(sx - (ox + (s.x - f.x) * k)) > 1 || Math.abs(sy - (oy + (s.y - f.y) * k)) > 1)) continue;
-      mapMarker(ctx, sx, sy, size * (full ? 0.95 : 0.8), ICON[s.kind], { ring: s.kind === 'garage' && owned?.includes(s.id) ? '#c5e1a5' : undefined });
+      mapMarker(ctx, sx, sy, size * (full ? 0.95 : 0.8), ICON[s.kind], {
+        ring: s.kind === 'garage' && owned?.includes(s.id) ? '#c5e1a5' : undefined,
+        title: s.name,
+        info: SHOP_KIND[s.kind].name,
+      });
     }
   }
 }
