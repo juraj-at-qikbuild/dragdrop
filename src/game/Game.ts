@@ -1146,7 +1146,6 @@ export class Game {
     this.renderer.facades = this.facades;
     this.renderer.drawGround(ctx, v, v.scale > 3);
     this.renderer.drawPortals(ctx, v);
-    this.renderer.drawShadows(ctx, v);
     this.renderer.drawBarriers(ctx, v);
     this.renderer.drawPosts(ctx, v);
     this.renderer.street.drawLow(ctx, v, this.time);
@@ -1178,7 +1177,7 @@ export class Game {
         drawPed(p, ctx, atmos, v.scale, !!p.playerId && this.world.inWater(p.x, p.y, p.level));
         ctx.globalAlpha = 1;
       }
-      for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, underground ? undefined : this.tunnelFade);
+      for (const t of host.trams) if (t.level === level && inView(t.x, t.y, 35)) drawTram(t, ctx, underground ? undefined : this.tunnelFade);
       for (const veh of host.vehicles) {
         if (veh.level !== level || !inView(veh.x, veh.y, 8)) continue;
         ctx.globalAlpha = veh.owner && veh.owner !== host.me.id ? this.presenceAlpha(veh.owner) : 1;
@@ -1195,7 +1194,7 @@ export class Game {
         drawVehicle(veh, ctx, this.time, atmos);
         ctx.globalAlpha = 1;
       }
-      for (const t of host.trams) if (t.level === -1 && inView(t.x, t.y, 35)) drawTram(t, ctx, atmos, this.tunnelFade);
+      for (const t of host.trams) if (t.level === -1 && inView(t.x, t.y, 35)) drawTram(t, ctx, this.tunnelFade);
     }
     const lightsTime = atmos.clock.time * SECONDS_PER_HOUR;
     drawEntities(0);
@@ -1275,14 +1274,8 @@ export class Game {
         // so ids from long-gone sightings don't accumulate over a long session
         if (this.goldenPopAt.size > 16) this.goldenPopAt.delete(this.goldenPopAt.keys().next().value!);
       }
-      // only what's on screen (the glow ring, the bob and the shadow reach under 1.5 m from the centre)
+      // only what's on screen (the glow ring and the bob reach under 1.5 m from the centre)
       if (p.x < v.x0 - 2 || p.x > v.x1 + 2 || p.y < v.y0 - 2 || p.y > v.y1 + 2) continue;
-      // soft ground contact shadow, shrinks slightly as the item bobs up
-      const shrink = 1 - (bob + 0.12) * 0.18;
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.beginPath();
-      ctx.ellipse(p.x, p.y + 0.55, 0.55 * shrink, 0.22 * shrink, 0, 0, Math.PI * 2);
-      ctx.fill();
       ctx.save();
       ctx.translate(p.x, p.y + bob);
       if (p.kind === 'cash') {
@@ -1344,8 +1337,6 @@ export class Game {
         ctx.stroke();
       } else {
         // a box with what's in it (docs/plans/non-violent.md): a towel, a raincoat, or a toy
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillRect(-0.5, -0.4, 1.1, 1);
         const accent = p.kind === 'health' ? '#29b6f6' : p.kind === 'armor' ? '#fbc02d' : '#ffd600';
         ctx.fillStyle = p.kind === 'health' ? '#e1f5fe' : p.kind === 'armor' ? '#3e2723' : '#37474f';
         ctx.fillRect(-0.55, -0.55, 1.1, 1.1);
@@ -1387,15 +1378,6 @@ export class Game {
       const { ufo, legs } = snp;
       const s = ufo.r / 16;
       const [ox, oy] = this.renderer.roofOffset(ufo.x, ufo.y, ufo.z0, v);
-      // the disc's shadow, cast by the sun from 85 m up
-      const sun = this.atmos.sun, day = this.atmos.daylight;
-      if (day > 0.05) {
-        const h = (ufo.z0 + ufo.z1) / 2;
-        ctx.fillStyle = `rgba(20,25,45,${0.22 * day})`;
-        ctx.beginPath();
-        ctx.arc(ufo.x + sun.dx * h, ufo.y + sun.dy * h, ufo.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
       // legs: steel box girders leaning in from their feet to meet under the disc
       ctx.fillStyle = '#8f969c';
       ctx.strokeStyle = 'rgba(40,44,48,0.6)';
@@ -1508,7 +1490,7 @@ export class Game {
   /** must run between `L.begin` and `L.composite`: night light around the player,
    *  a glow on pickups and mission markers so they read well after dark. */
   private emitAtmosphereLights(L: LightLayer, atmos: Atmosphere, inView: (x: number, y: number, r: number) => boolean) {
-    // keep the player visible even deep under building shadow
+    // keep the player visible even in the darkest street at night
     if (atmos.night > 0.05) {
       const f = this.focus();
       L.point(f.x, f.y, 6, 'rgba(255,246,222,1)', 0.4 * atmos.night);

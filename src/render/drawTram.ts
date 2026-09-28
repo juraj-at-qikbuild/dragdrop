@@ -20,8 +20,7 @@ export function emitTramLights(t: Tram, L: LightLayer, atmos?: Atmosphere) {
 }
 
 /** `alphaAt` fades sections by position (the part of the tram already in the tunnel). */
-export function drawTram(t: Tram, ctx: CanvasRenderingContext2D, atmos?: Atmosphere, alphaAt?: (x: number, y: number) => number) {
-  const night = atmos?.night ?? 0;
+export function drawTram(t: Tram, ctx: CanvasRenderingContext2D, alphaAt?: (x: number, y: number) => number) {
   for (let i = t.sections.length - 1; i >= 0; i--) {
     const s = t.sections[i];
     const alpha = alphaAt ? alphaAt(s.x, s.y) : 1;
@@ -30,20 +29,6 @@ export function drawTram(t: Tram, ctx: CanvasRenderingContext2D, atmos?: Atmosph
     ctx.globalAlpha *= alpha;
     ctx.translate(s.x, s.y);
     ctx.rotate(s.a);
-    // shadow along the sun (tight contact shadow at night)
-    let shx = 0.3, shy = 0.4, salpha = 0.35;
-    if (atmos) {
-      if (night > 0.72) { shx = 0.12; shy = 0.16; salpha = 0.3; }
-      else {
-        const h = 1.4, ca = Math.cos(s.a), sa = Math.sin(s.a);
-        const wx = atmos.sun.dx * h, wy = atmos.sun.dy * h;
-        shx = wx * ca + wy * sa;
-        shy = -wx * sa + wy * ca;
-        salpha = 0.25 + 0.2 * atmos.daylight;
-      }
-    }
-    ctx.fillStyle = `rgba(0,0,0,${salpha})`;
-    ctx.fillRect(-SEG / 2 + shx, -1.2 + shy, SEG, 2.4);
     // cream roof peeking behind the red sides
     ctx.fillStyle = '#efe6d2';
     roundRect(ctx, -SEG / 2 - 0.05, -1.15, SEG + 0.1, 2.3, 0.3);

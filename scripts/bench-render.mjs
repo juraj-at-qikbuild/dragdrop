@@ -8,7 +8,7 @@
 //   BENCH_DIST=dir      serve this build instead of dist/
 //   BENCH_JSON=file     write the results as JSON too
 //   BENCH_RUNG=n        hold the Auto graphics setting on rung n of its ladder (src/game/QualityGovernor.ts)
-//   BENCH_ABLATE=postfx,light,buildings,ground,shadows,hud,windows,weather,bridges,street,posts
+//   BENCH_ABLATE=postfx,light,buildings,ground,hud,windows,weather,bridges,street,posts
 //                       each scene again with one pass off: the drop in frame interval is what the pass
 //                       costs, the GPU's raster included (headless Chromium draws with SwiftShader, a
 //                       software GPU, so fill rate counts for a lot more than on a real one)
@@ -68,7 +68,7 @@ function instrument() {
     };
   };
   const r = g.renderer;
-  for (const m of ['drawGround', 'drawPortals', 'drawShadows', 'drawBarriers', 'drawPosts', 'drawBuildings', 'drawNightWindows', 'emitLights', 'drawBridges', 'drawTrafficLights', 'emitTrafficLights', 'drawTunnelInterior'])
+  for (const m of ['drawGround', 'drawPortals', 'drawBarriers', 'drawPosts', 'drawBuildings', 'drawNightWindows', 'emitLights', 'drawBridges', 'drawTrafficLights', 'emitTrafficLights', 'drawTunnelInterior'])
     wrap(r, m, 'r.' + m);
   wrap(r.street, 'drawLow', 'street.drawLow');
   wrap(r.street, 'update', 'street.update');
@@ -214,7 +214,6 @@ try {
         light: () => (noop(g.light, 'begin'), noop(g.light, 'composite')),
         buildings: () => noop(g.renderer, 'drawBuildings'),
         ground: () => noop(g.renderer, 'drawGround'),
-        shadows: () => noop(g.renderer, 'drawShadows'),
         hud: () => (noop(g.hud, 'draw'), noop(g.banners, 'draw')),
         windows: () => noop(g.renderer, 'drawNightWindows'),
         weather: () => (noop(g.weather, 'drawScreen'), noop(g.weather, 'drawWorld')),

@@ -18,11 +18,7 @@ function fridge(ctx: CanvasRenderingContext2D, g: Game, v: View, x: number, y: n
   const base = [corner(-D / 2, -W / 2), corner(D / 2, -W / 2), corner(D / 2, W / 2), corner(-D / 2, W / 2)];
   const top = [corner(-D / 2, -W / 2, sx, sy), corner(D / 2, -W / 2, sx, sy), corner(D / 2, W / 2, sx, sy), corner(-D / 2, W / 2, sx, sy)];
   ctx.save();
-  // its shadow, then the sides (the hull between the foot and the top), then the top
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  ctx.beginPath();
-  base.forEach(([px, py], k) => (k ? ctx.lineTo(px + 0.25, py + 0.3) : ctx.moveTo(px + 0.25, py + 0.3)));
-  ctx.fill();
+  // the sides (the hull between the foot and the top), then the top
   ctx.fillStyle = '#d7dde0';
   ctx.strokeStyle = 'rgba(40,44,48,0.8)';
   ctx.lineWidth = 0.04;

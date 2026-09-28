@@ -171,13 +171,6 @@ export class Pigeons {
 
 function drawBird(ctx: CanvasRenderingContext2D, b: Bird, time: number) {
   const k = (1 + b.h * 0.8) * 1.25;
-  if (b.h > 0.05) {
-    // its shadow on the ground, falling behind as it climbs
-    ctx.fillStyle = `rgba(0,0,0,${0.18 * (1 - b.h * 0.6)})`;
-    ctx.beginPath();
-    ctx.ellipse(b.x + b.h * 1.5, b.y + b.h * 2, 0.16, 0.1, b.a, 0, Math.PI * 2);
-    ctx.fill();
-  }
   ctx.save();
   ctx.translate(b.x, b.y);
   ctx.rotate(b.a);

@@ -125,10 +125,6 @@ export class StreetDetail {
           // a café umbrella, 2.3 m up
           const [ox, oy] = lift(x, y, 2.3);
           const col = UMBRELLAS[(hash01(i, 11) * UMBRELLAS.length) | 0];
-          ctx.fillStyle = 'rgba(0,0,0,0.12)';
-          ctx.beginPath();
-          ctx.arc(x + 0.5, y + 0.6, 1.25, 0, Math.PI * 2);
-          ctx.fill();
           ctx.fillStyle = col;
           ctx.beginPath();
           for (let s = 0; s < 8; s++) {
@@ -359,8 +355,6 @@ function drawFurniture(ctx: CanvasRenderingContext2D, kind: number, knocked: boo
   switch (kind) {
     case 0: {
       // bench: wooden slats between cast-iron ends, a backrest behind
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(-0.2, -0.85, 0.55, 1.8);
       ctx.fillStyle = '#8b6a47';
       for (const o of [-0.18, -0.02, 0.14]) ctx.fillRect(o, -0.85, 0.12, 1.7);
       ctx.fillStyle = '#2f3134';

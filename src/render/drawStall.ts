@@ -31,8 +31,6 @@ type Look = (typeof LOOK)[StallKind];
 function drawStanding(ctx: CanvasRenderingContext2D, look: Look, a: number, time: number, i: number) {
   ctx.rotate(a);
   // (facing +x: the street; the stallholder stands behind, at -x)
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  ctx.fillRect(-0.95, -1.15, 2.1, 2.5);
   // the stallholder, bobbing a little, in an apron
   const bob = Math.sin(time * 2 + i) * 0.04;
   ctx.fillStyle = '#eceff1';

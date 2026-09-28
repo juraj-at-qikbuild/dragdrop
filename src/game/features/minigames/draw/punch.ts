@@ -27,9 +27,7 @@ export const PUNCH_DRAW: MiniDrawer = {
       ctx.translate(st.x, st.y);
       ctx.rotate(st.a);
       const x0 = -D / 2 - EAVE, x1 = D / 2 + EAVE, y0 = -W / 2 - EAVE, y1 = W / 2 + EAVE;
-      // its shadow, then the roof: two slopes either side of the ridge, boards across them
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(x0 + 0.3, y0 + 0.35, x1 - x0, y1 - y0);
+      // the roof: two slopes either side of the ridge, boards across them
       ctx.fillStyle = '#8d6e63';
       ctx.fillRect(x0, y0, -x0, y1 - y0);
       ctx.fillStyle = '#6d4c41';

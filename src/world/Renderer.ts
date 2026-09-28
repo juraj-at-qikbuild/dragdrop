@@ -55,10 +55,6 @@ interface Tier {
   roofDetail: Path2D | null;
   /** ground-level wall pieces as plain segments, for the zoomed-out storey lines */
   storeys: Path2D | null;
-  /** footprints, for sun shadows */
-  rings: Float32Array[];
-  shadow?: Path2D;
-  shadowKey?: number;
   ads: RoofAd[];
   /** deterministic per-tier value for the zoomed-out lit-window dashes */
   seed: number;
@@ -145,7 +141,6 @@ const PROJ_EPS = 0.05;
 const MOON = { x: -0.5, y: -0.85 };
 
 interface TreeSet {
-  shadow: Path2D;
   canopy: Path2D[];
   highlight: Path2D;
 }
@@ -311,7 +306,7 @@ function onRect(sr: BBox | null, x0: number, y0: number, x1: number, y1: number,
   return !sr || (x1 + pad > sr.x0 && x0 - pad < sr.x1 && y1 + pad > sr.y0 && y0 - pad < sr.y1);
 }
 
-/** slack for tier/wall-set culling: strokes, chimney shadows, shop sign boards that can be wider
+/** slack for tier/wall-set culling: strokes, chimneys, shop sign boards that can be wider
  *  than the wall they hang on, and camera shake (the projection centre is the unshaken camera) */
 const GROUP_CULL_PAD = 6;
 /** per-frame cap on facade wall width drawn (screen px), so a dense Old Town view can't blow the frame budget */
@@ -324,11 +319,6 @@ export class Renderer {
   /** bridge deck polylines and their levels, for the railings drawn by `drawBridges` */
   private bridges: { p: Float32Array; hw: number; bbox: BBox; level: 1 | 2 }[] = [];
   private treeCount = 0;
-  private sunKeyLast = NaN;
-  /** merged ground-shadow path of the last frame, reused while the visible chunk set
-   *  and every group's shadow stay the same (the common case: panning within a chunk) */
-  private shadowMerged: Path2D | null = null;
-  private shadowVisKey = '';
   /** layer draw order, sorted once (layers are fixed after build) */
   private sortedLayers: [string, Layer][] = [];
   private sortedBridgeLayers: [string, Layer][] = [];
@@ -688,10 +678,8 @@ export class Renderer {
     for (let i = 0; i < tr.length; i += 4) {
       const x = tr[i], y = tr[i + 1], rad = tr[i + 2];
       const c = this.chunkAt({ x0: x, y0: y, x1: x, y1: y }, map);
-      const t = (c.trees ??= { shadow: new Path2D(), canopy: [new Path2D(), new Path2D(), new Path2D(), new Path2D()], highlight: new Path2D() });
+      const t = (c.trees ??= { canopy: [new Path2D(), new Path2D(), new Path2D(), new Path2D()], highlight: new Path2D() });
       const tone = (rng(tr[i + 3])() * 4) | 0;
-      t.shadow.moveTo(x + rad * 0.9, y + rad * 0.4);
-      t.shadow.arc(x + rad * 0.15, y + rad * 0.3, rad * 0.85, 0, Math.PI * 2);
       const cp = t.canopy[tone];
       cp.moveTo(x + rad, y);
       cp.arc(x, y, rad, 0, Math.PI * 2);
@@ -702,7 +690,7 @@ export class Renderer {
       this.treeCount++;
     }
 
-    // walls, fences and hedges (drawn with their shadows in `drawBarriers`)
+    // walls, fences and hedges (drawn in `drawBarriers`)
     for (const bar of w.data.barriers ?? []) {
       const c = this.chunkAt(bboxOf(bar.p, 1), map);
       const list = (c.barriers ??= []);
@@ -804,7 +792,7 @@ export class Renderer {
           bbox: { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity },
           walls: [], roofs: [], outline: new Path2D(), flatOutline: null, ridge: null, hips: null,
           slopes: [null, null, null, null, null, null, null, null],
-          chimneys: null, roofDetail: null, storeys: null, rings: [], ads: [],
+          chimneys: null, roofDetail: null, storeys: null, ads: [],
           seed: hash01((c.cx * 7 + h) | 0, (c.cy * 3) | 0),
         };
         tm.set(bin, t);
@@ -812,9 +800,6 @@ export class Renderer {
       }
       bboxOf(b.rings[0], 0, t.bbox);
       for (let i = 1; i < b.rings.length; i++) bboxOf(b.rings[i], 0, t.bbox);
-      // ground shadow from the footprint up (a raised structure's own small shadow is left out,
-      // but a building part standing on the rest of its building casts one)
-      if (!b.minH || b.part) t.rings.push(...b.rings);
       if (special) {
         const rh = b.roofH > 0 ? b.roofH : defaultRoofH(b, shape);
         (t.special ??= []).push({ b, shape, rh, color: roof });
@@ -1211,12 +1196,11 @@ export class Renderer {
    *  BuildingGeometry.wallPieces), and a taller neighbour's wall rises from the lower roof. */
   drawBuildings(ctx: CanvasRenderingContext2D, v: View) {
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, { x0: v.x0 - 60, y0: v.y0 - 60, x1: v.x1 + 60, y1: v.y1 + 60 }));
-    // `vis` is padded for trees (canopies and sun-shifted shadows reach past their trunk
-    // point); everything below is additionally culled against the true canvas rect
+    // `vis` is padded for trees (canopies reach past their trunk point); everything below is
+    // additionally culled against the true canvas rect
     const sr = screenRect(ctx);
 
-    // trees are registered by their trunk point: canopies reach ~5m past it, and the
-    // shadow is shifted by up to 6 * |sun| (~17m at low sun) on top of that
+    // trees are registered by their trunk point: canopies reach ~5m past it
     this.drawTrees(ctx, v, vis.filter((c) => c.trees && onRect(sr, c.bbox.x0, c.bbox.y0, c.bbox.x1, c.bbox.y1, 24)));
     this.drawPostTops(ctx, v);
     this.street.drawHigh(ctx, v, (x, y, h) => this.roofOffset(x, y, h, v), performance.now() / 1000);
@@ -1367,10 +1351,9 @@ export class Renderer {
     }
   }
 
-  /** Set the transform that draws ground-plan coordinates at a height: scale `s` about (cx, cy),
-   *  plus an optional on-screen nudge (ex, ey) in world metres (e.g. small drop shadows). */
-  private roofTransform(ctx: CanvasRenderingContext2D, m: DOMMatrix, cx: number, cy: number, s: number, ex = 0, ey = 0) {
-    const tx = cx * (1 - s) + ex, ty = cy * (1 - s) + ey;
+  /** Set the transform that draws ground-plan coordinates at a height: scale `s` about (cx, cy). */
+  private roofTransform(ctx: CanvasRenderingContext2D, m: DOMMatrix, cx: number, cy: number, s: number) {
+    const tx = cx * (1 - s), ty = cy * (1 - s);
     ctx.setTransform(m.a * s, m.b * s, m.c * s, m.d * s, m.a * tx + m.c * ty + m.e, m.b * tx + m.d * ty + m.f);
   }
 
@@ -1660,11 +1643,7 @@ export class Renderer {
         ctx.stroke(t.ridge);
       }
       if (t.chimneys) {
-        // chimney pots: shadow then brick-coloured box
-        ctx.fillStyle = 'rgba(0,0,0,0.22)';
-        this.roofTransform(ctx, base, P.cx, P.cy, P.s, 0.15, 0.2);
-        ctx.fill(t.chimneys);
-        this.roofTransform(ctx, base, P.cx, P.cy, P.s);
+        // chimney pots: brick-coloured boxes
         ctx.fillStyle = '#6b5850';
         ctx.fill(t.chimneys);
       }
@@ -1677,10 +1656,6 @@ export class Renderer {
         ctx.stroke(t.flatOutline);
       }
       if (t.roofDetail) {
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
-        this.roofTransform(ctx, base, P.cx, P.cy, P.s, 0.25, 0.3);
-        ctx.fill(t.roofDetail);
-        this.roofTransform(ctx, base, P.cx, P.cy, P.s);
         ctx.fillStyle = '#7d8084';
         ctx.fill(t.roofDetail);
       }
@@ -1736,15 +1711,6 @@ export class Renderer {
 
   private drawTrees(ctx: CanvasRenderingContext2D, v: View, vis: Chunk[]) {
     if (v.scale < 3) return;
-    const sdx = this.atmos.sun.dx * 6, sdy = this.atmos.sun.dy * 6;
-    const daylight = this.atmos.daylight;
-    if (daylight > 0.03) {
-      ctx.save();
-      ctx.translate(sdx, sdy);
-      ctx.fillStyle = `rgba(15,20,35,${0.22 * daylight})`;
-      for (const c of vis) if (c.trees) ctx.fill(c.trees.shadow);
-      ctx.restore();
-    }
     const TONE_COLORS = ['#3f6b3a', '#4c7a42', '#588c4a', '#6a9c55'];
     for (let i = 0; i < 4; i++) {
       ctx.fillStyle = TONE_COLORS[i];
@@ -1781,96 +1747,15 @@ export class Renderer {
     }
   }
 
-  /** Building ground shadows cast by the sun (drawn after the ground, before entities). */
-  drawShadows(ctx: CanvasRenderingContext2D, v: View) {
-    const alpha = 0.28 * this.atmos.daylight;
-    if (alpha < 0.015) return;
-    const vis = this.chunks.filter((c) => bboxHit(c.bbox, { x0: v.x0 - 55, y0: v.y0 - 55, x1: v.x1 + 55, y1: v.y1 + 55 }));
-    const sdx = this.atmos.sun.dx, sdy = this.atmos.sun.dy;
-    const sunKey = Math.round(sdx * 20) * 1000 + Math.round(sdy * 20);
-    const sunMoved = sunKey !== this.sunKeyLast;
-    if (sunMoved) this.sunKeyLast = sunKey;
-    let budget = 60;
-    let rebuilt = false;
-    let visKey = '';
-    for (const c of vis) {
-      visKey += c.idx + ',';
-      for (const t of c.tiers) {
-        if (!t.shadow || (sunMoved && t.shadowKey !== sunKey && budget > 0)) {
-          t.shadow = this.buildShadow(t, sdx, sdy);
-          t.shadowKey = sunKey;
-          budget--;
-          rebuilt = true;
-        }
-      }
-    }
-    // re-merging every group's shadow each frame cost a big Path2D build (and, since
-    // it was a new path object, a fresh tessellation/mask on the canvas side) even
-    // when nothing changed; reuse the same merged path until something does
-    if (rebuilt || visKey !== this.shadowVisKey || !this.shadowMerged) {
-      const merged = new Path2D();
-      for (const c of vis) for (const t of c.tiers) merged.addPath(t.shadow!);
-      this.shadowMerged = merged;
-      this.shadowVisKey = visKey;
-    }
-    ctx.fillStyle = `rgba(20,25,45,${alpha})`;
-    ctx.fill(this.shadowMerged);
-  }
-
-  private buildShadow(t: Tier, sdx: number, sdy: number): Path2D {
-    const ox = sdx * t.h, oy = sdy * t.h;
-    const p = new Path2D();
-    for (const pts of t.rings) {
-      for (let i = 0; i < pts.length - 2; i += 2) {
-        const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
-        const ex = bx - ax, ey = by - ay;
-        if (ex * oy - ey * ox >= 0) {
-          p.moveTo(ax, ay);
-          p.lineTo(bx, by);
-          p.lineTo(bx + ox, by + oy);
-          p.lineTo(ax + ox, ay + oy);
-        } else {
-          p.moveTo(ax, ay);
-          p.lineTo(ax + ox, ay + oy);
-          p.lineTo(bx + ox, by + oy);
-          p.lineTo(bx, by);
-        }
-        p.closePath();
-      }
-    }
-    return p;
-  }
-
-  /** Bridge decks: a soft cast shadow onto whatever is below, the deck surface itself
-   *  (casing/asphalt/lane markings/edge highlight, normally drawn in `drawGround`), then railings.
+  /** Bridge decks: the deck surface itself (casing/asphalt/lane markings/edge highlight, normally
+   *  drawn in `drawGround`), then railings.
    *  Called between the level-0 and level-1 entity passes so traffic below stays under the deck. */
-  /** The bridge decks of one level (1, then 2 over it once whatever is on level 1 is drawn): cast
-   *  shadow, deck surface and railings. */
+  /** The bridge decks of one level (1, then 2 over it once whatever is on level 1 is drawn): deck
+   *  surface and railings. */
   drawBridges(ctx: CanvasRenderingContext2D, v: View, level: 1 | 2 = 1) {
     const vis = this.chunks.filter((c) => bboxHit(c.bbox, v));
     const keys = this.sortedBridgeLayers.filter(([k]) => isBridgeLayer(k) === level);
     if (!keys.length) return;
-
-    // cast shadow: the casing/deck outline offset by the sun direction, dark and translucent (an
-    // upper deck stands higher, so its shadow falls further)
-    const daylight = this.atmos.daylight;
-    if (daylight > 0.02) {
-      const h = level === 2 ? 6.5 : 3.2;
-      const sdx = this.atmos.sun.dx * h, sdy = this.atmos.sun.dy * h;
-      ctx.save();
-      ctx.translate(sdx, sdy);
-      ctx.globalAlpha = Math.min(0.4, 0.32 * daylight);
-      ctx.fillStyle = ctx.strokeStyle = '#0a0c14';
-      for (const [key, layer] of keys) {
-        if (!key.startsWith('bc')) continue;
-        ctx.lineWidth = (layer.op as { width: number }).width + 1;
-        for (const c of vis) {
-          const p = c.layers.get(key);
-          if (p) ctx.stroke(p);
-        }
-      }
-      ctx.restore();
-    }
 
     // deck surface
     const wantTex = v.scale > 7.5;
@@ -1946,12 +1831,11 @@ export class Renderer {
     }
   }
 
-  /** Walls, fortifications, fences and hedges: a sun shadow for their height, then the body
-   *  (a lighter top on masonry, posts on fences). Drawn over the ground, under everything else. */
+  /** Walls, fortifications, fences and hedges: the body (a lighter top on masonry, posts on
+   *  fences). Drawn over the ground, under everything else. */
   drawBarriers(ctx: CanvasRenderingContext2D, v: View) {
     const vis = this.chunks.filter((c) => c.barriers && bboxHit(c.bbox, { x0: v.x0 - 8, y0: v.y0 - 8, x1: v.x1 + 8, y1: v.y1 + 8 }));
     if (!vis.length) return;
-    const day = this.atmos.daylight, sun = this.atmos.sun;
     ctx.save();
     ctx.lineJoin = 'round';
     for (let k = 0; k < BARRIERS.length; k++) {
@@ -1964,17 +1848,6 @@ export class Renderer {
       if (!paths.length) continue;
       const w = Math.max(0.12, B.ht * 2);
       ctx.lineCap = k === 4 ? 'round' : 'butt';
-      if (day > 0.05 && v.scale > 2) {
-        // the shadow band: the line swept away from the sun up to its height
-        const h = Math.min(B.h, 5);
-        ctx.strokeStyle = `rgba(20,25,45,${(k === 3 ? 0.1 : 0.2) * day})`;
-        ctx.lineWidth = w;
-        for (const f of [0.35, 0.7, 1]) {
-          ctx.translate(sun.dx * h * f, sun.dy * h * f);
-          for (const p of paths) ctx.stroke(p);
-          ctx.translate(-sun.dx * h * f, -sun.dy * h * f);
-        }
-      }
       if (k === 3) {
         // fence: wire plus posts every 2.5 m
         ctx.strokeStyle = B.color;
@@ -2012,13 +1885,12 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** Street furniture and the bases of monuments, at street level: every post's shadow, bollards
+  /** Street furniture and the bases of monuments, at street level: bollards
    *  (dark posts with a light cap), concrete blocks, planters with their greenery, and the stone
    *  plinths statues and columns stand on (`drawPostTops` raises them above the street). */
   drawPosts(ctx: CanvasRenderingContext2D, v: View) {
     if (v.scale < 1.5) return;
     const pad = { x0: v.x0 - 20, y0: v.y0 - 20, x1: v.x1 + 20, y1: v.y1 + 20 };
-    const day = this.atmos.daylight, sun = this.atmos.sun;
     ctx.save();
     for (const c of this.chunks) {
       const P = c.posts;
@@ -2027,17 +1899,6 @@ export class Renderer {
         const x = P[i], y = P[i + 1], r = P[i + 2], k = P[i + 3];
         if (x < v.x0 - 16 || x > v.x1 + 16 || y < v.y0 - 16 || y > v.y1 + 16) continue;
         const B = POSTS[k] ?? POSTS[0];
-        if (day > 0.05) {
-          // shadow: the post swept away from the sun up to its height
-          const h = Math.min(B.h, 8);
-          ctx.strokeStyle = `rgba(20,25,45,${0.22 * day})`;
-          ctx.lineWidth = r * 2;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + sun.dx * h, y + sun.dy * h);
-          ctx.stroke();
-        }
         if (k === 0) {
           ctx.fillStyle = B.color;
           ctx.beginPath();

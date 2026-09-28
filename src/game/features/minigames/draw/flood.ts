@@ -122,7 +122,7 @@ function drawWall(ctx: CanvasRenderingContext2D, W: Wall, t: number, warn: boole
     ctx.fillStyle = 'rgba(64,160,220,0.32)';
     ctx.fill();
   }
-  // the standing sections, between the gaps and a stub past each end: a shadow, the wall, its top
+  // the standing sections, between the gaps and a stub past each end: the wall, its top
   const sections: number[][] = [];
   const g0 = gapAt(W, 0), gl = gapAt(W, W.n - 1);
   sections.push([g0.ax - g0.ux * STUB, g0.ay - g0.uy * STUB, g0.ax, g0.ay]);
@@ -131,17 +131,16 @@ function drawWall(ctx: CanvasRenderingContext2D, W: Wall, t: number, warn: boole
     sections.push([a.bx, a.by, b.ax, b.ay]);
   }
   sections.push([gl.bx, gl.by, gl.bx + gl.ux * STUB, gl.by + gl.uy * STUB]);
-  const stroke = (color: string, width: number, dx = 0, dy = 0) => {
+  const stroke = (color: string, width: number) => {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     ctx.beginPath();
     for (const [ax, ay, bx, by] of sections) {
-      ctx.moveTo(ax + dx, ay + dy);
-      ctx.lineTo(bx + dx, by + dy);
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
     }
     ctx.stroke();
   };
-  stroke('rgba(0,0,0,0.35)', 0.75, g0.nx * 0.18, g0.ny * 0.18);
   stroke('#8f989d', 0.55);
   stroke('#c3cacd', 0.18);
   // the gaps: a panel in (orange, its beams), or open between red posts
@@ -149,12 +148,6 @@ function drawWall(ctx: CanvasRenderingContext2D, W: Wall, t: number, warn: boole
   for (let i = 0; i < W.n; i++) {
     const g = gapAt(W, i), st = W.st[i];
     if (closedAt(W, i)) {
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = 0.6;
-      ctx.beginPath();
-      ctx.moveTo(g.ax + g.nx * 0.18, g.ay + g.ny * 0.18);
-      ctx.lineTo(g.bx + g.nx * 0.18, g.by + g.ny * 0.18);
-      ctx.stroke();
       ctx.strokeStyle = '#ff9800';
       ctx.lineWidth = 0.45;
       ctx.beginPath();
@@ -182,12 +175,8 @@ function drawWall(ctx: CanvasRenderingContext2D, W: Wall, t: number, warn: boole
     }
     // the posts at its ends
     const post = closedAt(W, i) ? '#455a64' : st === '2' ? '#ff4f9a' : '#e53935';
-    for (const [x, y] of [[g.ax, g.ay], [g.bx, g.by]]) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(x - 0.3 + g.nx * 0.15, y - 0.3 + g.ny * 0.15, 0.6, 0.6);
-      ctx.fillStyle = post;
-      ctx.fillRect(x - 0.28, y - 0.28, 0.56, 0.56);
-    }
+    ctx.fillStyle = post;
+    for (const [x, y] of [[g.ax, g.ay], [g.bx, g.by]]) ctx.fillRect(x - 0.28, y - 0.28, 0.56, 0.56);
   }
   ctx.restore();
 }
@@ -199,8 +188,6 @@ function drawStack(ctx: CanvasRenderingContext2D, dp: unknown) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(a);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fillRect(-1.15, -0.75, 2.5, 1.7);
   ctx.fillStyle = '#a1887f';
   ctx.fillRect(-1.25, -0.85, 2.5, 1.7);
   for (let k = 0; k < 4; k++) {
@@ -221,8 +208,6 @@ function drawCarried(ctx: CanvasRenderingContext2D, g: Game) {
   ctx.save();
   ctx.translate(me.x + Math.cos(me.angle) * 0.3, me.y + Math.sin(me.angle) * 0.3);
   ctx.rotate(me.angle + Math.PI / 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fillRect(-0.85, -0.1, 1.7, 0.34);
   ctx.fillStyle = '#ff9800';
   ctx.fillRect(-0.8, -0.16, 1.6, 0.3);
   ctx.strokeStyle = '#b35c00';

@@ -11,8 +11,6 @@ export function drawProps(ctx: CanvasRenderingContext2D, props: readonly Prop[],
     if (p.kind === 'spike') {
       const fade = p.active ? 1 : 0.5;
       ctx.globalAlpha = fade;
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(-0.3, -p.len / 2 - 0.1, 0.6, p.len + 0.2);
       ctx.fillStyle = '#2b2b2b';
       ctx.fillRect(-0.22, -p.len / 2, 0.44, p.len);
       ctx.strokeStyle = '#f5c518';
@@ -38,8 +36,6 @@ export function drawProps(ctx: CanvasRenderingContext2D, props: readonly Prop[],
       }
       ctx.globalAlpha = 1;
     } else if (p.kind === 'barrier') {
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(-0.16, -p.len / 2 + 0.05, 0.32, p.len);
       ctx.fillStyle = '#e0e0e0';
       ctx.fillRect(-0.14, -p.len / 2, 0.28, p.len * 0.42);
       ctx.fillStyle = '#d32f2f';
@@ -50,10 +46,6 @@ export function drawProps(ctx: CanvasRenderingContext2D, props: readonly Prop[],
       ctx.fillRect(-0.14, p.len / 2 - 0.16, 0.28, 0.08);
     } else {
       // cone
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(0, 0.05, 0.26, 0.14, 0, 0, Math.PI * 2);
-      ctx.fill();
       ctx.fillStyle = '#ff6d00';
       ctx.beginPath();
       ctx.moveTo(0, -0.55);

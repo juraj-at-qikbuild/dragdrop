@@ -60,30 +60,6 @@ export function drawPed(p: Ped, ctx: CanvasRenderingContext2D, atmos?: Atmospher
   // a fan holding a hand out for a player's car coming past; someone diving out of a car's way
   const five = !Number.isNaN(p.hand);
   const diving = p.kind === 'civ' && p.state === 'flee' && speed > 5.2;
-  // shadow, offset along the sun
-  let shx = 0.08, shy = 0.1;
-  if (atmos) {
-    const night = atmos.night;
-    if (night > 0.72) { shx = 0.04; shy = 0.05; }
-    else {
-      const h = pose === 'sit' ? 0.6 : 0.85, ca = Math.cos(p.angle), sa = Math.sin(p.angle);
-      const wx = atmos.sun.dx * h, wy = atmos.sun.dy * h;
-      shx = (wx * ca + wy * sa) / 1.45;
-      shy = (-wx * sa + wy * ca) / 1.45;
-    }
-  }
-  // contact shadow under the feet, plus a softer cast shadow stretched from them along the sun
-  ctx.fillStyle = 'rgba(0,0,0,0.26)';
-  ctx.beginPath();
-  ctx.ellipse(pose === 'sit' ? 0.12 : 0, 0, 0.26 * b, 0.32 * b, 0, 0, Math.PI * 2);
-  ctx.fill();
-  const slen = Math.min(0.9, Math.hypot(shx, shy));
-  if (slen > 0.08) {
-    ctx.fillStyle = 'rgba(0,0,0,0.16)';
-    ctx.beginPath();
-    ctx.ellipse(shx / Math.hypot(shx, shy) * slen / 2, shy / Math.hypot(shx, shy) * slen / 2, slen / 2 + 0.15, 0.22 * b, Math.atan2(shy, shx), 0, Math.PI * 2);
-    ctx.fill();
-  }
 
   const armed = p.weapon !== 'fist' && p.kind !== 'civ';
   // a punch thrown (players and cops: their cooldown; civilians only while fighting)
@@ -358,11 +334,6 @@ function drawDazed(ctx: CanvasRenderingContext2D, p: Ped, b: number, now: number
   const float = p.downMess === 'bubbles' && p.dazedTime < BUBBLE_FLOAT ? Math.sin((Math.PI * p.dazedTime) / BUBBLE_FLOAT) : 0;
   const hop = p.downMess === 'bonk' && p.dazedTime < 0.45 ? Math.sin((Math.PI * p.dazedTime) / 0.45) : 0;
   const lift = Math.max(float, hop * 0.6);
-  // the shadow stays on the ground, smaller the higher they are
-  ctx.fillStyle = `rgba(0,0,0,${0.24 * (1 - lift * 0.5)})`;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 0.42 * (1 - lift * 0.3), 0.36 * (1 - lift * 0.3), 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.rotate(p.angle + (hashRand(p.seed, 1) - 0.5) * 0.8);
   // (tickled: rocking with laughter; otherwise a slow dizzy sway)
   ctx.rotate(Math.sin(t * (p.downMess === 'tickle' ? 11 : 2.6)) * (p.downMess === 'tickle' ? 0.08 : 0.12));

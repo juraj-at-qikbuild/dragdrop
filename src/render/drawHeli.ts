@@ -7,7 +7,7 @@ import { BEAM_DARK, HELI_BEAM_R, heliSees } from '../shared/sim/sight';
 import { darkness } from '../shared/sim/Clock';
 import { clamp } from '../shared/util/math';
 
-/** visual lift from the ground shadow toward the body, along the sun direction: bounded so it
+/** visual lift of the body off the ground, along the sun direction: bounded so it
  *  reads well at any zoom level instead of the building roof-parallax (which blows up when the
  *  camera is zoomed in close, e.g. while the player is on foot). */
 function liftOffset(h: Helicopter, atmos: Atmosphere): [number, number] {
@@ -27,16 +27,6 @@ export function drawHeli(h: Helicopter, ctx: CanvasRenderingContext2D, v: View, 
   if (!h.spawned) return;
   if (h.x < v.x0 - 60 || h.x > v.x1 + 60 || h.y < v.y0 - 60 || h.y > v.y1 + 60) return;
   const [ox, oy] = liftOffset(h, atmos);
-
-  // ground shadow at the true (unlifted) position
-  ctx.save();
-  ctx.translate(h.x, h.y);
-  ctx.rotate(h.angle);
-  ctx.fillStyle = 'rgba(0,0,0,0.32)';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 2.6, 1.1, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 
   // night searchlight on the ground, under the body: where it really looks, as wide as it sees
   if (beamOn(atmos)) {

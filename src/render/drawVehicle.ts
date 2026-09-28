@@ -104,8 +104,8 @@ export function emitVehicleLights(v: Vehicle, L: LightLayer, time: number, atmos
 export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
   const s = v.spec;
   if (s.ball) return drawBall(v, ctx, time, atmos);
-  if (s.twoWheeler) return drawTwoWheeler(v, ctx, atmos);
-  if (s.boat) return drawBoat(v, ctx, time, atmos);
+  if (s.twoWheeler) return drawTwoWheeler(v, ctx);
+  if (s.boat) return drawBoat(v, ctx, time);
   const L = s.length, W = s.width;
   ctx.save();
   ctx.translate(v.x, v.y);
@@ -115,33 +115,10 @@ export function drawVehicle(v: Vehicle, ctx: CanvasRenderingContext2D, time: num
     ctx.globalAlpha *= k;
     ctx.scale(k * 0.3 + 0.7, k * 0.3 + 0.7);
   }
-  // shadow: cast along the sun direction, rotated into the car's local frame;
-  // a small tight contact shadow at night instead of a long cast one.
   const night = atmos?.night ?? 0;
-  let sx = 0.22, sy = 0.32, salpha = 0.3;
-  if (atmos) {
-    if (night > 0.72) {
-      sx = 0.1; sy = 0.14; salpha = 0.28;
-    } else {
-      const h = 1.15;
-      const wx = atmos.sun.dx * h, wy = atmos.sun.dy * h;
-      const ca = Math.cos(v.angle), sa = Math.sin(v.angle);
-      sx = wx * ca + wy * sa;
-      sy = -wx * sa + wy * ca;
-      salpha = 0.25 + 0.2 * atmos.daylight;
-    }
-  }
-  // a jolt or a jump (a speed bump taken fast, a kerb): the body lifts off its shadow and looms a
+  // a jolt or a jump (a speed bump taken fast, a kerb): the body lifts off the road and looms a
   // little larger for a moment
   const lift = v.air > 0 ? 0.35 + v.air * 2 : v.bounce > 0 ? Math.sin((v.bounce / 0.45) * Math.PI) * 0.4 * v.joltK : 0;
-  if (lift > 0.01) {
-    sx += lift * 0.5;
-    sy += lift * 0.7;
-    salpha *= 1 - Math.min(0.5, lift * 0.4);
-  }
-  ctx.fillStyle = `rgba(0,0,0,${salpha})`;
-  roundRect(ctx, -L / 2 + sx, -W / 2 + sy, L, W, 0.4);
-  ctx.fill();
   // neon underglow (the Dielňa, docs/plans/gameplay.md Phase 2): a pool of colour under the car,
   // stronger after dark (when emitVehicleLights lights the street with it too)
   if (v.mods.glow > 0 && !v.wrecked) {
@@ -540,7 +517,7 @@ const DMG_OFFSETS: [number, number, number][] = [
 /** A scooter or a bike from above (docs/plans/gameplay.md, Phase 3): the wheels, the deck or the
  *  frame and saddle, the handlebar turned with the steering, a lamp, and whoever rides it. A broken
  *  one lies on its side, its wheels flat to the street. */
-function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D, atmos?: Atmosphere) {
+function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D) {
   const s = v.spec, L = s.length;
   const bike = s.kind === 'bike';
   const down = v.wrecked;
@@ -549,24 +526,6 @@ function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D, atmos?: Atmos
   ctx.translate(v.x, v.y);
   ctx.rotate(v.angle + (down ? 0.35 : 0));
   if (v.sinking) ctx.globalAlpha *= Math.max(0.15, 1 - v.sinking / 2.5);
-  // a narrow shadow cast along the sun, a small tight one at night
-  const night = atmos?.night ?? 0;
-  let sx = 0.06, sy = 0.09, sa = 0.2;
-  if (atmos && night <= 0.72) {
-    const ca = Math.cos(v.angle), sn = Math.sin(v.angle), h = 0.35;
-    sx = (atmos.sun.dx * ca + atmos.sun.dy * sn) * h;
-    sy = (-atmos.sun.dx * sn + atmos.sun.dy * ca) * h;
-    sa = 0.12 + 0.1 * atmos.daylight;
-  }
-  ctx.fillStyle = `rgba(0,0,0,${sa})`;
-  roundRect(ctx, -L / 2 + sx, -0.08 + sy, L, 0.16, 0.08);
-  ctx.fill();
-  if (v.driver && !down) {
-    // (the rider's, cast further)
-    ctx.beginPath();
-    ctx.ellipse(sx * 2.5 - (bike ? 0.12 : 0.08), sy * 2.5, 0.28, 0.4, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
   const wr = bike ? 0.34 : 0.11;
   const front = L / 2 - wr - 0.02, rear = -L / 2 + wr + 0.02;
   // the handlebar and the front wheel turn with the steering, about the head of the frame
@@ -654,7 +613,7 @@ function drawTwoWheeler(v: Vehicle, ctx: CanvasRenderingContext2D, atmos?: Atmos
 /** A boat from above (docs/plans/gameplay.md, Phase 3): its wake and bow wave when it's moving, a
  *  hull with a pointed bow round a lighter deck, the windscreen and the seats, the outboard, whoever's
  *  at the wheel; the police boat white with a blue stripe and a light bar. */
-function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
+function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number) {
   const s = v.spec, L = s.length, W = s.width;
   const police = s.kind === 'policeboat';
   ctx.save();
@@ -701,13 +660,6 @@ function drawBoat(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
     ctx.lineTo(-L / 2, W / 2 - 0.12);
     ctx.closePath();
   };
-  // a shadow on the water, just off the hull
-  ctx.save();
-  ctx.translate(0.15, 0.22);
-  hull();
-  ctx.fillStyle = `rgba(0,20,30,${0.18 + 0.1 * (atmos?.daylight ?? 0.6)})`;
-  ctx.fill();
-  ctx.restore();
   const body = v.wrecked ? '#2a2623' : v.color;
   hull();
   ctx.fillStyle = v.wrecked ? body : bodyGradient(ctx, body);
@@ -823,9 +775,8 @@ function ballTurn(v: Vehicle, time: number): number[] {
 }
 
 /** The car football's ball from above: white, with the black pentagons of a football rolling round
- *  it the way it goes, lit from the sun's side, its shadow beside it. Kicked hard it's up in the air
- *  for a moment (drawn only: the pitch's physics keeps it on the ground), so it looms larger over a
- *  shadow further off. */
+ *  it the way it goes, lit from the sun's side. Kicked hard it's up in the air for a moment (drawn
+ *  only: the pitch's physics keeps it on the ground), so it looms larger. */
 function drawBall(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos?: Atmosphere) {
   const r = v.spec.width / 2;
   const m = ballTurn(v, time);
@@ -835,10 +786,6 @@ function drawBall(v: Vehicle, ctx: CanvasRenderingContext2D, time: number, atmos
   const sun = atmos && night <= 0.72 ? atmos.sun : { dx: 0.35, dy: 0.5 };
   ctx.save();
   ctx.translate(v.x, v.y);
-  ctx.fillStyle = `rgba(0,0,0,${(0.22 + 0.12 * (atmos?.daylight ?? 0.6)) * (1 - lift * 0.45)})`;
-  ctx.beginPath();
-  ctx.ellipse(sun.dx * (0.35 + up), sun.dy * (0.35 + up), r * (0.95 + lift * 0.2), r * (0.88 + lift * 0.2), 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.translate(0, -up * 0.55);
   if (lift > 0) ctx.scale(1 + lift * 0.18, 1 + lift * 0.18);
   const body = ctx.createRadialGradient(-sun.dx * r * 0.5, -sun.dy * r * 0.5, r * 0.1, 0, 0, r);

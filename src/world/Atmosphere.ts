@@ -44,7 +44,7 @@ export class Atmosphere {
   daylight = 1;
   /** 1 - daylight, convenience */
   night = 0;
-  /** ground shadow offset per metre of height (world units), pointing away from the sun */
+  /** offset per metre of height (world units) along the ground, pointing away from the sun */
   sun = { dx: 0, dy: 0, elev: 1 };
   /** direction the sun shines *from*, unit vector (for wall shading) */
   sunDir = { x: 0, y: 1 };

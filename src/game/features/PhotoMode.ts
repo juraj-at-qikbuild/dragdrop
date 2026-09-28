@@ -65,7 +65,7 @@ export function bootPhotoMode(data: MapJSON) {
  *  canvas, then marks the spot with a small red X. Deliberately leaves out anything that would name
  *  the place for someone looking at the photo — street-name signs, landmark labels, map labels — by
  *  simply never calling the Game/MapView code that draws them; every call below is the plain city
- *  geometry (ground, portals, shadows, barriers, posts, low street detail, traffic lights, bridges,
+ *  geometry (ground, portals, barriers, posts, low street detail, traffic lights, bridges,
  *  buildings — which draws trees too, see Renderer.drawBuildings). No weather, particles, entities,
  *  lighting or post-FX: none of that runs without a Game/Sim to drive it, and photo mode has neither. */
 async function renderSpot(renderer: Renderer, atmos: Atmosphere, spot: Spot, w: number, h: number): Promise<string> {
@@ -85,7 +85,6 @@ async function renderSpot(renderer: Renderer, atmos: Atmosphere, spot: Spot, w: 
 
   renderer.drawGround(ctx, view, view.scale > 3);
   renderer.drawPortals(ctx, view);
-  renderer.drawShadows(ctx, view);
   renderer.drawBarriers(ctx, view);
   renderer.drawPosts(ctx, view);
   renderer.street.drawLow(ctx, view, 0);
