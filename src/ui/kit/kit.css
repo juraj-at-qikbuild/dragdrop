@@ -200,7 +200,16 @@ button.danger:hover {
 @media (pointer: coarse) {
   .kit-board-tabs button,
   .kit-board-chips button {
-    min-height: 36px;
+    min-height: 44px;
+  }
+  /* a fingertip's 44 px for the panels' ✕ */
+  .kit-board-x,
+  .kit-act-x,
+  .kit-intro-x {
+    width: 44px;
+    height: 44px;
+    top: 6px;
+    right: 6px;
   }
 }
 .kit-board-about {
@@ -490,7 +499,7 @@ button.danger:hover {
 }
 @media (pointer: coarse) {
   .kit-act-row button {
-    min-height: 36px;
+    min-height: 44px;
   }
 }
 kbd.kit-key {
@@ -683,7 +692,7 @@ kbd.kit-key.pad[data-face='Y'] {
 }
 @media (pointer: coarse) {
   .kit-intro-now button {
-    min-height: 36px;
+    min-height: 44px;
   }
 }
 /* a phone on its side: every card whole, without scrolling */
@@ -877,11 +886,11 @@ kbd.kit-key.pad[data-face='Y'] {
 }
 @media (pointer: coarse) {
   .kit-swatch {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
   .kit-shop-row button {
-    min-height: 38px;
+    min-height: 44px;
   }
 }
 @media (max-height: 480px) {

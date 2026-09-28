@@ -169,7 +169,8 @@ export class PartyUi implements ClientFeature {
     const w = small ? 132 : 154;
     const h = 8 + rowH * (party.members.length + 1);
     // the top-left corner; on a touch screen (the minimap's corner there) in the feature stack
-    const spot = g.stackSpot(h);
+    const spot = g.stackSpot(h, w);
+    if (spot === false) return;
     const px = spot ? spot.x : pad, py = spot ? spot.y : pad;
     const meId = g.host.me.id;
     const my = g.focus();

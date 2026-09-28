@@ -50,8 +50,10 @@ export interface HudLayout {
   band: { cx: number; w: number; top: number };
   /** the mission objective's top and its timer's centre */
   objective: { y: number; timerY: number };
-  /** the first message line */
+  /** the first message line, and the width messages wrap to (clear of the minimap's column on a
+   *  phone held sideways) */
   msgY: number;
+  msgW: number;
   speedo: { cx: number; cy: number; r: number };
   /** hint prompts (and the radio line): centre x, centre y on foot and in a car, and the width they must fit */
   prompt: { cx: number; foot: number; car: number; w: number };
@@ -62,10 +64,19 @@ export interface HudLayout {
   /** what the off-screen arrows treat as "on screen" */
   play: Rect;
   /** touch: where the features' small panels stack (party, world events, the daily card, voice),
-   *  under the street name; null on desktop, where each keeps its own corner */
-  stack: { x: number; y: number } | null;
+   *  under the street name, down to `maxY` (clear of where the stick rests); null on desktop, where
+   *  each keeps its own corner */
+  stack: { x: number; y: number; maxY: number } | null;
+  /** touch: a second column, right-aligned under the top-right panel (and the online badge, which
+   *  Hud adds), down to `maxY` (clear of the right thumb's buttons): the police chip, the combo, and
+   *  what the stack has no room for */
+  side: { right: number; maxY: number } | null;
 }
 
+/** touch: the stick's ring where it rests (TouchControls' STICK_R), which the feature stack keeps above */
+export const STICK_REST_R = 56;
+/** touch: the width the street and district names are given under the minimap */
+export const PLACE_W = 150;
 /** touch: the room the mission objective takes on the band's first line */
 const OBJECTIVE_H = 48;
 /** the top-right panel's height at its tallest (armour bar showing), see Hud.draw */
@@ -93,12 +104,14 @@ function desktopLayout(W: number, H: number): HudLayout {
     band: { cx: W / 2, w: W, top: small ? 92 : 116 },
     objective: { y: pad + (small ? 40 : 4), timerY: pad + (small ? 78 : 60) },
     msgY: H * 0.28,
+    msgW: Math.min(W * 0.8, 680),
     speedo: { cx: W / 2, cy: H - (small ? 26 : 32) - speedoR - 14, r: speedoR },
     prompt: { cx: W / 2, foot: H - pad - (small ? 44 : 56), car: H - (small ? 138 : 176), w: W - 2 * pad },
     radio: { y: H - pad - (small ? 40 : 10), w: Math.min(W * 0.6, 700) },
     thumbs: null,
     play: { x: 40, y: 40, w: W - 80, h: H - 80 },
     stack: null,
+    side: null,
   };
 }
 
@@ -107,15 +120,24 @@ function touchLayout(W: number, H: number, ins: Insets): HudLayout {
   const small = W < 700 || compact;
   const portrait = H > W;
   const ts = Math.max(0.85, Math.min(1.15, Math.min(W, H) / 400));
+  /** a round button's side: never under the 44 px a fingertip needs */
+  const tap = (px: number) => Math.max(44, Math.round(px * ts));
   const padL = ins.l + 10, padR = ins.r + 10, padT = ins.t + 8, padB = ins.b + 8;
-  const r = compact ? 48 : 64;
+  // (a 4-inch phone held sideways, 320 px tall: a smaller minimap keeps the street name above the stick)
+  const r = Math.min(W, H) < 340 ? 42 : compact ? 48 : 64;
   const mini = { cx: padL + r, cy: padT + r, r };
-  const util = { x: padL + 2 * r + 10, y: padT, size: Math.round(40 * ts), gap: 8 };
-  const panel = { right: W - padR, y: padT, w: small ? 168 : 214 };
-  const place = { x: padL, y: padT + 2 * r + (small ? 40 : 46), align: 'left' as CanvasTextAlign, lineH: small ? 18 : 22 };
+  const util = { x: padL + 2 * r + 10, y: padT, size: tap(40), gap: 8 };
+  const panel = { right: W - padR, y: padT, w: Math.min(W, H) < 340 ? 144 : small ? 168 : 214 };
+  const lineH = small ? 18 : 22;
+  // under the minimap, and under the column of buttons beside it where that reaches further down
+  const utilBottom = util.y + UTIL_COUNT * (util.size + util.gap) - util.gap;
+  const place = { x: padL, y: Math.max(padT + 2 * r + (small ? 40 : 46), utilBottom + 2 * lineH + 2), align: 'left' as CanvasTextAlign, lineH };
   // the thumbs: the stick's usual spot bottom-left, the button cluster bottom-right
-  const right = { x: W - padR - 250 * ts, y: H - padB - 215 * ts, w: 250 * ts, h: 215 * ts };
-  const left = { x: padL, y: H - padB - 200 * ts, w: 220 * ts, h: 200 * ts };
+  // (on a 4-inch phone narrower, where the buttons pack closer: TouchControls' compact spots)
+  const tiny = Math.min(W, H) < 340;
+  const rw = (tiny ? 224 : 250) * ts, lw = (tiny ? 186 : 220) * ts;
+  const right = { x: W - padR - rw, y: H - padB - 215 * ts, w: rw, h: 215 * ts };
+  const left = { x: padL, y: H - padB - 200 * ts, w: lw, h: 200 * ts };
   // the band: in landscape between the minimap column and the top-right panel (there's no height
   // to spare), in portrait its own row under both
   const leftCol = util.x + util.size + 10;
@@ -124,9 +146,15 @@ function touchLayout(W: number, H: number, ins: Insets): HudLayout {
   const topRow = Math.max(place.y, padT + panelHeight(small)) + 8;
   // the mission objective on the band's first line, city-wide banners (seconds at a time) under it
   const objY = portrait ? topRow : padT;
-  const band = { cx: W / 2, w: portrait ? W - padL - padR : half * 2, top: objY + OBJECTIVE_H };
+  // (too narrow centred on a 4-inch phone: then the whole gap, a few px off the middle)
+  const offCentre = !portrait && half * 2 < 240;
+  const bandL = Math.max(leftCol, padL + PLACE_W + 4);
+  const band = { cx: offCentre ? (bandL + panelLeft) / 2 : W / 2, w: portrait ? W - padL - padR : offCentre ? panelLeft - bandL : half * 2, top: objY + OBJECTIVE_H };
   const objective = { y: objY, timerY: band.top + 12 };
   const msgY = Math.max(H * 0.28, objY + OBJECTIVE_H + 30);
+  // held sideways the messages sit level with the minimap's column: as wide as the room between it
+  // and its mirror on the right
+  const msgW = portrait ? W - padL - padR : Math.max(240, W - 2 * leftCol);
   const speedoR = compact ? 34 : 44;
   // between the thumbs in landscape; above the buttons in portrait, where the thumbs span the width
   const gap = right.x - (left.x + left.w) - 16;
@@ -141,10 +169,12 @@ function touchLayout(W: number, H: number, ins: Insets): HudLayout {
   const playY = Math.max(padT + 2 * r, portrait ? topRow : 0) + 8;
   return {
     W, H, touch: true, compact, small, portrait, padL, padR, padT, padB, ts,
-    mini, util, utilCount: UTIL_COUNT, panel, place, band, objective, msgY, speedo, prompt, radio,
+    mini, util, utilCount: UTIL_COUNT, panel, place, band, objective, msgY, msgW, speedo, prompt, radio,
     thumbs: { left, right },
     play: { x: padL + 8, y: playY, w: W - padL - padR - 16, h: H - padB - 8 - playY },
-    stack: { x: padL, y: place.y + 10 },
+    // (the stick rests in the middle of the left thumb's corner: the stack stops above its ring)
+    stack: { x: padL, y: place.y + 10, maxY: left.y + left.h / 2 - STICK_REST_R * ts - 4 },
+    side: { right: panel.right, maxY: right.y - 8 },
   };
 }
 

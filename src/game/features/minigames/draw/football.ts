@@ -170,7 +170,9 @@ export const FOOTBALL_DRAW: MiniDrawer = {
     const cw = ctx.measureText(clk || '0:00').width + (small ? 14 : 18);
     const w = tw * 2 + sw + cw;
     // top left (on a touch screen in the stack under the street name), under the party's panel
-    const spot = g.stackSpot(h);
+    // (the score comes first: it always gets its spot)
+    const spot = g.stackSpot(h, w, true);
+    if (spot === false) return;
     const party = g.online ? g.host.live.party : null;
     const x = spot ? spot.x : L.padL;
     const y = spot ? spot.y : L.padT + (party ? 8 + (small ? 15 : 17) * (party.members.length + 1) + 8 : 0);

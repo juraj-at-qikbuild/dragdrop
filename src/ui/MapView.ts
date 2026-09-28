@@ -954,7 +954,7 @@ export class MapView {
   /** A touch screen: a "Vrstvy" chip in the map's corner that opens the legend, with rows big
    *  enough for a finger. */
   private drawLegendChip(ctx: CanvasRenderingContext2D, f: { x: number; y: number; w: number; h: number }) {
-    const chipW = 104, chipH = 34, rowH = 32, w = 236;
+    const chipW = 110, chipH = 44, rowH = 36, w = 236;
     const x = f.x + 8, cy = f.y + f.h - chipH - 8;
     ctx.save();
     ctx.fillStyle = 'rgba(12,14,18,0.85)';
@@ -1035,7 +1035,7 @@ export class MapView {
     if (px < f.x || px > f.x + f.w || py < f.y || py > f.y + f.h) return;
     const me = g.focus();
     const info = [p.sub, formatDist(Math.hypot(p.x - me.x, p.y - me.y))].filter(Boolean).join(' · ');
-    const pad = 10, ir = 11, btnH = touch ? 36 : 28, maxText = Math.min(260, f.w - 60);
+    const pad = 10, ir = 11, btnH = touch ? 44 : 28, maxText = Math.min(260, f.w - 60);
     ctx.save();
     ctx.font = `700 13px ${BODY}`;
     const title = fit(ctx, p.title, maxText);

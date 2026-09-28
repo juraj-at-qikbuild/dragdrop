@@ -402,7 +402,8 @@ export class TouchControls {
       use.classList.toggle('t-holdexit', this.exitHold);
       this.byId.get('mini')!.el.textContent = miniText;
       if (daily) setRect(this.byId.get('daily')!.el, daily);
-      if (acts) setRect(this.byId.get('activities')!.el, acts);
+      // (the chip is drawn 22-32 px tall: its target is a fingertip's 44)
+      if (acts) setRect(this.byId.get('activities')!.el, { x: acts.x, y: acts.y - Math.max(0, 44 - acts.h) / 2, w: acts.w, h: Math.max(44, acts.h) });
     }
     // getting out while moving: held long enough, out
     if (this.useHeldAt !== null) {
@@ -476,7 +477,7 @@ export class TouchControls {
     // the right thumb's cluster, from the bottom-right corner (centres, px at scale 1)
     const ax = L.W - L.padR - 10 * ts, ay = L.H - L.padB - 10 * ts;
     const at = (id: string, dx: number, dy: number, size: number) => {
-      const s = size * ts;
+      const s = Math.max(44, size * ts);
       setRect(this.byId.get(id)!.el, { x: ax + dx * ts - s / 2, y: ay + dy * ts - s / 2, w: s, h: s });
     };
     // positions per context; a control in two contexts takes its first spot and is moved on a switch
@@ -497,6 +498,14 @@ export class TouchControls {
           at('fire', -116, -146, 56);
           at('weapon', -198, -116, 44);
           at('horn', -196, -170, 44);
+        } else if (L.compact) {
+          // a phone: the same buttons packed closer into the corner (a quarter narrower), none under 44 px
+          at('brake', -42, -42, 76);
+          at('handbrake', -126, -30, 56);
+          at('nitro', -34, -124, 56);
+          at('fire', -112, -106, 56);
+          at('weapon', -186, -86, 46);
+          at('horn', -182, -30, 46);
         } else {
           at('brake', -46, -46, 80);
           at('handbrake', -140, -36, 60);
@@ -505,9 +514,10 @@ export class TouchControls {
           at('weapon', -206, -124, 44);
           at('horn', -210, -64, 44);
         }
-        at('talk', -252, -150, 40);
-        this.pill('use', ax - 10 * ts, ay - 196 * ts);
-        this.pill('mini', ax - 10 * ts, ay - 254 * ts);
+        const tight = L.compact && !classic;
+        at('talk', tight ? -200 : -252, tight ? -146 : -150, tight ? 44 : 40);
+        this.pill('use', ax - 10 * ts, ay - (tight ? 176 : 196) * ts);
+        this.pill('mini', ax - 10 * ts, ay - (tight ? 230 : 254) * ts);
       },
       downed: () => this.pill('giveup', ax - 10 * ts, ay - 40 * ts),
       busted: () => this.pill('bribe', ax - 10 * ts, ay - 40 * ts),
@@ -541,7 +551,7 @@ export class TouchControls {
   /** a pill-shaped button right-aligned at (right, centre y) */
   private pill(id: string, right: number, cy: number) {
     const e = this.byId.get(id)!.el;
-    const h = 50 * (this.layout?.ts ?? 1);
+    const h = Math.max(44, 50 * (this.layout?.ts ?? 1));
     e.style.left = '';
     e.style.right = `${innerWidth - right}px`;
     e.style.top = `${cy - h / 2}px`;

@@ -86,8 +86,14 @@ const SWIM_SPEED = 4.6 / 3;
 /** ...and further with speed, gently (the view doubles at this speed, m/s: 180 km/h), so the car
  *  stays big enough to steer by; the look-ahead below shows the road coming */
 const CAM_SPEED_ZOOM = 50;
+/** ...on a touch screen sooner (at 110 km/h a phone held sideways shows only ~60 m top to bottom,
+ *  and the thumbs cover its lower corners) */
+const CAM_SPEED_ZOOM_TOUCH = 32;
 /** the look-ahead leaves the car at most this fraction of the way from the middle to the edge */
 const CAM_LEAD_MAX = 0.55;
+/** ...along a touch screen's short side a little further (the car can sit nearer the edge there,
+ *  where there's the least road to see ahead) */
+const CAM_LEAD_MAX_SHORT = 0.68;
 /** how quickly the camera eases after where it's aimed (1/s) */
 const CAM_FOLLOW = 5;
 
@@ -178,15 +184,36 @@ export class Game {
   uiDpr = 1;
   /** where the HUD goes (src/ui/layout.ts): the thumbs' corners and the safe area on a touch screen */
   layout!: HudLayout;
-  /** touch: the next free y in the layout's feature stack this frame (Hud.draw resets it) */
+  /** touch: the next free y in the layout's feature stack and its side column this frame, and how
+   *  many are in the stack (Hud.draw resets them) */
   stackY = 0;
-  /** A spot `h` px tall in the touch layout's feature stack, or null on desktop (keep your corner). */
-  stackSpot(h: number): { x: number; y: number } | null {
+  sideY = 0;
+  stackN = 0;
+  /** A spot `h` × `w` px in the touch layout's feature stack, or null on desktop (keep your corner).
+   *  Past the stack's room it goes to the side column under the top-right panel, and with no room
+   *  there either, false: don't draw (the Aktivity panel lists it all). The first in the stack, and
+   *  a `must` one, always get a spot. */
+  stackSpot(h: number, w = 160, must = false): { x: number; y: number; side?: boolean } | null | false {
     const s = this.layout.stack;
     if (!s) return null;
-    const y = this.stackY;
-    this.stackY += h + 8;
-    return { x: s.x, y };
+    if (this.stackN === 0 || must || this.stackY + h <= s.maxY) {
+      const y = this.stackY;
+      this.stackY += h + 8;
+      this.stackN++;
+      return { x: s.x, y };
+    }
+    return this.sideSpot(h, w);
+  }
+
+  /** A spot in the touch layout's side column (right-aligned under the top-right panel), or false
+   *  when there's no room left there (null on desktop). */
+  sideSpot(h: number, w: number): { x: number; y: number; side?: boolean } | null | false {
+    const c = this.layout.side;
+    if (!c) return null;
+    if (this.sideY + h > c.maxY) return false;
+    const y = this.sideY;
+    this.sideY += h + 6;
+    return { x: c.right - w, y, side: true };
   }
   private insetProbe: HTMLElement | null = null;
   viewW = 0;
@@ -1081,7 +1108,9 @@ export class Game {
     const f = this.focus();
     // smoothly-eased speed look-ahead that keeps the car well clear of the screen's edge
     const s = this.cam.scale;
-    const lead = this.juice.leadOffset(v, dt, (CAM_LEAD_MAX * this.viewW) / 2 / s, (CAM_LEAD_MAX * this.viewH) / 2 / s, CAM_FOLLOW);
+    const short = this.touch ? CAM_LEAD_MAX_SHORT : CAM_LEAD_MAX;
+    const lx = this.viewW < this.viewH ? short : CAM_LEAD_MAX, ly = this.viewH <= this.viewW ? short : CAM_LEAD_MAX;
+    const lead = this.juice.leadOffset(v, dt, (lx * this.viewW) / 2 / s, (ly * this.viewH) / 2 / s, CAM_FOLLOW);
     const k = Math.min(1, dt * CAM_FOLLOW);
     this.cam.x = lerp(this.cam.x, f.x + lead.x, k);
     this.cam.y = lerp(this.cam.y, f.y + lead.y, k);
@@ -1096,7 +1125,8 @@ export class Game {
     const tram = this.aboardTram();
     const car = (v && !v.spec.twoWheeler) || !!tram;
     const speed = v ? v.speed : (tram?.speed ?? 0);
-    const target = (car ? (base * CAM_CAR_ZOOM * (tram ? CAM_TRAM_ZOOM : 1)) / (1 + speed / CAM_SPEED_ZOOM) : foot) * this.juice.zoomFactor(v, dt);
+    const speedZoom = this.touch ? CAM_SPEED_ZOOM_TOUCH : CAM_SPEED_ZOOM;
+    const target = (car ? (base * CAM_CAR_ZOOM * (tram ? CAM_TRAM_ZOOM : 1)) / (1 + speed / speedZoom) : foot) * this.juice.zoomFactor(v, dt);
     this.cam.scale = lerp(this.cam.scale, target, Math.min(1, dt * 1.5));
     this.postFx?.speed(v ? (v.boosting ? 0.7 : clamp((v.speed - 30) / 40, 0, 0.3)) : 0);
   }

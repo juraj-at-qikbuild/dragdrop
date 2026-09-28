@@ -1,7 +1,7 @@
 // The HUD layout on phones (src/ui/layout.ts): nothing overlaps, nothing sits under a notch or a
 // thumb, and desktop keeps the numbers it always had.
 import { describe, expect, it } from 'vitest';
-import { bandHeight, edgePoint, hudLayout, inPlay, NO_INSETS, panelHeight, type HudLayout, type Insets, type Rect } from '../../src/ui/layout';
+import { bandHeight, edgePoint, hudLayout, inPlay, NO_INSETS, panelHeight, PLACE_W, STICK_REST_R, type HudLayout, type Insets, type Rect } from '../../src/ui/layout';
 
 /** phones and the safe-area insets they report (iPhones with a notch or island report both sides in
  *  landscape; an Android camera cutout just one) */
@@ -9,7 +9,7 @@ const cases: [number, number, Insets][] = [
   [915, 412, NO_INSETS], [915, 412, { l: 32, r: 0, t: 0, b: 0 }], [915, 412, { l: 0, r: 32, t: 0, b: 0 }],
   [844, 390, NO_INSETS], [844, 390, { l: 47, r: 47, t: 0, b: 21 }],
   [932, 430, { l: 59, r: 59, t: 0, b: 21 }], [852, 393, { l: 59, r: 59, t: 0, b: 21 }],
-  [740, 360, NO_INSETS], [740, 360, { l: 28, r: 0, t: 0, b: 0 }], [667, 375, NO_INSETS],
+  [740, 360, NO_INSETS], [740, 360, { l: 28, r: 0, t: 0, b: 0 }], [667, 375, NO_INSETS], [568, 320, NO_INSETS],
   [390, 844, NO_INSETS], [390, 844, { l: 0, r: 0, t: 47, b: 34 }], [430, 932, { l: 0, r: 0, t: 59, b: 34 }], [360, 740, { l: 0, r: 0, t: 28, b: 0 }],
 ];
 
@@ -23,7 +23,7 @@ function pieces(L: HudLayout): Record<string, Rect> {
     buttons: { x: L.util.x, y: L.util.y, w: L.util.size, h: L.utilCount * (L.util.size + L.util.gap) - L.util.gap },
     panel: { x: L.panel.right - L.panel.w, y: L.panel.y, w: L.panel.w, h: panelHeight(L.small) },
     band: { x: L.band.cx - L.band.w / 2, y: L.band.top, w: L.band.w, h: bandHeight(L.small) },
-    place: { x: L.place.x, y: L.place.y - 2 * L.place.lineH, w: 150, h: 2 * L.place.lineH },
+    place: { x: L.place.x, y: L.place.y - 2 * L.place.lineH, w: PLACE_W, h: 2 * L.place.lineH },
     speedo: { x: s.cx - s.r, y: s.cy - s.r, w: 2 * s.r, h: 2 * s.r },
     leftThumb: L.thumbs!.left,
     rightThumb: L.thumbs!.right,
@@ -61,6 +61,15 @@ describe('touch HUD layout', () => {
         const promptRow = (y: number) => ({ x: L.prompt.cx - L.prompt.w / 2, y: y - 14, w: L.prompt.w, h: 28 });
         for (const y of [L.prompt.foot, L.prompt.car])
           for (const t of [L.thumbs!.left, L.thumbs!.right]) expect(overlap(promptRow(y), t), `prompt at ${y}`).toBe(false);
+        // the feature stack stops above where the stick rests, and the side column above the buttons
+        const st = L.stack!, left = L.thumbs!.left;
+        expect(st.maxY).toBeLessThanOrEqual(left.y + left.h / 2 - STICK_REST_R * L.ts);
+        expect(L.side!.maxY).toBeLessThanOrEqual(L.thumbs!.right.y);
+        // messages clear of the minimap's column when held sideways, and never wider than the screen
+        if (!L.portrait) expect(W / 2 - L.msgW / 2).toBeGreaterThanOrEqual(Math.min(L.util.x + L.util.size, W / 2 - 120));
+        expect(L.msgW).toBeLessThanOrEqual(W - L.padL - L.padR);
+        // round buttons a fingertip can hit
+        expect(L.util.size).toBeGreaterThanOrEqual(44);
         // off-screen arrows land where they can be seen
         for (let a = -Math.PI; a < Math.PI; a += 0.2) {
           const e = edgePoint(L, a);

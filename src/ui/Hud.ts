@@ -55,7 +55,7 @@ export class Hud {
     const L = g.layout;
     const small = L.small;
     const dt = 1 / 60;
-    if (L.stack) g.stackY = L.stack.y;
+    if (L.stack) (g.stackY = L.stack.y), (g.stackN = 0);
     if (this.hurt > 0) {
       // a splash of water over the screen (docs/plans/non-violent.md: getting hit is getting wet)
       ctx.fillStyle = `rgba(40,140,230,${this.hurt * 0.45})`;
@@ -120,26 +120,29 @@ export class Hud {
       by += 11;
     }
 
-    // weapon panel (bottom-left of the top panel)
-    this.drawWeaponPanel(ctx, right - topW + 8, top + topH - (small ? 20 : 24), small);
+    // weapon panel (bottom-left of the top panel); on a touch screen the toy button shows it
+    if (!L.touch || g.input.pad.active) this.drawWeaponPanel(ctx, right - topW + 8, top + topH - (small ? 20 : 24), small);
 
     // under the top panel: online the connection badge and today's points (drawNet, drawn last), then
     // the Aktivity chip (on a touch screen at the top of the feature stack instead), then the combo
     // meter, if the combat system is driving one
     const gap = small ? 6 : 8;
-    const netH = g.online ? (small ? 18 : 22) + gap : 0;
     let colY = top + topH + gap + (g.online ? this.netHeight(small) + gap : 0);
-    this.activitiesRect = this.drawActivities(ctx, small, (w, h) => {
-      const spot = g.stackSpot(h);
-      return spot ?? { x: right - w, y: colY };
-    });
+    g.sideY = colY;
+    // (the first in the touch stack: it always gets its spot)
+    this.activitiesRect = this.drawActivities(ctx, small, (w, h) => g.stackSpot(h, w) || { x: right - w, y: colY });
     if (!L.touch) colY += this.activitiesRect.h + gap;
-    // what the police know, while wanted (PoliceUi): under the stars' column, or in the touch stack
+    // what the police know, while wanted (PoliceUi): under the stars' column (on a touch screen too,
+    // while there's room above the buttons; else in the stack, where it always gets a spot)
     const police = g.features.find((f) => f.id === 'police') as PoliceUi | undefined;
-    const chip = police?.drawChip(ctx, small, (w, h) => g.stackSpot(h) ?? { x: right - w, y: colY });
+    const chip = police?.drawChip(ctx, small, (w, h) => (L.touch ? g.sideSpot(h, w) || g.stackSpot(h, w, true) : null) || { x: right - w, y: colY });
     if (chip && !L.touch) colY += chip.h + gap;
     const combo = (g as unknown as { combo?: ComboState }).combo;
-    if (combo && combo.mult > 1 && combo.timer > 0) this.drawCombo(ctx, combo, right - topW + 8, L.touch ? top + topH + gap + netH + 8 : colY + (small ? 8 : 10), small);
+    if (combo && combo.mult > 1 && combo.timer > 0) {
+      // touch: next in the side column, while there's room in it
+      const spot = L.touch ? g.sideSpot(small ? 22 : 26, topW - 16) : null;
+      if (spot !== false) this.drawCombo(ctx, combo, right - topW + 8, (spot ? spot.y : colY) + (small ? 8 : 10), small);
+    }
 
     // speedometer (only while driving)
     if (car) this.drawSpeedo(ctx, L.speedo.cx, L.speedo.cy, L.speedo.r, car, small);
@@ -195,13 +198,17 @@ export class Hud {
       ctx.textBaseline = 'middle';
       let y = L.msgY;
       if (msg.title) {
-        ctx.font = `700 ${small ? 24 : 36}px ${HEAD}`;
+        // a long title shrinks to the width it has (a landmark's name on a phone held upright)
+        let fs = small ? 24 : 36;
+        ctx.font = `700 ${fs}px ${HEAD}`;
+        while (fs > 14 && ctx.measureText(msg.title).width > L.msgW) ctx.font = `700 ${(fs -= 2)}px ${HEAD}`;
         outlined(ctx, msg.title, W / 2, y, msg.color);
-        y += small ? 30 : 40;
+        y += fs + 6;
       }
-      ctx.font = `700 ${small ? 14 : 18}px ${BODY}`;
-      // on a phone at most two lines, so a long message doesn't cover the player
-      wrapOutlined(ctx, msg.text, W / 2, y, Math.min(W * 0.8, 680), small ? 18 : 24, '#fff', false, L.touch ? 2 : 0);
+      ctx.font = `700 ${small ? 13 : 18}px ${BODY}`;
+      // on a phone at most three lines (between the minimap's column and its mirror), so a long
+      // message doesn't cover the player
+      wrapOutlined(ctx, msg.text, W / 2, y, L.msgW, small ? 17 : 24, '#fff', false, L.touch ? 3 : 0);
       ctx.globalAlpha = 1;
     }
 
@@ -210,8 +217,15 @@ export class Hud {
       ctx.globalAlpha = Math.min(1, g.radioText.time);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.font = `700 ${small ? 12 : 15}px ${BODY}`;
-      wrapOutlined(ctx, g.radioText.text, L.prompt.cx, L.radio.y, L.radio.w, 20, '#f8bbd0', true, L.touch ? 2 : 0);
+      if (L.touch) {
+        // one line between the thumbs, smaller to fit, and cut short past 10 px: the chase goes on
+        // right above it
+        fitLine(ctx, g.radioText.text, L.radio.w, small ? 12 : 15, 10, BODY);
+        outlined(ctx, clip(ctx, g.radioText.text, L.radio.w), L.prompt.cx, L.radio.y, '#f8bbd0');
+      } else {
+        ctx.font = `700 ${small ? 12 : 15}px ${BODY}`;
+        wrapOutlined(ctx, g.radioText.text, L.prompt.cx, L.radio.y, L.radio.w, 20, '#f8bbd0', true, 0);
+      }
       ctx.globalAlpha = 1;
     }
 
@@ -1055,4 +1069,19 @@ function starPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
     ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
   ctx.closePath();
+}
+
+/** set a bold font at the size (from `max` down to `min` px) at which `text` fits `w` */
+function fitLine(ctx: CanvasRenderingContext2D, text: string, w: number, max: number, min: number, family: string) {
+  let fs = max;
+  ctx.font = `700 ${fs}px ${family}`;
+  while (fs > min && ctx.measureText(text).width > w) ctx.font = `700 ${--fs}px ${family}`;
+}
+
+/** `text` cut short with an ellipsis to fit `w` in the current font */
+function clip(ctx: CanvasRenderingContext2D, text: string, w: number): string {
+  if (ctx.measureText(text).width <= w) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > w) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
 }

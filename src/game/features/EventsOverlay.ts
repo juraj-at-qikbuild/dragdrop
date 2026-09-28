@@ -54,10 +54,13 @@ export class EventsOverlay implements ClientFeature {
     const rows = live.events.map((e) => this.rowFor(e));
     // just right of the minimap, level with its top edge, growing downward; on a touch screen in the
     // feature stack under the street name
-    const spot = g.stackSpot(rows.length * EVENT_ROW_H + 26);
-    const x = spot ? spot.x : L.mini.cx + L.mini.r + 12;
+    const spot = g.stackSpot(rows.length * EVENT_ROW_H + 26, 190);
+    if (spot === false) return;
+    // (in the touch layout's side column, right-aligned against the screen's edge)
+    const side = !!(spot && spot.side && L.side);
+    const x = side ? L.side!.right : spot ? spot.x : L.mini.cx + L.mini.r + 12;
     const y = spot ? spot.y : L.mini.cy - L.mini.r;
-    const usedH = drawEventList(ctx, x, y, rows, 'left');
+    const usedH = drawEventList(ctx, x, y, rows, side ? 'right' : 'left');
 
     const kof = live.events.find((e) => e.kind === 'kofolka');
     if (kof && kof.holder === g.host.me.id) {
@@ -65,7 +68,7 @@ export class EventsOverlay implements ClientFeature {
       ctx.save();
       ctx.globalAlpha = 0.7 + this.kofolkaFlash * 0.3;
       ctx.font = `700 ${13 * k}px 'Inter', system-ui, sans-serif`;
-      ctx.textAlign = 'left';
+      ctx.textAlign = side ? 'right' : 'left';
       ctx.textBaseline = 'middle';
       outlined(ctx, `+${formatMoney(KOFOLKA_RATE)}/s`, x, y + usedH + 13, '#8bdc6b', 3);
       ctx.restore();

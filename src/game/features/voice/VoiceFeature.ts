@@ -103,7 +103,8 @@ export class VoiceFeature implements ClientFeature {
     const L = g.layout;
     const small = L.small;
     // just clear of the minimap, still bottom-left; on a touch screen in the feature stack
-    const spot = g.stackSpot(20);
+    const spot = g.stackSpot(20, 60);
+    if (spot === false) return;
     const x = spot ? spot.x + 4 : L.mini.cx + L.mini.r + 14;
     const y = spot ? spot.y + 10 : L.H - L.padB - (small ? 10 : 13);
     ctx.save();

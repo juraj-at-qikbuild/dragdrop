@@ -59,7 +59,11 @@ export class DailyCard implements ClientFeature {
     // screen — "under" here means the next item in that corner's stack, not further down the page
     // on a touch screen: in the feature stack under the street name (the minimap is top-left there)
     const L = this.g.layout;
-    const spot = this.g.stackSpot(CARD_H);
+    const spot = this.g.stackSpot(CARD_H, CARD_W);
+    if (spot === false) {
+      this.cardRect = null;
+      return;
+    }
     const x = spot ? spot.x : L.padL, y = spot ? spot.y : L.mini.cy - L.mini.r - 8 - CARD_H;
     this.cardRect = { x, y, w: CARD_W, h: CARD_H };
     this.card.draw(ctx, x, y, CARD_W, CARD_H, 'Kde to je?', subtitle);
